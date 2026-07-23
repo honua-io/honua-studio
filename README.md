@@ -1,6 +1,8 @@
 # Honua Studio
 
-**Vibe code map apps.** Honua Studio is an open-source, model-agnostic builder
+**Natural language to map app.**
+
+Honua Studio is an open-source, model-agnostic builder
 for geospatial applications: describe the app you want in conversation, and an
 agent composes it — layers from the live catalog, styling, views, tables,
 charts, analysis — through typed, bounded, auditable commands built on the
