@@ -118,7 +118,14 @@ export class McpClient {
     this.#auth = options.auth;
     this.#clientName = options.clientName ?? "honua-studio";
     this.#clientVersion = options.clientVersion ?? "0.0.0";
-    this.#fetchImpl = options.fetchImpl ?? fetch;
+    // Bound to globalThis: calling `this.#fetchImpl(...)` below invokes it
+    // with `this` = the McpClient instance (private-field method-call
+    // semantics), and browser `fetch` is receiver-sensitive — an unbound
+    // reference called with a `this` other than `window` throws
+    // `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`.
+    // Only the DEFAULT needs this; a caller-supplied `fetchImpl` (tests) is
+    // used exactly as given.
+    this.#fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   }
 
   /** The `Mcp-Session-Id` this client was bound to on `initialize`, or `undefined` before the first call. */

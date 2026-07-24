@@ -11,6 +11,35 @@ function jsonResponse(body: unknown, headers: Record<string, string> = {}): Resp
 }
 
 describe("mcp/client McpClient", () => {
+  it("the DEFAULT fetchImpl (no override) invokes the global fetch with a valid receiver — regression for a real browser bug", async () => {
+    // Browsers' `fetch` is receiver-sensitive: an unbound reference called
+    // with a `this` other than `window` throws "TypeError: Failed to
+    // execute 'fetch' on 'Window': Illegal invocation". `McpClient` calls
+    // its stored `#fetchImpl` as `this.#fetchImpl(...)` (private-field
+    // method-call syntax), which sets `this` to the McpClient instance
+    // unless the default is explicitly bound — caught via
+    // `test/playwright/mcp-compose-journey.spec.mjs` failing with "Could
+    // not reach the MCP endpoint" in a REAL browser (Node's fetch doesn't
+    // enforce this, so a node-only test suite alone never would have).
+    const realFetch = globalThis.fetch;
+    let receiverWasGlobalThis = false;
+    vi.stubGlobal("fetch", function fakeFetch(this: unknown, ...args: Parameters<typeof fetch>) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      receiverWasGlobalThis = true;
+      return realFetch(...args);
+    });
+    try {
+      const client = new McpClient(); // no fetchImpl override — exercises the default.
+      const initializePromise = client.initialize();
+      await expect(initializePromise).rejects.toBeInstanceOf(McpTransportError); // no server at /api/mcp here — a transport error is fine
+      expect(receiverWasGlobalThis).toBe(true); // the failure must be "nobody's listening", never "Illegal invocation"
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("initialize sends the documented JSON-RPC envelope and captures Mcp-Session-Id", async () => {
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
