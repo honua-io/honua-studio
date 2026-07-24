@@ -14,6 +14,7 @@ export { HonuaStudioElementBase } from "./base-element.js";
 export { HonuaStudioAppElement } from "./studio-app-element.js";
 export { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 export { HonuaStudioChatElement } from "./studio-chat-element.js";
+export { HonuaStudioActivityLogElement } from "./studio-activity-log-element.js";
 export { resolveInjectedAuth } from "./session.js";
 export type { HasOptionalAuth } from "./session.js";
 export {
@@ -27,8 +28,18 @@ export type {
   AuthSession,
   AuthState,
   AuthStatus,
+  HonuaStudioActivityReplayCompleteDetail,
+  HonuaStudioActivityReplayStepDetail,
+  HonuaStudioAnnotateDetail,
   HonuaStudioCanvasResizeDetail,
+  HonuaStudioChatAnnotationAddedDetail,
+  HonuaStudioChatAnnotationRemovedDetail,
   HonuaStudioChatMessageDetail,
+  HonuaStudioChatToolCallResultDetail,
+  HonuaStudioChatToolCallStartDetail,
+  HonuaStudioChatTurnCancelledDetail,
+  HonuaStudioChatTurnCompleteDetail,
+  HonuaStudioChatTurnErrorDetail,
   HonuaStudioComponentRegistry,
   HonuaStudioErrorDetail,
   HonuaStudioNavigateDetail,
@@ -42,3 +53,7 @@ export type {
   ThemeMode,
   ThemeSet,
 } from "./types.js";
+// The full chat-console typed surface (honua-studio#6): AnnotationRef,
+// ActivityLog(Entry), ChatTransport implementations, ChatState/ChatMessage,
+// fixture-conversation types, etc. — one barrel, see src/chat/index.ts.
+export * from "../chat/index.js";

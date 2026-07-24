@@ -12,6 +12,7 @@
  * (a second host page, a hot-reloaded module, a test re-import) is always a
  * no-op rather than a `NotSupportedError`.
  */
+import { HonuaStudioActivityLogElement } from "./studio-activity-log-element.js";
 import { HonuaStudioAppElement } from "./studio-app-element.js";
 import { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 import { HonuaStudioChatElement } from "./studio-chat-element.js";
@@ -30,6 +31,7 @@ export type { HonuaStudioComponentRegistry } from "./types.js";
  */
 const STUDIO_ELEMENTS: ReadonlyMap<string, CustomElementConstructor> = new Map<string, CustomElementConstructor>([
   ["honua-studio-chat", HonuaStudioChatElement],
+  ["honua-studio-activity-log", HonuaStudioActivityLogElement],
   ["honua-studio-canvas", HonuaStudioCanvasElement],
   ["honua-studio-app", HonuaStudioAppElement],
 ]);

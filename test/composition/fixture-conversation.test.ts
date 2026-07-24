@@ -15,22 +15,33 @@ import type { CompositionToolCallScript } from "../../src/composition/tool-call.
  * a county council meeting"): compose two layers + a chart, set the view,
  * pin the flood-risk layer so a later refinement can't silently touch it,
  * and drop an analyst-drawn region annotation.
+ *
+ * Uses `{ toolName, arguments }` — matching `HonuaStudioChatToolCallResultDetail`
+ * (honua-studio#6, see `tool-call.ts`'s module doc) — not this engine's own
+ * command names' relationship to #6's demo fixture vocabulary (`add_layer`
+ * etc); these calls script THIS engine's own command names directly, as a
+ * fixture author driving the reducer would.
  */
 const oahuFloodRiskScript: CompositionToolCallScript = {
   id: "oahu-flood-risk",
   description: "development pressure meets flood risk, Oahu",
   calls: [
     {
-      tool: "addLayer",
-      input: { layer: { id: "development-pressure", sourceId: "src-dev-pressure", title: "Development pressure" } },
+      toolName: "addLayer",
+      arguments: {
+        layer: { id: "development-pressure", sourceId: "src-dev-pressure", title: "Development pressure" },
+      },
     },
-    { tool: "addLayer", input: { layer: { id: "flood-risk", sourceId: "src-flood-risk", title: "Flood risk" } } },
-    { tool: "setView", input: { view: { center: [-157.86, 21.31], zoom: 10 } } },
-    { tool: "addWidget", input: { widget: { id: "risk-chart", kind: "chart", sourceId: "src-flood-risk" } } },
-    { tool: "pin", input: { target: { kind: "layer", id: "flood-risk" } } },
     {
-      tool: "addAnnotation",
-      input: {
+      toolName: "addLayer",
+      arguments: { layer: { id: "flood-risk", sourceId: "src-flood-risk", title: "Flood risk" } },
+    },
+    { toolName: "setView", arguments: { view: { center: [-157.86, 21.31], zoom: 10 } } },
+    { toolName: "addWidget", arguments: { widget: { id: "risk-chart", kind: "chart", sourceId: "src-flood-risk" } } },
+    { toolName: "pin", arguments: { target: { kind: "layer", id: "flood-risk" } } },
+    {
+      toolName: "addAnnotation",
+      arguments: {
         annotation: {
           id: "region-1",
           kind: "region",
@@ -53,16 +64,22 @@ const refineSessionScript: CompositionToolCallScript = {
   id: "refine-session",
   description: "add a layer, style it, add/replace widgets, pin a component",
   calls: [
-    { tool: "addLayer", input: { layer: { id: "parcels", sourceId: "src-parcels" } } },
-    { tool: "addWidget", input: { widget: { id: "parcels-table", kind: "table", sourceId: "src-parcels" } } },
+    { toolName: "addLayer", arguments: { layer: { id: "parcels", sourceId: "src-parcels" } } },
+    { toolName: "addWidget", arguments: { widget: { id: "parcels-table", kind: "table", sourceId: "src-parcels" } } },
     {
-      tool: "setLayerStyleRef",
-      input: { target: { kind: "layer", id: "parcels" }, styleRef: { kind: "style-ref", styleId: "style-parcels-v2" } },
+      toolName: "setLayerStyleRef",
+      arguments: {
+        target: { kind: "layer", id: "parcels" },
+        styleRef: { kind: "style-ref", styleId: "style-parcels-v2" },
+      },
     },
-    { tool: "addWidget", input: { widget: { id: "district-chart", kind: "chart", sourceId: "src-parcels" } } },
-    { tool: "removeWidget", input: { target: { kind: "component", id: "parcels-table" } } },
-    { tool: "addAnnotation", input: { annotation: { id: "click-1", kind: "point", coordinate: [-118.24, 34.05] } } },
-    { tool: "pin", input: { target: { kind: "component", id: "district-chart" } } },
+    { toolName: "addWidget", arguments: { widget: { id: "district-chart", kind: "chart", sourceId: "src-parcels" } } },
+    { toolName: "removeWidget", arguments: { target: { kind: "component", id: "parcels-table" } } },
+    {
+      toolName: "addAnnotation",
+      arguments: { annotation: { id: "click-1", kind: "point", coordinate: [-118.24, 34.05] } },
+    },
+    { toolName: "pin", arguments: { target: { kind: "component", id: "district-chart" } } },
   ],
 };
 
@@ -94,9 +111,9 @@ describe("composition/fixture-conversation runFixtureConversation", () => {
     const script: CompositionToolCallScript = {
       id: "pin-violation-script",
       calls: [
-        { tool: "addLayer", input: { layer: { id: "roads", sourceId: "s" } } },
-        { tool: "pin", input: { target: { kind: "layer", id: "roads" } } },
-        { tool: "removeLayer", input: { target: { kind: "layer", id: "roads" } } },
+        { toolName: "addLayer", arguments: { layer: { id: "roads", sourceId: "s" } } },
+        { toolName: "pin", arguments: { target: { kind: "layer", id: "roads" } } },
+        { toolName: "removeLayer", arguments: { target: { kind: "layer", id: "roads" } } },
       ],
     };
     try {

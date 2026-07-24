@@ -27,8 +27,33 @@ import "./theme/theme-standalone.css";
 import "./theme/theme-console.css";
 import "./styles/app.css";
 
-import type { HonuaStudioAppElement, HonuaStudioThemeChangeDetail } from "./elements/index.js";
+import { FixtureChatTransport } from "./chat/fixture-transport.js";
+import { FIXTURE_CONVERSATIONS } from "./chat/fixtures/index.js";
+import type { HonuaStudioAppElement, HonuaStudioChatElement, HonuaStudioThemeChangeDetail } from "./elements/index.js";
 import { registerAllStudioElements } from "./elements/registry.js";
+
+declare global {
+  interface Window {
+    /**
+     * Test-only fixture-mode hook (honua-studio#6), set via
+     * `page.addInitScript` — the same pattern
+     * `harness/bare/mount.ts`'s `__honuaStudioFixtureToken` and
+     * `test/playwright/host-adapter-boot.spec.mjs`'s window-global session
+     * use. When present BEFORE this module runs, the auto-composed
+     * `<honua-studio-chat>` gets a `FixtureChatTransport` for the named
+     * conversation instead of the default `SseChatTransport` — AD-4's
+     * no-model fixture-conversation mode, driven from the standalone shell
+     * so `test/playwright/chat-fixture-journey.spec.mjs` can prove a
+     * byte-stable scripted conversation end to end without a live model.
+     * Never read by anything but this bootstrap; not part of the element
+     * contract (docs/element-contract.md).
+     */
+    __honuaStudioChatFixtureConversationId?: string;
+    /** Test-only handles — see harness/bare/mount.ts's identical convention. */
+    __honuaStudioApp?: HonuaStudioAppElement;
+    __honuaStudioChat?: HonuaStudioChatElement;
+  }
+}
 
 registerAllStudioElements();
 
@@ -54,3 +79,18 @@ app.addEventListener("honua-studio-theme-change", (event) => {
 });
 
 root.replaceChildren(app);
+
+// Test-only fixture-mode wiring (see the `window.__honuaStudioChatFixtureConversationId`
+// doc above) — `<honua-studio-app>`'s onConnect auto-composes a
+// `<honua-studio-chat>` light-DOM child synchronously during
+// `root.replaceChildren(app)` above, so it's already present here.
+Object.assign(window, { __honuaStudioApp: app });
+const chat = app.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+if (chat) {
+  Object.assign(window, { __honuaStudioChat: chat });
+  const conversationId = window.__honuaStudioChatFixtureConversationId;
+  if (conversationId) {
+    const conversation = FIXTURE_CONVERSATIONS.find((c) => c.id === conversationId);
+    if (conversation) chat.transport = new FixtureChatTransport(conversation);
+  }
+}

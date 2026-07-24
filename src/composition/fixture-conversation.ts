@@ -15,9 +15,9 @@ import { type CompositionState, canonicalCompositionJson, createEmptyComposition
 import { type CompositionCommandError, type CompositionDiff, isCompositionCommandError } from "./reducer.js";
 import type { CompositionToolCall, CompositionToolCallScript } from "./tool-call.js";
 
-/** Converts a `{ tool, input }` entry into a {@link CompositionCommand}-shaped value by treating `tool` as the command `name`. Structural only — the reducer re-validates via `commands.ts`. */
+/** Converts a `{ toolName, arguments }` entry into a {@link CompositionCommand}-shaped value by treating `toolName` as the command `name`. Structural only — the reducer re-validates via `commands.ts`. Assumes `toolName` already names a {@link CompositionCommandName} — translating a live/#6-fixture model vocabulary (e.g. `add_layer`) into this engine's names is honua-studio#7's job (see `tool-call.ts`'s module doc). */
 export function toolCallToCommand(call: CompositionToolCall): Record<string, unknown> {
-  return { name: call.tool, ...call.input };
+  return { name: call.toolName, ...call.arguments };
 }
 
 export interface FixtureConversationStepResult {
@@ -41,7 +41,7 @@ export class FixtureConversationError extends Error {
 
   public constructor(scriptId: string, stepIndex: number, call: CompositionToolCall, cause: unknown) {
     const causeMessage = cause instanceof Error ? cause.message : String(cause);
-    super(`Fixture conversation "${scriptId}" step ${stepIndex} ("${call.tool}") failed: ${causeMessage}`);
+    super(`Fixture conversation "${scriptId}" step ${stepIndex} ("${call.toolName}") failed: ${causeMessage}`);
     this.name = "FixtureConversationError";
     this.scriptId = scriptId;
     this.stepIndex = stepIndex;

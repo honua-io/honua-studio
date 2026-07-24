@@ -29,12 +29,17 @@
  */
 
 import type { AuthSession, AuthState, AuthStatus, SessionAdapter } from "../auth/types.js";
+import type { ActivityLogEntry } from "../chat/activity-log.js";
+import type { StudioAiStopReason } from "../chat/ai-contract.js";
+import type { AnnotationRef } from "../chat/annotation.js";
 import type { CompositionTarget } from "../composition/model.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 
 export type { ThemeMode, ThemeSet };
 /** Re-exported from `../auth/types.js` (honua-studio#4) — the one session contract every Studio element uses. See docs/embed-session.md. */
 export type { AuthSession, AuthState, AuthStatus, SessionAdapter };
+/** Re-exported from `../chat/*.js` (honua-studio#6) — the chat console's typed public surface. */
+export type { ActivityLogEntry, AnnotationRef, StudioAiStopReason };
 
 /**
  * Who owns the browser URL:
@@ -89,9 +94,81 @@ export interface HonuaStudioErrorDetail {
   readonly error?: unknown;
 }
 
-/** `honua-studio-chat-message` — dispatched by `<honua-studio-chat>` when the placeholder composer submits. */
+/** `honua-studio-chat-message` — dispatched by `<honua-studio-chat>` whenever the composer submits a user turn (unchanged shape since honua-studio#5 — see docs/element-contract.md). */
 export interface HonuaStudioChatMessageDetail {
   readonly text: string;
+}
+
+/** `honua-studio-chat-annotation-added` — dispatched by `<honua-studio-chat>` whenever an annotation chip is added, whether via `.addAnnotation()` or the `honua-studio-annotate` injection event (spec REQ-012). */
+export interface HonuaStudioChatAnnotationAddedDetail {
+  readonly annotation: AnnotationRef;
+}
+
+/** `honua-studio-chat-annotation-removed` — dispatched by `<honua-studio-chat>` whenever a chip is removed (composer "×", or `.removeAnnotation()`). */
+export interface HonuaStudioChatAnnotationRemovedDetail {
+  readonly id: string;
+}
+
+/** `honua-studio-annotate` — the injection event a canvas (or any host) dispatches (bubbles+composed, so it reaches `<honua-studio-chat>` from anywhere in the document) to add an annotation chip without holding a direct element reference. Detail matches `CreateAnnotationInput`. */
+export interface HonuaStudioAnnotateDetail {
+  readonly kind: AnnotationRef["kind"];
+  readonly payload: unknown;
+  readonly label?: string;
+  readonly id?: string;
+  readonly createdAt?: string;
+}
+
+/** `honua-studio-chat-tool-call-start` — dispatched the moment a streamed turn begins a tool call. */
+export interface HonuaStudioChatToolCallStartDetail {
+  readonly messageId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+/**
+ * `honua-studio-chat-tool-call-result` — the tool-call INTENT the chat
+ * console emits once a tool call's arguments are fully assembled. Per the
+ * issue's framing, the chat console emits tool-call intents and renders
+ * results; it does not own composition state — a future composition engine
+ * (honua-studio#8) is the intended consumer of this event.
+ */
+export interface HonuaStudioChatToolCallResultDetail {
+  readonly messageId: string;
+  readonly toolCallId: string;
+  readonly toolName?: string;
+  readonly arguments: unknown;
+}
+
+/** `honua-studio-chat-turn-complete` — dispatched when an assistant turn reaches a normal `messageStop`. */
+export interface HonuaStudioChatTurnCompleteDetail {
+  readonly messageId: string;
+  readonly stopReason?: StudioAiStopReason;
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+  readonly latencyMs?: number;
+}
+
+/** `honua-studio-chat-turn-error` — dispatched when a turn ends via an `error` event or a transport-level failure. */
+export interface HonuaStudioChatTurnErrorDetail {
+  readonly messageId: string;
+  readonly errorMessage: string;
+}
+
+/** `honua-studio-chat-turn-cancelled` — dispatched when `.cancel()` aborts an in-flight turn. */
+export interface HonuaStudioChatTurnCancelledDetail {
+  readonly messageId: string;
+}
+
+/** `honua-studio-activity-replay-step` — dispatched by `<honua-studio-activity-log>` on every `replayNext()` call that emits an entry. */
+export interface HonuaStudioActivityReplayStepDetail {
+  readonly entry: ActivityLogEntry;
+  readonly index: number;
+  readonly total: number;
+}
+
+/** `honua-studio-activity-replay-complete` — dispatched once a replay session's last entry has been emitted. */
+export interface HonuaStudioActivityReplayCompleteDetail {
+  readonly total: number;
 }
 
 /** `honua-studio-canvas-resize` — dispatched by `<honua-studio-canvas>` on every observed size change. */
