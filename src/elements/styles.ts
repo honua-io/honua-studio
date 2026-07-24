@@ -163,5 +163,27 @@ export function canvasStyles(): string {
       display: flex; align-items: center; justify-content: center;
       color: var(--hn-ink-faint, #8b988f);
     }
+    .composition-readout { display: flex; flex-direction: column; gap: var(--hn-space-4, 16px); }
+    .composition-section { display: flex; flex-direction: column; gap: var(--hn-space-2, 8px); }
+    .composition-section h3 {
+      font-size: var(--hn-text-sm, 0.8125rem); font-weight: 600; margin: 0;
+      color: var(--hn-ink-secondary, #46554d);
+    }
+    .composition-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--hn-space-1, 4px); }
+    .composition-row {
+      display: flex; align-items: center; justify-content: space-between; gap: var(--hn-space-2, 8px);
+      width: 100%; text-align: left; font: inherit; color: inherit;
+      background: var(--hn-surface-raised, #fff);
+      border: 1px solid var(--hn-line, #dfe4df);
+      border-radius: var(--hn-radius, 6px);
+      padding: var(--hn-space-2, 8px) var(--hn-space-3, 12px);
+      cursor: pointer;
+    }
+    .composition-row:hover { border-color: var(--hn-accent, #0b6b4d); }
+    .composition-row[aria-pressed="true"] { border-color: var(--hn-accent, #0b6b4d); background: var(--hn-accent-tint, #e3f1ea); }
+    .composition-row[data-pinned="true"] { border-style: dashed; }
+    .composition-empty { color: var(--hn-ink-faint, #8b988f); margin: 0; }
+    .composition-view-fields { display: flex; flex-wrap: wrap; gap: var(--hn-space-2, 8px); margin: 0; padding: 0; list-style: none; }
+    .composition-view-fields li { font-size: var(--hn-text-sm, 0.8125rem); }
   `;
 }
