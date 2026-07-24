@@ -21,6 +21,12 @@ test("app boots against a server selected purely via HONUA_BASE_URL", async ({ p
     await page.goto(preview.url);
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("catalog-signed-out")).toBeVisible();
+
+    // honua-studio#4 REQ-001: the same env-config path also carries the
+    // OIDC issuer — sign in before the honua-server-shaped catalog call.
+    await page.getByTestId("auth-signin").click();
+
     await expect(page.getByTestId("catalog-error")).toHaveCount(0);
     await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
     await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");

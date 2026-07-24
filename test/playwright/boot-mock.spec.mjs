@@ -1,25 +1,46 @@
 /**
- * Boot smoke: `npm run dev`'s mode (honua-studio#3 REQ-003, fixture path).
- * Builds are produced by `npm run test:browser` before Playwright runs
- * (package.json). This spec proxies the built preview server at the mock
- * fixture, exactly as scripts/dev-mock.mjs wires `npm run dev`.
+ * Boot smoke: `npm run dev`'s mode (honua-studio#3 REQ-003, fixture path) —
+ * now also the full mock-issuer login journey (honua-studio#4 REQ-001):
+ * login -> authenticated catalog call -> logout. Builds are produced by
+ * `npm run test:browser` before Playwright runs (package.json). This spec
+ * proxies the built preview server at the mock fixture, exactly as
+ * scripts/dev-mock.mjs wires `npm run dev`.
  */
 import { expect, test } from "@playwright/test";
 
 import { startMockServer } from "../../mock-server.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 
-test("app boots against the mock honua-server fixture and renders catalog + packages", async ({ page }) => {
+test("app boots against the mock honua-server fixture; sign-in unlocks the authenticated catalog/packages calls; sign-out re-locks them", async ({
+  page,
+}) => {
   const mock = await startMockServer();
   const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
   try {
     await page.goto(preview.url);
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
+
+    // REQ-001: nothing loads before sign-in — no anonymous catalog access.
+    await expect(page.getByTestId("auth-status")).toHaveText("Signed out");
+    await expect(page.getByTestId("catalog-signed-out")).toBeVisible();
+    await expect(page.getByTestId("packages-signed-out")).toBeVisible();
+    await expect(page.getByTestId("auth-signin")).toBeVisible();
+    await expect(page.getByTestId("auth-signout")).toBeHidden();
+
+    // The mock IdP auto-approves — no login form to fill in.
+    await page.getByTestId("auth-signin").click();
+
+    await expect(page.getByTestId("auth-status")).toHaveText("Signed in");
+    await expect(page.getByTestId("auth-signin")).toBeHidden();
+    await expect(page.getByTestId("auth-signout")).toBeVisible();
     await expect(page.getByTestId("catalog-error")).toHaveCount(0);
     await expect(page.getByTestId("packages-error")).toHaveCount(0);
     await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
     await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");
+
+    // The redirect's code/state never linger in the address bar.
+    expect(new URL(page.url()).search).toBe("");
 
     // REQ-002: the theme SET switches without any code change — a pure
     // data-theme-set attribute flip that restyles every token consumer.
@@ -32,6 +53,13 @@ test("app boots against the mock honua-server fixture and renders catalog + pack
     // Router stub: a second route renders without reloading.
     await page.getByTestId("nav-about").click();
     await expect(page.getByTestId("about-section")).toBeVisible();
+    await page.getByTestId("nav-home").click();
+
+    // Sign-out clears the session and re-locks the catalog.
+    await page.getByTestId("auth-signout").click();
+    await expect(page.getByTestId("auth-status")).toHaveText("Signed out");
+    await expect(page.getByTestId("catalog-signed-out")).toBeVisible();
+    await expect(page.getByTestId("auth-signin")).toBeVisible();
   } finally {
     await preview.close();
     await mock.close();

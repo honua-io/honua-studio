@@ -166,6 +166,12 @@ a {
   color: var(--hn-accent);
 }
 
+.app-auth {
+  display: flex;
+  align-items: center;
+  gap: var(--hn-space-3);
+}
+
 .app-theme-controls {
   display: flex;
   flex-wrap: wrap;
