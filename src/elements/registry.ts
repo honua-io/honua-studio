@@ -17,6 +17,7 @@ import { HonuaStudioAppElement } from "./studio-app-element.js";
 import { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 import { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { HonuaStudioContentBrowserElement } from "./studio-content-browser-element.js";
+import { HonuaStudioGpPanelElement } from "./studio-gp-panel-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
 import type { HonuaStudioComponentRegistry } from "./types.js";
 
@@ -37,6 +38,7 @@ const STUDIO_ELEMENTS: ReadonlyMap<string, CustomElementConstructor> = new Map<s
   ["honua-studio-canvas", HonuaStudioCanvasElement],
   ["honua-studio-content-browser", HonuaStudioContentBrowserElement],
   ["honua-studio-lifecycle-panel", HonuaStudioLifecyclePanelElement],
+  ["honua-studio-gp-panel", HonuaStudioGpPanelElement],
   ["honua-studio-app", HonuaStudioAppElement],
 ]);
 

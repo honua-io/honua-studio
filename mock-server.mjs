@@ -38,6 +38,9 @@
  *   POST /v1/studio/content-items/{itemId}/versions/{versionId}/publish-requests -> ApiResponse<StudioPublicationRequest>
  *   POST /v1/studio/content-items/{itemId}/versions/{versionId}/reopen           -> ApiResponse<StudioPackageDraft>
  *   POST /v1/studio/content-items/{itemId}/rollback-requests                    -> ApiResponse<StudioRollbackRequest>
+ *   POST /v1/studio/gp-jobs                      -> ApiResponse<GpJobSnapshot> [bearer] (honua-studio#10)
+ *   GET  /v1/studio/gp-jobs/{jobId}               -> ApiResponse<GpJobSnapshot> [bearer]
+ *   POST /v1/studio/gp-jobs/{jobId}/cancel        -> ApiResponse<GpJobSnapshot> [bearer]
  *
  * The REST lifecycle + enumeration routes above (honua-studio#9) implement
  * honua-server's `docs/internal/admin-api/studio-package-lifecycle.md`
@@ -437,14 +440,50 @@ function createMcpDispatcher(store) {
     honua_studio_validate_draft(args) {
       const { draft, error } = requireDraft(args?.draftId);
       if (error) return error;
-      void draft;
+      // Persists the validation summary onto the STORED draft — "ONE store,
+      // both surfaces" (this file's module doc): an agent driving validation
+      // via this tool must leave the draft in the SAME state the REST
+      // `/validate` endpoint below would (honua-studio#10's GP job submit
+      // guard reads exactly this field — see `/gp-jobs` POST below).
+      const validation = { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: store.now() };
+      drafts.set(draft.draftId, {
+        ...draft,
+        validation,
+        envelope: { ...draft.envelope, validation },
+        updatedAt: store.now(),
+      });
       return toolSuccess({ isValid: true, diagnostics: [] });
     },
 
     honua_studio_preview_draft(args) {
-      const { error } = requireDraft(args?.draftId);
+      const { draft, error } = requireDraft(args?.draftId);
       if (error) return error;
-      return toolSuccess({ kind: "preview", planningOnly: true });
+      // Mirrors the REST `/preview-plan` endpoint's shape AND side effect
+      // below (honua-studio#9/#10) exactly — "ONE store, both surfaces"
+      // extends to preview-plan too: an agent driving preview via
+      // `honua_studio_preview_draft` sees the SAME requiresJob/steps a human
+      // driving `<honua-studio-gp-panel>` via the REST client sees, and
+      // leaves the draft in the same validated state the REST path would
+      // (so the GP job submit guard below accepts either path).
+      const validation = { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: store.now() };
+      drafts.set(draft.draftId, {
+        ...draft,
+        validation,
+        envelope: { ...draft.envelope, validation },
+        updatedAt: store.now(),
+      });
+      const jobBacked = draft.family === "gp" || draft.family === "etl" || draft.family === "workflow";
+      return toolSuccess({
+        draftId: draft.draftId,
+        family: draft.family,
+        synchronous: !jobBacked,
+        requiresJob: jobBacked,
+        steps: jobBacked
+          ? ["validate-envelope", "plan-background-preview-job"]
+          : ["validate-envelope", "prepare-inline-preview"],
+        kind: "preview",
+        planningOnly: jobBacked,
+      });
     },
 
     honua_studio_add_layer(args) {
@@ -1373,6 +1412,222 @@ function createStudioLifecycleRestRouter(store) {
   return { handle };
 }
 
+// ── GP async batch-execution job surface (honua-studio#10 REQ-003) ─────────
+//
+// `/v1/studio/gp-jobs` — this fixture's stand-in for honua-server's
+// not-yet-real GP batch job endpoint (see `src/gp/job-client.ts`'s module
+// doc's "the seam" section). Deliberately shaped to match
+// `@honua/sdk-js`'s canonical async-operation vocabulary
+// (`src/contract/jobs.ts`'s `JobStatus`: accepted -> running -> a terminal
+// state) rather than inventing a new one — `src/gp/gp-types.ts`'s
+// `GpJobStatus` is that exact five-value union.
+//
+// State machine (deterministic, keyed by a per-job `pollCount` — same
+// pattern `examples/geoprocessing-job-runner`'s own fixture process client
+// uses): `accepted` on submit, `running` on the first `GET` status poll,
+// `successful` from the second poll onward (idempotent — outputs are
+// registered into `catalogDatasets` exactly once, on the transition, not on
+// every subsequent poll). `simulateFailure: true` on submit forces the
+// second poll to `failed` instead, with a diagnostic `error` — the fixture
+// hook `test/gp/*.test.ts` uses to prove "failures surface diagnostics
+// honestly" without a flaky real failure. `cancel` is idempotent: a job
+// already in a terminal state returns that SAME terminal snapshot
+// unchanged (mirrors `IJobRun.cancel()`'s documented race-tolerant
+// contract), never overwrites a `successful`/`failed` outcome with
+// `dismissed`.
+function createGpJobStore() {
+  const jobs = new Map();
+  let nextJobSeq = 1;
+  return { jobs, nextJobId: () => `mock-gp-job-${nextJobSeq++}` };
+}
+
+function gpJobOutputsForDraft(draft) {
+  const body = draft.envelope.body && typeof draft.envelope.body === "object" ? draft.envelope.body : {};
+  const declared = Array.isArray(body.outputs) ? body.outputs : [];
+  if (declared.length === 0) return [{ id: "result", title: `${draft.packageKey} result` }];
+  return declared;
+}
+
+/** Computes (and, on the successful-transition, persists catalog registration for) a job record's current snapshot. Never mutates `pollCount` itself — the GET route handler owns that increment so `cancel`/other read paths can observe status without advancing the state machine. */
+function computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets) {
+  if (record.override) return record.override;
+  if (record.pollCount >= 2) {
+    if (record.simulateFailure) {
+      return {
+        jobId: record.jobId,
+        draftId: record.draftId,
+        status: "failed",
+        progress: { percent: 60, message: "Execution failed.", updatedAt: new Date().toISOString() },
+        error: {
+          code: "ProcessExecutionFailed",
+          message: `Batch execution of '${record.draftId}' failed while running the operation graph (fixture: simulateFailure).`,
+          details: { draftId: record.draftId },
+        },
+        ...(record.parameters ? { parameters: record.parameters } : {}),
+      };
+    }
+    if (!record.registeredOutputs) {
+      const draft = studioLifecycleStore.drafts.get(record.draftId);
+      const declared = draft ? gpJobOutputsForDraft(draft) : [{ id: "result", title: "result" }];
+      record.registeredOutputs = declared.map((output) => {
+        const datasetId = `gp-output-${record.jobId}-${output.id}`;
+        catalogDatasets.push({
+          id: datasetId,
+          title: output.title ?? output.id,
+          protocol: "honua-gp-output",
+          geometryType: output.geometryType ?? "Unknown",
+          lineage: { jobId: record.jobId, draftId: record.draftId },
+        });
+        return { outputId: output.id, datasetId, title: output.title ?? output.id };
+      });
+    }
+    return {
+      jobId: record.jobId,
+      draftId: record.draftId,
+      status: "successful",
+      progress: { percent: 100, message: "Batch execution complete.", updatedAt: new Date().toISOString() },
+      result: { outputs: record.registeredOutputs },
+      ...(record.parameters ? { parameters: record.parameters } : {}),
+    };
+  }
+  if (record.pollCount >= 1) {
+    return {
+      jobId: record.jobId,
+      draftId: record.draftId,
+      status: "running",
+      progress: { percent: 45, message: "Running the operation graph.", updatedAt: new Date().toISOString() },
+      ...(record.parameters ? { parameters: record.parameters } : {}),
+    };
+  }
+  return {
+    jobId: record.jobId,
+    draftId: record.draftId,
+    status: "accepted",
+    progress: { percent: 5, message: "Queued for batch execution.", updatedAt: new Date().toISOString() },
+    ...(record.parameters ? { parameters: record.parameters } : {}),
+  };
+}
+
+function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets) {
+  async function handle(req, res, method, subPath) {
+    if (subPath === "/gp-jobs" && method === "POST") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+        return true;
+      }
+      const { draftId, versionId, parameters, simulateFailure } = body ?? {};
+      if (typeof draftId !== "string" || !draftId) {
+        problemResponse(res, 400, "Invalid request", "'draftId' is required.");
+        return true;
+      }
+      const draft = studioLifecycleStore.drafts.get(draftId);
+      if (!draft) {
+        problemResponse(res, 404, "Studio package draft not found", `No draft with id '${draftId}' exists.`);
+        return true;
+      }
+      if (draft.family !== "gp") {
+        problemResponse(
+          res,
+          400,
+          "Invalid request",
+          `Batch execution applies only to 'gp'-family drafts; draft family is '${draft.family}'.`,
+        );
+        return true;
+      }
+      // REQ-002/REQ-006: execution is offered only after a confirmed preview
+      // plan — this mock's own honest proxy for that is requiring the draft
+      // to have been through /validate or /preview-plan at least once
+      // (either sets `draft.validation` to something other than
+      // "not-validated" — see the `/validate` and `/preview-plan` handlers
+      // above). This does not itself enforce the human-confirmation step —
+      // that discipline lives entirely client-side (THE HUMAN GATE,
+      // `src/gp/job-client.ts`'s module doc) — it only refuses to accept a
+      // submission for a draft nobody has ever asked the server about.
+      const validationStatus = draft.validation?.status ?? "not-validated";
+      if (validationStatus === "not-validated") {
+        problemResponse(
+          res,
+          400,
+          "Draft has not been validated",
+          "Call validate or preview-plan on this draft before submitting it for batch execution.",
+        );
+        return true;
+      }
+      if (versionId !== undefined && typeof versionId !== "string") {
+        problemResponse(res, 400, "Invalid request", "'versionId' must be a string when present.");
+        return true;
+      }
+      if (
+        parameters !== undefined &&
+        (typeof parameters !== "object" || parameters === null || Array.isArray(parameters))
+      ) {
+        problemResponse(res, 400, "Invalid request", "'parameters' must be an object when present.");
+        return true;
+      }
+      const jobId = gpJobStore.nextJobId();
+      const record = {
+        jobId,
+        draftId,
+        versionId: typeof versionId === "string" ? versionId : undefined,
+        parameters: parameters && typeof parameters === "object" ? parameters : undefined,
+        simulateFailure: simulateFailure === true,
+        pollCount: 0,
+        registeredOutputs: undefined,
+        override: undefined,
+      };
+      gpJobStore.jobs.set(jobId, record);
+      apiResponse(res, 201, computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets));
+      return true;
+    }
+
+    const jobMatch = /^\/gp-jobs\/([^/]+)(\/.*)?$/.exec(subPath);
+    if (jobMatch) {
+      const jobId = decodeURIComponent(jobMatch[1]);
+      const rest = jobMatch[2] ?? "";
+      const record = gpJobStore.jobs.get(jobId);
+      if (!record) {
+        problemResponse(res, 404, "Studio GP job not found", `No GP job with id '${jobId}' exists.`);
+        return true;
+      }
+
+      if (rest === "" && method === "GET") {
+        // Poll-driven state machine: THIS call advances `pollCount`, never a
+        // background timer (NFR-001: deterministic, no timers — every
+        // transition is caller-driven, exactly like `GpJobClient.status()`'s
+        // own doc promises).
+        if (!record.override) record.pollCount += 1;
+        apiResponse(res, 200, computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets));
+        return true;
+      }
+
+      if (rest === "/cancel" && method === "POST") {
+        const current = computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets);
+        if (current.status === "successful" || current.status === "failed" || current.status === "dismissed") {
+          // Idempotent race-tolerant cancel — see this section's module doc.
+          apiResponse(res, 200, current);
+          return true;
+        }
+        record.override = {
+          jobId,
+          draftId: record.draftId,
+          status: "dismissed",
+          progress: { percent: 100, message: "Cancelled.", updatedAt: new Date().toISOString() },
+          ...(record.parameters ? { parameters: record.parameters } : {}),
+        };
+        apiResponse(res, 200, record.override);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  return { handle };
+}
+
 const CATALOG = {
   datasets: [
     { id: "hi-parcels", title: "Hawai'i statewide parcels", protocol: "ogc-features", geometryType: "Polygon" },
@@ -1526,6 +1781,14 @@ export async function startMockServer({ port = 0 } = {}) {
   // contract (docs/guides/connect/ai-agents-mcp.md).
   const mcp = createMcpDispatcher(studioLifecycleStore);
   const mcpSessions = new Set();
+  // Per-instance mutable catalog (honua-studio#10 REQ-004): starts as a copy
+  // of the static CATALOG.datasets fixture below and gains one entry per GP
+  // job output on job completion — never mutates the shared module-level
+  // CATALOG constant itself, so one test's completed job can never leak a
+  // registered dataset into a different `startMockServer()` instance.
+  const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
+  const gpJobStore = createGpJobStore();
+  const gpJobRest = createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets);
 
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -1646,7 +1909,7 @@ export async function startMockServer({ port = 0 } = {}) {
         unauthorized(res);
         return;
       }
-      json(res, 200, CATALOG);
+      json(res, 200, { datasets: catalogDatasets });
       return;
     }
     if (pathname === "/v1/studio/packages" && req.method === "GET") {
@@ -1801,6 +2064,17 @@ export async function startMockServer({ port = 0 } = {}) {
           return;
         }
         const handled = await studioLifecycleRest.handle(req, res, req.method, subPath, requestUrl.searchParams);
+        if (handled) return;
+      }
+
+      // ── GP async batch-execution job surface (honua-studio#10) ─────────
+      const knownGpJobPrefix = subPath === "/gp-jobs" || subPath.startsWith("/gp-jobs/");
+      if (knownGpJobPrefix) {
+        if (!verifyFixtureJwt(bearerToken(req))) {
+          unauthorized(res);
+          return;
+        }
+        const handled = await gpJobRest.handle(req, res, req.method, subPath);
         if (handled) return;
       }
     }

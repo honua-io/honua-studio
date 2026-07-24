@@ -232,5 +232,41 @@ export interface HonuaStudioLifecycleActivityDetail {
   readonly message?: string;
 }
 
+/**
+ * `honua-studio-gp-activity` — dispatched by `<honua-studio-gp-panel>`
+ * (honua-studio#10) after every GP authoring/validation/preview/execution
+ * action, mirroring `HonuaStudioLifecycleActivityDetail`'s "recorded in the
+ * activity log like any other context" pattern (spec REQ-012).
+ * `kind: "job-submitted"` only ever follows the panel's own human-confirmed
+ * dialog — see `studio-gp-panel-element.ts`'s module doc and
+ * `test/gp/human-gate.test.ts`.
+ */
+export interface HonuaStudioGpActivityDetail {
+  readonly kind:
+    | "draft-loaded"
+    | "draft-validated"
+    | "preview-ready"
+    | "job-submitted"
+    | "job-status"
+    | "job-cancelled"
+    | "job-completed"
+    | "error";
+  readonly draftId?: string;
+  readonly jobId?: string;
+  readonly message?: string;
+}
+
+/**
+ * `honua-studio-gp-add-output` — dispatched by `<honua-studio-gp-panel>`
+ * when a user clicks "Add to composition" on a completed job's output
+ * (honua-studio#10 REQ-004). A host forwards this into its own
+ * `ToolCallOrchestrator` via the SAME `addLayer` composition command a chat
+ * tool-call intent would use — see `studio-app-element.ts`'s listener.
+ */
+export interface HonuaStudioGpAddOutputDetail {
+  readonly sourceId: string;
+  readonly title?: string;
+}
+
 /** The minimal `CustomElementRegistry` surface the registry module needs — a real registry or a scoped/in-memory stand-in both satisfy this. */
 export type HonuaStudioComponentRegistry = Pick<CustomElementRegistry, "get" | "define">;
