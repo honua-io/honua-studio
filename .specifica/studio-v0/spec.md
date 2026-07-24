@@ -55,7 +55,7 @@ Prior art is real and load-bearing:
 - honua-sdk-js#780: graduate `@honua/sdk-js/studio` from type projections to a full typed lifecycle client (all endpoints, optimistic generation, RFC 7807 problems).
 
 ### Phase 1 — Compose
-- honua-studio#6: chat console, streaming, tool-call cards, replayable activity log, deterministic fixture-conversation mode.
+- honua-studio#6: chat console, streaming, tool-call cards, replayable activity log, deterministic fixture-conversation mode — including **annotation-as-context**: when describing a target in words is hard, the user points instead — click a map feature/layer/UI element or draw a small marker/lasso, and the annotation becomes a typed reference chip in the next prompt (resolving to layer id, feature selection, screen region, or component id) that the intent model consumes; annotations are visible, removable, and recorded in the activity log like any other context.
 - honua-studio#7: MCP tool plane — `/mcp` client + composition tools published over MCP; external-client parity.
 - honua-studio#8: composition engine v0 — intent-state reducer (pure data), typed orchestration via app-controller, previewed diffs, undo/redo, pinning, incremental refinement.
 - honua-server#3000: provider-agnostic Studio AI proxy adapters (Anthropic + OpenAI-compatible beside Bedrock), capability discovery, audit.
@@ -92,6 +92,7 @@ Prior art is real and load-bearing:
 - REQ-003: Default model path is the server AI proxy; no model credentials reach the browser in default mode; two-provider + no-model journeys pass (AD-4).
 - REQ-004: All agent tooling is MCP over the authenticated session; an external MCP client reproduces a composition journey with identical read-only guarantees (AD-5).
 - REQ-005: The composition engine enforces typed bounded orchestration with preview/undo/pin; fixture conversations snapshot-test the resulting app state; no arbitrary code evaluation (honua-studio#1).
+- REQ-012: Deictic input: users can annotate the running app (click-select a feature/layer/element, or draw a point/lasso) and reference those annotations in prompts; annotations resolve to typed targets in the intent model, appear as removable chips in the composer, and replay in fixture conversations.
 - REQ-006: GP authoring executes only after validation and a confirmed job-backed preview plan; outputs are additive datasets; jobs cancel and resume (honua-studio#10).
 - REQ-007: A parity ledger tracks console-Blazor-editor capabilities vs JS editors and gates each retirement (honua-console#324).
 - REQ-008: Every mutation surface exposes diff + one-step revert; the trust ladder is visible in the UI (AD-7).
