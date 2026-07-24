@@ -1,0 +1,213 @@
+/*
+ * Honua Studio — app shell component styles.
+ *
+ * Every rule here reads from the `--hn-*` custom properties defined in
+ * src/theme/tokens.css + the active theme set (theme-standalone.css /
+ * theme-console.css). No component in this file references a raw color,
+ * radius, or spacing value — that is what makes the theme-set switch a
+ * pure attribute flip with zero code change (REQ-002).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--hn-page);
+  color: var(--hn-ink);
+  font-family: var(--hn-font-ui);
+  font-size: var(--hn-text-body);
+  line-height: var(--hn-leading-body);
+  transition:
+    background-color var(--hn-motion) var(--hn-ease),
+    color var(--hn-motion) var(--hn-ease);
+}
+
+a {
+  color: var(--hn-link);
+}
+
+:focus-visible {
+  outline: 2px solid var(--hn-focus);
+  outline-offset: 2px;
+}
+
+.hn-register {
+  font-size: var(--hn-text-register);
+  letter-spacing: var(--hn-tracking-register);
+  text-transform: uppercase;
+  color: var(--hn-ink-muted);
+  margin: 0;
+}
+
+.hn-muted {
+  color: var(--hn-ink-muted);
+}
+
+.hn-error {
+  color: var(--hn-critical-text);
+}
+
+.hn-panel {
+  background: var(--hn-surface);
+  border: 1px solid var(--hn-line);
+  border-radius: var(--hn-radius-lg);
+  box-shadow: var(--hn-elevation-1);
+  padding: var(--hn-space-5);
+}
+
+.hn-panel-title {
+  font-size: var(--hn-text-h2);
+  font-weight: 600;
+  letter-spacing: var(--hn-tracking-heading);
+  margin: 0 0 var(--hn-space-2);
+}
+
+.hn-btn {
+  appearance: none;
+  border: 1px solid var(--hn-border-control);
+  background: var(--hn-surface-raised);
+  color: var(--hn-ink);
+  border-radius: var(--hn-radius);
+  height: var(--hn-control-height);
+  padding: 0 var(--hn-space-4);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--hn-motion-fast) var(--hn-ease),
+    border-color var(--hn-motion-fast) var(--hn-ease);
+}
+
+.hn-btn:hover {
+  border-color: var(--hn-accent);
+}
+
+.hn-btn[aria-pressed="true"] {
+  background: var(--hn-accent);
+  border-color: var(--hn-accent);
+  color: var(--hn-accent-ink);
+}
+
+.hn-btn--sm {
+  height: calc(var(--hn-control-height) - var(--hn-space-2));
+  padding: 0 var(--hn-space-3);
+  font-size: var(--hn-text-sm);
+}
+
+.hn-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--hn-radius-pill);
+  background: var(--hn-neutral-tint);
+  color: var(--hn-neutral-text);
+  font-size: var(--hn-text-xs);
+  padding: var(--hn-space-0) var(--hn-space-2);
+  margin-right: var(--hn-space-2);
+}
+
+.hn-badge--status {
+  background: var(--hn-info-tint);
+  color: var(--hn-info-text);
+}
+
+/* -- App shell ----------------------------------------------------------- */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hn-space-5);
+  padding: var(--hn-space-5);
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hn-space-4);
+}
+
+.app-brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hn-space-1);
+}
+
+.app-title {
+  font-family: var(--hn-font-display);
+  font-size: var(--hn-text-h1);
+  letter-spacing: var(--hn-tracking-heading);
+  margin: 0;
+}
+
+.app-nav {
+  display: flex;
+  gap: var(--hn-space-4);
+}
+
+.app-nav a {
+  text-decoration: none;
+  font-size: var(--hn-text-sm);
+  color: var(--hn-ink-secondary);
+}
+
+.app-nav a:hover {
+  color: var(--hn-accent);
+}
+
+.app-theme-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hn-space-3);
+}
+
+.theme-group {
+  display: flex;
+  gap: var(--hn-space-1);
+  background: var(--hn-surface-sunken);
+  border-radius: var(--hn-radius);
+  padding: var(--hn-space-0);
+}
+
+.app-view {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--hn-space-5);
+  align-items: start;
+}
+
+.view-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hn-space-3);
+}
+
+.entity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hn-space-2);
+}
+
+.entity-list li {
+  border-bottom: 1px solid var(--hn-line);
+  padding-bottom: var(--hn-space-2);
+}
+
+.entity-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}

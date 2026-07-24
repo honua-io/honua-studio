@@ -1,0 +1,170 @@
+/*
+ * Honua Studio — "standalone" theme set (honua-studio#3 REQ-002)
+ * ----------------------------------------------------------------
+ * The open-source shell's identity: the Honua brand palette already used
+ * across honua-sdk-js's sample kit (examples/_kit/design/tokens.css), so
+ * Studio reads as the same platform, not a fork. Scoped to
+ * `[data-theme-set="standalone"]`, which theme-loader.ts stamps on <html>
+ * by default. `:root` carries the same values as an unstamped fallback so
+ * first paint (before theme-loader.ts runs) is never unstyled.
+ *
+ * Light is the default; dark follows the OS via prefers-color-scheme unless
+ * theme-loader.ts has stamped an explicit `data-theme="light"|"dark"`
+ * override, which always wins over the OS setting.
+ */
+
+:root,
+[data-theme-set="standalone"] {
+  color-scheme: light;
+
+  /* -- Density (theme sets may shift control size) -------------------- */
+  --hn-control-height: 2.25rem;    /* 36px */
+  --hn-control-height-lg: 2.75rem; /* 44px */
+
+  /* -- Surface ----------------------------------------------------------- */
+  --hn-page: #f2f4f0;
+  --hn-surface: #fdfdfc;
+  --hn-surface-raised: #ffffff;
+  --hn-surface-sunken: #e9ede9;
+  --hn-surface-float: rgba(253, 253, 252, 0.92);
+
+  /* -- Ink ----------------------------------------------------------------
+   * Ratios measured against --hn-surface unless noted. */
+  --hn-ink: #16211c;              /* 16.3:1 */
+  --hn-ink-secondary: #46554d;    /* 7.7:1 */
+  --hn-ink-muted: #5f6e66;        /* 5.3:1 surface / 4.9:1 page — AA floor */
+  --hn-ink-faint: #8b988f;        /* non-text only */
+
+  --hn-line: #dfe4df;
+  --hn-line-strong: #c2cac3;
+  --hn-border-control: #7c8a81;   /* 3.3:1 non-text */
+
+  --hn-accent: #0b6b4d;           /* Honua green — 5.9-6.4:1 as text */
+  --hn-accent-ink: #ffffff;       /* 6.5:1 on accent */
+  --hn-accent-wash: rgba(11, 107, 77, 0.08);
+  --hn-link: #0b6b4d;
+  --hn-focus: #0b6b4d;
+
+  --hn-scrim: rgba(22, 33, 28, 0.45);
+  --hn-elevation-1: 0 1px 2px rgba(22, 33, 28, 0.08);
+  --hn-elevation-2: 0 4px 12px rgba(22, 33, 28, 0.1);
+  --hn-elevation-3: 0 12px 32px rgba(22, 33, 28, 0.16);
+
+  --hn-ok-text: #0f5c32;       --hn-ok-tint: #def0e3;
+  --hn-warn-text: #7a4d0b;     --hn-warn-tint: #faeccf;
+  --hn-serious-text: #96351a;  --hn-serious-tint: #fbe3d8;
+  --hn-critical-text: #9c2828; --hn-critical-tint: #fae1e1;
+  --hn-info-text: #1c5cab;     --hn-info-tint: #dfe9f8;
+  --hn-neutral-text: #46554d;  --hn-neutral-tint: #e8ece8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])),
+  [data-theme-set="standalone"]:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --hn-page: #0d1311;
+    --hn-surface: #151c18;
+    --hn-surface-raised: #1b2420;
+    --hn-surface-sunken: #101613;
+    --hn-surface-float: rgba(21, 28, 24, 0.9);
+
+    --hn-ink: #e8ede9;            /* 14.6:1 */
+    --hn-ink-secondary: #aebbb2;  /* 8.7:1 */
+    --hn-ink-muted: #8da399;      /* 6.5:1 */
+    --hn-ink-faint: #77897e;
+
+    --hn-line: rgba(232, 237, 233, 0.1);
+    --hn-line-strong: rgba(232, 237, 233, 0.2);
+    --hn-border-control: #5d6c64;
+
+    --hn-accent: #43c68f;         /* 8.0:1 as text */
+    --hn-accent-ink: #0d1f18;     /* 7.9:1 on accent */
+    --hn-accent-wash: rgba(67, 198, 143, 0.12);
+    --hn-link: #43c68f;
+    --hn-focus: #43c68f;
+
+    --hn-scrim: rgba(4, 8, 6, 0.6);
+    --hn-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --hn-elevation-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+    --hn-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+    --hn-ok-text: #82dfa9;       --hn-ok-tint: #1d2a22;
+    --hn-warn-text: #f2c94c;     --hn-warn-tint: #2b2417;
+    --hn-serious-text: #f5a37f;  --hn-serious-tint: #2b1d15;
+    --hn-critical-text: #f08c8c; --hn-critical-tint: #2b1616;
+    --hn-info-text: #86b6ef;     --hn-info-tint: #161f2b;
+    --hn-neutral-text: #aebbb2;  --hn-neutral-tint: #1c2420;
+  }
+}
+
+/* Explicit dark stamp wins over the OS in either direction. */
+:root[data-theme="dark"],
+[data-theme-set="standalone"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --hn-page: #0d1311;
+  --hn-surface: #151c18;
+  --hn-surface-raised: #1b2420;
+  --hn-surface-sunken: #101613;
+  --hn-surface-float: rgba(21, 28, 24, 0.9);
+
+  --hn-ink: #e8ede9;
+  --hn-ink-secondary: #aebbb2;
+  --hn-ink-muted: #8da399;
+  --hn-ink-faint: #77897e;
+
+  --hn-line: rgba(232, 237, 233, 0.1);
+  --hn-line-strong: rgba(232, 237, 233, 0.2);
+  --hn-border-control: #5d6c64;
+
+  --hn-accent: #43c68f;
+  --hn-accent-ink: #0d1f18;
+  --hn-accent-wash: rgba(67, 198, 143, 0.12);
+  --hn-link: #43c68f;
+  --hn-focus: #43c68f;
+
+  --hn-scrim: rgba(4, 8, 6, 0.6);
+  --hn-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --hn-elevation-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --hn-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  --hn-ok-text: #82dfa9;       --hn-ok-tint: #1d2a22;
+  --hn-warn-text: #f2c94c;     --hn-warn-tint: #2b2417;
+  --hn-serious-text: #f5a37f;  --hn-serious-tint: #2b1d15;
+  --hn-critical-text: #f08c8c; --hn-critical-tint: #2b1616;
+  --hn-info-text: #86b6ef;     --hn-info-tint: #161f2b;
+  --hn-neutral-text: #aebbb2;  --hn-neutral-tint: #1c2420;
+}
+
+/* Explicit light stamp wins over a dark OS. */
+[data-theme-set="standalone"][data-theme="light"] {
+  color-scheme: light;
+  --hn-page: #f2f4f0;
+  --hn-surface: #fdfdfc;
+  --hn-surface-raised: #ffffff;
+  --hn-surface-sunken: #e9ede9;
+  --hn-surface-float: rgba(253, 253, 252, 0.92);
+  --hn-ink: #16211c;
+  --hn-ink-secondary: #46554d;
+  --hn-ink-muted: #5f6e66;
+  --hn-ink-faint: #8b988f;
+  --hn-line: #dfe4df;
+  --hn-line-strong: #c2cac3;
+  --hn-border-control: #7c8a81;
+  --hn-accent: #0b6b4d;
+  --hn-accent-ink: #ffffff;
+  --hn-accent-wash: rgba(11, 107, 77, 0.08);
+  --hn-link: #0b6b4d;
+  --hn-focus: #0b6b4d;
+  --hn-scrim: rgba(22, 33, 28, 0.45);
+  --hn-elevation-1: 0 1px 2px rgba(22, 33, 28, 0.08);
+  --hn-elevation-2: 0 4px 12px rgba(22, 33, 28, 0.1);
+  --hn-elevation-3: 0 12px 32px rgba(22, 33, 28, 0.16);
+  --hn-ok-text: #0f5c32;       --hn-ok-tint: #def0e3;
+  --hn-warn-text: #7a4d0b;     --hn-warn-tint: #faeccf;
+  --hn-serious-text: #96351a;  --hn-serious-tint: #fbe3d8;
+  --hn-critical-text: #9c2828; --hn-critical-tint: #fae1e1;
+  --hn-info-text: #1c5cab;     --hn-info-tint: #dfe9f8;
+  --hn-neutral-text: #46554d;  --hn-neutral-tint: #e8ece8;
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@honua/studio",
+  "version": "0.0.0",
+  "description": "Honua Studio — natural language to map app. Standalone shell for the JS Studio (honua-io/honua-studio#3).",
+  "type": "module",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev-mock.mjs",
+    "dev:live": "vite --mode live",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "mock-server": "node mock-server.mjs",
+    "test:browser:install": "playwright install --with-deps chromium",
+    "test:browser": "npm run build --silent && playwright test"
+  },
+  "dependencies": {
+    "@honua/sdk-js": "0.1.2-beta.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@playwright/test": "^1.58.0",
+    "@types/node": "^24.3.1",
+    "typescript": "^5.9.2",
+    "vite": "^8.0.16",
+    "vitest": "^4.0.16"
+  }
+}

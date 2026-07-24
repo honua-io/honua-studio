@@ -1,0 +1,172 @@
+/*
+ * Honua Studio — "console" theme set (honua-studio#3 REQ-002)
+ * ---------------------------------------------------------------
+ * The restyle Honua Console's `/studio` embed will apply when it hosts these
+ * same elements (AD-1/AD-2, honua-studio#5): a denser control rhythm and a
+ * cooler, console-native accent instead of the Honua brand green. Only
+ * color, radius, and density tokens change — spacing and type scale stay
+ * structural (src/theme/tokens.css) so layout never shifts under a restyle.
+ *
+ * @placeholder This is an illustrative console palette proving the restyle
+ * mechanism (REQ-002), not honua-console's actual design tokens. Reconcile
+ * with console's real chrome when the embed contract lands (honua-studio#5,
+ * honua-console#324).
+ *
+ * Status colors (ok/warn/serious/critical/info/neutral) are intentionally
+ * IDENTICAL to the standalone set — status meaning must read the same
+ * across every Honua surface, restyled chrome or not.
+ */
+
+[data-theme-set="console"] {
+  color-scheme: light;
+
+  /* Denser controls than standalone — an embedded admin surface, not a
+   * marketing shell. */
+  --hn-control-height: 2rem;      /* 32px */
+  --hn-control-height-lg: 2.5rem; /* 40px */
+
+  /* Sharper corners than standalone. */
+  --hn-radius-sm: 3px;
+  --hn-radius: 4px;
+  --hn-radius-lg: 8px;
+
+  --hn-page: #eef1f6;
+  --hn-surface: #ffffff;
+  --hn-surface-raised: #ffffff;
+  --hn-surface-sunken: #e4e8f0;
+  --hn-surface-float: rgba(255, 255, 255, 0.94);
+
+  --hn-ink: #131a2b;
+  --hn-ink-secondary: #38415c;
+  --hn-ink-muted: #4b5570;
+  --hn-ink-faint: #8791ab;
+
+  --hn-line: #dde1ea;
+  --hn-line-strong: #c3c9d9;
+  --hn-border-control: #6b748f;
+
+  --hn-accent: #2454c9;
+  --hn-accent-ink: #ffffff;
+  --hn-accent-wash: rgba(36, 84, 201, 0.08);
+  --hn-link: #2454c9;
+  --hn-focus: #2454c9;
+
+  --hn-scrim: rgba(19, 26, 43, 0.45);
+  --hn-elevation-1: 0 1px 2px rgba(19, 26, 43, 0.1);
+  --hn-elevation-2: 0 4px 12px rgba(19, 26, 43, 0.12);
+  --hn-elevation-3: 0 12px 32px rgba(19, 26, 43, 0.18);
+
+  --hn-ok-text: #0f5c32;       --hn-ok-tint: #def0e3;
+  --hn-warn-text: #7a4d0b;     --hn-warn-tint: #faeccf;
+  --hn-serious-text: #96351a;  --hn-serious-tint: #fbe3d8;
+  --hn-critical-text: #9c2828; --hn-critical-tint: #fae1e1;
+  --hn-info-text: #1c5cab;     --hn-info-tint: #dfe9f8;
+  --hn-neutral-text: #46554d;  --hn-neutral-tint: #e8ece8;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme-set="console"]:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --hn-page: #0b0f1a;
+    --hn-surface: #121826;
+    --hn-surface-raised: #182036;
+    --hn-surface-sunken: #0d1220;
+    --hn-surface-float: rgba(18, 24, 38, 0.92);
+
+    --hn-ink: #e7ebf5;
+    --hn-ink-secondary: #b0b9d2;
+    --hn-ink-muted: #8d97b8;
+    --hn-ink-faint: #6b7594;
+
+    --hn-line: rgba(231, 235, 245, 0.1);
+    --hn-line-strong: rgba(231, 235, 245, 0.2);
+    --hn-border-control: #4b5570;
+
+    --hn-accent: #6f9bf5;
+    --hn-accent-ink: #0b1428;
+    --hn-accent-wash: rgba(111, 155, 245, 0.14);
+    --hn-link: #6f9bf5;
+    --hn-focus: #6f9bf5;
+
+    --hn-scrim: rgba(3, 5, 10, 0.6);
+    --hn-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --hn-elevation-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+    --hn-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+    --hn-ok-text: #82dfa9;       --hn-ok-tint: #1d2a22;
+    --hn-warn-text: #f2c94c;     --hn-warn-tint: #2b2417;
+    --hn-serious-text: #f5a37f;  --hn-serious-tint: #2b1d15;
+    --hn-critical-text: #f08c8c; --hn-critical-tint: #2b1616;
+    --hn-info-text: #86b6ef;     --hn-info-tint: #161f2b;
+    --hn-neutral-text: #aebbb2;  --hn-neutral-tint: #1c2420;
+  }
+}
+
+[data-theme-set="console"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --hn-page: #0b0f1a;
+  --hn-surface: #121826;
+  --hn-surface-raised: #182036;
+  --hn-surface-sunken: #0d1220;
+  --hn-surface-float: rgba(18, 24, 38, 0.92);
+
+  --hn-ink: #e7ebf5;
+  --hn-ink-secondary: #b0b9d2;
+  --hn-ink-muted: #8d97b8;
+  --hn-ink-faint: #6b7594;
+
+  --hn-line: rgba(231, 235, 245, 0.1);
+  --hn-line-strong: rgba(231, 235, 245, 0.2);
+  --hn-border-control: #4b5570;
+
+  --hn-accent: #6f9bf5;
+  --hn-accent-ink: #0b1428;
+  --hn-accent-wash: rgba(111, 155, 245, 0.14);
+  --hn-link: #6f9bf5;
+  --hn-focus: #6f9bf5;
+
+  --hn-scrim: rgba(3, 5, 10, 0.6);
+  --hn-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --hn-elevation-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --hn-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  --hn-ok-text: #82dfa9;       --hn-ok-tint: #1d2a22;
+  --hn-warn-text: #f2c94c;     --hn-warn-tint: #2b2417;
+  --hn-serious-text: #f5a37f;  --hn-serious-tint: #2b1d15;
+  --hn-critical-text: #f08c8c; --hn-critical-tint: #2b1616;
+  --hn-info-text: #86b6ef;     --hn-info-tint: #161f2b;
+  --hn-neutral-text: #aebbb2;  --hn-neutral-tint: #1c2420;
+}
+
+[data-theme-set="console"][data-theme="light"] {
+  color-scheme: light;
+  --hn-page: #eef1f6;
+  --hn-surface: #ffffff;
+  --hn-surface-raised: #ffffff;
+  --hn-surface-sunken: #e4e8f0;
+  --hn-surface-float: rgba(255, 255, 255, 0.94);
+  --hn-ink: #131a2b;
+  --hn-ink-secondary: #38415c;
+  --hn-ink-muted: #4b5570;
+  --hn-ink-faint: #8791ab;
+  --hn-line: #dde1ea;
+  --hn-line-strong: #c3c9d9;
+  --hn-border-control: #6b748f;
+  --hn-accent: #2454c9;
+  --hn-accent-ink: #ffffff;
+  --hn-accent-wash: rgba(36, 84, 201, 0.08);
+  --hn-link: #2454c9;
+  --hn-focus: #2454c9;
+  --hn-scrim: rgba(19, 26, 43, 0.45);
+  --hn-elevation-1: 0 1px 2px rgba(19, 26, 43, 0.1);
+  --hn-elevation-2: 0 4px 12px rgba(19, 26, 43, 0.12);
+  --hn-elevation-3: 0 12px 32px rgba(19, 26, 43, 0.18);
+  --hn-ok-text: #0f5c32;       --hn-ok-tint: #def0e3;
+  --hn-warn-text: #7a4d0b;     --hn-warn-tint: #faeccf;
+  --hn-serious-text: #96351a;  --hn-serious-tint: #fbe3d8;
+  --hn-critical-text: #9c2828; --hn-critical-tint: #fae1e1;
+  --hn-info-text: #1c5cab;     --hn-info-tint: #dfe9f8;
+  --hn-neutral-text: #46554d;  --hn-neutral-tint: #e8ece8;
+}
