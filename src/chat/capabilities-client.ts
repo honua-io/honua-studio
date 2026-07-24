@@ -8,8 +8,8 @@
  * second bearer-attach/response-envelope implementation.
  */
 import type { StudioAiCapabilitiesResponse } from "./ai-contract.js";
-import { ChatTransportError } from "./transport.js";
 import type { TokenSource } from "./sse-transport.js";
+import { ChatTransportError } from "./transport.js";
 
 export interface FetchStudioAiCapabilitiesOptions {
   baseUrl?: string;

@@ -24,16 +24,23 @@ async function runFixtureJourney(page, previewUrl, token) {
   await page.goto(previewUrl);
   await expect(page.getByTestId("studio-chat")).toBeVisible();
 
-  await page.evaluate(() => window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district."));
+  await page.evaluate(() =>
+    window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district."),
+  );
   await expect(page.getByTestId("studio-chat-tool-call")).toContainText("add_layer");
   await expect(page.getByTestId("studio-chat-tool-call")).toHaveAttribute("data-status", "complete");
 
-  await page.evaluate(() => window.__honuaStudioChat.sendMessage("Now add a chart showing the count of parcels by zoning code."));
+  await page.evaluate(() =>
+    window.__honuaStudioChat.sendMessage("Now add a chart showing the count of parcels by zoning code."),
+  );
   const toolCalls = page.getByTestId("studio-chat-tool-call");
   await expect(toolCalls).toHaveCount(2);
   await expect(toolCalls.nth(1)).toContainText("add_chart");
 
-  return page.evaluate(() => document.querySelector("honua-studio-chat").shadowRoot.querySelector('[data-testid="studio-chat-log"]').innerHTML);
+  return page.evaluate(
+    () =>
+      document.querySelector("honua-studio-chat").shadowRoot.querySelector('[data-testid="studio-chat-log"]').innerHTML,
+  );
 }
 
 test.describe("chat console fixture-conversation journey (standalone shell)", () => {
@@ -82,9 +89,7 @@ test.describe("chat console fixture-conversation journey (standalone shell)", ()
         void window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district.");
       });
       await page.evaluate(() => window.__honuaStudioChat.cancel());
-      await expect
-        .poll(() => page.evaluate(() => window.__honuaStudioChat.streaming))
-        .toBe(false);
+      await expect.poll(() => page.evaluate(() => window.__honuaStudioChat.streaming)).toBe(false);
       await expect(page.getByTestId("studio-chat-input")).toBeEnabled();
     } finally {
       await preview.close();

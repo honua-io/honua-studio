@@ -15,10 +15,19 @@ export interface FixtureChatTarget {
 }
 
 /** Plays every turn of `conversation` against `target`, in order, awaiting each assistant turn's completion before sending the next user turn. */
-export async function playFixtureConversation(target: FixtureChatTarget, conversation: FixtureConversation): Promise<void> {
+export async function playFixtureConversation(
+  target: FixtureChatTarget,
+  conversation: FixtureConversation,
+): Promise<void> {
   for (const turn of conversation.turns) {
     for (const seed of turn.user.annotations ?? []) {
-      target.addAnnotation({ id: seed.id, kind: seed.kind, payload: seed.payload, label: seed.label, createdAt: seed.createdAt });
+      target.addAnnotation({
+        id: seed.id,
+        kind: seed.kind,
+        payload: seed.payload,
+        label: seed.label,
+        createdAt: seed.createdAt,
+      });
     }
     await target.sendMessage(turn.user.text);
   }

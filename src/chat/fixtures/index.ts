@@ -5,11 +5,12 @@
  * is the TypeScript-side (bundled) way to reach them.
  */
 import { type FixtureConversation, parseFixtureConversation } from "../fixture-conversation.js";
-import composeDistrictsMapJson from "./compose-districts-map.json";
 import annotateParcelFeatureJson from "./annotate-parcel-feature.json";
+import composeDistrictsMapJson from "./compose-districts-map.json";
 
 export const composeDistrictsMapConversation: FixtureConversation = parseFixtureConversation(composeDistrictsMapJson);
-export const annotateParcelFeatureConversation: FixtureConversation = parseFixtureConversation(annotateParcelFeatureJson);
+export const annotateParcelFeatureConversation: FixtureConversation =
+  parseFixtureConversation(annotateParcelFeatureJson);
 
 export const FIXTURE_CONVERSATIONS: readonly FixtureConversation[] = [
   composeDistrictsMapConversation,

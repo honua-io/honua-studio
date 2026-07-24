@@ -25,7 +25,9 @@ describe("chat/sse-parser", () => {
       const first = parser.push(FRAME.slice(0, splitAt));
       const second = parser.push(FRAME.slice(splitAt));
       const frames = [...first, ...second];
-      expect(frames, `split at ${splitAt}`).toEqual([{ event: "text_delta", data: '{"type":"textDelta","text":"hi"}' }]);
+      expect(frames, `split at ${splitAt}`).toEqual([
+        { event: "text_delta", data: '{"type":"textDelta","text":"hi"}' },
+      ]);
     }
   });
 

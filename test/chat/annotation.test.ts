@@ -51,7 +51,9 @@ describe("chat/annotation", () => {
         ),
       ).toBe("Region [0, 0, 1, 1]");
       expect(
-        annotationChipLabel(createAnnotationRef({ id: "4", kind: "component", payload: { componentId: "C" }, createdAt: "t" })),
+        annotationChipLabel(
+          createAnnotationRef({ id: "4", kind: "component", payload: { componentId: "C" }, createdAt: "t" }),
+        ),
       ).toBe("Component C");
     });
   });
@@ -78,7 +80,12 @@ describe("chat/annotation", () => {
     });
 
     it("is byte-stable across repeated calls with the same input", () => {
-      const a = createAnnotationRef({ id: "a", kind: "component", payload: { componentId: "chart-1" }, createdAt: "t" });
+      const a = createAnnotationRef({
+        id: "a",
+        kind: "component",
+        payload: { componentId: "chart-1" },
+        createdAt: "t",
+      });
       expect(serializeAnnotationsForContext([a])).toBe(serializeAnnotationsForContext([a]));
     });
   });
@@ -91,7 +98,9 @@ describe("chat/annotation", () => {
     it("appends the serialized context block after a blank line when annotations are present", () => {
       const a = createAnnotationRef({ id: "a", kind: "layer", payload: { layerId: "L" }, createdAt: "t" });
       const content = composeMessageContent("What's this?", [a]);
-      expect(content).toBe('What\'s this?\n\nContext (user-selected references):\n- [layer] Layer L :: {"layerId":"L"}');
+      expect(content).toBe(
+        'What\'s this?\n\nContext (user-selected references):\n- [layer] Layer L :: {"layerId":"L"}',
+      );
     });
   });
 });

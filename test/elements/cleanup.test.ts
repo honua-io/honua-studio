@@ -89,6 +89,11 @@ describe("elements cleanup invariants (honua-studio#5: no leaked listeners/obser
   it("honua-studio-chat: the submit listener attached pre-unmount never fires after disconnect, and remount rebuilds a fresh one", () => {
     const el = document.createElement("honua-studio-chat") as HonuaStudioChatElement;
     document.body.appendChild(el);
+    // A no-op stub — this test is about listener/DOM lifecycle, not the AI
+    // turn itself; without an explicit transport the element's default
+    // SseChatTransport would attempt a real (doomed-to-fail) network fetch
+    // per submit, which is just noise here.
+    el.transport = { async *streamChat() {} };
     const messageListener = vi.fn();
     el.addEventListener("honua-studio-chat-message", messageListener);
 

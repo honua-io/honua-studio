@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { InvalidFixtureConversationError, parseFixtureConversation } from "../../src/chat/fixture-conversation.js";
-import {
-  annotateParcelFeatureConversation,
-  composeDistrictsMapConversation,
-} from "../../src/chat/fixtures/index.js";
+import { annotateParcelFeatureConversation, composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
 
 describe("chat/fixture-conversation", () => {
   it("both required fixtures parse and have at least one turn", () => {
@@ -35,12 +32,12 @@ describe("chat/fixture-conversation", () => {
   });
 
   it("rejects a missing/empty id or title", () => {
-    expect(() => parseFixtureConversation({ id: "", title: "t", turns: [{ user: { text: "" }, assistant: { events: [] } }] })).toThrow(
-      InvalidFixtureConversationError,
-    );
-    expect(() => parseFixtureConversation({ id: "i", title: "", turns: [{ user: { text: "" }, assistant: { events: [] } }] })).toThrow(
-      InvalidFixtureConversationError,
-    );
+    expect(() =>
+      parseFixtureConversation({ id: "", title: "t", turns: [{ user: { text: "" }, assistant: { events: [] } }] }),
+    ).toThrow(InvalidFixtureConversationError);
+    expect(() =>
+      parseFixtureConversation({ id: "i", title: "", turns: [{ user: { text: "" }, assistant: { events: [] } }] }),
+    ).toThrow(InvalidFixtureConversationError);
   });
 
   it("rejects an empty turns array", () => {
@@ -52,7 +49,11 @@ describe("chat/fixture-conversation", () => {
       InvalidFixtureConversationError,
     );
     expect(() =>
-      parseFixtureConversation({ id: "i", title: "t", turns: [{ user: { text: "hi" }, assistant: { events: "nope" } }] }),
+      parseFixtureConversation({
+        id: "i",
+        title: "t",
+        turns: [{ user: { text: "hi" }, assistant: { events: "nope" } }],
+      }),
     ).toThrow(InvalidFixtureConversationError);
   });
 

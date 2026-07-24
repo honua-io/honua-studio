@@ -1,3 +1,4 @@
+import type { StudioAiChatEvent, StudioAiStopReason } from "./ai-contract.js";
 /**
  * Pure message-state reducer (honua-studio#6). `<honua-studio-chat>` is a
  * thin renderer over this module's `ChatState` — every state transition is a
@@ -7,7 +8,6 @@
  * Never mutates its input; always returns fresh objects/arrays.
  */
 import type { AnnotationRef } from "./annotation.js";
-import type { StudioAiChatEvent, StudioAiStopReason } from "./ai-contract.js";
 
 export type ChatRole = "user" | "assistant";
 export type ChatMessageStatus = "streaming" | "complete" | "cancelled" | "error";
@@ -46,7 +46,12 @@ export interface ChatState {
 export const initialChatState: ChatState = { messages: [], pendingAnnotations: [], streaming: false };
 
 export type ChatAction =
-  | { readonly type: "user-message-sent"; readonly id: string; readonly text: string; readonly annotations: readonly AnnotationRef[] }
+  | {
+      readonly type: "user-message-sent";
+      readonly id: string;
+      readonly text: string;
+      readonly annotations: readonly AnnotationRef[];
+    }
   | { readonly type: "assistant-turn-started"; readonly id: string }
   | { readonly type: "ai-event"; readonly id: string; readonly event: StudioAiChatEvent }
   | { readonly type: "turn-cancelled"; readonly id: string }
@@ -78,7 +83,12 @@ function applyAiEvent(message: ChatMessage, event: StudioAiChatEvent): ChatMessa
     case "textDelta":
       return { ...message, text: message.text + (event.text ?? "") };
     case "toolCallStart": {
-      const toolCall: ChatToolCall = { id: event.toolCallId ?? "", name: event.toolName ?? "", argumentsText: "", status: "pending" };
+      const toolCall: ChatToolCall = {
+        id: event.toolCallId ?? "",
+        name: event.toolName ?? "",
+        argumentsText: "",
+        status: "pending",
+      };
       return { ...message, toolCalls: [...message.toolCalls, toolCall] };
     }
     case "toolCallDelta":
@@ -101,7 +111,11 @@ function applyAiEvent(message: ChatMessage, event: StudioAiChatEvent): ChatMessa
     case "messageStop":
       return { ...message, status: "complete", stopReason: event.stopReason };
     case "error":
-      return { ...message, status: "error", errorMessage: event.errorMessage ?? "The Studio AI proxy reported an error." };
+      return {
+        ...message,
+        status: "error",
+        errorMessage: event.errorMessage ?? "The Studio AI proxy reported an error.",
+      };
     default:
       return message;
   }

@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createActivityLog } from "../../src/chat/activity-log.js";
 import type { StudioAiChatEvent, StudioAiChatRequest } from "../../src/chat/ai-contract.js";
-import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
-import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
 import { playFixtureConversation } from "../../src/chat/fixture-player.js";
+import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
+import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
 import type { ChatTransport } from "../../src/chat/transport.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
@@ -54,7 +54,12 @@ describe("<honua-studio-chat>", () => {
 
     const addedListener = vi.fn();
     el.addEventListener("honua-studio-chat-annotation-added", addedListener);
-    const annotation = el.addAnnotation({ id: "a1", kind: "layer", payload: { layerId: "hi-parcels" }, createdAt: "t" });
+    const annotation = el.addAnnotation({
+      id: "a1",
+      kind: "layer",
+      payload: { layerId: "hi-parcels" },
+      createdAt: "t",
+    });
 
     expect(addedListener).toHaveBeenCalledTimes(1);
     expect(el.pendingAnnotations).toEqual([annotation]);
@@ -73,7 +78,8 @@ describe("<honua-studio-chat>", () => {
     await el.sendMessage("What zoning applies?");
     expect(transport.lastRequest?.messages[0]).toEqual({
       role: "user",
-      content: 'What zoning applies?\n\nContext (user-selected references):\n- [layer] Layer hi-parcels :: {"layerId":"hi-parcels"}',
+      content:
+        'What zoning applies?\n\nContext (user-selected references):\n- [layer] Layer hi-parcels :: {"layerId":"hi-parcels"}',
     });
     // The rendered user bubble shows the plain text, never the wire-augmented content.
     expect(el.messages[0]?.text).toBe("What zoning applies?");

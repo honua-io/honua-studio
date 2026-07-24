@@ -1,3 +1,4 @@
+import type { StudioAiChatEvent } from "./ai-contract.js";
 /**
  * The scripted-conversation JSON format (honua-studio#6, AD-4 "a no-model
  * fixture-conversation mode exists for CI and staged demos"; NFR-001
@@ -14,7 +15,6 @@
  * for "what the canned conversation says" in every dev/test surface.
  */
 import type { AnnotationKind, AnnotationPayloadOf } from "./annotation.js";
-import type { StudioAiChatEvent } from "./ai-contract.js";
 
 /** A scripted annotation the fixture attaches to a user turn before sending — always carries an explicit `id`/`createdAt` (never generated) so replay is deterministic. */
 export interface FixtureAnnotationSeed<K extends AnnotationKind = AnnotationKind> {
@@ -62,7 +62,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function parseFixtureConversation(value: unknown): FixtureConversation {
   if (!isRecord(value)) throw new InvalidFixtureConversationError("expected a JSON object.");
   const { id, title, turns } = value as Record<string, unknown>;
-  if (typeof id !== "string" || id.length === 0) throw new InvalidFixtureConversationError('"id" must be a non-empty string.');
+  if (typeof id !== "string" || id.length === 0)
+    throw new InvalidFixtureConversationError('"id" must be a non-empty string.');
   if (typeof title !== "string" || title.length === 0) {
     throw new InvalidFixtureConversationError('"title" must be a non-empty string.');
   }

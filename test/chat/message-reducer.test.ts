@@ -71,7 +71,13 @@ describe("chat/message-reducer", () => {
       event: { type: "toolCallStop", toolCallId: "call-1", toolArguments: { a: 1 } },
     });
     toolCall = state.messages[0]?.toolCalls[0];
-    expect(toolCall).toEqual({ id: "call-1", name: "add_layer", argumentsText: '{"a":1}', args: { a: 1 }, status: "complete" });
+    expect(toolCall).toEqual({
+      id: "call-1",
+      name: "add_layer",
+      argumentsText: '{"a":1}',
+      args: { a: 1 },
+      status: "complete",
+    });
   });
 
   it("supports two concurrent-looking tool calls without cross-contamination", () => {
@@ -120,7 +126,11 @@ describe("chat/message-reducer", () => {
 
     // Cancelling an already-complete message is a no-op.
     let complete = chatReducer(initialChatState, { type: "assistant-turn-started", id: "m3" });
-    complete = chatReducer(complete, { type: "ai-event", id: "m3", event: { type: "messageStop", stopReason: "endTurn" } });
+    complete = chatReducer(complete, {
+      type: "ai-event",
+      id: "m3",
+      event: { type: "messageStop", stopReason: "endTurn" },
+    });
     complete = chatReducer(complete, { type: "turn-cancelled", id: "m3" });
     expect(complete.messages[0]?.status).toBe("complete");
   });

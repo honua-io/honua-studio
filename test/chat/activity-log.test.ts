@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  type ActivityLogEntry,
   InvalidActivityLogExportError,
   createActivityLog,
   createReplaySession,
@@ -10,7 +11,12 @@ import {
 describe("chat/activity-log", () => {
   it("append assigns a monotonic 1-based seq and an injectable clock's timestamp", () => {
     let tick = 0;
-    const log = createActivityLog({ clock: () => `t${(tick += 1)}` });
+    const log = createActivityLog({
+      clock: () => {
+        tick += 1;
+        return `t${tick}`;
+      },
+    });
     const first = log.append("user_message_sent", { text: "hi" });
     const second = log.append("annotation_added", { id: "a1" });
     expect(first).toEqual({ seq: 1, type: "user_message_sent", at: "t1", detail: { text: "hi" } });
@@ -70,10 +76,10 @@ describe("chat/activity-log", () => {
 });
 
 describe("chat/activity-log replay session", () => {
-  const entries = [
-    { seq: 1, type: "user_message_sent" as const, at: "t1", detail: {} },
-    { seq: 2, type: "tool_call_started" as const, at: "t2", detail: {} },
-    { seq: 3, type: "tool_call_completed" as const, at: "t3", detail: {} },
+  const entries: ActivityLogEntry[] = [
+    { seq: 1, type: "user_message_sent", at: "t1", detail: {} },
+    { seq: 2, type: "tool_call_started", at: "t2", detail: {} },
+    { seq: 3, type: "tool_call_completed", at: "t3", detail: {} },
   ];
 
   it("steps through entries one at a time in order", () => {

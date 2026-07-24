@@ -27,7 +27,9 @@ test.describe("chat console inside the bare embed harness", () => {
       await page.goto(`${preview.url}/harness/bare/index.html`);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
 
-      await page.getByTestId("studio-chat-input").fill("Add the Hawai'i statewide parcels layer and style it by district.");
+      await page
+        .getByTestId("studio-chat-input")
+        .fill("Add the Hawai'i statewide parcels layer and style it by district.");
       await page.getByTestId("studio-chat-send").click();
 
       await expect(page.getByTestId("studio-chat-tool-call")).toBeVisible({ timeout: 10_000 });

@@ -9,7 +9,7 @@
  */
 import { SSE_EVENT_NAME_TO_TYPE, type StudioAiChatEvent, type StudioAiChatRequest } from "./ai-contract.js";
 import { SseFrameParser } from "./sse-parser.js";
-import { ChatTransportError, type ChatTransport } from "./transport.js";
+import { type ChatTransport, ChatTransportError } from "./transport.js";
 
 /** The minimal token surface this transport depends on — `AuthSession` satisfies this (matches `src/client/studio-client.ts`'s `TokenSource`). */
 export interface TokenSource {

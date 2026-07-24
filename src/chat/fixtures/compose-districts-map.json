@@ -21,7 +21,13 @@
             "toolCallId": "call-1",
             "toolArguments": { "datasetId": "hi-parcels", "styleBy": "district" }
           },
-          { "type": "messageStop", "stopReason": "toolCall", "promptTokens": 128, "completionTokens": 42, "latencyMs": 640 }
+          {
+            "type": "messageStop",
+            "stopReason": "toolCall",
+            "promptTokens": 128,
+            "completionTokens": 42,
+            "latencyMs": 640
+          }
         ]
       }
     },
@@ -45,7 +51,13 @@
             "toolCallId": "call-2",
             "toolArguments": { "datasetId": "hi-parcels", "groupBy": "zoning_code", "chartType": "bar" }
           },
-          { "type": "messageStop", "stopReason": "endTurn", "promptTokens": 156, "completionTokens": 38, "latencyMs": 590 }
+          {
+            "type": "messageStop",
+            "stopReason": "endTurn",
+            "promptTokens": 156,
+            "completionTokens": 38,
+            "latencyMs": 590
+          }
         ]
       }
     }

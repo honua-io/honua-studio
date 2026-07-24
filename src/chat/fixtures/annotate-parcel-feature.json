@@ -31,7 +31,13 @@
             "toolCallId": "call-3",
             "toolArguments": { "layerId": "hi-parcels", "featureId": "TMK-1-2-3-004" }
           },
-          { "type": "messageStop", "stopReason": "toolCall", "promptTokens": 96, "completionTokens": 24, "latencyMs": 410 }
+          {
+            "type": "messageStop",
+            "stopReason": "toolCall",
+            "promptTokens": 96,
+            "completionTokens": 24,
+            "latencyMs": 410
+          }
         ]
       }
     },
@@ -64,7 +70,13 @@
             "toolCallId": "call-4",
             "toolArguments": { "layerId": "hi-parcels", "filter": { "zoning": "AG" } }
           },
-          { "type": "messageStop", "stopReason": "endTurn", "promptTokens": 110, "completionTokens": 30, "latencyMs": 455 }
+          {
+            "type": "messageStop",
+            "stopReason": "endTurn",
+            "promptTokens": 110,
+            "completionTokens": 30,
+            "latencyMs": 455
+          }
         ]
       }
     }

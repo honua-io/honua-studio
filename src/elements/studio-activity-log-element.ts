@@ -38,7 +38,7 @@ export class HonuaStudioActivityLogElement extends HonuaStudioElementBase {
   /** The log this element renders. Defaults to an empty, self-owned `ActivityLog` (an isolated instance, not connected to any chat console) until a host assigns one — see the module doc. */
   public get log(): ActivityLog {
     if (!this.#log) this.log = createActivityLog();
-    // biome-ignore lint/style/noNonNullAssertion: the setter above always assigns #log
+    // The setter above always assigns #log (biome.json disables noNonNullAssertion repo-wide).
     return this.#log!;
   }
 
@@ -147,16 +147,12 @@ export class HonuaStudioActivityLogElement extends HonuaStudioElementBase {
 
     const root = this.shadowRoot;
     const signal = this.connectedSignal;
-    root?.querySelector('[data-testid="studio-activity-log-replay-start"]')?.addEventListener(
-      "click",
-      () => this.startReplay(),
-      { signal },
-    );
-    root?.querySelector('[data-testid="studio-activity-log-replay-next"]')?.addEventListener(
-      "click",
-      () => this.replayNext(),
-      { signal },
-    );
+    root
+      ?.querySelector('[data-testid="studio-activity-log-replay-start"]')
+      ?.addEventListener("click", () => this.startReplay(), { signal });
+    root
+      ?.querySelector('[data-testid="studio-activity-log-replay-next"]')
+      ?.addEventListener("click", () => this.replayNext(), { signal });
   }
 }
 

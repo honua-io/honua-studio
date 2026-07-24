@@ -51,7 +51,9 @@ describe("chat/fixture-transport", () => {
       if (events.length === 2) controller.abort();
     }
     expect(events.length).toBe(2);
-    expect(events.length).toBeLessThan(composeDistrictsMapConversation.turns[0]?.assistant.events.length ?? Infinity);
+    expect(events.length).toBeLessThan(
+      composeDistrictsMapConversation.turns[0]?.assistant.events.length ?? Number.POSITIVE_INFINITY,
+    );
   });
 
   it("never uses a real timer (deterministic microtask-only pacing) — resolves promptly under fake timers", async () => {

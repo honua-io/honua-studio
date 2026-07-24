@@ -23,7 +23,9 @@ describe("<honua-studio-activity-log>", () => {
     expect(el.shadowRoot?.querySelector('[data-testid="studio-activity-log-entries"]')?.textContent).toContain(
       "No activity yet.",
     );
-    expect(el.shadowRoot?.querySelector('[data-testid="studio-activity-log-count"]')?.textContent).toContain("0 entries");
+    expect(el.shadowRoot?.querySelector('[data-testid="studio-activity-log-count"]')?.textContent).toContain(
+      "0 entries",
+    );
   });
 
   it("re-renders reactively when its assigned .log receives an append (subscribe wiring)", () => {

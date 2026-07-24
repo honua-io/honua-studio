@@ -15,7 +15,9 @@ describe("chat/capabilities-client", () => {
   });
 
   it("accepts an un-enveloped body too", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(CAPABILITIES), { status: 200 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify(CAPABILITIES), { status: 200 }),
+    ) as unknown as typeof fetch;
     const result = await fetchStudioAiCapabilities({ baseUrl: "/api", fetchImpl });
     expect(result).toEqual(CAPABILITIES);
   });

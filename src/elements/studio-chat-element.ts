@@ -19,8 +19,8 @@ import {
   type ChatState,
   type ChatTransport,
   type CreateAnnotationInput,
-  type StudioAiChatMessage,
   SseChatTransport,
+  type StudioAiChatMessage,
   annotationChipLabel,
   chatReducer,
   composeMessageContent,
@@ -137,7 +137,11 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     // document, not only as a light-DOM descendant of this element.
     this.listen(window, "honua-studio-annotate", (event) => {
       const detail = (event as CustomEvent<HonuaStudioAnnotateDetail>).detail;
-      if (detail) this.addAnnotation(detail);
+      // `detail.payload` is `unknown` on the wire (an untyped DOM event) —
+      // the caller is responsible for supplying a payload matching `kind`,
+      // exactly like `CreateAnnotationInput` documents for the direct
+      // `.addAnnotation()` call.
+      if (detail) this.addAnnotation(detail as CreateAnnotationInput);
     });
   }
 
@@ -152,7 +156,13 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   public addAnnotation(input: CreateAnnotationInput): AnnotationRef {
     const id = input.id ?? this.#nextAnnotationId();
     const createdAt = input.createdAt ?? new Date().toISOString();
-    const annotation = createAnnotationRef({ id, kind: input.kind, payload: input.payload, label: input.label, createdAt });
+    const annotation = createAnnotationRef({
+      id,
+      kind: input.kind,
+      payload: input.payload,
+      label: input.label,
+      createdAt,
+    });
     this.#state = chatReducer(this.#state, { type: "annotation-added", annotation });
     this.activityLog.append("annotation_added", {
       id: annotation.id,
@@ -188,17 +198,31 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
    * (transport failures surface as a `honua-studio-chat-turn-error` event
    * and an `error`-status message, matching how an in-band `{type:"error"}`
    * event is handled).
+   *
+   * Deliberately does NOT gate on `.streaming` — the composer's own
+   * input/send button are `disabled` while streaming (see `render()`), so
+   * a real user can't trigger overlapping turns through the UI; a caller
+   * that invokes `.sendMessage()` directly (an API/test caller, or a
+   * fixture player) while a turn is already in flight gets a second,
+   * independent turn — `#runAssistantTurn()` is self-contained per call
+   * (its own message id, its own `AbortController`) and `cancel()` always
+   * targets whichever turn is most recently in flight.
    */
   public async sendMessage(text: string): Promise<void> {
     const trimmed = text.trim();
-    if (!trimmed || this.#state.streaming) return;
+    if (!trimmed) return;
 
     const annotations = this.#state.pendingAnnotations;
     const wireContent = composeMessageContent(trimmed, annotations);
     this.#history.push({ role: "user", content: wireContent });
 
     const userMessageId = this.#nextMessageId();
-    this.#state = chatReducer(this.#state, { type: "user-message-sent", id: userMessageId, text: trimmed, annotations });
+    this.#state = chatReducer(this.#state, {
+      type: "user-message-sent",
+      id: userMessageId,
+      text: trimmed,
+      annotations,
+    });
     this.activityLog.append("user_message_sent", { messageId: userMessageId, text: trimmed });
     if (annotations.length > 0) {
       this.activityLog.append("annotations_attached", {
@@ -382,8 +406,11 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
       },
       { signal },
     );
-    root?.querySelector('[data-testid="studio-chat-cancel"]')?.addEventListener("click", () => this.cancel(), { signal });
-    for (const button of root?.querySelectorAll<HTMLButtonElement>('[data-testid="studio-chat-annotation-remove"]') ?? []) {
+    root
+      ?.querySelector('[data-testid="studio-chat-cancel"]')
+      ?.addEventListener("click", () => this.cancel(), { signal });
+    for (const button of root?.querySelectorAll<HTMLButtonElement>('[data-testid="studio-chat-annotation-remove"]') ??
+      []) {
       button.addEventListener(
         "click",
         () => {

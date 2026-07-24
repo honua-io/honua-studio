@@ -19,7 +19,11 @@ function sseBodyStream(chunks: string[]): ReadableStream<Uint8Array> {
   });
 }
 
-function fakeFetch(options: { status?: number; body?: ReadableStream<Uint8Array> | null; captureRequest?: (init: RequestInit, url: string) => void }) {
+function fakeFetch(options: {
+  status?: number;
+  body?: ReadableStream<Uint8Array> | null;
+  captureRequest?: (init: RequestInit, url: string) => void;
+}) {
   return vi.fn(async (url: string, init: RequestInit) => {
     options.captureRequest?.(init, url);
     return new Response(options.body ?? null, { status: options.status ?? 200 });
@@ -37,7 +41,10 @@ describe("chat/sse-transport", () => {
     const controller = new AbortController();
 
     const events: StudioAiChatEvent[] = [];
-    for await (const event of transport.streamChat({ messages: [{ role: "user", content: "hi" }] }, controller.signal)) {
+    for await (const event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      controller.signal,
+    )) {
       events.push(event);
     }
 
@@ -55,7 +62,10 @@ describe("chat/sse-transport", () => {
     const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
 
     const events: StudioAiChatEvent[] = [];
-    for await (const event of transport.streamChat({ messages: [{ role: "user", content: "hi" }] }, new AbortController().signal)) {
+    for await (const event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      new AbortController().signal,
+    )) {
       events.push(event);
     }
     expect(events).toEqual([
@@ -75,7 +85,10 @@ describe("chat/sse-transport", () => {
     const auth = { getAccessToken: vi.fn().mockResolvedValue("token-123") };
     const transport = new SseChatTransport({ baseUrl: "/api", auth, fetchImpl });
 
-    for await (const _event of transport.streamChat({ messages: [{ role: "user", content: "hi" }] }, new AbortController().signal)) {
+    for await (const _event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      new AbortController().signal,
+    )) {
       // drain
     }
     expect(auth.getAccessToken).toHaveBeenCalled();
@@ -104,7 +117,10 @@ describe("chat/sse-transport", () => {
     const fetchImpl = fakeFetch({ status: 500, body: null });
     const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
     await expect(async () => {
-      for await (const _event of transport.streamChat({ messages: [{ role: "user", content: "hi" }] }, new AbortController().signal)) {
+      for await (const _event of transport.streamChat(
+        { messages: [{ role: "user", content: "hi" }] },
+        new AbortController().signal,
+      )) {
         // drain
       }
     }).rejects.toThrow(ChatTransportError);
@@ -120,7 +136,10 @@ describe("chat/sse-transport", () => {
     }) as unknown as typeof fetch;
     const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
     const events: StudioAiChatEvent[] = [];
-    for await (const event of transport.streamChat({ messages: [{ role: "user", content: "hi" }] }, controller.signal)) {
+    for await (const event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      controller.signal,
+    )) {
       events.push(event);
     }
     expect(events).toEqual([]);
@@ -131,7 +150,10 @@ describe("chat/sse-transport", () => {
     const fetchImpl = fakeFetch({ body: sseBodyStream([malformed]) });
     const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
     const events: StudioAiChatEvent[] = [];
-    for await (const event of transport.streamChat({ messages: [{ role: "user", content: "hi" }] }, new AbortController().signal)) {
+    for await (const event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      new AbortController().signal,
+    )) {
       events.push(event);
     }
     expect(events).toEqual([{ type: "error", errorMessage: "Malformed event payload from the Studio AI proxy." }]);
