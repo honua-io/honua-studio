@@ -115,6 +115,7 @@ export function appShellStyles(): string {
     .app-nav a { text-decoration: none; font-size: var(--hn-text-sm, .8125rem); color: var(--hn-ink-secondary, #46554d); }
     .app-nav a:hover { color: var(--hn-accent, #0b6b4d); }
     .app-nav a[aria-current="page"] { color: var(--hn-accent, #0b6b4d); font-weight: 600; }
+    .app-auth { display: flex; align-items: center; gap: var(--hn-space-3, 12px); }
     .app-theme-controls { display: flex; flex-wrap: wrap; gap: var(--hn-space-3, 12px); }
     .theme-group {
       display: flex; gap: var(--hn-space-1, 4px);

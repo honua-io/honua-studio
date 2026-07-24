@@ -3,12 +3,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
-import type { HonuaStudioNavigateDetail, HonuaStudioThemeChangeDetail } from "../../src/elements/types.js";
+import type {
+  HonuaStudioNavigateDetail,
+  HonuaStudioThemeChangeDetail,
+  SessionAdapter,
+} from "../../src/elements/types.js";
 
 registerAllStudioElements();
 
+/**
+ * A trivial `SessionAdapter` fixture — assigning it BEFORE `appendChild`
+ * puts the element in host-adapter auth mode (synchronous, no OIDC
+ * discovery fetch), so these element-contract tests never depend on network
+ * access or race an unawaited standalone `OidcAuthSession` discovery
+ * promise (honua-studio#4 owns testing the OIDC path itself — see
+ * test/auth/*.test.ts).
+ */
+function fixtureSession(): SessionAdapter {
+  return {
+    getToken: async () => "fixture-token",
+    onExpired: () => () => {},
+  };
+}
+
 function mount(attrs: Record<string, string> = {}): HonuaStudioAppElement {
   const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  app.session = fixtureSession();
   for (const [name, value] of Object.entries(attrs)) app.setAttribute(name, value);
   document.body.appendChild(app);
   return app;
@@ -127,5 +147,67 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     document.body.removeChild(app);
     expect(removeSpy).toHaveBeenCalledWith("hashchange", expect.any(Function));
     removeSpy.mockRestore();
+  });
+
+  describe("auth integration (honua-studio#4/#5 reconciliation)", () => {
+    it("host-adapter mode (.session set): renders a status label but NO sign-in/out controls (REQ-003)", async () => {
+      const app = mount(); // mount() injects a fixture SessionAdapter — host-adapter mode.
+      // The fixture's fake token resolves synchronously-ish; flush microtasks.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(app.auth.mode).toBe("host-adapter");
+      expect(app.shadowRoot?.querySelector('[data-testid="auth-signin"]')).toBeNull();
+      expect(app.shadowRoot?.querySelector('[data-testid="auth-signout"]')).toBeNull();
+      const status = app.shadowRoot?.querySelector('[data-testid="auth-status"]');
+      expect(status?.textContent).toBe("Signed in");
+    });
+
+    it("standalone mode (no .session, no window host adapter): renders sign-in/out controls", () => {
+      // A resolving (not rejecting) discovery fetch — OidcAuthSession's own
+      // discovery/refresh flow is honua-studio#4's to test
+      // (test/auth/oidc-session.test.ts); this only needs `auth.mode` to
+      // read "standalone" synchronously, which doesn't require discovery to
+      // actually finish.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({
+            authorization_endpoint: "https://issuer.example/authorize",
+            token_endpoint: "https://issuer.example/token",
+          }),
+        })),
+      );
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      document.body.appendChild(app);
+
+      expect(app.auth.mode).toBe("standalone");
+      expect(app.shadowRoot?.querySelector('[data-testid="auth-signin"]')).not.toBeNull();
+      expect(app.shadowRoot?.querySelector('[data-testid="auth-signout"]')).not.toBeNull();
+      expect(app.shadowRoot?.querySelector('[data-testid="auth-status"]')?.textContent).toBe("Signed out");
+    });
+
+    it(".session assigned after connection tears down and rebuilds .auth", async () => {
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({
+            authorization_endpoint: "https://issuer.example/authorize",
+            token_endpoint: "https://issuer.example/token",
+          }),
+        })),
+      );
+      document.body.appendChild(app);
+      expect(app.auth.mode).toBe("standalone");
+
+      app.session = fixtureSession();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(app.auth.mode).toBe("host-adapter");
+      // Standalone's sign-in/out controls are gone now that the shell knows it's embedded.
+      expect(app.shadowRoot?.querySelector('[data-testid="auth-signin"]')).toBeNull();
+    });
   });
 });

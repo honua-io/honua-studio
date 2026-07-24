@@ -39,7 +39,7 @@ test.describe("Blazor Web App test host (harness/blazor-host) @blazor", () => {
     await page.goto(`${host.url}/studio`);
     await expect(page.getByTestId("studio-host")).toBeVisible();
     await expect(page.getByTestId("app-shell")).toBeVisible();
-    await expect(page.getByTestId("studio-chat-session-status")).toHaveText("authenticated");
+    await expect(page.getByTestId("studio-chat-session-status")).toHaveText("Signed in");
     const mountCount = await page.evaluate(() => window.__honuaStudioMountCount);
     expect(mountCount).toBe(1);
   });
@@ -75,7 +75,7 @@ test.describe("Blazor Web App test host (harness/blazor-host) @blazor", () => {
 
     // The new instance is fully configured, not a bare shell: session
     // re-injected, current route re-derived from the URL Blazor settled on.
-    await expect(page.getByTestId("studio-chat-session-status")).toHaveText("authenticated");
+    await expect(page.getByTestId("studio-chat-session-status")).toHaveText("Signed in");
   });
 
   test("hazard 2 — render-mode re-instantiation (conditional interactive-server rendering) never leaks or double-registers", async ({

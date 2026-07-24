@@ -10,7 +10,7 @@
  */
 import { expect, test } from "@playwright/test";
 
-import { startMockServer } from "../../mock-server.mjs";
+import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 
 test.describe("bare embed harness (harness/bare)", () => {
@@ -20,6 +20,17 @@ test.describe("bare embed harness (harness/bare)", () => {
     const mock = await startMockServer();
     const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
     try {
+      // A real, signed mock-issuer token — the mock honua-server's
+      // catalog/packages endpoints validate it (honua-studio#4). Set before
+      // navigation so harness/bare/mount.ts's module script (which runs as
+      // soon as the page parses) sees it when constructing the fixture
+      // session assigned to <honua-studio-app>.session — the PRIMARY embed
+      // injection path (docs/embed-session.md), not the window-global
+      // fallback #4's own host-adapter-boot.spec.mjs exercises.
+      await page.addInitScript((token) => {
+        window.__honuaStudioFixtureToken = token;
+      }, mintFixtureAccessToken());
+
       await page.goto(`${preview.url}/harness/bare/index.html`);
 
       // The host page around the element is real and untouched by Studio.
@@ -28,12 +39,13 @@ test.describe("bare embed harness (harness/bare)", () => {
 
       // The element itself, mounted purely through the public contract.
       await expect(page.getByTestId("app-shell")).toBeVisible();
+      await expect(page.getByTestId("catalog-error")).toHaveCount(0);
       await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
       await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");
 
       // Default composition: chat + canvas placeholders are present and session-aware.
       await expect(page.getByTestId("studio-chat")).toBeVisible();
-      await expect(page.getByTestId("studio-chat-session-status")).toHaveText("authenticated");
+      await expect(page.getByTestId("studio-chat-session-status")).toHaveText("Signed in");
       await expect(page.getByTestId("studio-canvas")).toBeVisible();
 
       // Same navigation journey as the standalone shell (boot-mock.spec.mjs).
@@ -66,6 +78,9 @@ test.describe("bare embed harness (harness/bare)", () => {
     const mock = await startMockServer();
     const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
     try {
+      await page.addInitScript((token) => {
+        window.__honuaStudioFixtureToken = token;
+      }, mintFixtureAccessToken());
       await page.goto(`${preview.url}/harness/bare/index.html`);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
 

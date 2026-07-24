@@ -6,9 +6,19 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 // Resolved once per vite invocation (dev / dev:live / build / preview each
 // spawn a fresh process). Neither dev mode bakes this URL into client code —
-// the bundle always calls the relative /api/* paths in
-// src/client/studio-client.ts; only the server-side proxy target changes.
-// See scripts/dev-mock.mjs (fixture mode) and README.md (live mode).
+// the bundle always calls the relative /api/* and /oidc/* paths in
+// src/client/studio-client.ts and src/auth/config.ts; only the server-side
+// proxy target changes. See scripts/dev-mock.mjs (fixture mode) and
+// README.md (live mode).
+//
+// /oidc is a *discovery-bootstrap* convenience, not the whole OIDC surface:
+// the mock issuer's discovery document (honua-studio#4) returns absolute
+// authorize/token/revoke URLs on its own origin, so only the initial
+// `.well-known/openid-configuration` fetch actually needs this proxy entry.
+// A real deployment's external IdP is reached directly via an absolute
+// HONUA_OIDC_ISSUER baked in at build time (see src/auth/config.ts) — /oidc
+// here exists purely so `npm run dev` / the Playwright fixture builds can
+// swap issuers per run without rebaking the bundle, exactly like /api.
 const honuaBaseUrl = process.env.HONUA_BASE_URL;
 
 export default defineConfig(({ mode }) => {
@@ -25,6 +35,10 @@ export default defineConfig(({ mode }) => {
           target: honuaBaseUrl,
           changeOrigin: true,
           rewrite: (requestPath: string) => requestPath.replace(/^\/api/, ""),
+        },
+        "/oidc": {
+          target: honuaBaseUrl,
+          changeOrigin: true,
         },
       }
     : undefined;

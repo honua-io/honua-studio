@@ -9,6 +9,13 @@
  * docs/element-contract.md — that's the whole point of REQ-002 ("no
  * privileged internal APIs").
  *
+ * Session bootstrap (honua-studio#4 REQ-001/003) — resolving standalone
+ * OIDC vs. an embed host adapter, and completing an OIDC redirect callback
+ * — is NOT done here: it's entirely `HonuaStudioAppElement`'s own job (see
+ * its `onConnect`), so every host gets it for free through the public
+ * contract, not just this shell. This file never constructs an
+ * `AuthSession` itself.
+ *
  * The only extra thing the standalone shell does beyond a bare embed is
  * theme the page chrome AROUND the element (the `<body>` background) to
  * match — a host-level concern, done entirely by listening for the

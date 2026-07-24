@@ -9,12 +9,13 @@
  * document.body.append(document.createElement("honua-studio-app"));
  * ```
  */
+export { AUTH_STATUS_LABELS } from "./auth-status.js";
 export { HonuaStudioElementBase } from "./base-element.js";
 export { HonuaStudioAppElement } from "./studio-app-element.js";
 export { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 export { HonuaStudioChatElement } from "./studio-chat-element.js";
-export { resolveInjectedSession } from "./session.js";
-export type { HasOptionalSession } from "./session.js";
+export { resolveInjectedAuth } from "./session.js";
+export type { HasOptionalAuth } from "./session.js";
 export {
   HonuaStudioElementRegistryError,
   STUDIO_ELEMENT_TAGS,
@@ -23,6 +24,9 @@ export {
   registerStudioElement,
 } from "./registry.js";
 export type {
+  AuthSession,
+  AuthState,
+  AuthStatus,
   HonuaStudioCanvasResizeDetail,
   HonuaStudioChatMessageDetail,
   HonuaStudioComponentRegistry,
@@ -30,11 +34,10 @@ export type {
   HonuaStudioNavigateDetail,
   HonuaStudioReadyDetail,
   HonuaStudioRoutingMode,
-  HonuaStudioSessionAdapter,
   HonuaStudioSessionRequiredDetail,
-  HonuaStudioSessionSnapshot,
   HonuaStudioThemeChangeDetail,
   HonuaStudioThemeSwitcherVisibility,
+  SessionAdapter,
   ThemeMode,
   ThemeSet,
 } from "./types.js";

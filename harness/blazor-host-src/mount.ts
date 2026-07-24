@@ -38,6 +38,8 @@ declare global {
     // leak assertion only — reads the class's own static instance counter,
     // never mutates it. Not part of the element contract.
     HonuaStudioCanvasElement?: typeof HonuaStudioCanvasElement;
+    /** A real, signed mock-issuer access token (`mintFixtureAccessToken()`) set by test/playwright/blazor-host.spec.mjs via `page.addInitScript` — the mock honua-server's catalog/packages endpoints validate it. */
+    __honuaStudioFixtureToken?: string;
   }
 }
 
@@ -81,7 +83,7 @@ function mount(): void {
   app.routingMode = "host";
   app.setAttribute("base-path", BASE_PATH);
   app.setAttribute("current-path", window.location.pathname);
-  app.session = createFixtureSession();
+  app.session = createFixtureSession(window.__honuaStudioFixtureToken);
   // A debug marker only this test host reads (test/playwright/blazor-host.spec.mjs)
   // to prove DOM node identity survives enhanced nav — not part of the element contract.
   (app as unknown as { dataset: DOMStringMap }).dataset.mountToken = String(window.__honuaStudioMountCount);

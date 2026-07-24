@@ -8,14 +8,13 @@
  *
  *  - typed attributes/properties (this module + each element module),
  *  - typed `CustomEvent` detail shapes (this module),
- *  - session injection via {@link HonuaStudioSessionAdapter} — see
- *    docs/embed-session.md, the host-session adapter coordination note for
- *    honua-studio#4. That issue's branch has not merged as of honua-studio#5,
- *    so the interface is defined here first, identically to what #4's own
- *    doc commits to shipping.
- *    TODO(honua-studio#4): once #4 lands its own session module, re-export
- *    that module's type from here (or delete this copy in favor of an
- *    import) so there is exactly one `HonuaStudioSessionAdapter` definition.
+ *  - session injection via {@link SessionAdapter} (re-exported here from
+ *    `../auth/types.js`, honua-studio#4's session module — that issue merged
+ *    ahead of this one, so the interface lives there now; this module used
+ *    to define its own near-identical `HonuaStudioSessionAdapter` as a
+ *    coordination placeholder, since deleted in favor of this re-export, so
+ *    there's exactly one adapter type, not two that could drift apart). See
+ *    docs/embed-session.md for the full contract.
  *  - theming via the existing `data-theme-set` / `data-theme` token
  *    attributes (src/theme/tokens.css, theme-standalone.css,
  *    theme-console.css — unchanged by this issue) applied to the element
@@ -29,9 +28,12 @@
  * @module
  */
 
+import type { AuthSession, AuthState, AuthStatus, SessionAdapter } from "../auth/types.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 
 export type { ThemeMode, ThemeSet };
+/** Re-exported from `../auth/types.js` (honua-studio#4) — the one session contract every Studio element uses. See docs/embed-session.md. */
+export type { AuthSession, AuthState, AuthStatus, SessionAdapter };
 
 /**
  * Who owns the browser URL:
@@ -50,40 +52,6 @@ export type HonuaStudioRoutingMode = "hash" | "host";
 
 /** Whether `<honua-studio-app>` renders its own theme-set/mode switcher chrome. */
 export type HonuaStudioThemeSwitcherVisibility = "visible" | "hidden";
-
-/**
- * A snapshot of the host-provided session's authentication state. Read-only
- * from the element's point of view — Studio elements never mutate auth
- * state, they only render it and react to `onChange`.
- */
-export interface HonuaStudioSessionSnapshot {
-  readonly status: "anonymous" | "authenticated" | "expired";
-  /** Opaque subject/user identifier for display only — never an authz decision input inside the element. */
-  readonly subject?: string;
-  readonly expiresAt?: string;
-}
-
-/**
- * The host-session adapter interface (honua-studio#4 coordination point;
- * see docs/embed-session.md). A host — the standalone bootstrap itself, the
- * bare embed harness fixture, the Blazor test host, or eventually
- * honua-console — constructs one of these and assigns it to
- * `<honua-studio-app>.session` (or any standalone surface element's
- * `.session` property) before or after the element connects. Elements never
- * construct their own adapter and never initiate a login flow themselves
- * (that responsibility stays entirely with the host, per honua-studio#4
- * REQ-003).
- */
-export interface HonuaStudioSessionAdapter {
-  /** The honua-server base URL this session's SDK clients should target. */
-  readonly baseUrl: string;
-  /** Synchronous read of the current auth state. */
-  getSnapshot(): HonuaStudioSessionSnapshot;
-  /** Resolves the current bearer token, or `undefined` when anonymous/expired. May trigger a silent refresh. */
-  getAccessToken(): Promise<string | undefined>;
-  /** Subscribes to session changes (login, logout, refresh, expiry). Returns an unsubscribe handle. */
-  onChange(listener: (snapshot: HonuaStudioSessionSnapshot) => void): { remove(): void };
-}
 
 /** `honua-studio-ready` — dispatched once after an element's first successful render. */
 export interface HonuaStudioReadyDetail {
@@ -109,7 +77,7 @@ export interface HonuaStudioThemeChangeDetail {
   readonly mode: ThemeMode;
 }
 
-/** `honua-studio-session-required` — dispatched when an element needs a session but `.session` is still unset once connected. */
+/** `honua-studio-session-required` — dispatched by a standalone placeholder element (`<honua-studio-chat>` / `<honua-studio-canvas>` used without a `<honua-studio-app>` ancestor) that has no `.auth` of its own to inherit or fall back to once connected. */
 export interface HonuaStudioSessionRequiredDetail {
   readonly reason: string;
 }

@@ -2,24 +2,39 @@
  * `<honua-studio-app>` — the full Studio shell (honua-studio#5 REQ-001/002).
  *
  * The standalone shell (src/main.ts) is now exactly this element mounted by
- * a thin bootstrap: header chrome (brand, nav, optional theme switcher) plus
- * a routed `#view` outlet, plus a persistent composition area slotting in
- * `<honua-studio-chat>` and `<honua-studio-canvas>`. See
- * docs/element-contract.md for the full attribute/property/event contract;
- * this file is the implementation, not a second copy of that doc.
+ * a thin bootstrap: header chrome (brand, nav, session/auth controls,
+ * optional theme switcher) plus a routed `#view` outlet, plus a persistent
+ * composition area slotting in `<honua-studio-chat>` and
+ * `<honua-studio-canvas>`. See docs/element-contract.md for the full
+ * attribute/property/event contract and docs/embed-session.md for the
+ * session contract this element drives; this file is the implementation,
+ * not a second copy of either doc.
+ *
+ * Session/auth (honua-studio#4 REQ-001/003, reconciled here after #4 merged
+ * ahead of this branch): `.session` is the embed injection surface — an
+ * optional host-provided `SessionAdapter` (`../auth/types.js`), the SAME
+ * type `window.__HONUA_STUDIO_HOST_SESSION__` already used, just promoted
+ * to the primary path (see docs/embed-session.md). Internally this element
+ * always resolves a full `AuthSession` via `createAuthSession()` — standalone
+ * OIDC when no adapter is present (property or window global), a
+ * `HostAdapterAuthSession` wrapping the adapter otherwise — and that's what
+ * drives the auth-status label, the standalone sign-in/out controls (never
+ * rendered in host-adapter mode — REQ-003), and gates the catalog/packages
+ * fetch in `../pages/home.js`.
  */
+import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import { StudioClient } from "../client/studio-client.js";
 import { renderAbout } from "../pages/about.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
+import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioNavigateDetail,
   HonuaStudioRoutingMode,
-  HonuaStudioSessionAdapter,
   HonuaStudioThemeChangeDetail,
   HonuaStudioThemeSwitcherVisibility,
 } from "./types.js";
@@ -28,11 +43,16 @@ interface StudioRoute {
   path: string;
   navTestId: string;
   label: string;
-  render: (root: HTMLElement, client: StudioClient) => void;
+  render: (root: HTMLElement, client: StudioClient, auth: AuthSession) => void;
 }
 
 const ROUTES: readonly StudioRoute[] = [
-  { path: "/", navTestId: "nav-home", label: "Home", render: (root, client) => renderHome(root, client) },
+  {
+    path: "/",
+    navTestId: "nav-home",
+    label: "Home",
+    render: (root, client, auth) => renderHome(root, client, auth),
+  },
   { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
 ];
 
@@ -62,40 +82,82 @@ function withBasePath(path: string, basePath: string | null): string {
   return path === "/" ? trimmedBase || "/" : `${trimmedBase}${path}`;
 }
 
+/** `AuthSession` implementations that own an external subscription (`HostAdapterAuthSession`) expose `dispose()`; `OidcAuthSession` doesn't need one. Duck-typed so this element never imports the concrete classes. */
+function disposeAuthSession(auth: AuthSession | undefined): void {
+  (auth as (AuthSession & { dispose?: () => void }) | undefined)?.dispose?.();
+}
+
 export class HonuaStudioAppElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["data-theme-set", "data-theme", "routing-mode", "current-path", "base-path", "theme-switcher"];
   }
 
-  #session: HonuaStudioSessionAdapter | undefined;
-  #sessionUnsubscribe: { remove(): void } | undefined;
+  #session: SessionAdapter | undefined;
+  #auth: AuthSession | undefined;
+  #authUnsubscribe: (() => void) | undefined;
+  #redirectCallbackHandled = false;
   #studioClient: StudioClient | undefined;
+  #studioClientOverridden = false;
   #themeLoader: ThemeLoader | undefined;
   #hashRouter: Router | undefined;
   #currentPath = "/";
   #chromeBuilt = false;
 
-  /** Host-injected session adapter. See docs/embed-session.md. Unset means anonymous/fixture mode. */
-  public get session(): HonuaStudioSessionAdapter | undefined {
+  /**
+   * Host-injected session adapter — the primary embed injection path
+   * (docs/embed-session.md). `getToken()`/`onExpired()`, matching
+   * `window.__HONUA_STUDIO_HOST_SESSION__`'s documented fallback shape
+   * exactly (honua-studio#4 REQ-003) — a host may use either, never both.
+   * Unset means: use the window global if present, else run standalone
+   * OIDC. Assigning this after the element is already connected tears down
+   * and rebuilds `.auth` (and disposes the previous session cleanly).
+   */
+  public get session(): SessionAdapter | undefined {
     return this.#session;
   }
 
-  public set session(session: HonuaStudioSessionAdapter | undefined) {
+  public set session(session: SessionAdapter | undefined) {
     if (this.#session === session) return;
-    this.#sessionUnsubscribe?.remove();
     this.#session = session;
-    this.#sessionUnsubscribe = session?.onChange(() => this.renderView());
+    if (!this.isConnected) return;
+    this.resetAuth();
+    // auth.mode may have just changed (standalone <-> host-adapter), and
+    // the chrome's sign-in/out button markup depends on that — a
+    // paintAuthControls()-only refresh (what auth.subscribe's listener
+    // already triggers on every dispatch) only toggles [hidden] on existing
+    // buttons, it can't add/remove them. Force a full chrome rebuild so a
+    // `.session` reassignment after connection — a capability #4's original
+    // app.ts never needed, since it built one fixed AuthSession per app
+    // lifetime — is actually correct, not just "usually fine because nobody
+    // does this". Also re-render the route content ONCE so it picks up the
+    // new `.auth` (route render functions receive `auth` as a fresh
+    // argument, not a live binding) — deliberately NOT done from inside
+    // auth.subscribe's own listener below; see that listener's comment.
+    this.#chromeBuilt = false;
+    this.renderChrome();
     this.renderView();
   }
 
-  /** The `StudioClient` powering the catalog/packages view. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
+  /**
+   * The resolved, live `AuthSession` this element (and, through
+   * `src/elements/session.ts`'s `resolveInjectedAuth`, every descendant
+   * placeholder) actually drives its UI from — standalone OIDC or a
+   * `HostAdapterAuthSession` wrapping `.session`, decided by
+   * `createAuthSession()`. Read-only; constructed lazily.
+   */
+  public get auth(): AuthSession {
+    return this.#auth ?? this.resetAuth();
+  }
+
+  /** The `StudioClient` powering the catalog/packages view — bearer-attached via `.auth`. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
   public get studioClient(): StudioClient {
-    if (!this.#studioClient) this.#studioClient = new StudioClient();
+    if (!this.#studioClient) this.#studioClient = new StudioClient("/api", this.auth);
     return this.#studioClient;
   }
 
   public set studioClient(client: StudioClient) {
     this.#studioClient = client;
+    this.#studioClientOverridden = true;
     this.renderView();
   }
 
@@ -169,7 +231,67 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#themeLoader;
   }
 
+  /** (Re)builds `.auth` from the current `.session`, disposing whatever was there before. Always leaves `#auth` set; returns it. */
+  private resetAuth(): AuthSession {
+    this.#authUnsubscribe?.();
+    this.#authUnsubscribe = undefined;
+    disposeAuthSession(this.#auth);
+    if (!this.#studioClientOverridden) this.#studioClient = undefined;
+
+    const auth = createAuthSession({ hostAdapter: this.#session });
+    this.#auth = auth;
+    // honua-studio#5 finding: paintAuthControls() ONLY here — never
+    // renderView(). AuthSession implementations dispatch a state change on
+    // EVERY getAccessToken() call, even when the token is unchanged
+    // (HostAdapterAuthSession.getAccessToken() unconditionally re-dispatches
+    // "credential-issued" — see src/auth/host-session.ts). renderView()
+    // re-invokes the current route's render function, and the home route
+    // (../pages/home.js) calls client.listCatalog()/listPackages(), each of
+    // which calls auth.getAccessToken() to attach a bearer header — which
+    // dispatches again — which (had this listener also called renderView())
+    // would re-invoke the route render, re-fetch, re-dispatch, forever: a
+    // tight synchronous-enough loop that hung page load solid in testing,
+    // with no thrown error to surface it. The route-level view already
+    // manages its OWN reactivity to auth changes via its own independent
+    // `auth.subscribe()` (renderHome's `onAuthState`, unsubscribing itself
+    // once its own DOM is replaced) — this top-level listener's only job is
+    // the header's status label / sign-in-out button visibility.
+    this.#authUnsubscribe = auth.subscribe(() => {
+      this.paintAuthControls();
+    });
+    if (this.isConnected) void this.completeStandaloneRedirectCallback(auth);
+    return auth;
+  }
+
+  /**
+   * Completes an OIDC Authorization Code redirect back to this page
+   * (honua-studio#4 REQ-001), ported from #4's src/main.ts into the element
+   * itself so every host gets it, not just the standalone shell's own
+   * bootstrap — "no privileged internal APIs" (REQ-002) cuts both ways:
+   * nothing in main.ts does anything the element can't do for itself.
+   * No-op outside standalone mode or when the URL isn't a redirect
+   * callback; runs at most once per connection.
+   */
+  private async completeStandaloneRedirectCallback(auth: AuthSession): Promise<void> {
+    if (this.#redirectCallbackHandled) return;
+    if (auth.mode !== "standalone" || !auth.isRedirectCallback()) return;
+    this.#redirectCallbackHandled = true;
+    try {
+      await auth.handleRedirectCallback();
+    } catch {
+      // The state machine already reflects the failure (auth.subscribe's
+      // listener repaints "expired"); the shell still needs to work so the
+      // user can retry sign-in.
+    }
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+  }
+
   protected onConnect(signal: AbortSignal): void {
+    // Auth must resolve before the FIRST renderChrome() build below — the
+    // shell's markup depends on `auth.mode` (host-adapter mode renders no
+    // sign-in/out controls at all, REQ-003) and its initial status label.
+    this.resetAuth();
+
     // Chrome (and its #view outlet) must exist before the hash router below
     // can bind to it — render() (chrome + view) otherwise only runs AFTER
     // onConnect returns. renderChrome() is idempotent, so the base class's
@@ -193,7 +315,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           path: route.path,
           render: (root) => {
             this.#currentPath = route.path;
-            route.render(root, this.studioClient);
+            route.render(root, this.studioClient, this.auth);
             this.syncNavCurrent();
           },
         })),
@@ -201,7 +323,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           path: "*",
           render: (root) => {
             this.#currentPath = "/";
-            ROUTES[0]?.render(root, this.studioClient);
+            ROUTES[0]?.render(root, this.studioClient, this.auth);
             this.syncNavCurrent();
           },
         },
@@ -232,8 +354,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   protected onDisconnect(): void {
     this.#hashRouter?.stop();
     this.#hashRouter = undefined;
-    this.#sessionUnsubscribe?.remove();
-    this.#sessionUnsubscribe = undefined;
+    this.#authUnsubscribe?.();
+    this.#authUnsubscribe = undefined;
+    disposeAuthSession(this.#auth);
+    this.#auth = undefined;
     this.#themeLoader = undefined;
     this.#chromeBuilt = false;
   }
@@ -288,9 +412,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#chromeBuilt && this.shadowRoot?.querySelector(".app-shell")) {
       this.syncThemeControls();
       this.syncNavCurrent();
+      this.paintAuthControls();
       return;
     }
     const switcherHidden = this.themeSwitcherVisibility === "hidden";
+    // REQ-003: the embed host owns sign-in/out, so Studio never renders
+    // interactive auth controls in host-adapter mode — only a status label.
+    const authControlsMarkup =
+      this.auth.mode === "standalone"
+        ? `<button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signin" hidden>Sign in</button>
+           <button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signout" hidden>Sign out</button>`
+        : "";
     this.setShadowHtml(`
       <style>${baseElementStyles()}${appShellStyles()}</style>
       <div class="app-shell" data-testid="app-shell">
@@ -305,6 +437,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
                 `<a href="#${route.path}" data-path="${route.path}" data-testid="${route.navTestId}">${route.label}</a>`,
             ).join("")}
           </nav>
+          <div class="app-auth" data-testid="auth-controls" role="group" aria-label="Session">
+            <span class="hn-muted" data-testid="auth-status"></span>
+            ${authControlsMarkup}
+          </div>
           <div class="app-theme-controls" data-testid="theme-controls" ${switcherHidden ? "hidden" : ""}>
             <div class="theme-group" role="group" aria-label="Theme set">
               ${THEME_SETS.map(
@@ -329,8 +465,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     `);
     this.#chromeBuilt = true;
 
+    const root = this.shadowRoot;
     const signal = this.connectedSignal;
-    for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-theme-set-option]") ?? []) {
+    for (const button of root?.querySelectorAll<HTMLButtonElement>("[data-theme-set-option]") ?? []) {
       button.addEventListener(
         "click",
         () => {
@@ -339,7 +476,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         { signal },
       );
     }
-    for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-theme-mode-option]") ?? []) {
+    for (const button of root?.querySelectorAll<HTMLButtonElement>("[data-theme-mode-option]") ?? []) {
       button.addEventListener(
         "click",
         () => {
@@ -348,7 +485,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         { signal },
       );
     }
-    for (const link of this.shadowRoot?.querySelectorAll<HTMLAnchorElement>("[data-path]") ?? []) {
+    for (const link of root?.querySelectorAll<HTMLAnchorElement>("[data-path]") ?? []) {
       link.addEventListener(
         "click",
         (event) => {
@@ -368,8 +505,24 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         { signal },
       );
     }
+    root?.querySelector('[data-testid="auth-signin"]')?.addEventListener(
+      "click",
+      () => {
+        void this.auth.signIn();
+      },
+      { signal },
+    );
+    root?.querySelector('[data-testid="auth-signout"]')?.addEventListener(
+      "click",
+      () => {
+        void this.auth.signOut();
+      },
+      { signal },
+    );
+
     this.syncThemeControls();
     this.syncNavCurrent();
+    this.paintAuthControls();
   }
 
   private syncThemeControls(): void {
@@ -394,19 +547,23 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     }
   }
 
+  private paintAuthControls(): void {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const state = this.#auth?.getState() ?? { status: "signed-out" as const };
+    const statusEl = root.querySelector<HTMLElement>('[data-testid="auth-status"]');
+    if (statusEl) statusEl.textContent = AUTH_STATUS_LABELS[state.status];
+    const signInButton = root.querySelector<HTMLButtonElement>('[data-testid="auth-signin"]');
+    const signOutButton = root.querySelector<HTMLButtonElement>('[data-testid="auth-signout"]');
+    const signedIn = state.status === "fresh" || state.status === "refreshing";
+    if (signInButton) signInButton.hidden = signedIn;
+    if (signOutButton) signOutButton.hidden = !signedIn;
+  }
+
   private renderView(): void {
     if (!this.shadowRoot?.querySelector("#view")) return;
-    if (this.routingMode === "host") {
-      const route = ROUTES.find((candidate) => candidate.path === this.#currentPath) ?? ROUTES[0];
-      route?.render(this.viewRoot(), this.studioClient);
-      this.syncNavCurrent();
-      return;
-    }
-    // Hash mode: the Router already renders on hashchange / start(); this
-    // covers session/studioClient changes that should refresh the current
-    // route's content without a navigation.
     const route = ROUTES.find((candidate) => candidate.path === this.#currentPath) ?? ROUTES[0];
-    route?.render(this.viewRoot(), this.studioClient);
+    route?.render(this.viewRoot(), this.studioClient, this.auth);
     this.syncNavCurrent();
   }
 }

@@ -64,6 +64,36 @@ Point the dev server at a real server instead:
 HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 ```
 
+### Authentication (honua-studio#4)
+
+Studio signs in to honua-server with OIDC Authorization Code + PKCE for a
+public client — never a client secret, and tokens live in memory only (no
+localStorage/sessionStorage persistence of credentials; see `src/auth/` and
+[`docs/embed-session.md`](docs/embed-session.md)). `npm run dev` needs
+nothing extra: `mock-server.mjs` also plays a fake OIDC issuer with an
+auto-approving fixture user, so clicking "Sign in" completes instantly with
+no login form.
+
+Against a real deployment, point Studio at your operator's actual external
+IdP (the same `Authority` honua-server itself validates bearer tokens
+against — see honua-server's `docs/guides/secure/authentication.md`):
+
+```bash
+HONUA_BASE_URL=http://localhost:8080 \
+HONUA_OIDC_ISSUER=https://idp.example.com/realms/honua \
+HONUA_OIDC_CLIENT_ID=honua-studio \
+npm run dev:live
+```
+
+`HONUA_OIDC_ISSUER`/`HONUA_OIDC_CLIENT_ID` are baked into the client bundle
+at build time (unlike `HONUA_BASE_URL`, which only ever configures the dev
+proxy) — set them before `npm run build` for a production deployment, too.
+
+Embedded inside another shell (honua-console's `/studio`, or any
+third-party host), Studio never runs its own OIDC flow — the host hands off
+an existing session instead. See
+[`docs/embed-session.md`](docs/embed-session.md) for the full contract.
+
 Other commands:
 
 | Command | Purpose |

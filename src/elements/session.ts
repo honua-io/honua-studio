@@ -1,15 +1,18 @@
-import type { HonuaStudioSessionAdapter } from "./types.js";
+import type { AuthSession } from "./types.js";
 
-/** Any element exposing an (optionally unset) `.session` property — every `honua-studio-*` element. */
-export interface HasOptionalSession {
-  session?: HonuaStudioSessionAdapter;
+/** Any element exposing an (optionally unset) `.auth` property — every `honua-studio-*` element. */
+export interface HasOptionalAuth {
+  auth?: AuthSession;
 }
 
 /**
- * Resolves the effective session for a placeholder surface element:
+ * Resolves the effective `AuthSession` for a placeholder surface element:
  *
- * 1. its own `.session` property, if a host set one directly, else
- * 2. the nearest ancestor `<honua-studio-app>`'s `.session`.
+ * 1. its own `.auth` property, if a host set one directly, else
+ * 2. the nearest ancestor `<honua-studio-app>`'s `.auth` getter — always
+ *    resolves to something (standalone OIDC at worst) once that element has
+ *    connected, since `HonuaStudioAppElement` builds its `AuthSession`
+ *    lazily on first access, not only on an explicit `.session` assignment.
  *
  * `closest()` walks ordinary (light) DOM only, by design — `<honua-studio-app>`
  * composes `<honua-studio-chat>` / `<honua-studio-canvas>` as real light-DOM
@@ -18,11 +21,12 @@ export interface HasOptionalSession {
  * while still respecting a host that assembled its own light-DOM tree in the
  * bare embed harness or a Blazor page, or a host that skips `<honua-studio-app>`
  * entirely and mounts a placeholder element on its own (which then simply
- * has no ancestor to inherit from, and stays anonymous until given a
- * `.session` directly — see docs/embed-session.md).
+ * has no ancestor to inherit from, and stays anonymous — dispatching
+ * `honua-studio-session-required` — until given an `.auth` directly; see
+ * docs/embed-session.md).
  */
-export function resolveInjectedSession(element: Element & HasOptionalSession): HonuaStudioSessionAdapter | undefined {
-  if (element.session) return element.session;
-  const host = element.closest("honua-studio-app") as (Element & HasOptionalSession) | null;
-  return host?.session ?? undefined;
+export function resolveInjectedAuth(element: Element & HasOptionalAuth): AuthSession | undefined {
+  if (element.auth) return element.auth;
+  const host = element.closest("honua-studio-app") as (Element & HasOptionalAuth) | null;
+  return host?.auth ?? undefined;
 }

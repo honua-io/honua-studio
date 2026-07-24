@@ -5,26 +5,32 @@
  * events, session injection, cleanup) on a minimal composer + local log, so
  * #6 has a load-bearing shape to extend rather than starting from scratch.
  */
+import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { resolveInjectedSession } from "./session.js";
+import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, chatStyles } from "./styles.js";
-import type { HonuaStudioChatMessageDetail, HonuaStudioSessionAdapter } from "./types.js";
+import type { AuthSession, HonuaStudioChatMessageDetail } from "./types.js";
 
 export class HonuaStudioChatElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["label", "placeholder"];
   }
 
-  #session: HonuaStudioSessionAdapter | undefined;
+  #auth: AuthSession | undefined;
+  #authUnsubscribe: (() => void) | undefined;
   #log: string[] = [];
 
-  /** Direct session override — falls back to the nearest `<honua-studio-app>` ancestor when unset. See docs/embed-session.md. */
-  public get session(): HonuaStudioSessionAdapter | undefined {
-    return this.#session;
+  /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
+  public get auth(): AuthSession | undefined {
+    return this.#auth;
   }
 
-  public set session(session: HonuaStudioSessionAdapter | undefined) {
-    this.#session = session;
+  public set auth(auth: AuthSession | undefined) {
+    if (this.#auth === auth) return;
+    this.#authUnsubscribe?.();
+    this.#authUnsubscribe = undefined;
+    this.#auth = auth;
+    this.#authUnsubscribe = auth?.subscribe(() => this.render());
     this.render();
   }
 
@@ -39,21 +45,23 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   }
 
   protected onConnect(): void {
-    if (!this.#session) {
-      const inherited = resolveInjectedSession(this);
-      if (inherited) this.#session = inherited;
+    if (!this.#auth) {
+      const inherited = resolveInjectedAuth(this);
+      if (inherited) this.auth = inherited;
       else this.dispatchTypedEvent("honua-studio-session-required", { reason: "honua-studio-chat has no session" });
     }
   }
 
   protected onDisconnect(): void {
+    this.#authUnsubscribe?.();
+    this.#authUnsubscribe = undefined;
     this.#log = [];
   }
 
   protected render(): void {
     const label = this.getAttribute("label") ?? "Chat";
     const placeholder = this.getAttribute("placeholder") ?? "Describe the app you want…";
-    const sessionStatus = this.#session?.getSnapshot().status ?? "anonymous";
+    const sessionStatus = this.#auth ? AUTH_STATUS_LABELS[this.#auth.getState().status] : "Signed out";
     this.setShadowHtml(`
       <style>${baseElementStyles()}${chatStyles()}</style>
       <section class="chat hn-panel" part="panel" aria-label="${escapeHtml(label)}" data-testid="studio-chat">

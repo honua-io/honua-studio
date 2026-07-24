@@ -18,10 +18,11 @@ Studio that a third-party host page or Honua Console couldn't also use
 ### `<honua-studio-app>` — the full shell
 
 Implementation: `src/elements/studio-app-element.ts`. Composes a header
-(brand, nav, optional theme switcher), a routed view outlet, and a
-persistent area slotting in `<honua-studio-chat>` + `<honua-studio-canvas>`
-(created automatically unless the host already supplied its own light-DOM
-children with those tag names — see "Composition" below).
+(brand, nav, auth status/sign-in-out controls, optional theme switcher), a
+routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
++ `<honua-studio-canvas>` (created automatically unless the host already
+supplied its own light-DOM children with those tag names — see
+"Composition" below).
 
 **Attributes / properties**
 
@@ -33,8 +34,9 @@ children with those tag names — see "Composition" below).
 | `theme-switcher` | `themeSwitcherVisibility` | `"visible" \| "hidden"` | `"visible"` | Hides the built-in theme-set/mode buttons; the element still themes correctly when a host drives theming externally. |
 | `data-theme-set` | `themeSet` | `"standalone" \| "console"` | `"standalone"` | See "Theming". |
 | `data-theme` | `themeMode` | `"light" \| "dark"` (absent = auto) | unset (auto) | See "Theming". |
-| — | `session` | `HonuaStudioSessionAdapter \| undefined` | unset | See `docs/embed-session.md`. |
-| — | `studioClient` | `StudioClient` | a default instance reading `/api` | Override for fixtures/tests. |
+| — | `session` | `SessionAdapter \| undefined` | unset | The embed session injection surface (primary path) — see `docs/embed-session.md`. Reassigning after connection switches auth mode live. |
+| — | `auth` | `AuthSession` (read-only) | resolved lazily | The live session `.session` resolves to (standalone OIDC or a host-adapter wrapping `.session`) — what the shell (and, by inheritance, `<honua-studio-chat>`/`<honua-studio-canvas>`) actually renders from. |
+| — | `studioClient` | `StudioClient` | a default instance reading `/api`, bearer-attached via `.auth` | Override for fixtures/tests. |
 
 **Events** (all `CustomEvent`, `bubbles: true, composed: true` — cross the
 shadow boundary): `honua-studio-ready` (base contract, see below),
@@ -43,20 +45,26 @@ shadow boundary): `honua-studio-ready` (base contract, see below),
 (`{ themeSet, mode }`), `honua-studio-session-required` (`{ reason }`),
 `honua-studio-error` (`{ message, error? }`).
 
+Sign-in/sign-out controls (and any interactive auth affordance at all) only
+render when `auth.mode === "standalone"` — REQ-003 (honua-studio#4): in
+host-adapter mode Studio never renders anything that could initiate its own
+auth flow, only the status label.
+
 ### `<honua-studio-chat>` — chat console placeholder
 
 Implementation: `src/elements/studio-chat-element.ts`. The real streaming
 chat console is honua-studio#6; this proves the contract shape a composer
-surface needs. Attributes: `label`, `placeholder`. Property: `session`
-(direct override; falls back to the nearest `<honua-studio-app>` ancestor's
-session — see `src/elements/session.ts`). Event:
-`honua-studio-chat-message` (`{ text }`) on composer submit.
+surface needs. Attributes: `label`, `placeholder`. Property: `auth`
+(direct `AuthSession` override; falls back to the nearest
+`<honua-studio-app>` ancestor's resolved `.auth` — see
+`src/elements/session.ts`). Event: `honua-studio-chat-message` (`{ text }`)
+on composer submit.
 
 ### `<honua-studio-canvas>` — composition canvas placeholder
 
 Implementation: `src/elements/studio-canvas-element.ts`. The real
 composition engine is honua-studio#8. Attribute: `label`. Property:
-`session` (same fallback as chat). Runs a `ResizeObserver` on itself
+`auth` (same fallback as chat). Runs a `ResizeObserver` on itself
 (`honua-studio-canvas-resize`, `{ width, height }`) specifically to give the
 cleanup-invariant tests something non-trivial to assert on — a
 `ResizeObserver` is exactly the kind of subscription that leaks silently if
@@ -122,20 +130,25 @@ children (slotted into its shadow template via `<slot name="chat">` /
 `<slot name="canvas">`), created automatically on connect unless the host
 already supplied its own `<honua-studio-chat>` / `<honua-studio-canvas>`
 children first. This is what makes `src/elements/session.ts`'s
-`resolveInjectedSession()` — `closest("honua-studio-app")` — work correctly
+`resolveInjectedAuth()` — `closest("honua-studio-app")` — work correctly
 for the default composition: the children are genuine light-DOM descendants
 of the app element, not something created inside its shadow root.
 
 ## Session injection
 
-See `docs/embed-session.md` for the full `HonuaStudioSessionAdapter`
-contract (a honua-studio#4 coordination point — that issue's own session
-module hadn't merged as of #5, so the interface is defined once, in
-`src/elements/types.ts`, and both issues converge on it). In short: a host
-constructs an adapter and assigns it to `.session` on `<honua-studio-app>`
-(or directly on a standalone placeholder element); every Studio element
-never initiates its own auth flow, only renders what it's given and reacts
-to `onChange`.
+See `docs/embed-session.md` for the full `SessionAdapter`/`AuthSession`
+contract (honua-studio#4 owns `src/auth/*`; this issue's elements consume it
+— `src/elements/types.ts` re-exports the types rather than defining its
+own, after #4 merged ahead of #5). In short: a host constructs a
+`SessionAdapter` (`getToken()`/`onExpired()`) and assigns it to `.session`
+on `<honua-studio-app>` — the primary injection path, superseding the
+`window.__HONUA_STUDIO_HOST_SESSION__` global #4 shipped first, which
+remains a documented fallback. `<honua-studio-app>` resolves that (or
+standalone OIDC, if `.session` is unset and the fallback global is absent)
+into a full `AuthSession`, exposed read-only as `.auth` and inherited by
+descendant placeholders. Every Studio element never initiates its own auth
+flow (`AuthSession.signIn()`/`signOut()` reject in host-adapter mode), only
+renders what it's given and reacts to `.auth`'s `subscribe()`.
 
 ## Theming
 

@@ -12,9 +12,9 @@
  * concurrently.
  */
 import { HonuaStudioElementBase } from "./base-element.js";
-import { resolveInjectedSession } from "./session.js";
+import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, canvasStyles } from "./styles.js";
-import type { HonuaStudioCanvasResizeDetail, HonuaStudioSessionAdapter } from "./types.js";
+import type { AuthSession, HonuaStudioCanvasResizeDetail } from "./types.js";
 
 export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
@@ -24,15 +24,16 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** Live (connected) instance count — a leak-detection probe, not part of the public contract proper. See the class doc and test/elements/cleanup.test.ts. */
   static instanceCount = 0;
 
-  #session: HonuaStudioSessionAdapter | undefined;
+  #auth: AuthSession | undefined;
   #resizeObserver: ResizeObserver | undefined;
 
-  public get session(): HonuaStudioSessionAdapter | undefined {
-    return this.#session;
+  /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
+  public get auth(): AuthSession | undefined {
+    return this.#auth;
   }
 
-  public set session(session: HonuaStudioSessionAdapter | undefined) {
-    this.#session = session;
+  public set auth(auth: AuthSession | undefined) {
+    this.#auth = auth;
     this.render();
   }
 
@@ -43,9 +44,9 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   protected onConnect(): void {
     HonuaStudioCanvasElement.instanceCount += 1;
-    if (!this.#session) {
-      const inherited = resolveInjectedSession(this);
-      if (inherited) this.#session = inherited;
+    if (!this.#auth) {
+      const inherited = resolveInjectedAuth(this);
+      if (inherited) this.#auth = inherited;
       else this.dispatchTypedEvent("honua-studio-session-required", { reason: "honua-studio-canvas has no session" });
     }
     if (typeof ResizeObserver !== "undefined") {
