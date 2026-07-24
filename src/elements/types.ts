@@ -32,6 +32,7 @@ import type { AuthSession, AuthState, AuthStatus, SessionAdapter } from "../auth
 import type { ActivityLogEntry } from "../chat/activity-log.js";
 import type { StudioAiStopReason } from "../chat/ai-contract.js";
 import type { AnnotationRef } from "../chat/annotation.js";
+import type { CompositionTarget } from "../composition/model.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 
 export type { ThemeMode, ThemeSet };
@@ -174,6 +175,17 @@ export interface HonuaStudioActivityReplayCompleteDetail {
 export interface HonuaStudioCanvasResizeDetail {
   readonly width: number;
   readonly height: number;
+}
+
+/**
+ * `honua-studio-selection-change` — dispatched by `<honua-studio-canvas>`
+ * when the user clicks a rendered layer/widget/annotation row in the
+ * composition readout. `targets` is a list of {@link CompositionTarget}s —
+ * deictic references the chat console (honua-studio#6) can attach to the
+ * next prompt as a "THIS" chip (honua-studio#8 REQ-012).
+ */
+export interface HonuaStudioSelectionChangeDetail {
+  readonly targets: readonly CompositionTarget[];
 }
 
 /** The minimal `CustomElementRegistry` surface the registry module needs — a real registry or a scoped/in-memory stand-in both satisfy this. */

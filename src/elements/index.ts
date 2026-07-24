@@ -45,6 +45,7 @@ export type {
   HonuaStudioNavigateDetail,
   HonuaStudioReadyDetail,
   HonuaStudioRoutingMode,
+  HonuaStudioSelectionChangeDetail,
   HonuaStudioSessionRequiredDetail,
   HonuaStudioThemeChangeDetail,
   HonuaStudioThemeSwitcherVisibility,

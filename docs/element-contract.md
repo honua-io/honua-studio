@@ -137,18 +137,32 @@ untouched).
 **Events**: `honua-studio-activity-replay-step` (`{ entry, index, total }`),
 `honua-studio-activity-replay-complete` (`{ total }`).
 
-### `<honua-studio-canvas>` — composition canvas placeholder
+### `<honua-studio-canvas>` — composition canvas
 
-Implementation: `src/elements/studio-canvas-element.ts`. The real
-composition engine is honua-studio#8. Attribute: `label`. Property:
-`auth` (same fallback as chat). Runs a `ResizeObserver` on itself
-(`honua-studio-canvas-resize`, `{ width, height }`) specifically to give the
-cleanup-invariant tests something non-trivial to assert on — a
-`ResizeObserver` is exactly the kind of subscription that leaks silently if
-`disconnectedCallback` is incomplete. `HonuaStudioCanvasElement.instanceCount`
-is a static live-instance counter (not part of the contract proper) used by
-`test/elements/cleanup.test.ts` and `harness/blazor-host`'s render-mode-switch
-spec to assert no leak across repeated mount/unmount cycles.
+Implementation: `src/elements/studio-canvas-element.ts`. Attributes:
+`label`. Properties: `auth` (same fallback as chat); `composition` — a
+`CompositionController` (`src/composition/controller.ts`, honua-studio#8).
+Unset (the honua-studio#5 default), the element renders the original
+placeholder surface. Set, it renders a structured, reactive readout of the
+controller's `CompositionState` — layers, view, widgets, and pins — NOT a
+map render (real map rendering is later work; see `src/composition/`'s
+module docs for the engine itself: `model.ts`/`commands.ts`/`reducer.ts`/
+`history.ts`). Each layer/widget/annotation row is a clickable button that
+calls `composition.select([target])` and dispatches
+`honua-studio-selection-change` (`{ targets: CompositionTarget[] }`) — the
+deictic reference honua-studio#6's chat console attaches to a follow-up
+prompt as a "THIS" chip (REQ-012). Pinned targets render a 📌 marker and
+`data-pinned="true"`.
+
+Also runs a `ResizeObserver` on itself (`honua-studio-canvas-resize`,
+`{ width, height }`) specifically to give the cleanup-invariant tests
+something non-trivial to assert on — a `ResizeObserver` is exactly the kind
+of subscription that leaks silently if `disconnectedCallback` is incomplete.
+`HonuaStudioCanvasElement.instanceCount` is a static live-instance counter
+(not part of the contract proper) used by `test/elements/cleanup.test.ts`
+and `harness/blazor-host`'s render-mode-switch spec to assert no leak across
+repeated mount/unmount cycles; the `composition` subscription is torn down
+on disconnect (and on reassignment) with the same discipline.
 
 ## Lifecycle
 
