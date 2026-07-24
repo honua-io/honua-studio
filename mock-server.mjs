@@ -393,6 +393,17 @@ export async function startMockServer({ port = 0 } = {}) {
       const turnIndex = messages.filter((m) => m?.role === "user").length - 1;
       const turn = FIXTURE_CONVERSATION.turns[turnIndex];
 
+      // Tracks a REAL client disconnect (the response socket closing), not
+      // `req.destroyed` — that flips true the moment `readBody()` above
+      // finishes draining the request body (Node's `Readable` streams
+      // auto-destroy on `'end'`), which happens on every normal request and
+      // has nothing to do with whether the client is still there for the
+      // response half.
+      let clientDisconnected = false;
+      res.once("close", () => {
+        clientDisconnected = true;
+      });
+
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-store",
@@ -408,7 +419,7 @@ export async function startMockServer({ port = 0 } = {}) {
         return;
       }
       for (const event of turn.assistant.events) {
-        if (req.destroyed) break; // client disconnected/aborted mid-stream — matches the real proxy's cancellation convention
+        if (clientDisconnected) break; // client disconnected/aborted mid-stream — matches the real proxy's cancellation convention
         writeSseEvent(res, event);
       }
       res.end();
