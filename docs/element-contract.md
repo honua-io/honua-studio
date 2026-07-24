@@ -50,15 +50,92 @@ render when `auth.mode === "standalone"` — REQ-003 (honua-studio#4): in
 host-adapter mode Studio never renders anything that could initiate its own
 auth flow, only the status label.
 
-### `<honua-studio-chat>` — chat console placeholder
+### `<honua-studio-chat>` — chat console
 
-Implementation: `src/elements/studio-chat-element.ts`. The real streaming
-chat console is honua-studio#6; this proves the contract shape a composer
-surface needs. Attributes: `label`, `placeholder`. Property: `auth`
-(direct `AuthSession` override; falls back to the nearest
-`<honua-studio-app>` ancestor's resolved `.auth` — see
-`src/elements/session.ts`). Event: `honua-studio-chat-message` (`{ text }`)
-on composer submit.
+Implementation: `src/elements/studio-chat-element.ts` (honua-studio#6,
+realizing the honua-studio#5 placeholder shape). Renders a user/assistant/
+tool-call message list with streaming text, a composer with removable
+annotation reference chips (spec REQ-012), and cancellation. Talks to the
+model exclusively through the `ChatTransport` seam (`src/chat/transport.ts`)
+— never `fetch` directly — so the same element renders identically against
+the real server AI proxy or a deterministic fixture conversation (AD-4). Per
+AD-5/AD-8 this element EMITS tool-call intents and renders results; it does
+not own composition state (honua-studio#8 owns that).
+
+**Attributes**: `label`, `placeholder`.
+
+**Properties**:
+
+| Property | Type | Notes |
+| --- | --- | --- |
+| `auth` | `AuthSession \| undefined` | Direct override; falls back to the nearest `<honua-studio-app>` ancestor's `.auth` (`src/elements/session.ts`). |
+| `transport` | `ChatTransport` | Defaults to a lazily-constructed `SseChatTransport` reading `/api` (honua-server#3010), bearer-attached via `.auth`. Override with `FixtureChatTransport` (`src/chat/fixture-transport.ts`) for deterministic dev/CI/demo replay — AD-4's "no-model fixture-conversation mode". |
+| `activityLog` | `ActivityLog` | This console's own replayable log (`src/chat/activity-log.ts`) — read-only in practice; assign a fresh instance (e.g. with a deterministic `clock`) before sending any messages to control it. |
+| `messages` | `readonly ChatMessage[]` | Read-only. |
+| `pendingAnnotations` | `readonly AnnotationRef[]` | Read-only — chips attached in the composer but not yet sent. |
+| `streaming` | `boolean` | Read-only. |
+
+**Methods**: `addAnnotation(input: CreateAnnotationInput): AnnotationRef`
+(spec REQ-012 — the public API a canvas uses to inject a reference chip;
+`id`/`createdAt` are optional for live use, always explicit for fixture
+replay), `removeAnnotation(id: string): void`, `sendMessage(text: string): Promise<void>`
+(folds pending annotations into the outgoing wire content — see
+`src/chat/annotation.ts`'s `composeMessageContent` — and streams the reply;
+resolves once the turn settles, never rejects), `cancel(): void` (aborts the
+in-flight turn, if any).
+
+**Events**: `honua-studio-chat-message` (`{ text }`, unchanged since
+honua-studio#5), `honua-studio-chat-annotation-added` (`{ annotation }`),
+`honua-studio-chat-annotation-removed` (`{ id }`),
+`honua-studio-chat-tool-call-start` (`{ messageId, toolCallId, toolName }`),
+`honua-studio-chat-tool-call-result` (`{ messageId, toolCallId, toolName?, arguments }`
+— the tool-call INTENT this console emits once a call's arguments are fully
+assembled; the intended consumer is honua-studio#8's composition engine),
+`honua-studio-chat-turn-complete` (`{ messageId, stopReason?, promptTokens?, completionTokens?, latencyMs? }`),
+`honua-studio-chat-turn-error` (`{ messageId, errorMessage }`),
+`honua-studio-chat-turn-cancelled` (`{ messageId }`).
+
+**Injection event**: `honua-studio-annotate` — dispatched BY a host/canvas
+(bubbles+composed; this element listens on `window`, so it reaches
+`<honua-studio-chat>` regardless of DOM position) to add an annotation
+without holding a direct element reference. Detail shape matches
+`CreateAnnotationInput`.
+
+See `docs/ai-chat-wire-contract.md` for the exact honua-server#3010 wire
+shapes this element's `SseChatTransport` speaks, and `src/chat/fixtures/*.json`
+for the deterministic fixture-conversation replay format
+(`src/chat/fixture-conversation.ts`).
+
+### `<honua-studio-activity-log>` — replayable activity log
+
+Implementation: `src/elements/studio-activity-log-element.ts`
+(honua-studio#6, spec REQ-012: "annotations are visible, removable, and
+recorded in the activity log like any other context"). A sibling surface,
+not a child of `<honua-studio-chat>` — wire the two together explicitly:
+
+```ts
+const chat = document.querySelector("honua-studio-chat");
+const log = document.querySelector("honua-studio-activity-log");
+log.log = chat.activityLog;
+```
+
+**Attribute**: `label`.
+
+**Properties**: `log: ActivityLog` (the log this element renders; defaults
+to an empty, self-owned instance until assigned — same "own it vs. render an
+assigned override" pattern as `.transport`/`.studioClient` elsewhere in this
+contract), `entries: readonly ActivityLogEntry[]` (read-only, mirrors
+`log.entries()`).
+
+**Methods** (the replay API — step through recorded entries, re-emitting
+each as an event; no timers, every step is caller-driven):
+`startReplay(entries?)`, `replayNext(): ActivityLogEntry | undefined`,
+`resetReplay()`, `exportJson(): string`, `importJson(json: string): void`
+(throws `InvalidActivityLogExportError` for malformed input, leaving the log
+untouched).
+
+**Events**: `honua-studio-activity-replay-step` (`{ entry, index, total }`),
+`honua-studio-activity-replay-complete` (`{ total }`).
 
 ### `<honua-studio-canvas>` — composition canvas placeholder
 
