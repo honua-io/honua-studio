@@ -17,6 +17,8 @@
  *   GET  /health                                -> { status, mode }
  *   GET  /v1/studio/catalog                      -> { datasets: CatalogDataset[] }   [bearer required]
  *   GET  /v1/studio/packages                     -> { packages: StudioPackageSummary[] } [bearer required]
+ *   GET  /v1/studio/ai/capabilities              -> ApiResponse<StudioAiCapabilitiesResponse> [bearer required]
+ *   POST /v1/studio/ai/chat                      -> SSE StudioAiChatEvent stream       [bearer required]
  *   GET  /oidc/.well-known/openid-configuration  -> OIDC discovery document
  *   GET  /oidc/authorize                         -> 302, auto-approves the fixture user (no login UI)
  *   POST /oidc/token                             -> authorization_code exchange + refresh_token ROTATION
@@ -29,10 +31,65 @@
  * replayed refresh token stops working the moment the legitimate client
  * rotates it. There is no hidden-iframe silent refresh anywhere in this
  * fixture or in src/auth/ — see docs/embed-session.md.
+ *
+ * The `/v1/studio/ai/chat` route (honua-studio#6, honua-server#3010) plays
+ * `src/chat/fixtures/compose-districts-map.json` back turn-by-turn, keyed
+ * by how many `role: "user"` messages the client's own accumulated request
+ * history contains (this fixture is stateless server-side — the client's
+ * own message history IS the turn cursor) — so `npm run dev`'s default
+ * `SseChatTransport` (pointed at `/api`, per `<honua-studio-chat>`'s own
+ * default) gets a real, scripted SSE conversation end to end, with zero
+ * model credentials anywhere. This route deliberately does NOT import
+ * anything from `src/` — this file runs under plain `node`, not a
+ * TypeScript loader (see scripts/dev-mock.mjs) — so the SSE event-name
+ * vocabulary below is a small, intentionally duplicated mirror of
+ * `src/chat/ai-contract.ts`'s `CHAT_EVENT_TYPE_TO_SSE_NAME`, and the
+ * fixture JSON is read directly via `node:fs`, never through a `.ts` import.
  */
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+
+// Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
+// file's module doc for why it's a duplicate, not an import.
+const CHAT_EVENT_TYPE_TO_SSE_NAME = {
+  messageStart: "message_start",
+  textDelta: "text_delta",
+  toolCallStart: "tool_call_start",
+  toolCallDelta: "tool_call_delta",
+  toolCallStop: "tool_call_stop",
+  messageStop: "message_stop",
+  error: "error",
+};
+
+const FIXTURE_CONVERSATION = JSON.parse(
+  readFileSync(new URL("./src/chat/fixtures/compose-districts-map.json", import.meta.url), "utf8"),
+);
+
+const AI_CAPABILITIES = {
+  enabled: true,
+  defaultProvider: "fixture",
+  providers: [
+    {
+      provider: "fixture",
+      kind: "fixture",
+      model: "claude-sonnet-4-5-20250929",
+      maxTokens: 4096,
+      toolSupport: true,
+      streaming: true,
+      isDefault: true,
+      configured: true,
+    },
+  ],
+};
+
+/** Writes one SSE frame exactly as honua-server#3010's `StudioAiProxyEndpoints.WriteSseEventAsync` does: `event: <name>\ndata: <json>\n\n`. */
+function writeSseEvent(res, event) {
+  const sseName = CHAT_EVENT_TYPE_TO_SSE_NAME[event.type] ?? "message";
+  res.write(`event: ${sseName}\n`);
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
 
 const CATALOG = {
   datasets: [
@@ -305,6 +362,56 @@ export async function startMockServer({ port = 0 } = {}) {
         return;
       }
       json(res, 200, PACKAGES);
+      return;
+    }
+    if (pathname === "/v1/studio/ai/capabilities" && req.method === "GET") {
+      if (!verifyFixtureJwt(bearerToken(req))) {
+        unauthorized(res);
+        return;
+      }
+      json(res, 200, { success: true, data: AI_CAPABILITIES });
+      return;
+    }
+    // ── Studio AI proxy: fixture chat SSE stream (honua-studio#6) ──
+    if (pathname === "/v1/studio/ai/chat" && req.method === "POST") {
+      if (!verifyFixtureJwt(bearerToken(req))) {
+        unauthorized(res);
+        return;
+      }
+      let requestBody;
+      try {
+        requestBody = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: "invalid_request", message: "Malformed JSON body." });
+        return;
+      }
+      const messages = Array.isArray(requestBody?.messages) ? requestBody.messages : [];
+      if (messages.length === 0) {
+        json(res, 400, { error: "invalid_request", message: "At least one message is required." });
+        return;
+      }
+      const turnIndex = messages.filter((m) => m?.role === "user").length - 1;
+      const turn = FIXTURE_CONVERSATION.turns[turnIndex];
+
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-store",
+        pragma: "no-cache",
+        "access-control-allow-origin": "*",
+      });
+      if (!turn) {
+        writeSseEvent(res, {
+          type: "error",
+          errorMessage: `mock-server fixture: no scripted turn ${turnIndex} in "${FIXTURE_CONVERSATION.id}".`,
+        });
+        res.end();
+        return;
+      }
+      for (const event of turn.assistant.events) {
+        if (req.destroyed) break; // client disconnected/aborted mid-stream — matches the real proxy's cancellation convention
+        writeSseEvent(res, event);
+      }
+      res.end();
       return;
     }
     if (pathname === "/health" && req.method === "GET") {

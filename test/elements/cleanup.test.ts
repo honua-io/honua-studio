@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createActivityLog } from "../../src/chat/activity-log.js";
+import type { ChatTransport } from "../../src/chat/transport.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
+import type { HonuaStudioActivityLogElement } from "../../src/elements/studio-activity-log-element.js";
 import { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
 
@@ -107,5 +110,46 @@ describe("elements cleanup invariants (honua-studio#5: no leaked listeners/obser
     if (nextInput) nextInput.value = "again";
     nextForm?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(messageListener).toHaveBeenCalledTimes(2);
+  });
+
+  it("honua-studio-chat: disconnect aborts an in-flight streaming turn's transport signal — no leaked stream", async () => {
+    const el = document.createElement("honua-studio-chat") as HonuaStudioChatElement;
+    document.body.appendChild(el);
+
+    let capturedSignal: AbortSignal | undefined;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const transport: ChatTransport = {
+      async *streamChat(_request, signal) {
+        capturedSignal = signal;
+        await gate;
+        if (signal.aborted) return;
+        yield { type: "messageStop", stopReason: "endTurn" };
+      },
+    };
+    el.transport = transport;
+
+    const sendPromise = el.sendMessage("hello");
+    await vi.waitFor(() => expect(capturedSignal).toBeDefined());
+    expect(capturedSignal?.aborted).toBe(false);
+
+    document.body.removeChild(el);
+    expect(capturedSignal?.aborted).toBe(true);
+
+    release?.();
+    await sendPromise;
+  });
+
+  it("honua-studio-activity-log: disconnect unsubscribes from its .log — a post-unmount append never triggers a render", () => {
+    const el = document.createElement("honua-studio-activity-log") as HonuaStudioActivityLogElement;
+    document.body.appendChild(el);
+    const log = createActivityLog({ clock: () => "t" });
+    el.log = log;
+    document.body.removeChild(el);
+
+    // If the subscription leaked, this would throw trying to touch a torn-down shadow root's internals via render().
+    expect(() => log.append("user_message_sent", { text: "after unmount" })).not.toThrow();
   });
 });

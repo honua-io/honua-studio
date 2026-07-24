@@ -10,8 +10,13 @@ import {
 } from "../../src/elements/registry.js";
 
 describe("elements/registry", () => {
-  it("lists exactly the three contract tags", () => {
-    expect(STUDIO_ELEMENT_TAGS).toEqual(["honua-studio-chat", "honua-studio-canvas", "honua-studio-app"]);
+  it("lists exactly the four contract tags", () => {
+    expect(STUDIO_ELEMENT_TAGS).toEqual([
+      "honua-studio-chat",
+      "honua-studio-activity-log",
+      "honua-studio-canvas",
+      "honua-studio-app",
+    ]);
   });
 
   it("registers a single known tag on an isolated registry", () => {
