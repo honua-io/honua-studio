@@ -21,9 +21,26 @@
  * drives the auth-status label, the standalone sign-in/out controls (never
  * rendered in host-adapter mode — REQ-003), and gates the catalog/packages
  * fetch in `../pages/home.js`.
+ *
+ * Composition + MCP tool-call orchestration (honua-studio#7, AD-8): this
+ * element owns the one `CompositionController` its auto-composed
+ * `<honua-studio-canvas>` renders, and the one `ToolCallOrchestrator`
+ * (`../mcp/orchestrator.js`) that turns the auto-composed
+ * `<honua-studio-chat>`'s `honua-studio-chat-tool-call-result` events into
+ * composition mutations — fixture/offline mode (the reducer only) by
+ * default, or the AD-8 authoritative server-draft path once a host calls
+ * `.enableLiveComposition()`. A host that supplies its own chat/canvas
+ * children (skipping the auto-compose block below) is responsible for its
+ * own wiring — this element never reaches into a host-supplied child beyond
+ * the same public properties/events any embedder could use.
  */
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import { StudioClient } from "../client/studio-client.js";
+import { CompositionController } from "../composition/controller.js";
+import { createEmptyCompositionState } from "../composition/model.js";
+import { McpClient } from "../mcp/client.js";
+import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
+import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
@@ -31,13 +48,22 @@ import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
+import type { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
+import type { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
+  HonuaStudioChatToolCallResultDetail,
   HonuaStudioNavigateDetail,
   HonuaStudioRoutingMode,
   HonuaStudioThemeChangeDetail,
   HonuaStudioThemeSwitcherVisibility,
 } from "./types.js";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
 
 interface StudioRoute {
   path: string;
@@ -102,6 +128,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #hashRouter: Router | undefined;
   #currentPath = "/";
   #chromeBuilt = false;
+  #composition: CompositionController | undefined;
+  #orchestrator: ToolCallOrchestrator | undefined;
 
   /**
    * Host-injected session adapter — the primary embed injection path
@@ -159,6 +187,56 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#studioClient = client;
     this.#studioClientOverridden = true;
     this.renderView();
+  }
+
+  /**
+   * The composition engine state (honua-studio#7/#8) the auto-composed
+   * `<honua-studio-canvas>` renders and `.toolCallOrchestrator` mutates.
+   * Lazily created (empty state) on first access; persists for this
+   * element's lifetime — reconnecting does not reset it.
+   */
+  public get composition(): CompositionController {
+    if (!this.#composition) this.#composition = new CompositionController(createEmptyCompositionState());
+    return this.#composition;
+  }
+
+  /**
+   * The MCP tool-call orchestrator (honua-studio#7) wired to `.composition`
+   * and, when the auto-composed `<honua-studio-chat>` is present, that
+   * chat's own `ActivityLog` — so composition entries interleave with chat
+   * entries in a shared `<honua-studio-activity-log>`. Fixture/offline mode
+   * (the local reducer only) until `.enableLiveComposition()` attaches a
+   * live MCP session (AD-8's authoritative server-draft path).
+   */
+  public get toolCallOrchestrator(): ToolCallOrchestrator {
+    if (!this.#orchestrator) {
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      this.#orchestrator = new ToolCallOrchestrator({ controller: this.composition, activityLog: chat?.activityLog });
+    }
+    return this.#orchestrator;
+  }
+
+  /**
+   * Attaches a live MCP session so subsequent chat tool-call intents mutate
+   * a real Studio lifecycle draft via `honua_studio_*` tools (AD-8's
+   * authoritative path) instead of applying through the local reducer only.
+   * Bearer-attached via `.auth`, same as `.studioClient`. A host that never
+   * calls this stays in fixture/offline mode — the only mode CI and the
+   * default dev/demo experience use (NFR-001).
+   */
+  public enableLiveComposition(options: {
+    readonly baseUrl?: string;
+    readonly packageKey: string;
+    readonly family?: StudioPackageFamilyWire;
+    readonly schemaVersion?: string;
+  }): void {
+    const client = new McpClient({ baseUrl: options.baseUrl ?? "/api", auth: this.auth });
+    this.toolCallOrchestrator.attachLiveSession({
+      client,
+      packageKey: options.packageKey,
+      ...(options.family !== undefined ? { family: options.family } : {}),
+      ...(options.schemaVersion !== undefined ? { schemaVersion: options.schemaVersion } : {}),
+    });
   }
 
   /** `"hash"` (default, self-owned) or `"host"` (host-owned URL — see docs/element-contract.md § Routing). */
@@ -348,7 +426,27 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       canvas.setAttribute("label", "Canvas");
       this.appendChild(canvas);
     }
+
+    // honua-studio#7: wire the auto-composed chat/canvas pair to
+    // `.composition`/`.toolCallOrchestrator` — a host that supplied its own
+    // children instead is responsible for its own wiring (same "no
+    // privileged internal APIs" boundary `main.ts`'s doc calls out).
+    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (canvas && !canvas.composition) canvas.composition = this.composition;
+    void this.toolCallOrchestrator; // constructs it now, while `<honua-studio-chat>` (if any) is resolvable for its ActivityLog.
+    this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
+      const detail = (event as CustomEvent<HonuaStudioChatToolCallResultDetail>).detail;
+      void this.#handleChatToolCall(detail);
+    });
+
     void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.
+  }
+
+  /** Resolves one chat-emitted tool-call intent through `.toolCallOrchestrator` (honua-studio#7). Never throws — every outcome is recorded on the orchestrator's activity log; see `../mcp/orchestrator.js`'s module doc. */
+  async #handleChatToolCall(detail: HonuaStudioChatToolCallResultDetail): Promise<void> {
+    if (!detail.toolName) return; // no tool name to resolve — nothing this orchestrator can do with it.
+    const args = isPlainObject(detail.arguments) ? detail.arguments : {};
+    await this.toolCallOrchestrator.handleToolCall({ toolName: detail.toolName, arguments: args });
   }
 
   protected onDisconnect(): void {

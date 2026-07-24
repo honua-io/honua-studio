@@ -23,6 +23,27 @@
  *   GET  /oidc/authorize                         -> 302, auto-approves the fixture user (no login UI)
  *   POST /oidc/token                             -> authorization_code exchange + refresh_token ROTATION
  *   POST /oidc/revoke                            -> best-effort refresh-token revocation (RFC 7009)
+ *   POST /mcp                                    -> JSON-RPC 2.0 MCP endpoint (honua-studio#7, see below)
+ *
+ * `/mcp` (honua-studio#7): a minimal JSON-RPC 2.0 dispatcher over the SAME
+ * `initialize` / `tools/list` / `tools/call` methods `src/mcp/client.ts`
+ * speaks, exposing the 12 `honua_studio_*` tool names honua-server#3002
+ * documents (`STUDIO_MCP_TOOL_NAMES` in `src/mcp/studio-tools.ts` — kept a
+ * deliberately duplicated literal list here, same reason as
+ * `CHAT_EVENT_TYPE_TO_SSE_NAME` above: this file runs under plain `node`,
+ * never a TypeScript loader). Backed by an in-memory draft store with the
+ * exact same optimistic-concurrency contract `FixtureDraftStore`
+ * (`src/composition/history.ts`) documents: `generation` starts at `1` on
+ * create, increments by exactly `1` on every successful mutation, and a
+ * stale `generation` on a mutating call returns a `failed_precondition`
+ * tool error rather than silently clobbering a concurrent edit. Composition
+ * mutation tools (add/remove layer, set style, set view, add/remove widget)
+ * mirror honua-server's `StudioCompositionBodyEditor` semantics: duplicate
+ * ids on add are `invalid_argument`, missing ids on remove/set are
+ * `not_found`, and only `map`/`app`-family drafts accept them
+ * (`invalid_argument` otherwise). `initialize`/`tools/list` are open per the
+ * honua-server MCP doc ("handshake methods are open"); `tools/call` requires
+ * the same bearer this file's other protected routes require.
  *
  * Auth model (P2-8 review finding): access tokens are short-lived signed
  * JWTs (HS256, dev-only secret — never used outside this loopback fixture);
@@ -89,6 +110,351 @@ function writeSseEvent(res, event) {
   const sseName = CHAT_EVENT_TYPE_TO_SSE_NAME[event.type] ?? "message";
   res.write(`event: ${sseName}\n`);
   res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+// ── /mcp: honua_studio_* tool plane (honua-studio#7) ────────────────────────
+
+// Mirrors src/mcp/studio-tools.ts's STUDIO_MCP_TOOL_NAMES — see this file's
+// module doc for why it's a duplicate literal, not an import.
+const STUDIO_MCP_TOOL_NAMES = [
+  "honua_studio_create_draft",
+  "honua_studio_get_draft",
+  "honua_studio_update_draft",
+  "honua_studio_validate_draft",
+  "honua_studio_preview_draft",
+  "honua_studio_add_layer",
+  "honua_studio_remove_layer",
+  "honua_studio_set_layer_style",
+  "honua_studio_set_view",
+  "honua_studio_add_widget",
+  "honua_studio_remove_widget",
+  "honua_studio_propose_publication",
+];
+
+const COMPOSITION_ELIGIBLE_FAMILIES = new Set(["map", "app"]);
+const KNOWN_FAMILIES = new Set([
+  "query",
+  "analysis",
+  "map",
+  "dashboard",
+  "report",
+  "form",
+  "app",
+  "workflow",
+  "gp",
+  "etl",
+]);
+
+function emptyCompositionBody() {
+  return { layers: [], view: {}, widgets: [] };
+}
+
+function toolSuccess(value) {
+  return { structuredContent: value };
+}
+
+function toolError(code, message) {
+  return { isError: true, structuredContent: { code, message } };
+}
+
+/** JSON-RPC 2.0 method dispatcher for `POST /mcp` (honua-studio#7) — see this file's module doc. One instance per `startMockServer()` call, matching `pendingCodes`/`activeRefreshTokens`'s per-server-instance scoping. */
+function createMcpDispatcher() {
+  const drafts = new Map();
+  let nextDraftId = 1;
+
+  function draftPublic(draft) {
+    return {
+      draftId: draft.draftId,
+      itemId: draft.itemId,
+      packageKey: draft.packageKey,
+      workspaceId: draft.workspaceId,
+      ownerId: draft.ownerId,
+      generation: draft.generation,
+      envelope: draft.envelope,
+    };
+  }
+
+  function requireDraft(draftId) {
+    if (typeof draftId !== "string" || !draftId)
+      return { error: toolError("invalid_argument", "'draftId' is required.") };
+    const draft = drafts.get(draftId);
+    if (!draft) return { error: toolError("not_found", `Studio package draft '${draftId}' was not found.`) };
+    return { draft };
+  }
+
+  function readBody(draft) {
+    const body = draft.envelope.body;
+    return body && typeof body === "object" ? body : emptyCompositionBody();
+  }
+
+  function ensureCompositionEligible(draft) {
+    if (!COMPOSITION_ELIGIBLE_FAMILIES.has(draft.envelope.family)) {
+      return toolError(
+        "invalid_argument",
+        `Composition tools apply only to map/app package families; draft family is '${draft.envelope.family}'.`,
+      );
+    }
+    return undefined;
+  }
+
+  /** Generation-checked whole-envelope update — the same store contract `FixtureDraftStore.replace` documents. */
+  function applyUpdate(draft, patch, expectedGeneration) {
+    if (expectedGeneration === undefined || expectedGeneration === null) {
+      return { error: toolError("invalid_argument", "'generation' is required.") };
+    }
+    if (expectedGeneration !== draft.generation) {
+      return {
+        error: toolError(
+          "failed_precondition",
+          `Stale draft generation; refresh and retry. (expected ${draft.generation}, got ${expectedGeneration})`,
+        ),
+      };
+    }
+    const updated = { ...draft, ...patch, generation: draft.generation + 1 };
+    drafts.set(updated.draftId, updated);
+    return { draft: updated };
+  }
+
+  function mutateComposition(draftId, generation, mutate) {
+    const { draft, error } = requireDraft(draftId);
+    if (error) return error;
+    const familyError = ensureCompositionEligible(draft);
+    if (familyError) return familyError;
+    const body = readBody(draft);
+    const outcome = mutate(body);
+    if (outcome.error) return outcome.error;
+    const envelope = { ...draft.envelope, body: outcome.body };
+    const result = applyUpdate(draft, { envelope }, generation);
+    if (result.error) return result.error;
+    return toolSuccess(draftPublic(result.draft));
+  }
+
+  const handlers = {
+    honua_studio_create_draft(args) {
+      if (!args || typeof args.packageKey !== "string" || !args.packageKey) {
+        return toolError("invalid_argument", "'packageKey' is required.");
+      }
+      if (typeof args.schemaVersion !== "string" || !args.schemaVersion) {
+        return toolError("invalid_argument", "'schemaVersion' is required.");
+      }
+      const family = typeof args.family === "string" ? args.family : "map";
+      if (!KNOWN_FAMILIES.has(family)) {
+        return toolError(
+          "invalid_argument",
+          `'family' must be one of: ${[...KNOWN_FAMILIES].join(", ")}. Got '${family}'.`,
+        );
+      }
+      const draftId = args.itemId ? String(args.itemId) : `mock-draft-${nextDraftId}`;
+      nextDraftId += 1;
+      const draft = {
+        draftId,
+        itemId: args.itemId ?? draftId,
+        packageKey: args.packageKey,
+        workspaceId: args.workspaceId,
+        ownerId: args.ownerId,
+        generation: 1,
+        envelope: {
+          family,
+          schemaVersion: args.schemaVersion,
+          body: args.body ?? (COMPOSITION_ELIGIBLE_FAMILIES.has(family) ? emptyCompositionBody() : undefined),
+        },
+      };
+      drafts.set(draftId, draft);
+      return toolSuccess(draftPublic(draft));
+    },
+
+    honua_studio_get_draft(args) {
+      const { draft, error } = requireDraft(args?.draftId);
+      if (error) return error;
+      return toolSuccess(draftPublic(draft));
+    },
+
+    honua_studio_update_draft(args) {
+      const { draft, error } = requireDraft(args?.draftId);
+      if (error) return error;
+      if (typeof args.packageKey !== "string" || !args.packageKey) {
+        return toolError("invalid_argument", "'packageKey' is required.");
+      }
+      if (typeof args.schemaVersion !== "string" || !args.schemaVersion) {
+        return toolError("invalid_argument", "'schemaVersion' is required.");
+      }
+      const envelope = {
+        ...draft.envelope,
+        schemaVersion: args.schemaVersion,
+        format: args.format ?? draft.envelope.format,
+        body: args.body !== undefined ? args.body : draft.envelope.body,
+      };
+      const result = applyUpdate(
+        draft,
+        {
+          packageKey: args.packageKey,
+          workspaceId: args.workspaceId ?? draft.workspaceId,
+          ownerId: args.ownerId ?? draft.ownerId,
+          envelope,
+        },
+        args.generation,
+      );
+      if (result.error) return result.error;
+      return toolSuccess(draftPublic(result.draft));
+    },
+
+    honua_studio_validate_draft(args) {
+      const { draft, error } = requireDraft(args?.draftId);
+      if (error) return error;
+      void draft;
+      return toolSuccess({ isValid: true, diagnostics: [] });
+    },
+
+    honua_studio_preview_draft(args) {
+      const { error } = requireDraft(args?.draftId);
+      if (error) return error;
+      return toolSuccess({ kind: "preview", planningOnly: true });
+    },
+
+    honua_studio_add_layer(args) {
+      if (!args?.layer || typeof args.layer !== "object" || typeof args.layer.id !== "string" || !args.layer.id) {
+        return toolError("invalid_argument", "'layer' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        if (body.layers.some((existing) => existing.id === args.layer.id)) {
+          return {
+            error: toolError(
+              "invalid_argument",
+              `A layer with id '${args.layer.id}' already exists in the composition.`,
+            ),
+          };
+        }
+        const layer = { visible: true, ...args.layer };
+        const layers = [...body.layers];
+        const insertAt = args.beforeId ? layers.findIndex((existing) => existing.id === args.beforeId) : -1;
+        if (insertAt < 0) layers.push(layer);
+        else layers.splice(insertAt, 0, layer);
+        return { body: { ...body, layers } };
+      });
+    },
+
+    honua_studio_remove_layer(args) {
+      if (typeof args?.layerId !== "string" || !args.layerId) {
+        return toolError("invalid_argument", "'layerId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        if (!body.layers.some((existing) => existing.id === args.layerId)) {
+          return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
+        }
+        return { body: { ...body, layers: body.layers.filter((existing) => existing.id !== args.layerId) } };
+      });
+    },
+
+    honua_studio_set_layer_style(args) {
+      if (typeof args?.layerId !== "string" || !args.layerId) {
+        return toolError("invalid_argument", "'layerId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const index = body.layers.findIndex((existing) => existing.id === args.layerId);
+        if (index < 0) {
+          return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
+        }
+        const layers = [...body.layers];
+        layers[index] = { ...layers[index], styleRef: args.styleRef ?? undefined };
+        return { body: { ...body, layers } };
+      });
+    },
+
+    honua_studio_set_view(args) {
+      if (!args?.view || typeof args.view !== "object") {
+        return toolError("invalid_argument", "'view' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => ({ body: { ...body, view: args.view } }));
+    },
+
+    honua_studio_add_widget(args) {
+      if (
+        !args?.widget ||
+        typeof args.widget.id !== "string" ||
+        !args.widget.id ||
+        typeof args.widget.kind !== "string" ||
+        !args.widget.kind
+      ) {
+        return toolError("invalid_argument", "'widget.id' and 'widget.kind' are required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        if (body.widgets.some((existing) => existing.id === args.widget.id)) {
+          return {
+            error: toolError(
+              "invalid_argument",
+              `A widget with id '${args.widget.id}' already exists in the composition.`,
+            ),
+          };
+        }
+        return { body: { ...body, widgets: [...body.widgets, args.widget] } };
+      });
+    },
+
+    honua_studio_remove_widget(args) {
+      if (typeof args?.widgetId !== "string" || !args.widgetId) {
+        return toolError("invalid_argument", "'widgetId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        if (!body.widgets.some((existing) => existing.id === args.widgetId)) {
+          return { error: toolError("not_found", `No widget with id '${args.widgetId}' exists in the composition.`) };
+        }
+        return { body: { ...body, widgets: body.widgets.filter((existing) => existing.id !== args.widgetId) } };
+      });
+    },
+
+    honua_studio_propose_publication(args) {
+      const { draft, error } = requireDraft(args?.draftId);
+      if (error) return error;
+      const publicationIntent = {
+        route: args.route,
+        visibility: args.visibility,
+        embed: args.embed,
+        service: args.service,
+        schedule: args.schedule,
+        job: args.job,
+        note: args.note,
+      };
+      const envelope = { ...draft.envelope, publicationIntent };
+      const result = applyUpdate(draft, { envelope }, args.generation);
+      if (result.error) return result.error;
+      return toolSuccess({
+        draft: draftPublic(result.draft),
+        recorded: true,
+        humanConfirmationRequired: true,
+        message: "Publication intent recorded for human review. No publish/share/embed action was taken.",
+      });
+    },
+  };
+
+  return {
+    /** `initialize` / `tools/list` are open (no bearer) per the honua-server MCP doc; `tools/call` is dispatched to `handlers` above. Returns `{ status, body }` — `status` lets the route handler decide HTTP status/session-id headers uniformly. */
+    handle(method, params) {
+      if (method === "initialize") {
+        return {
+          result: { protocolVersion: "2025-03-26", serverInfo: { name: "honua-studio-mock-mcp", version: "0.0.0" } },
+        };
+      }
+      if (method === "tools/list") {
+        return {
+          result: {
+            tools: STUDIO_MCP_TOOL_NAMES.map((name) => ({
+              name,
+              inputSchema: { type: "object" },
+            })),
+          },
+        };
+      }
+      if (method === "tools/call") {
+        const name = params?.name;
+        const handler = typeof name === "string" ? handlers[name] : undefined;
+        if (!handler) {
+          return { error: { code: -32602, message: `Unknown tool "${name}".` } };
+        }
+        return { result: handler(params?.arguments ?? {}) };
+      }
+      return { error: { code: -32601, message: `Method not found: "${method}".` } };
+    },
+  };
 }
 
 const CATALOG = {
@@ -233,6 +599,11 @@ export async function startMockServer({ port = 0 } = {}) {
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
   // spent, so replaying a rotated-out refresh token always 400s.
   const activeRefreshTokens = new Set();
+  // /mcp (honua-studio#7): one draft store + a set of live `Mcp-Session-Id`s
+  // per server instance, matching honua-server's "a session is bound at
+  // initialize" contract (docs/guides/connect/ai-agents-mcp.md).
+  const mcp = createMcpDispatcher();
+  const mcpSessions = new Set();
 
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -425,6 +796,70 @@ export async function startMockServer({ port = 0 } = {}) {
       res.end();
       return;
     }
+    // ── MCP tool plane (honua-studio#7) ─────────────────────────
+    if (pathname === "/mcp" && req.method === "POST") {
+      let request;
+      try {
+        request = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+        return;
+      }
+      if (Array.isArray(request)) {
+        // Batching `initialize` is invalid per the honua-server doc; this
+        // fixture doesn't otherwise support JSON-RPC batches.
+        json(res, 200, {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "Batched requests are not supported by this fixture." },
+        });
+        return;
+      }
+      const { id, method, params } = request ?? {};
+      if (typeof method !== "string") {
+        json(res, 200, { jsonrpc: "2.0", id: id ?? null, error: { code: -32600, message: "Invalid Request" } });
+        return;
+      }
+
+      // A presented Mcp-Session-Id must be one this fixture actually minted
+      // (honua-server doc: "validates it on every later request"; an
+      // expired/unknown id returns 404 so clients re-initialize cleanly).
+      // Session id validation is opt-in from the CLIENT's side here — a
+      // caller that never sends the header (or hasn't initialized yet) is
+      // still served; this fixture doesn't itself require every call to
+      // carry one, only that a PRESENTED one be real.
+      const presentedSession = req.headers["mcp-session-id"];
+      if (typeof presentedSession === "string" && presentedSession && !mcpSessions.has(presentedSession)) {
+        json(res, 404, {
+          jsonrpc: "2.0",
+          id: id ?? null,
+          error: { code: -32001, message: "Unknown or expired Mcp-Session-Id." },
+        });
+        return;
+      }
+
+      // Handshake methods are open; tools/call requires the same bearer
+      // every other protected route on this fixture requires.
+      if (method === "tools/call" && !verifyFixtureJwt(bearerToken(req))) {
+        unauthorized(res);
+        return;
+      }
+
+      const outcome = mcp.handle(method, params);
+      const extraHeaders = {};
+      if (method === "initialize") {
+        const sessionId = randomUUID();
+        mcpSessions.add(sessionId);
+        extraHeaders["mcp-session-id"] = sessionId;
+      }
+      const envelope =
+        outcome.error !== undefined
+          ? { jsonrpc: "2.0", id: id ?? null, error: outcome.error }
+          : { jsonrpc: "2.0", id: id ?? null, result: outcome.result };
+      json(res, 200, envelope, extraHeaders);
+      return;
+    }
+
     if (pathname === "/health" && req.method === "GET") {
       json(res, 200, { status: "ok", mode: "mock" });
       return;

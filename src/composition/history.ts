@@ -151,6 +151,21 @@ export class CompositionHistory {
     await this.#pendingSync;
   }
 
+  /**
+   * Pushes `state` as a new revision WITHOUT running it through the reducer
+   * and WITHOUT firing `DraftSync` (honua-studio#7, AD-8: "the browser
+   * renders live state, it does not own it"). For when an external
+   * authority — a Studio lifecycle draft, already mutated server-side by an
+   * MCP tool call the caller just made directly — reports the resulting
+   * state, and the local stack needs to reflect it without re-deriving or
+   * re-syncing something that IS the sync target. Clears the redo stack,
+   * exactly like `apply()`.
+   */
+  public replaceState(state: CompositionState): void {
+    this.#redoStack = [];
+    this.#pushRevision({ state, timestamp: this.#now() });
+  }
+
   #currentRevision(): CompositionRevision {
     const revision = this.#undoStack[this.#undoStack.length - 1];
     if (!revision) throw new Error("CompositionHistory: undo stack is unexpectedly empty");
