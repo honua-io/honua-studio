@@ -1,0 +1,72 @@
+{
+  "id": "annotate-parcel-feature",
+  "title": "Ask about a clicked parcel, then filter its layer",
+  "description": "An annotation-referencing journey (spec REQ-012): the user annotates a map feature/layer instead of describing it in words, and the annotation resolves into the tool call's arguments.",
+  "turns": [
+    {
+      "user": {
+        "text": "What's the zoning for this parcel?",
+        "annotations": [
+          {
+            "id": "annotation-fixture-1",
+            "kind": "feature",
+            "payload": { "layerId": "hi-parcels", "featureId": "TMK-1-2-3-004" },
+            "label": "TMK 1-2-3-004",
+            "createdAt": "2026-07-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "assistant": {
+        "events": [
+          { "type": "messageStart", "model": "claude-sonnet-4-5-20250929" },
+          { "type": "textDelta", "text": "Looking up the zoning for TMK 1-2-3-004." },
+          { "type": "toolCallStart", "toolCallId": "call-3", "toolName": "get_feature_attributes" },
+          {
+            "type": "toolCallDelta",
+            "toolCallId": "call-3",
+            "toolArgumentsDelta": "{\"layerId\":\"hi-parcels\",\"featureId\":\"TMK-1-2-3-004\"}"
+          },
+          {
+            "type": "toolCallStop",
+            "toolCallId": "call-3",
+            "toolArguments": { "layerId": "hi-parcels", "featureId": "TMK-1-2-3-004" }
+          },
+          { "type": "messageStop", "stopReason": "toolCall", "promptTokens": 96, "completionTokens": 24, "latencyMs": 410 }
+        ]
+      }
+    },
+    {
+      "user": {
+        "text": "Now highlight every parcel on this layer zoned agricultural.",
+        "annotations": [
+          {
+            "id": "annotation-fixture-2",
+            "kind": "layer",
+            "payload": { "layerId": "hi-parcels" },
+            "label": "Hawai'i statewide parcels",
+            "createdAt": "2026-07-01T00:01:00.000Z"
+          }
+        ]
+      },
+      "assistant": {
+        "events": [
+          { "type": "messageStart", "model": "claude-sonnet-4-5-20250929" },
+          { "type": "textDelta", "text": "Highlighting parcels zoned agricultural" },
+          { "type": "textDelta", "text": " on the parcels layer." },
+          { "type": "toolCallStart", "toolCallId": "call-4", "toolName": "filter_layer" },
+          {
+            "type": "toolCallDelta",
+            "toolCallId": "call-4",
+            "toolArgumentsDelta": "{\"layerId\":\"hi-parcels\",\"filter\":{\"zoning\":\"AG\"}}"
+          },
+          {
+            "type": "toolCallStop",
+            "toolCallId": "call-4",
+            "toolArguments": { "layerId": "hi-parcels", "filter": { "zoning": "AG" } }
+          },
+          { "type": "messageStop", "stopReason": "endTurn", "promptTokens": 110, "completionTokens": 30, "latencyMs": 455 }
+        ]
+      }
+    }
+  ]
+}

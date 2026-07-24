@@ -1,0 +1,53 @@
+{
+  "id": "compose-districts-map",
+  "title": "Compose an operations districts map",
+  "description": "A compose-ish journey: add a layer, style it, then add a chart — two turns, one tool call each.",
+  "turns": [
+    {
+      "user": {
+        "text": "Add the Hawai'i statewide parcels layer and style it by district."
+      },
+      "assistant": {
+        "events": [
+          { "type": "messageStart", "model": "claude-sonnet-4-5-20250929" },
+          { "type": "textDelta", "text": "Adding the parcels layer" },
+          { "type": "textDelta", "text": " and styling it by district" },
+          { "type": "textDelta", "text": " now." },
+          { "type": "toolCallStart", "toolCallId": "call-1", "toolName": "add_layer" },
+          { "type": "toolCallDelta", "toolCallId": "call-1", "toolArgumentsDelta": "{\"datasetId\":\"hi-parcels\"," },
+          { "type": "toolCallDelta", "toolCallId": "call-1", "toolArgumentsDelta": "\"styleBy\":\"district\"}" },
+          {
+            "type": "toolCallStop",
+            "toolCallId": "call-1",
+            "toolArguments": { "datasetId": "hi-parcels", "styleBy": "district" }
+          },
+          { "type": "messageStop", "stopReason": "toolCall", "promptTokens": 128, "completionTokens": 42, "latencyMs": 640 }
+        ]
+      }
+    },
+    {
+      "user": {
+        "text": "Now add a chart showing the count of parcels by zoning code."
+      },
+      "assistant": {
+        "events": [
+          { "type": "messageStart", "model": "claude-sonnet-4-5-20250929" },
+          { "type": "textDelta", "text": "Adding a bar chart of parcel" },
+          { "type": "textDelta", "text": " counts by zoning code." },
+          { "type": "toolCallStart", "toolCallId": "call-2", "toolName": "add_chart" },
+          {
+            "type": "toolCallDelta",
+            "toolCallId": "call-2",
+            "toolArgumentsDelta": "{\"datasetId\":\"hi-parcels\",\"groupBy\":\"zoning_code\",\"chartType\":\"bar\"}"
+          },
+          {
+            "type": "toolCallStop",
+            "toolCallId": "call-2",
+            "toolArguments": { "datasetId": "hi-parcels", "groupBy": "zoning_code", "chartType": "bar" }
+          },
+          { "type": "messageStop", "stopReason": "endTurn", "promptTokens": 156, "completionTokens": 38, "latencyMs": 590 }
+        ]
+      }
+    }
+  ]
+}
