@@ -17,6 +17,7 @@ export { HonuaStudioChatElement } from "./studio-chat-element.js";
 export { HonuaStudioActivityLogElement } from "./studio-activity-log-element.js";
 export { HonuaStudioContentBrowserElement } from "./studio-content-browser-element.js";
 export { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
+export { HonuaStudioGpPanelElement } from "./studio-gp-panel-element.js";
 export { resolveInjectedAuth } from "./session.js";
 export type { HasOptionalAuth } from "./session.js";
 export {
@@ -44,6 +45,8 @@ export type {
   HonuaStudioChatTurnErrorDetail,
   HonuaStudioComponentRegistry,
   HonuaStudioErrorDetail,
+  HonuaStudioGpActivityDetail,
+  HonuaStudioGpAddOutputDetail,
   HonuaStudioLifecycleActivityDetail,
   HonuaStudioNavigateDetail,
   HonuaStudioOpenItemDetail,
@@ -106,3 +109,59 @@ export type {
 // ActivityLog(Entry), ChatTransport implementations, ChatState/ChatMessage,
 // fixture-conversation types, etc. — one barrel, see src/chat/index.ts.
 export * from "../chat/index.js";
+// Conversational GP authoring + async batch execution (honua-studio#10) —
+// GP package model helpers, the async job client, the authoring session,
+// and the buffer/intersect fixture. `TokenSource` is deliberately NOT
+// re-exported here, same reason as the lifecycle client's above (this
+// barrel already establishes that name via `../chat/index.js`) — import it
+// from `../gp/job-client.js` directly if you need the GP job client's copy.
+export type {
+  GpAuthoringSessionOptions,
+  GpFixtureAuthoringResult,
+  GpFixtureAuthoringStepResult,
+  GpJobClient,
+  GpJobClientErrorCode,
+  GpJobError,
+  GpJobOutputRef,
+  GpJobProgress,
+  GpJobResult,
+  GpJobSnapshot,
+  GpJobStatus,
+  GpJobSubmitInput,
+  GpPackageBody,
+  GpPackageBodyValidation,
+  GpPackageInput,
+  GpPackageOutput,
+  GpPackageParameter,
+  GpPackageStep,
+  GpParameterType,
+  StudioGpJobClientOptions,
+} from "../gp/index.js";
+export {
+  BUFFER_INTERSECT_DESCRIPTION,
+  BUFFER_INTERSECT_INPUTS,
+  BUFFER_INTERSECT_OUTPUTS,
+  BUFFER_INTERSECT_PACKAGE_KEY,
+  BUFFER_INTERSECT_PARAMETERS,
+  BUFFER_INTERSECT_RERUN_PARAMETERS,
+  BUFFER_INTERSECT_STEPS,
+  BUFFER_INTERSECT_TITLE,
+  GpAuthoringSession,
+  GpJobClientError,
+  GpModelError,
+  StudioGpJobClient,
+  addGpInput,
+  addGpOutput,
+  addGpParameter,
+  createEmptyGpPackageBody,
+  gpValidationCaveat,
+  isGpJobNotFound,
+  isGpJobTerminal,
+  removeGpInput,
+  removeGpOutput,
+  removeGpParameter,
+  runGpFixtureAuthoring,
+  setGpParameterValue,
+  setGpSteps,
+  validateGpPackageBodyStructurally,
+} from "../gp/index.js";

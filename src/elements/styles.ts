@@ -286,3 +286,35 @@ export function canvasStyles(): string {
     .composition-view-fields li { font-size: var(--hn-text-sm, 0.8125rem); }
   `;
 }
+
+/** `<honua-studio-gp-panel>` (honua-studio#10) — reuses `.lifecycle-*`/`.hn-*` class names from {@link lifecycleStyles} for the shared draft/validation/confirm-dialog chrome; this adds the GP-specific bits (inputs/parameters/outputs tables, job progress). */
+export function gpPanelStyles(): string {
+  return `
+    .gp-caveat {
+      border: 1px solid var(--hn-warning-border, #d9a441);
+      background: var(--hn-warning-tint, #fbf1dd);
+      color: var(--hn-warning-text, #7a5308);
+      border-radius: var(--hn-radius, 6px);
+      padding: var(--hn-space-3, 12px);
+      font-size: var(--hn-text-sm, 0.8125rem);
+    }
+    .gp-fields { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--hn-space-1, 4px); }
+    .gp-field-row {
+      display: flex; align-items: baseline; justify-content: space-between; gap: var(--hn-space-3, 12px);
+      border: 1px solid var(--hn-line, #dfe4df); border-radius: var(--hn-radius, 6px);
+      background: var(--hn-surface-raised, #fff);
+      padding: var(--hn-space-2, 8px) var(--hn-space-3, 12px);
+      font-size: var(--hn-text-sm, 0.8125rem);
+    }
+    .gp-progress {
+      height: 0.5rem;
+      border-radius: var(--hn-radius, 6px);
+      background: var(--hn-surface-sunken, #e9ede9);
+      overflow: hidden;
+    }
+    .gp-progress-fill { height: 100%; background: var(--hn-accent, #0b6b4d); transition: width 150ms ease; }
+    .gp-status-badge[data-status="failed"] { background: var(--hn-critical-tint, #fbe4e4); color: var(--hn-critical-text, #9c2828); }
+    .gp-status-badge[data-status="dismissed"] { background: var(--hn-surface-sunken, #e9ede9); color: var(--hn-ink-muted, #5f6e66); }
+    .gp-status-badge[data-status="successful"] { background: var(--hn-accent-tint, #e3f1ea); color: var(--hn-accent, #0b6b4d); }
+  `;
+}

@@ -32,7 +32,11 @@ export type ActivityLogEntryType =
   // `<honua-studio-lifecycle-panel>`, logged into the same shared activity
   // log — `detail.kind` carries the finer-grained lifecycle action
   // (`HonuaStudioLifecycleActivityDetail["kind"]` in `../elements/types.js`).
-  | "lifecycle_action";
+  | "lifecycle_action"
+  // honua-studio#10: GP authoring/validation/preview/execution actions taken
+  // in `<honua-studio-gp-panel>` — `detail.kind` carries the finer-grained
+  // GP action (`HonuaStudioGpActivityDetail["kind"]` in `../elements/types.js`).
+  | "gp_action";
 
 export interface ActivityLogEntry {
   /** Monotonic within one log instance, assigned on append (1-based). */

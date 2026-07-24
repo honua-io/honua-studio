@@ -54,6 +54,8 @@ import type { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
+  HonuaStudioGpActivityDetail,
+  HonuaStudioGpAddOutputDetail,
   HonuaStudioLifecycleActivityDetail,
   HonuaStudioNavigateDetail,
   HonuaStudioRoutingMode,
@@ -491,6 +493,32 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const detail = (event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail;
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
       chat?.activityLog.append("lifecycle_action", { ...detail });
+    });
+
+    // honua-studio#10 build item 2: GP authoring/validation/preview/execution
+    // actions taken in `<honua-studio-gp-panel>` (mounted by a host the same
+    // way `<honua-studio-lifecycle-panel>` is — see the listener above) are
+    // logged to the SAME shared activity log — REQ-012's "recorded in the
+    // activity log like any other context" extended to GP actions.
+    this.listen(this, "honua-studio-gp-activity", (event) => {
+      const detail = (event as CustomEvent<HonuaStudioGpActivityDetail>).detail;
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      chat?.activityLog.append("gp_action", { ...detail });
+    });
+
+    // honua-studio#10 build item 4: "the agent can offer add-to-composition
+    // (via the existing composition path)" — a completed GP job's output is
+    // added the SAME way a chat tool-call intent adds any other layer:
+    // through `.toolCallOrchestrator`'s `addLayer` command, never a
+    // GP-specific composition code path.
+    this.listen(this, "honua-studio-gp-add-output", (event) => {
+      const detail = (event as CustomEvent<HonuaStudioGpAddOutputDetail>).detail;
+      void this.toolCallOrchestrator.handleToolCall({
+        toolName: "addLayer",
+        arguments: {
+          layer: { id: detail.sourceId, sourceId: detail.sourceId, ...(detail.title ? { title: detail.title } : {}) },
+        },
+      });
     });
 
     void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.
