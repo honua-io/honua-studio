@@ -69,6 +69,7 @@ class FakeGpJobClient {
   public cancelCalls: string[] = [];
   public pollCount = 0;
   public jobId = "fake-gp-job-1";
+  public simulateFailure = false;
 
   async submit(input: unknown): Promise<GpJobSnapshot> {
     this.submitCalls.push(input);
@@ -80,6 +81,15 @@ class FakeGpJobClient {
     this.statusCalls.push(jobId);
     this.pollCount += 1;
     if (this.pollCount >= 2) {
+      if (this.simulateFailure) {
+        return {
+          jobId,
+          draftId: "gp-draft-1",
+          status: "failed",
+          progress: { percent: 60, message: "Execution failed." },
+          error: { code: "ProcessExecutionFailed", message: "The operation graph failed while running intersect." },
+        };
+      }
       return {
         jobId,
         draftId: "gp-draft-1",
@@ -322,6 +332,41 @@ describe("<honua-studio-gp-panel> (honua-studio#10)", () => {
     await flush();
     expect(jobs.cancelCalls).toEqual(["fake-gp-job-1"]);
     expect(el.shadowRoot?.querySelector('[data-testid="gp-job-status"]')?.textContent).toContain("dismissed");
+  });
+
+  it("a failed job surfaces the server's diagnostic honestly, never a paraphrase (acceptance criterion: 'failures render server diagnostics')", async () => {
+    const failingJobs = new FakeGpJobClient();
+    failingJobs.simulateFailure = true;
+    const { el } = mount(new FakeLifecycleClient(), failingJobs);
+    el.draftId = "gp-draft-1";
+    await flush();
+    el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="gp-panel-preview"]')?.click();
+    await flush();
+    el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="gp-execute-open"]')?.click();
+    await flush();
+    const input = el.shadowRoot?.querySelector<HTMLInputElement>('[data-testid="gp-confirm-input"]');
+    if (input) {
+      input.value = "gp-buffer-intersect";
+      input.dispatchEvent(new Event("input"));
+    }
+    await flush();
+    el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="gp-confirm-submit"]')?.click();
+    await flush();
+
+    el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="gp-job-check-status"]')?.click();
+    await flush();
+    el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="gp-job-check-status"]')?.click();
+    await flush();
+
+    expect(el.shadowRoot?.querySelector('[data-testid="gp-job-status"]')?.textContent).toContain("failed");
+    const diagnostic = el.shadowRoot?.querySelector('[data-testid="gp-job-error"]')?.textContent ?? "";
+    expect(diagnostic).toContain("ProcessExecutionFailed");
+    expect(diagnostic).toContain("The operation graph failed while running intersect.");
+    // No outputs, no add-to-composition offer for a failed job.
+    expect(el.shadowRoot?.querySelector('[data-testid="gp-job-outputs"]')).toBeFalsy();
+    // Terminal — no further check-status/cancel affordance left dangling.
+    expect(el.shadowRoot?.querySelector('[data-testid="gp-job-check-status"]')).toBeFalsy();
+    expect(el.shadowRoot?.querySelector('[data-testid="gp-job-cancel"]')).toBeFalsy();
   });
 
   it("resumes monitoring a job persisted in sessionStorage for this draft id, without a new submit", async () => {
