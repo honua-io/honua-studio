@@ -34,6 +34,44 @@ Pre-implementation. The founding specification is
 the first flagship deployment is the statewide Hawaii demo
 (honua-io/honua-sdk-js#776).
 
+## Development
+
+Phase 0 scaffold (honua-io/honua-studio#3): a Vite + TypeScript app shell
+consuming [`@honua/sdk-js`](https://github.com/honua-io/honua-sdk-js),
+Biome for lint/format, Vitest for unit tests, and Playwright for browser
+boot smokes.
+
+```bash
+nvm use          # Node 20.19.0 (.nvmrc)
+npm ci            # install dependencies
+npm run dev       # dev server against a mock honua-server fixture — no network
+```
+
+Point the dev server at a real server instead:
+
+```bash
+HONUA_BASE_URL=http://localhost:8080 npm run dev:live
+```
+
+Other commands:
+
+| Command | Purpose |
+| --- | --- |
+| `npm run build` / `npm run preview` | Production build / preview it locally |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
+| `npm test` | Unit tests (Vitest) |
+| `npm run test:browser` | Builds, then runs the Playwright boot smokes (chromium) |
+
+Design tokens live in `src/theme/`: `tokens.css` holds the structural
+spacing/type/radius/elevation scale, and `theme-standalone.css` /
+`theme-console.css` are swappable color + density token SETS — the console
+embed restyles Studio's chrome by flipping a `data-theme-set` attribute,
+with zero component code changes (REQ-002). `src/theme/theme-loader.ts`
+owns that attribute plus light/dark (`data-theme`, following
+`prefers-color-scheme` unless overridden). The home view
+(`src/pages/home.ts`) doubles as the live token-switch demo.
+
 ## License
 
 Apache-2.0

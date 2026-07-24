@@ -1,0 +1,32 @@
+name: Security
+
+# Mirrors honua-sdk-js's security.yml pattern (the two honua-io/.github
+# reusable scanners); the binary-artifacts policy job is sdk-js-specific
+# tooling this scaffold doesn't have yet, so it's left out here.
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  trivy:
+    permissions:
+      contents: read
+      security-events: write
+    uses: honua-io/.github/.github/workflows/reusable-trivy.yml@main
+    with:
+      scan-type: fs
+
+  scorecard:
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+      actions: read
+    uses: honua-io/.github/.github/workflows/reusable-scorecard.yml@main

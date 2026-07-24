@@ -1,0 +1,79 @@
+/*
+ * Honua Studio — design tokens (honua-studio#3 REQ-002)
+ * ------------------------------------------------------
+ * Structural scale tokens ONLY: spacing, type, radius, elevation, motion.
+ * These are theme-invariant — a "theme set" (standalone vs console) never
+ * changes the rhythm of the UI, only its color and density identity.
+ *
+ * Color and control-density tokens are deliberately NOT defined here. They
+ * are defined per theme SET in theme-standalone.css / theme-console.css,
+ * scoped by `[data-theme-set="…"]` on the document root. Swapping the
+ * attribute swaps every color/density token at once — no component CSS or
+ * markup changes. See theme-loader.ts for the attribute contract and
+ * src/pages/home.ts for a live switcher demo.
+ *
+ * Naming follows the existing honua-sdk-js sample-kit design language
+ * (`--hn-*`, see examples/_kit/design/tokens.css there) so Studio's chrome
+ * reads as one platform, not a fork.
+ */
+
+:root {
+  /* -- Type ---------------------------------------------------------- */
+  --hn-font-ui: system-ui, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --hn-font-display: "Avenir Next", "Seravek", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --hn-font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+
+  --hn-text-register: 0.6875rem; /* 11px */
+  --hn-text-xs: 0.75rem;         /* 12px */
+  --hn-text-sm: 0.8125rem;       /* 13px */
+  --hn-text-body: 0.875rem;      /* 14px */
+  --hn-text-lead: 1rem;          /* 16px */
+  --hn-text-h3: 1.125rem;        /* 18px */
+  --hn-text-h2: 1.375rem;        /* 22px */
+  --hn-text-h1: 1.75rem;         /* 28px */
+  --hn-text-display: clamp(2rem, 1.4rem + 2.4vw, 3rem);
+
+  --hn-leading-tight: 1.15;
+  --hn-leading-body: 1.5;
+  --hn-tracking-display: -0.035em;
+  --hn-tracking-heading: -0.02em;
+  --hn-tracking-register: 0.08em;
+
+  /* -- Space ----------------------------------------------------------- */
+  --hn-space-0: 2px;
+  --hn-space-1: 4px;
+  --hn-space-2: 8px;
+  --hn-space-3: 12px;
+  --hn-space-4: 16px;
+  --hn-space-5: 24px;
+  --hn-space-6: 32px;
+  --hn-space-7: 48px;
+  --hn-space-8: 64px;
+
+  /* -- Radius (base scale; theme sets may shift the semantic mapping) -- */
+  --hn-radius-sm: 4px;
+  --hn-radius: 6px;
+  --hn-radius-lg: 10px;
+  --hn-radius-pill: 999px;
+
+  /* -- Elevation --------------------------------------------------------
+   * Theme sets define the concrete shadow/scrim color; the step scale
+   * (1/2/3 = resting/raised/overlay) is structural. */
+  --hn-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --hn-elevation-2: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --hn-elevation-3: 0 12px 32px rgba(0, 0, 0, 0.16);
+
+  /* -- Motion ------------------------------------------------------------ */
+  --hn-motion-fast: 120ms;
+  --hn-motion: 200ms;
+  --hn-motion-slow: 320ms;
+  --hn-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --hn-motion-fast: 0ms;
+    --hn-motion: 0ms;
+    --hn-motion-slow: 0ms;
+  }
+}

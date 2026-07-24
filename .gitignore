@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-ssr/
+.tmp/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+npm-debug.log*
