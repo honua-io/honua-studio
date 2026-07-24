@@ -42,6 +42,7 @@ import { McpClient } from "../mcp/client.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
+import { renderContent } from "../pages/content.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
@@ -53,6 +54,7 @@ import type { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
+  HonuaStudioLifecycleActivityDetail,
   HonuaStudioNavigateDetail,
   HonuaStudioRoutingMode,
   HonuaStudioThemeChangeDetail,
@@ -78,6 +80,12 @@ const ROUTES: readonly StudioRoute[] = [
     navTestId: "nav-home",
     label: "Home",
     render: (root, client, auth) => renderHome(root, client, auth),
+  },
+  {
+    path: "/content",
+    navTestId: "nav-content",
+    label: "Content",
+    render: (root, _client, auth) => renderContent(root, auth),
   },
   { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
 ];
@@ -163,7 +171,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // auth.subscribe's own listener below; see that listener's comment.
     this.#chromeBuilt = false;
     this.renderChrome();
-    this.renderView();
+    // renderChrome() just replaced the shadow DOM wholesale — in hash mode
+    // that orphans any existing #hashRouter's captured #view node (see
+    // #setupHashRouter's doc), so rebuild it against the fresh one; its
+    // own `.start()` re-renders the current route with the new `.auth` in
+    // the process. In host mode there's no router to rebind — renderView()
+    // already re-queries `#view` live on every call.
+    if (this.routingMode === "hash") this.#setupHashRouter();
+    else this.renderView();
   }
 
   /**
@@ -364,6 +379,48 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
   }
 
+  /**
+   * (Re)builds `this.#hashRouter` bound to the CURRENT `#view` node.
+   * `routingMode === "hash"` only — stops and discards any prior router
+   * first, so this is safe to call whenever `renderChrome()` has just
+   * replaced the shadow DOM wholesale (`setShadowHtml` creates a brand new
+   * `#view` element every rebuild).
+   *
+   * honua-studio#9 finding: `.session`'s reassignment-after-connect path
+   * (`this.#chromeBuilt = false; this.renderChrome(); ...`) used to leave a
+   * PRE-EXISTING `#hashRouter` bound to the now-DETACHED old `#view` node —
+   * every hash navigation after a post-connect `.session` reassignment
+   * silently rendered into an orphaned, invisible DOM tree (caught by
+   * `test/playwright/lifecycle-journey.spec.mjs`'s `#/content` navigation
+   * after assigning `.session` the same way `mcp-compose-journey.spec.mjs`
+   * already does). Calling this after every chrome rebuild — not just the
+   * first, onConnect one — closes that gap.
+   */
+  #setupHashRouter(): void {
+    if (this.routingMode !== "hash") return;
+    this.#hashRouter?.stop();
+    this.#hashRouter = new Router(
+      this.viewRoot(),
+      ROUTES.map((route) => ({
+        path: route.path,
+        render: (root) => {
+          this.#currentPath = route.path;
+          route.render(root, this.studioClient, this.auth);
+          this.syncNavCurrent();
+        },
+      })),
+      {
+        path: "*",
+        render: (root) => {
+          this.#currentPath = "/";
+          ROUTES[0]?.render(root, this.studioClient, this.auth);
+          this.syncNavCurrent();
+        },
+      },
+    );
+    this.#hashRouter.start();
+  }
+
   protected onConnect(signal: AbortSignal): void {
     // Auth must resolve before the FIRST renderChrome() build below — the
     // shell's markup depends on `auth.mode` (host-adapter mode renders no
@@ -387,26 +444,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     const basePath = this.getAttribute("base-path");
     if (this.routingMode === "hash") {
-      this.#hashRouter = new Router(
-        this.viewRoot(),
-        ROUTES.map((route) => ({
-          path: route.path,
-          render: (root) => {
-            this.#currentPath = route.path;
-            route.render(root, this.studioClient, this.auth);
-            this.syncNavCurrent();
-          },
-        })),
-        {
-          path: "*",
-          render: (root) => {
-            this.#currentPath = "/";
-            ROUTES[0]?.render(root, this.studioClient, this.auth);
-            this.syncNavCurrent();
-          },
-        },
-      );
-      this.#hashRouter.start();
+      this.#setupHashRouter();
     } else {
       this.#currentPath = stripBasePath(normalizePath(this.getAttribute("current-path") ?? "/"), basePath);
     }
@@ -437,6 +475,22 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
       const detail = (event as CustomEvent<HonuaStudioChatToolCallResultDetail>).detail;
       void this.#handleChatToolCall(detail);
+    });
+
+    // honua-studio#9 build item 5: lifecycle actions taken in
+    // `<honua-studio-lifecycle-panel>` (mounted by `../pages/content.js`
+    // inside this element's OWN shadow `#view`) are logged to the SAME
+    // shared activity log chat/composition entries already use — REQ-012's
+    // "recorded in the activity log like any other context" extended to
+    // draft/version/publish/rollback actions. `honua-studio-lifecycle-activity`
+    // is `composed: true` (`dispatchTypedEvent`), so it escapes both the
+    // panel's own shadow root AND this element's shadow root and reaches
+    // this listener on `this`, the same way `<honua-studio-canvas>`'s
+    // selection-change event already does from a light-DOM position.
+    this.listen(this, "honua-studio-lifecycle-activity", (event) => {
+      const detail = (event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail;
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      chat?.activityLog.append("lifecycle_action", { ...detail });
     });
 
     void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.

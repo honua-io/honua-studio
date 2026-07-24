@@ -27,7 +27,12 @@ export type ActivityLogEntryType =
   // succeeded and, in live-session mode, whether the server draft mutation
   // landed).
   | "composition_command_applied"
-  | "composition_command_rejected";
+  | "composition_command_rejected"
+  // honua-studio#9: draft/version/publish/rollback actions taken in
+  // `<honua-studio-lifecycle-panel>`, logged into the same shared activity
+  // log — `detail.kind` carries the finer-grained lifecycle action
+  // (`HonuaStudioLifecycleActivityDetail["kind"]` in `../elements/types.js`).
+  | "lifecycle_action";
 
 export interface ActivityLogEntry {
   /** Monotonic within one log instance, assigned on append (1-based). */

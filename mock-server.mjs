@@ -24,6 +24,43 @@
  *   POST /oidc/token                             -> authorization_code exchange + refresh_token ROTATION
  *   POST /oidc/revoke                            -> best-effort refresh-token revocation (RFC 7009)
  *   POST /mcp                                    -> JSON-RPC 2.0 MCP endpoint (honua-studio#7, see below)
+ *   GET  /v1/studio/package-families             -> ApiResponse<StudioPackageFamilyCapabilities> [bearer]
+ *   GET  /v1/studio/content-items                -> ApiResponse<StudioContentItemListResponse> [bearer]
+ *   POST /v1/studio/package-drafts                -> ApiResponse<StudioPackageDraft> [bearer]
+ *   GET  /v1/studio/package-drafts                -> ApiResponse<StudioPackageDraftListResponse> [bearer]
+ *   GET/PUT/DELETE /v1/studio/package-drafts/{id}  -> ApiResponse<StudioPackageDraft|object> [bearer]
+ *   POST /v1/studio/package-drafts/{id}/validate         -> ApiResponse<StudioValidationSummary> [bearer]
+ *   POST /v1/studio/package-drafts/{id}/preview-plan     -> ApiResponse<StudioPreviewPlan> [bearer]
+ *   POST /v1/studio/package-drafts/{id}/content-versions -> ApiResponse<StudioContentVersion> [bearer]
+ *   GET  /v1/studio/content-items/{itemId}/versions              -> ApiResponse<StudioContentVersionListResponse>
+ *   GET  /v1/studio/content-items/{itemId}/versions/{versionId}  -> ApiResponse<StudioContentVersion>
+ *   POST /v1/studio/content-items/{itemId}/version-comparisons   -> ApiResponse<StudioVersionComparison>
+ *   POST /v1/studio/content-items/{itemId}/versions/{versionId}/publish-requests -> ApiResponse<StudioPublicationRequest>
+ *   POST /v1/studio/content-items/{itemId}/versions/{versionId}/reopen           -> ApiResponse<StudioPackageDraft>
+ *   POST /v1/studio/content-items/{itemId}/rollback-requests                    -> ApiResponse<StudioRollbackRequest>
+ *
+ * The REST lifecycle + enumeration routes above (honua-studio#9) implement
+ * honua-server's `docs/internal/admin-api/studio-package-lifecycle.md`
+ * (issue #1180) plus the content-item/draft enumeration endpoints from
+ * server PR #3014 (issue #3003) — `src/lifecycle/lifecycle-client.ts` is the
+ * typed client that speaks this shape exactly. Successful responses use the
+ * documented `ApiResponse<T>` envelope (`{ success, data, timestamp }`);
+ * errors use RFC 7807 problem details (`type: "https://honua.io/problems/studio"`).
+ * Every lifecycle route requires the same bearer the rest of this fixture's
+ * protected routes require (the doc: "require admin authorization in the
+ * MVP" — this fixture's one user is always `roles: ["admin"]`, so bearer
+ * presence is the only check that matters here).
+ *
+ * `/mcp` (honua-studio#7) and the REST lifecycle routes above share ONE
+ * `createStudioLifecycleStore()` instance per `startMockServer()` call
+ * (honua-studio#9 build item 1: "mock-server.mjs gains the REST lifecycle +
+ * enumeration endpoints over the same in-memory draft store the /mcp
+ * dispatcher uses (ONE store, both surfaces)") — proving spec AD-8
+ * coherence in dev mode: a draft an agent mutates through
+ * `honua_studio_update_draft` is the exact same record `GET
+ * /v1/studio/package-drafts/{draftId}` returns, and `honua_studio_propose_publication`
+ * writes `publicationIntent` onto a draft the lifecycle panel's REST client
+ * reads back directly, with no second projection anywhere.
  *
  * `/mcp` (honua-studio#7): a minimal JSON-RPC 2.0 dispatcher over the SAME
  * `initialize` / `tools/list` / `tools/call` methods `src/mcp/client.ts`
@@ -31,8 +68,8 @@
  * documents (`STUDIO_MCP_TOOL_NAMES` in `src/mcp/studio-tools.ts` — kept a
  * deliberately duplicated literal list here, same reason as
  * `CHAT_EVENT_TYPE_TO_SSE_NAME` above: this file runs under plain `node`,
- * never a TypeScript loader). Backed by an in-memory draft store with the
- * exact same optimistic-concurrency contract `FixtureDraftStore`
+ * never a TypeScript loader). Backed by the shared in-memory draft store
+ * with the exact same optimistic-concurrency contract `FixtureDraftStore`
  * (`src/composition/history.ts`) documents: `generation` starts at `1` on
  * create, increments by exactly `1` on every successful mutation, and a
  * stale `generation` on a mutating call returns a `failed_precondition`
@@ -43,7 +80,12 @@
  * `not_found`, and only `map`/`app`-family drafts accept them
  * (`invalid_argument` otherwise). `initialize`/`tools/list` are open per the
  * honua-server MCP doc ("handshake methods are open"); `tools/call` requires
- * the same bearer this file's other protected routes require.
+ * the same bearer this file's other protected routes require. CRITICALLY,
+ * `honua_studio_propose_publication` (the only publish-adjacent MCP tool)
+ * never touches `publicationRequests`/`rollbackRequests`/the item's
+ * pointers — it only ever writes `envelope.publicationIntent` onto the
+ * draft, exactly mirroring the server's real tool (see server PR #3016) and
+ * this repo's spec REQ-009 human gate (`test/lifecycle/human-gate.test.ts`).
  *
  * Auth model (P2-8 review finding): access tokens are short-lived signed
  * JWTs (HS256, dev-only secret — never used outside this loopback fixture);
@@ -67,7 +109,7 @@
  * `src/chat/ai-contract.ts`'s `CHAT_EVENT_TYPE_TO_SSE_NAME`, and the
  * fixture JSON is read directly via `node:fs`, never through a `.ts` import.
  */
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
@@ -157,10 +199,78 @@ function toolError(code, message) {
   return { isError: true, structuredContent: { code, message } };
 }
 
-/** JSON-RPC 2.0 method dispatcher for `POST /mcp` (honua-studio#7) — see this file's module doc. One instance per `startMockServer()` call, matching `pendingCodes`/`activeRefreshTokens`'s per-server-instance scoping. */
-function createMcpDispatcher() {
+// ── Shared Studio lifecycle store (honua-studio#9 build item 1) ────────────
+//
+// ONE store, both surfaces: `/mcp`'s `honua_studio_*` tools and the REST
+// lifecycle + enumeration routes below read/write the exact same
+// `drafts`/`items`/`versions`/`publicationRequests`/`rollbackRequests` maps
+// — see this file's module doc for why that matters (spec AD-8 coherence).
+//
+// Field names on every stored record already match the server DTOs'
+// camelCase `[JsonPropertyName]`s (`src/lifecycle/lifecycle-types.ts`
+// mirrors the same names) so REST responses need no translation; the MCP
+// surface's `draftPublic()` below still projects down to the smaller
+// `StudioMcpDraft` shape `src/mcp/studio-tools.ts` documents, unchanged from
+// before this store was shared.
+const FIXTURE_ACTOR = "studio-dev-user";
+
+function createStudioLifecycleStore() {
   const drafts = new Map();
-  let nextDraftId = 1;
+  const items = new Map();
+  const versions = new Map();
+  const versionsByItem = new Map();
+  const publicationRequests = new Map();
+  const rollbackRequests = new Map();
+  let nextDraftSeq = 1;
+  let nextVersionSeq = 1;
+  let nextPublicationRequestSeq = 1;
+  let nextRollbackRequestSeq = 1;
+
+  function now() {
+    return new Date().toISOString();
+  }
+
+  /** Creates or refreshes the content item a draft belongs to — called on every draft create/update so `items` always reflects the latest draft's packageKey/workspaceId/family, matching the doc's "(workspaceId, family, packageKey) uniqueness" framing loosely (this mock does not enforce that uniqueness constraint). */
+  function touchItem(itemId, { packageKey, workspaceId, family, actor }) {
+    const existing = items.get(itemId);
+    const ts = now();
+    const item = existing
+      ? { ...existing, packageKey, workspaceId, family, updatedBy: actor, updatedAt: ts }
+      : {
+          itemId,
+          packageKey,
+          workspaceId,
+          family,
+          currentVersionId: undefined,
+          publishedVersionId: undefined,
+          createdBy: actor,
+          updatedBy: actor,
+          createdAt: ts,
+          updatedAt: ts,
+        };
+    items.set(itemId, item);
+    return item;
+  }
+
+  return {
+    drafts,
+    items,
+    versions,
+    versionsByItem,
+    publicationRequests,
+    rollbackRequests,
+    now,
+    touchItem,
+    nextDraftId: () => `mock-draft-${nextDraftSeq++}`,
+    nextVersionId: () => `mock-version-${nextVersionSeq++}`,
+    nextPublicationRequestId: () => `mock-publish-request-${nextPublicationRequestSeq++}`,
+    nextRollbackRequestId: () => `mock-rollback-request-${nextRollbackRequestSeq++}`,
+  };
+}
+
+/** JSON-RPC 2.0 method dispatcher for `POST /mcp` (honua-studio#7) — see this file's module doc. Takes the shared {@link createStudioLifecycleStore} instance so its draft mutations are visible to the REST lifecycle routes (honua-studio#9). */
+function createMcpDispatcher(store) {
+  const drafts = store.drafts;
 
   function draftPublic(draft) {
     return {
@@ -210,8 +320,20 @@ function createMcpDispatcher() {
         ),
       };
     }
-    const updated = { ...draft, ...patch, generation: draft.generation + 1 };
+    const updated = {
+      ...draft,
+      ...patch,
+      generation: draft.generation + 1,
+      updatedBy: FIXTURE_ACTOR,
+      updatedAt: store.now(),
+    };
     drafts.set(updated.draftId, updated);
+    store.touchItem(updated.itemId, {
+      packageKey: updated.packageKey,
+      workspaceId: updated.workspaceId,
+      family: updated.family,
+      actor: FIXTURE_ACTOR,
+    });
     return { draft: updated };
   }
 
@@ -244,15 +366,23 @@ function createMcpDispatcher() {
           `'family' must be one of: ${[...KNOWN_FAMILIES].join(", ")}. Got '${family}'.`,
         );
       }
-      const draftId = args.itemId ? String(args.itemId) : `mock-draft-${nextDraftId}`;
-      nextDraftId += 1;
+      const draftId = args.itemId ? String(args.itemId) : store.nextDraftId();
+      const itemId = args.itemId ? String(args.itemId) : draftId;
+      const ts = store.now();
       const draft = {
         draftId,
-        itemId: args.itemId ?? draftId,
+        itemId,
         packageKey: args.packageKey,
         workspaceId: args.workspaceId,
         ownerId: args.ownerId,
+        family,
         generation: 1,
+        baseVersionId: args.baseVersionId,
+        validation: { status: "not-validated", diagnostics: [] },
+        createdBy: FIXTURE_ACTOR,
+        updatedBy: FIXTURE_ACTOR,
+        createdAt: ts,
+        updatedAt: ts,
         envelope: {
           family,
           schemaVersion: args.schemaVersion,
@@ -260,6 +390,12 @@ function createMcpDispatcher() {
         },
       };
       drafts.set(draftId, draft);
+      store.touchItem(itemId, {
+        packageKey: draft.packageKey,
+        workspaceId: draft.workspaceId,
+        family,
+        actor: FIXTURE_ACTOR,
+      });
       return toolSuccess(draftPublic(draft));
     },
 
@@ -457,6 +593,786 @@ function createMcpDispatcher() {
   };
 }
 
+// ── Studio package lifecycle REST + enumeration routes (honua-studio#9) ────
+//
+// Implements `docs/internal/admin-api/studio-package-lifecycle.md`
+// (honua-server issue #1180) plus the `GET /content-items` / `GET
+// /package-drafts` enumeration endpoints from server PR #3014 (issue
+// #3003), over the SAME `store` `/mcp`'s dispatcher above uses (see this
+// file's module doc — "ONE store, both surfaces"). `src/lifecycle/lifecycle-client.ts`
+// is the typed client this router is built to satisfy exactly.
+
+const STUDIO_LIFECYCLE_PROBLEM_TYPE = "https://honua.io/problems/studio";
+const STUDIO_CONTENT_ITEM_STATES = new Set(["draft", "current", "published"]);
+const STUDIO_ROLLBACK_POINTERS = new Set(["current", "published", "both"]);
+const FAMILY_FORMATS = {
+  query: "studio_query_package.v1",
+  analysis: "studio_analysis_package.v1",
+  map: "honua_map_package.v1",
+  dashboard: "studio_dashboard_package.v1",
+  report: "studio_report_package.v1",
+  form: "studio_form_package.v1",
+  app: "honua_app_package.v1",
+  workflow: "studio_workflow_package.v1",
+  gp: "studio_gp_package.v1",
+  etl: "studio_etl_package.v1",
+};
+/** `map`/`app` get family-specific validators on a real server ("supportLevel: supported"); every other family is envelope-only ("limited") — matches the doc's "Package Envelope" section exactly. */
+const DEEP_VALIDATED_FAMILIES = new Set(["map", "app"]);
+
+function apiResponse(res, status, data) {
+  json(res, status, { success: true, data, timestamp: new Date().toISOString() });
+}
+
+/** RFC 7807 problem response, `type: "https://honua.io/problems/studio"` — the doc's documented error shape for every 400/404/409/500 this router returns. */
+function problemResponse(res, status, title, detail) {
+  const body = { type: STUDIO_LIFECYCLE_PROBLEM_TYPE, title, status, ...(detail ? { detail } : {}) };
+  res.writeHead(status, {
+    "content-type": "application/problem+json; charset=utf-8",
+    "cache-control": "no-store",
+    "access-control-allow-origin": "*",
+  });
+  res.end(JSON.stringify(body));
+}
+
+function trailingSeq(id) {
+  const match = /(\d+)$/.exec(String(id ?? ""));
+  return match ? Number(match[1]) : 0;
+}
+
+/** Orders DESC by `updatedAt`, then DESC by the id's trailing numeric sequence (falling back to string compare) — the same stable tiebreak the doc's enumeration section documents (REQ-001: "pages stay stable even as other rows are concurrently created or updated"). */
+function compareEnumerationOrder(aUpdatedAt, aId, bUpdatedAt, bId) {
+  if (aUpdatedAt !== bUpdatedAt) return aUpdatedAt < bUpdatedAt ? 1 : -1;
+  const aSeq = trailingSeq(aId);
+  const bSeq = trailingSeq(bId);
+  if (aSeq !== bSeq) return aSeq < bSeq ? 1 : -1;
+  return aId < bId ? 1 : aId > bId ? -1 : 0;
+}
+
+function encodeCursor(updatedAt, id) {
+  return Buffer.from(JSON.stringify([updatedAt, id])).toString("base64url");
+}
+
+function decodeCursor(cursor) {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    const [updatedAt, id] = Array.isArray(parsed) ? parsed : [];
+    return typeof updatedAt === "string" && typeof id === "string" ? { updatedAt, id } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Opaque keyset-cursor pagination over an already-unsorted record array — see the doc's "Content Item And Draft Enumeration" section. Returns `{ invalidCursor: true }` for a cursor this fixture can't decode. */
+function paginateEnumeration(records, { cursor, limit, idOf, updatedAtOf }) {
+  const sorted = [...records].sort((a, b) => compareEnumerationOrder(updatedAtOf(a), idOf(a), updatedAtOf(b), idOf(b)));
+  let startIndex = 0;
+  if (cursor) {
+    const decoded = decodeCursor(cursor);
+    if (!decoded) return { invalidCursor: true };
+    startIndex = sorted.findIndex(
+      (record) => compareEnumerationOrder(updatedAtOf(record), idOf(record), decoded.updatedAt, decoded.id) > 0,
+    );
+    if (startIndex === -1) startIndex = sorted.length;
+  }
+  const page = sorted.slice(startIndex, startIndex + limit);
+  const last = page[page.length - 1];
+  const hasMore = startIndex + limit < sorted.length;
+  return {
+    items: page,
+    total: sorted.length,
+    nextCursor: hasMore && last ? encodeCursor(updatedAtOf(last), idOf(last)) : null,
+  };
+}
+
+function parseFamiliesParam(raw) {
+  if (!raw) return { families: undefined };
+  const families = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const unknown = families.find((family) => !KNOWN_FAMILIES.has(family));
+  return unknown ? { invalid: unknown } : { families };
+}
+
+function clampLimit(raw) {
+  const parsed = raw ? Number(raw) : 25;
+  if (!Number.isFinite(parsed) || parsed < 1) return 25;
+  return Math.min(Math.trunc(parsed), 1000);
+}
+
+function draftRestPublic(draft) {
+  return {
+    draftId: draft.draftId,
+    itemId: draft.itemId,
+    packageKey: draft.packageKey,
+    workspaceId: draft.workspaceId,
+    ownerId: draft.ownerId,
+    family: draft.family,
+    envelope: draft.envelope,
+    validation: draft.validation,
+    baseVersionId: draft.baseVersionId,
+    generation: draft.generation,
+    createdBy: draft.createdBy,
+    updatedBy: draft.updatedBy,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+  };
+}
+
+function itemState(item) {
+  if (item.publishedVersionId) return "published";
+  if (item.currentVersionId) return "current";
+  return "draft";
+}
+
+function computeContentHash(envelope) {
+  // Excludes volatile validation timestamps, per the doc: "computes a
+  // SHA-256 contentHash that excludes volatile validation timestamps".
+  const { validation, ...rest } = envelope;
+  const stableValidation = validation
+    ? {
+        status: validation.status,
+        diagnostics: validation.diagnostics ?? [],
+        unsupportedCapabilities: validation.unsupportedCapabilities ?? [],
+      }
+    : undefined;
+  return createHash("sha256")
+    .update(JSON.stringify({ ...rest, validation: stableValidation }))
+    .digest("hex");
+}
+
+/** Envelope-level validation only — see `DEEP_VALIDATED_FAMILIES`; this mock never runs `honua_map_package.v1`/`honua_app_package.v1` body validation (that is real honua-server behavior this fixture does not reproduce). */
+function runValidation() {
+  return { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: new Date().toISOString() };
+}
+
+function createStudioLifecycleRestRouter(store) {
+  function versionsForItem(itemId) {
+    const ids = store.versionsByItem.get(itemId) ?? [];
+    return ids.map((id) => store.versions.get(id)).filter(Boolean);
+  }
+
+  function itemSummary(item) {
+    const summary = {
+      itemId: item.itemId,
+      packageKey: item.packageKey,
+      workspaceId: item.workspaceId,
+      family: item.family,
+      state: itemState(item),
+      currentVersionId: item.currentVersionId,
+      publishedVersionId: item.publishedVersionId,
+      createdBy: item.createdBy,
+      updatedBy: item.updatedBy,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+    // Simplified same-store publication badge synthesis (honua-studio#9):
+    // this fixture does not stand up a separate Content Publication
+    // Registry store, so the badge is derived straight from the item's own
+    // `publishedVersionId` rather than joined from a second store the way
+    // the doc's "Publication-Registry Lifecycle Badge" section describes.
+    // Good enough to exercise the content browser's badge rendering; NOT a
+    // claim that this mock reproduces the registry's own route lifecycle.
+    if (item.publishedVersionId) {
+      const publishedVersion = store.versions.get(item.publishedVersionId);
+      summary.publication = {
+        publicationId: `mock-publication-${item.itemId}`,
+        routeSlug: `studio/${item.packageKey}`,
+        routePath: `/api/v1/published/studio/${item.packageKey}`,
+        lifecycle: "active",
+        activeRevision: publishedVersion ? publishedVersion.versionNumber : 1,
+        updatedAt: item.updatedAt,
+      };
+    }
+    return summary;
+  }
+
+  function packageFamilyCapabilities() {
+    const families = [...KNOWN_FAMILIES].map((family) => ({
+      family,
+      currentSchemaVersion: "1.0",
+      format: FAMILY_FORMATS[family],
+      supportLevel: DEEP_VALIDATED_FAMILIES.has(family) ? "supported" : "limited",
+      supportedOperations: [
+        "draft.create",
+        "draft.read",
+        "draft.update",
+        "validate",
+        "preview-plan",
+        "content-version.create",
+        "content-version.read",
+        "content-version.compare",
+        "publish-request.create",
+        "reopen",
+        "rollback",
+      ],
+      validationDepth: DEEP_VALIDATED_FAMILIES.has(family) ? "package" : "envelope",
+      limitations: DEEP_VALIDATED_FAMILIES.has(family) ? [] : ["Envelope-level validation only in this deployment."],
+      maxPackageBytes: 1048576,
+      previewSupported: true,
+      publishSupported: true,
+    }));
+    return { persistenceMode: "in-memory", durable: false, families };
+  }
+
+  function requireDraftOr404(draftId, res) {
+    const draft = store.drafts.get(draftId);
+    if (!draft) {
+      problemResponse(res, 404, "Studio package draft not found", `No draft with id '${draftId}' exists.`);
+      return undefined;
+    }
+    return draft;
+  }
+
+  function requireItemOr404(itemId, res) {
+    const item = store.items.get(itemId);
+    if (!item) {
+      problemResponse(res, 404, "Studio content item not found", `No content item with id '${itemId}' exists.`);
+      return undefined;
+    }
+    return item;
+  }
+
+  function requireVersionOr404(itemId, versionId, res) {
+    const version = store.versions.get(versionId);
+    // Routes with both {itemId} and {versionId} are an ownership boundary
+    // (doc: "a version that exists under a different content item is
+    // handled as not found") — a cross-item version id 404s exactly like a
+    // missing one.
+    if (!version || version.itemId !== itemId) {
+      problemResponse(
+        res,
+        404,
+        "Studio content version not found",
+        `No version '${versionId}' exists under item '${itemId}'.`,
+      );
+      return undefined;
+    }
+    return version;
+  }
+
+  function saveDraftAsVersion(draft, changeNote) {
+    const validation = runValidation();
+    const envelope = { ...draft.envelope, validation };
+    const contentHash = computeContentHash(envelope);
+    const versionId = store.nextVersionId();
+    const versionNumber = versionsForItem(draft.itemId).length + 1;
+    const ts = store.now();
+    const version = {
+      itemId: draft.itemId,
+      packageKey: draft.packageKey,
+      workspaceId: draft.workspaceId,
+      ownerId: draft.ownerId,
+      versionId,
+      versionNumber,
+      contentHash,
+      envelope,
+      validation,
+      dependencies: envelope.dependencies ?? [],
+      provenance: envelope.provenance ?? [],
+      sourceDraftId: draft.draftId,
+      baseVersionId: draft.baseVersionId,
+      changeNote,
+      createdBy: FIXTURE_ACTOR,
+      createdAt: ts,
+    };
+    store.versions.set(versionId, version);
+    store.versionsByItem.set(draft.itemId, [...(store.versionsByItem.get(draft.itemId) ?? []), versionId]);
+    // "Saving a draft as a content version revalidates the draft... and
+    // advances the content item's current pointer" (doc) — also bumps the
+    // draft's own generation, matching "save-as-version calls persist the
+    // latest validation summary back onto the draft and therefore also
+    // advance the draft generation."
+    const item = store.touchItem(draft.itemId, {
+      packageKey: draft.packageKey,
+      workspaceId: draft.workspaceId,
+      family: draft.family,
+      actor: FIXTURE_ACTOR,
+    });
+    store.items.set(draft.itemId, { ...item, currentVersionId: versionId, updatedAt: ts });
+    store.drafts.set(draft.draftId, {
+      ...draft,
+      envelope,
+      validation,
+      generation: draft.generation + 1,
+      updatedBy: FIXTURE_ACTOR,
+      updatedAt: ts,
+    });
+    return version;
+  }
+
+  function compareVersionRecords(left, right) {
+    const changes = [];
+    const contentEqual = left.contentHash === right.contentHash;
+    if (!contentEqual) changes.push("content");
+    const dependenciesEqual = JSON.stringify(left.dependencies ?? []) === JSON.stringify(right.dependencies ?? []);
+    if (!dependenciesEqual) changes.push("dependencies");
+    const validationEqual = JSON.stringify(left.validation) === JSON.stringify(right.validation);
+    if (!validationEqual) changes.push("validation");
+    const provenanceEqual = JSON.stringify(left.provenance ?? []) === JSON.stringify(right.provenance ?? []);
+    if (!provenanceEqual) changes.push("provenance");
+    return { contentEqual, dependenciesEqual, validationEqual, provenanceEqual, changes };
+  }
+
+  /**
+   * Routes one already-bearer-checked request. `subPath` has the
+   * `/v1/studio` prefix already stripped (e.g. `/package-drafts`).  Returns
+   * `true` once it has written a response (matched, whether success or
+   * error), `false` if nothing here matches (caller falls through to its
+   * own 404).
+   */
+  async function handle(req, res, method, subPath, searchParams) {
+    // GET /package-families
+    if (method === "GET" && subPath === "/package-families") {
+      apiResponse(res, 200, packageFamilyCapabilities());
+      return true;
+    }
+
+    // GET /content-items (enumeration)
+    if (method === "GET" && subPath === "/content-items") {
+      const familiesResult = parseFamiliesParam(searchParams.get("family"));
+      if (familiesResult.invalid) {
+        problemResponse(res, 400, "Invalid family filter", `Unknown package family '${familiesResult.invalid}'.`);
+        return true;
+      }
+      const statesRaw = searchParams.get("state");
+      let states;
+      if (statesRaw) {
+        states = statesRaw
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        const unknownState = states.find((state) => !STUDIO_CONTENT_ITEM_STATES.has(state));
+        if (unknownState) {
+          problemResponse(res, 400, "Invalid state filter", `Unknown content item state '${unknownState}'.`);
+          return true;
+        }
+      }
+      const workspaceId = searchParams.get("workspaceId") ?? undefined;
+      const owner = searchParams.get("owner") ?? undefined;
+      const q = searchParams.get("q")?.toLowerCase();
+      const limit = clampLimit(searchParams.get("limit"));
+      const cursor = searchParams.get("cursor") ?? undefined;
+
+      const filtered = [...store.items.values()].filter((item) => {
+        if (familiesResult.families && !familiesResult.families.includes(item.family)) return false;
+        if (workspaceId !== undefined && item.workspaceId !== workspaceId) return false;
+        // Ownership stand-in per the doc: filters on the item's recorded
+        // creator (createdBy) until honua-server#3001 lands per-item
+        // ownership.
+        if (owner !== undefined && item.createdBy !== owner) return false;
+        if (states && !states.includes(itemState(item))) return false;
+        if (q && !item.packageKey.toLowerCase().includes(q)) return false;
+        return true;
+      });
+      const page = paginateEnumeration(filtered, {
+        cursor,
+        limit,
+        idOf: (item) => item.itemId,
+        updatedAtOf: (item) => item.updatedAt,
+      });
+      if (page.invalidCursor) {
+        problemResponse(res, 400, "Invalid cursor", "The 'cursor' parameter could not be decoded.");
+        return true;
+      }
+      apiResponse(res, 200, { items: page.items.map(itemSummary), total: page.total, nextCursor: page.nextCursor });
+      return true;
+    }
+
+    // GET /package-drafts (enumeration) / POST /package-drafts (create)
+    if (subPath === "/package-drafts" && method === "GET") {
+      const familiesResult = parseFamiliesParam(searchParams.get("family"));
+      if (familiesResult.invalid) {
+        problemResponse(res, 400, "Invalid family filter", `Unknown package family '${familiesResult.invalid}'.`);
+        return true;
+      }
+      const workspaceId = searchParams.get("workspaceId") ?? undefined;
+      const owner = searchParams.get("owner") ?? undefined;
+      const q = searchParams.get("q")?.toLowerCase();
+      const limit = clampLimit(searchParams.get("limit"));
+      const cursor = searchParams.get("cursor") ?? undefined;
+
+      const filtered = [...store.drafts.values()].filter((draft) => {
+        if (familiesResult.families && !familiesResult.families.includes(draft.family)) return false;
+        if (workspaceId !== undefined && draft.workspaceId !== workspaceId) return false;
+        if (owner !== undefined && draft.ownerId !== owner) return false;
+        if (q && !draft.packageKey.toLowerCase().includes(q)) return false;
+        return true;
+      });
+      const page = paginateEnumeration(filtered, {
+        cursor,
+        limit,
+        idOf: (draft) => draft.draftId,
+        updatedAtOf: (draft) => draft.updatedAt,
+      });
+      if (page.invalidCursor) {
+        problemResponse(res, 400, "Invalid cursor", "The 'cursor' parameter could not be decoded.");
+        return true;
+      }
+      apiResponse(res, 200, { items: page.items.map(draftRestPublic), total: page.total, nextCursor: page.nextCursor });
+      return true;
+    }
+
+    if (subPath === "/package-drafts" && method === "POST") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+        return true;
+      }
+      const { packageKey, workspaceId, ownerId, itemId, envelope } = body ?? {};
+      if (typeof packageKey !== "string" || !packageKey.trim()) {
+        problemResponse(res, 400, "Invalid request", "'packageKey' is required.");
+        return true;
+      }
+      const trimmedKey = packageKey.trim();
+      if (trimmedKey.length > 200 || !/^[A-Za-z0-9._-]+$/.test(trimmedKey)) {
+        problemResponse(
+          res,
+          400,
+          "Invalid request",
+          "'packageKey' must be <=200 characters of letters, numbers, dash, underscore, or dot.",
+        );
+        return true;
+      }
+      if (!envelope || typeof envelope !== "object" || typeof envelope.family !== "string") {
+        problemResponse(res, 400, "Invalid request", "'envelope.family' is required.");
+        return true;
+      }
+      if (!KNOWN_FAMILIES.has(envelope.family)) {
+        problemResponse(res, 400, "Invalid request", `Unknown package family '${envelope.family}'.`);
+        return true;
+      }
+      const draftId = store.nextDraftId();
+      const resolvedItemId = itemId ? String(itemId) : draftId;
+      const ts = store.now();
+      const draft = {
+        draftId,
+        itemId: resolvedItemId,
+        packageKey: trimmedKey,
+        workspaceId: workspaceId || undefined,
+        ownerId: ownerId || undefined,
+        family: envelope.family,
+        envelope,
+        validation: envelope.validation ?? { status: "not-validated", diagnostics: [] },
+        baseVersionId: undefined,
+        generation: 1,
+        createdBy: FIXTURE_ACTOR,
+        updatedBy: FIXTURE_ACTOR,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      store.drafts.set(draftId, draft);
+      store.touchItem(resolvedItemId, {
+        packageKey: draft.packageKey,
+        workspaceId: draft.workspaceId,
+        family: draft.family,
+        actor: FIXTURE_ACTOR,
+      });
+      apiResponse(res, 201, draftRestPublic(draft));
+      return true;
+    }
+
+    // /package-drafts/{draftId}(/...)
+    const draftMatch = /^\/package-drafts\/([^/]+)(\/.*)?$/.exec(subPath);
+    if (draftMatch) {
+      const draftId = decodeURIComponent(draftMatch[1]);
+      const rest = draftMatch[2] ?? "";
+
+      if (rest === "" && method === "GET") {
+        const draft = requireDraftOr404(draftId, res);
+        if (draft) apiResponse(res, 200, draftRestPublic(draft));
+        return true;
+      }
+
+      if (rest === "" && method === "PUT") {
+        const draft = requireDraftOr404(draftId, res);
+        if (!draft) return true;
+        let body;
+        try {
+          body = JSON.parse(await readBody(req));
+        } catch {
+          problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+          return true;
+        }
+        const { packageKey, workspaceId, ownerId, envelope, generation } = body ?? {};
+        if (typeof packageKey !== "string" || !packageKey.trim()) {
+          problemResponse(res, 400, "Invalid request", "'packageKey' is required.");
+          return true;
+        }
+        if (!envelope || typeof envelope !== "object") {
+          problemResponse(res, 400, "Invalid request", "'envelope' is required.");
+          return true;
+        }
+        // Omitting `generation` updates from the current draft generation
+        // loaded by the server (doc) — only a MISMATCHED explicit value 409s.
+        if (generation !== undefined && generation !== draft.generation) {
+          problemResponse(
+            res,
+            409,
+            "Stale draft generation",
+            `Expected generation ${draft.generation}, received ${generation}. Reload the draft and retry.`,
+          );
+          return true;
+        }
+        const ts = store.now();
+        const updated = {
+          ...draft,
+          packageKey: packageKey.trim(),
+          workspaceId: workspaceId || undefined,
+          ownerId: ownerId ?? draft.ownerId,
+          family: envelope.family ?? draft.family,
+          envelope,
+          generation: draft.generation + 1,
+          updatedBy: FIXTURE_ACTOR,
+          updatedAt: ts,
+        };
+        store.drafts.set(draftId, updated);
+        store.touchItem(updated.itemId, {
+          packageKey: updated.packageKey,
+          workspaceId: updated.workspaceId,
+          family: updated.family,
+          actor: FIXTURE_ACTOR,
+        });
+        apiResponse(res, 200, draftRestPublic(updated));
+        return true;
+      }
+
+      if (rest === "" && method === "DELETE") {
+        if (!requireDraftOr404(draftId, res)) return true;
+        store.drafts.delete(draftId);
+        json(res, 200, {
+          success: true,
+          message: "Studio package draft deleted.",
+          timestamp: new Date().toISOString(),
+        });
+        return true;
+      }
+
+      if (rest === "/validate" && method === "POST") {
+        const draft = requireDraftOr404(draftId, res);
+        if (!draft) return true;
+        const validation = runValidation();
+        store.drafts.set(draftId, {
+          ...draft,
+          validation,
+          envelope: { ...draft.envelope, validation },
+          generation: draft.generation + 1,
+          updatedAt: store.now(),
+        });
+        apiResponse(res, 200, validation);
+        return true;
+      }
+
+      if (rest === "/preview-plan" && method === "POST") {
+        const draft = requireDraftOr404(draftId, res);
+        if (!draft) return true;
+        const validation = runValidation();
+        const jobBacked = draft.family === "gp" || draft.family === "etl" || draft.family === "workflow";
+        store.drafts.set(draftId, {
+          ...draft,
+          validation,
+          envelope: { ...draft.envelope, validation },
+          generation: draft.generation + 1,
+          updatedAt: store.now(),
+        });
+        apiResponse(res, 200, {
+          draftId,
+          family: draft.family,
+          synchronous: !jobBacked,
+          requiresJob: jobBacked,
+          steps: jobBacked
+            ? ["validate-envelope", "plan-background-preview-job"]
+            : ["validate-envelope", "prepare-inline-preview"],
+          validation,
+        });
+        return true;
+      }
+
+      if (rest === "/content-versions" && method === "POST") {
+        const draft = requireDraftOr404(draftId, res);
+        if (!draft) return true;
+        let body = {};
+        try {
+          const text = await readBody(req);
+          body = text ? JSON.parse(text) : {};
+        } catch {
+          problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+          return true;
+        }
+        const version = saveDraftAsVersion(draft, typeof body.changeNote === "string" ? body.changeNote : undefined);
+        apiResponse(res, 201, version);
+        return true;
+      }
+    }
+
+    // /content-items/{itemId}(/...)
+    const itemMatch = /^\/content-items\/([^/]+)(\/.*)?$/.exec(subPath);
+    if (itemMatch) {
+      const itemId = decodeURIComponent(itemMatch[1]);
+      const rest = itemMatch[2] ?? "";
+
+      if (rest === "/versions" && method === "GET") {
+        if (!requireItemOr404(itemId, res)) return true;
+        apiResponse(res, 200, { itemId, versions: versionsForItem(itemId) });
+        return true;
+      }
+
+      const versionMatch = /^\/versions\/([^/]+)(\/.*)?$/.exec(rest);
+      if (versionMatch) {
+        const versionId = decodeURIComponent(versionMatch[1]);
+        const versionRest = versionMatch[2] ?? "";
+
+        if (versionRest === "" && method === "GET") {
+          if (!requireItemOr404(itemId, res)) return true;
+          const version = requireVersionOr404(itemId, versionId, res);
+          if (version) apiResponse(res, 200, version);
+          return true;
+        }
+
+        if (versionRest === "/publish-requests" && method === "POST") {
+          if (!requireItemOr404(itemId, res)) return true;
+          const version = requireVersionOr404(itemId, versionId, res);
+          if (!version) return true;
+          let body = {};
+          try {
+            const text = await readBody(req);
+            body = text ? JSON.parse(text) : {};
+          } catch {
+            problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+            return true;
+          }
+          const intent = body.intent ?? version.envelope.publicationIntent ?? undefined;
+          const status = version.validation?.status === "invalid" ? "rejected" : "accepted";
+          const requestId = store.nextPublicationRequestId();
+          const ts = store.now();
+          const request = {
+            requestId,
+            itemId,
+            versionId,
+            intent,
+            status,
+            validation: version.validation,
+            warningAcknowledgement:
+              typeof body.warningAcknowledgement === "string" ? body.warningAcknowledgement : undefined,
+            requestedBy: FIXTURE_ACTOR,
+            createdAt: ts,
+          };
+          store.publicationRequests.set(requestId, request);
+          if (status === "accepted") {
+            const item = requireItemOr404(itemId, res);
+            store.items.set(itemId, {
+              ...item,
+              publishedVersionId: versionId,
+              updatedBy: FIXTURE_ACTOR,
+              updatedAt: ts,
+            });
+          }
+          apiResponse(res, 201, request);
+          return true;
+        }
+
+        if (versionRest === "/reopen" && method === "POST") {
+          if (!requireItemOr404(itemId, res)) return true;
+          const version = requireVersionOr404(itemId, versionId, res);
+          if (!version) return true;
+          const draftId = store.nextDraftId();
+          const ts = store.now();
+          const draft = {
+            draftId,
+            itemId,
+            packageKey: version.packageKey,
+            workspaceId: version.workspaceId,
+            ownerId: version.ownerId,
+            family: version.envelope.family,
+            envelope: version.envelope,
+            validation: version.validation,
+            baseVersionId: versionId,
+            generation: 1,
+            createdBy: FIXTURE_ACTOR,
+            updatedBy: FIXTURE_ACTOR,
+            createdAt: ts,
+            updatedAt: ts,
+          };
+          store.drafts.set(draftId, draft);
+          apiResponse(res, 201, draftRestPublic(draft));
+          return true;
+        }
+      }
+
+      if (rest === "/version-comparisons" && method === "POST") {
+        if (!requireItemOr404(itemId, res)) return true;
+        let body;
+        try {
+          body = JSON.parse(await readBody(req));
+        } catch {
+          problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+          return true;
+        }
+        const left = requireVersionOr404(itemId, body?.leftVersionId, res);
+        if (!left) return true;
+        const right = requireVersionOr404(itemId, body?.rightVersionId, res);
+        if (!right) return true;
+        const comparison = compareVersionRecords(left, right);
+        apiResponse(res, 200, {
+          leftVersionId: left.versionId,
+          rightVersionId: right.versionId,
+          ...comparison,
+        });
+        return true;
+      }
+
+      if (rest === "/rollback-requests" && method === "POST") {
+        const item = requireItemOr404(itemId, res);
+        if (!item) return true;
+        let body;
+        try {
+          body = JSON.parse(await readBody(req));
+        } catch {
+          problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+          return true;
+        }
+        const { targetVersionId, pointer, reason } = body ?? {};
+        const target = requireVersionOr404(itemId, targetVersionId, res);
+        if (!target) return true;
+        if (typeof pointer !== "string" || !STUDIO_ROLLBACK_POINTERS.has(pointer)) {
+          problemResponse(res, 400, "Invalid request", "'pointer' must be one of: current, published, both.");
+          return true;
+        }
+        const ts = store.now();
+        const nextItem = { ...item, updatedBy: FIXTURE_ACTOR, updatedAt: ts };
+        if (pointer === "current" || pointer === "both") nextItem.currentVersionId = targetVersionId;
+        if (pointer === "published" || pointer === "both") nextItem.publishedVersionId = targetVersionId;
+        store.items.set(itemId, nextItem);
+        const requestId = store.nextRollbackRequestId();
+        const request = {
+          requestId,
+          itemId,
+          targetVersionId,
+          pointer,
+          pointers: {
+            itemId,
+            currentVersionId: nextItem.currentVersionId,
+            publishedVersionId: nextItem.publishedVersionId,
+          },
+          requestedBy: FIXTURE_ACTOR,
+          reason: typeof reason === "string" ? reason : undefined,
+          createdAt: ts,
+        };
+        store.rollbackRequests.set(requestId, request);
+        apiResponse(res, 201, request);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  return { handle };
+}
+
 const CATALOG = {
   datasets: [
     { id: "hi-parcels", title: "Hawai'i statewide parcels", protocol: "ogc-features", geometryType: "Polygon" },
@@ -599,10 +1515,16 @@ export async function startMockServer({ port = 0 } = {}) {
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
   // spent, so replaying a rotated-out refresh token always 400s.
   const activeRefreshTokens = new Set();
-  // /mcp (honua-studio#7): one draft store + a set of live `Mcp-Session-Id`s
-  // per server instance, matching honua-server's "a session is bound at
-  // initialize" contract (docs/guides/connect/ai-agents-mcp.md).
-  const mcp = createMcpDispatcher();
+  // The shared Studio lifecycle store (honua-studio#9 build item 1): one
+  // instance per server, read/written by BOTH `/mcp`'s `honua_studio_*`
+  // tools and the REST lifecycle + enumeration routes below. See this
+  // file's module doc for why that sharing is load-bearing (spec AD-8).
+  const studioLifecycleStore = createStudioLifecycleStore();
+  const studioLifecycleRest = createStudioLifecycleRestRouter(studioLifecycleStore);
+  // /mcp (honua-studio#7): a set of live `Mcp-Session-Id`s per server
+  // instance, matching honua-server's "a session is bound at initialize"
+  // contract (docs/guides/connect/ai-agents-mcp.md).
+  const mcp = createMcpDispatcher(studioLifecycleStore);
   const mcpSessions = new Set();
 
   const server = http.createServer(async (req, res) => {
@@ -858,6 +1780,29 @@ export async function startMockServer({ port = 0 } = {}) {
           : { jsonrpc: "2.0", id: id ?? null, result: outcome.result };
       json(res, 200, envelope, extraHeaders);
       return;
+    }
+
+    // ── Studio package lifecycle REST + enumeration (honua-studio#9) ────
+    if (pathname.startsWith("/v1/studio/") || pathname === "/v1/studio") {
+      const subPath = pathname.slice("/v1/studio".length) || "/";
+      // Every lifecycle route requires the same bearer the rest of this
+      // fixture's protected routes require (doc: "require admin
+      // authorization in the MVP") — checked ONCE here rather than in every
+      // branch of `studioLifecycleRest.handle`.
+      const knownLifecyclePrefix =
+        subPath === "/package-families" ||
+        subPath === "/content-items" ||
+        subPath.startsWith("/content-items/") ||
+        subPath === "/package-drafts" ||
+        subPath.startsWith("/package-drafts/");
+      if (knownLifecyclePrefix) {
+        if (!verifyFixtureJwt(bearerToken(req))) {
+          unauthorized(res);
+          return;
+        }
+        const handled = await studioLifecycleRest.handle(req, res, req.method, subPath, requestUrl.searchParams);
+        if (handled) return;
+      }
     }
 
     if (pathname === "/health" && req.method === "GET") {
