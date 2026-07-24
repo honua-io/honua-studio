@@ -15,6 +15,6 @@
     "baseUrl": ".",
     "types": ["vite/client"]
   },
-  "include": ["src", "test/theme-loader.test.ts", "vite.config.ts", "vitest.config.ts"],
+  "include": ["src", "test/**/*.test.ts", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["test/playwright"]
 }

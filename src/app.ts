@@ -1,3 +1,4 @@
+import type { AuthSession, AuthState } from "./auth/index.js";
 import { StudioClient } from "./client/studio-client.js";
 import { renderAbout } from "./pages/about.js";
 import { renderHome } from "./pages/home.js";
@@ -9,8 +10,19 @@ export interface AppOptions {
   root: HTMLElement;
   themeLoader: ThemeLoader;
   initialThemeState: ThemeState;
+  /** Drives session state everywhere (REQ-001) — standalone OIDC or an embed host adapter (REQ-003). */
+  auth: AuthSession;
   studioClient?: StudioClient;
 }
+
+const AUTH_STATUS_LABELS: Record<AuthState["status"], string> = {
+  "signed-out": "Signed out",
+  "signing-in": "Signing in…",
+  authenticating: "Completing sign-in…",
+  fresh: "Signed in",
+  refreshing: "Signed in",
+  expired: "Session expired",
+};
 
 const THEME_SET_LABELS: Record<ThemeSet, string> = {
   standalone: "Standalone",
@@ -30,8 +42,16 @@ const THEME_MODE_LABELS: Record<ThemeMode, string> = {
  * re-fetches or re-renders route content.
  */
 export function mountApp(options: AppOptions): Router {
-  const { root, themeLoader, initialThemeState } = options;
-  const studioClient = options.studioClient ?? new StudioClient();
+  const { root, themeLoader, initialThemeState, auth } = options;
+  const studioClient = options.studioClient ?? new StudioClient("/api", auth);
+
+  // REQ-003: the embed host owns sign-in/out, so Studio never renders
+  // interactive auth controls in host-adapter mode — only a status label.
+  const authControlsMarkup =
+    auth.mode === "standalone"
+      ? `<button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signin" hidden>Sign in</button>
+         <button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signout" hidden>Sign out</button>`
+      : "";
 
   root.innerHTML = `
     <div class="app-shell" data-testid="app-shell">
@@ -44,6 +64,10 @@ export function mountApp(options: AppOptions): Router {
           <a href="#/" data-testid="nav-home">Home</a>
           <a href="#/about" data-testid="nav-about">About</a>
         </nav>
+        <div class="app-auth" data-testid="auth-controls" role="group" aria-label="Session">
+          <span class="hn-muted" data-testid="auth-status"></span>
+          ${authControlsMarkup}
+        </div>
         <div class="app-theme-controls" data-testid="theme-controls">
           <div class="theme-group" role="group" aria-label="Theme set">
             ${THEME_SETS.map(
@@ -62,6 +86,24 @@ export function mountApp(options: AppOptions): Router {
       <main id="view" class="app-view" data-testid="app-view"></main>
     </div>
   `;
+
+  const authStatusEl = root.querySelector<HTMLElement>('[data-testid="auth-status"]');
+  const signInButton = root.querySelector<HTMLButtonElement>('[data-testid="auth-signin"]');
+  const signOutButton = root.querySelector<HTMLButtonElement>('[data-testid="auth-signout"]');
+
+  function paintAuthControls(state: AuthState): void {
+    if (authStatusEl) authStatusEl.textContent = AUTH_STATUS_LABELS[state.status];
+    if (signInButton) signInButton.hidden = state.status === "fresh" || state.status === "refreshing";
+    if (signOutButton) signOutButton.hidden = !(state.status === "fresh" || state.status === "refreshing");
+  }
+
+  auth.subscribe(paintAuthControls);
+  signInButton?.addEventListener("click", () => {
+    void auth.signIn();
+  });
+  signOutButton?.addEventListener("click", () => {
+    void auth.signOut();
+  });
 
   const themeSetButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-theme-set-option]"));
   const themeModeButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-theme-mode-option]"));
@@ -101,10 +143,10 @@ export function mountApp(options: AppOptions): Router {
   const router = new Router(
     viewRoot,
     [
-      { path: "/", render: (view) => renderHome(view, studioClient) },
+      { path: "/", render: (view) => renderHome(view, studioClient, auth) },
       { path: "/about", render: renderAbout },
     ],
-    { path: "*", render: (view) => renderHome(view, studioClient) },
+    { path: "*", render: (view) => renderHome(view, studioClient, auth) },
   );
   router.start();
   return router;
