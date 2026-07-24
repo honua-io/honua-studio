@@ -72,6 +72,11 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     this.#authUnsubscribe = undefined;
     this.#auth = auth;
     this.#authUnsubscribe = auth?.subscribe(() => this.render());
+    // The default `.transport` getter captures `.auth` at construction —
+    // invalidate it (unless a host explicitly overrode `.transport`) so a
+    // session assigned/reassigned after the transport was already
+    // lazily-created doesn't leave it bearer-attached to stale/no auth.
+    if (!this.#transportOverridden) this.#transport = undefined;
     this.render();
   }
 
