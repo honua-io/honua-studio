@@ -41,6 +41,17 @@ consuming [`@honua/sdk-js`](https://github.com/honua-io/honua-sdk-js),
 Biome for lint/format, Vitest for unit tests, and Playwright for browser
 boot smokes.
 
+The app itself is exactly one embeddable custom element,
+`<honua-studio-app>`, mounted by a thin bootstrap (`src/main.ts`) — see
+[`docs/element-contract.md`](docs/element-contract.md) for the full
+element/attribute/event contract (honua-io/honua-studio#5) and
+[`docs/embed-session.md`](docs/embed-session.md) for how a host injects a
+session. Three harnesses prove third-party embedding actually works, not
+just the standalone shell: the bare static harness (`harness/bare/`) and a
+real Blazor Web App test host (`harness/blazor-host/`, README there) that
+exercises the hazards a bare page can't — enhanced navigation, render-mode
+re-instantiation, router URL ownership, focus across shadow DOM.
+
 ```bash
 nvm use          # Node 20.19.0 (.nvmrc)
 npm ci            # install dependencies
@@ -61,7 +72,8 @@ Other commands:
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
 | `npm test` | Unit tests (Vitest) |
-| `npm run test:browser` | Builds, then runs the Playwright boot smokes (chromium) |
+| `npm run test:browser` | Builds, then runs the Playwright boot/bare-harness smokes (chromium) |
+| `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 
 Design tokens live in `src/theme/`: `tokens.css` holds the structural
 spacing/type/radius/elevation scale, and `theme-standalone.css` /

@@ -1,0 +1,86 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["StudioHost.styles.css"]" />
+    <!--
+      Plain relative paths (not @Assets[...]) for the Studio bundle: it's
+      built by `npm run build:blazor-assets` (vite.blazor-assets.config.ts)
+      straight into wwwroot/studio, OUTSIDE this project's own asset
+      pipeline / fingerprint manifest, and with fixed filenames on purpose
+      (see harness/blazor-host/README.md) so this reference never depends on
+      manifest regeneration timing relative to the JS build step.
+    -->
+    <link rel="stylesheet" href="studio/studio.css" />
+    <!--
+      honua-studio#5 finding (harness/blazor-host/README.md § Findings,
+      hazard 1/3): a plain blocking (NOT type="module") inline script,
+      placed here so it runs during head parsing — BEFORE
+      _framework/blazor.web.js, which is what actually calls
+      history.pushState/replaceState for interactive-circuit navigation.
+      studio/mount.js (a deferred module script, necessarily late — it
+      needs the built element registry) tried wrapping history.pushState
+      itself and the wrap was silently never invoked: blazor.web.js had
+      already captured its own reference to the ORIGINAL history.pushState
+      by the time the deferred module ran, so Blazor's internal calls never
+      passed through the late wrapper. Patching here instead, before
+      blazor.web.js exists at all, is what actually observes every
+      navigation; it only dispatches a plain DOM event, so studio/mount.js
+      still does 100% of the actual work.
+    -->
+    <script>
+      (function () {
+        function announce() {
+          document.dispatchEvent(new CustomEvent("honua-studio-host-navigation"));
+        }
+        var originalPushState = history.pushState.bind(history);
+        history.pushState = function () {
+          var result = originalPushState.apply(history, arguments);
+          announce();
+          return result;
+        };
+        var originalReplaceState = history.replaceState.bind(history);
+        history.replaceState = function () {
+          var result = originalReplaceState.apply(history, arguments);
+          announce();
+          return result;
+        };
+        window.addEventListener("popstate", announce);
+      })();
+    </script>
+    <ImportMap />
+    <HeadOutlet />
+</head>
+
+<body>
+    <!--
+      honua-studio#5 finding (harness/blazor-host/README.md § Findings,
+      hazard 1): deliberately NO <div id="studio-host"> here in the Razor
+      markup — see harness/blazor-host-src/mount.ts's mount() for why. Any
+      element Blazor's server-rendered output declares (empty or not, inside
+      <Routes/> or not) is something its client-side patcher reconciles
+      children against on every navigation, and reconciling against an
+      "empty" declared target means removing whatever's actually there.
+      mount.ts creates its own container node purely client-side instead —
+      a node with no corresponding server-rendered counterpart anywhere in
+      Blazor's output, which its patcher never touches because it has
+      nothing to reconcile it against.
+    -->
+    <Routes />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <!--
+      type="module" is implicitly deferred — runs once, after the initial
+      HTML parses, and (the whole point) never re-runs on Blazor's enhanced
+      navigation, which patches the DOM client-side rather than reloading
+      the page. See harness/blazor-host-src/mount.ts.
+    -->
+    <script type="module" src="studio/mount.js"></script>
+</body>
+
+</html>

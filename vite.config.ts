@@ -1,4 +1,8 @@
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 // Resolved once per vite invocation (dev / dev:live / build / preview each
 // spawn a fresh process). Neither dev mode bakes this URL into client code —
@@ -33,5 +37,19 @@ export default defineConfig(({ mode }) => {
     envPrefix: ["VITE_", "HONUA_"],
     server: { proxy },
     preview: { proxy },
+    build: {
+      // Multi-page build (honua-studio#5): the standalone shell (index.html)
+      // plus the bare embed harness (harness/bare/index.html), so
+      // `vite preview` — what test/playwright/helpers.mjs's
+      // startPreviewServer spins up for every browser spec, including the
+      // bare-harness one — serves both from the same static output without
+      // a second dev server or build step.
+      rollupOptions: {
+        input: {
+          main: resolve(projectRoot, "index.html"),
+          bareHarness: resolve(projectRoot, "harness/bare/index.html"),
+        },
+      },
+    },
   };
 });

@@ -35,7 +35,16 @@
     }
   ],
   "files": {
-    "include": ["src/**/*.ts", "test/**/*.ts", "test/**/*.mjs", "scripts/**/*.mjs", "*.mjs", "*.ts", "*.json"],
-    "ignore": ["dist", "node_modules"]
+    "include": [
+      "src/**/*.ts",
+      "test/**/*.ts",
+      "test/**/*.mjs",
+      "harness/**/*.ts",
+      "scripts/**/*.mjs",
+      "*.mjs",
+      "*.ts",
+      "*.json"
+    ],
+    "ignore": ["dist", "node_modules", ".tmp", "harness/blazor-host/StudioHost"]
   }
 }
