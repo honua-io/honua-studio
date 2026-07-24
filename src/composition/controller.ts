@@ -60,6 +60,12 @@ export class CompositionController {
     return diff;
   }
 
+  /** Pushes external state directly — see `CompositionHistory.replaceState`'s doc (honua-studio#7, AD-8). Notifies subscribers, same as `apply()`. */
+  public replaceState(state: CompositionState): void {
+    this.#history.replaceState(state);
+    this.#notify();
+  }
+
   public undo(): boolean {
     const restored = this.#history.undo();
     if (restored === undefined) return false;

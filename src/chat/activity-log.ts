@@ -19,7 +19,15 @@ export type ActivityLogEntryType =
   | "assistant_turn_error"
   | "assistant_turn_cancelled"
   | "annotation_added"
-  | "annotation_removed";
+  | "annotation_removed"
+  // honua-studio#7: the orchestrator's own record of what a tool-call intent
+  // actually did to composition state — distinct from `tool_call_completed`
+  // (which only records that the model's tool call finished; these two
+  // record whether `../mcp/tool-bridge.ts`'s resolution + application
+  // succeeded and, in live-session mode, whether the server draft mutation
+  // landed).
+  | "composition_command_applied"
+  | "composition_command_rejected";
 
 export interface ActivityLogEntry {
   /** Monotonic within one log instance, assigned on append (1-based). */
