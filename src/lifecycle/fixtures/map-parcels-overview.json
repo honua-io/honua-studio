@@ -1,0 +1,29 @@
+{
+  "packageKey": "fixture-map-parcels-overview",
+  "family": "map",
+  "envelope": {
+    "family": "map",
+    "schemaVersion": "1.0",
+    "format": "honua_map_package.v1",
+    "bindings": [
+      {
+        "key": "parcels",
+        "kind": "content",
+        "ref": "content.parcels",
+        "crs": "EPSG:4326",
+        "srid": 4326,
+        "requiredPermissions": ["metadata.read"]
+      }
+    ],
+    "dependencies": [{ "kind": "content-item", "ref": "content.parcels", "required": true }],
+    "validation": { "status": "not-validated", "diagnostics": [] },
+    "provenance": [{ "kind": "source", "ref": "console-authored-fixture", "rel": "generated-by" }],
+    "body": {
+      "layers": [
+        { "id": "parcels", "sourceId": "parcels", "title": "Parcels", "visible": true, "styleRef": "default-fill" }
+      ],
+      "view": { "center": [-157.858, 21.306], "zoom": 10 },
+      "widgets": []
+    }
+  }
+}

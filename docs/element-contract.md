@@ -164,6 +164,58 @@ and `harness/blazor-host`'s render-mode-switch spec to assert no leak across
 repeated mount/unmount cycles; the `composition` subscription is torn down
 on disconnect (and on reassignment) with the same discipline.
 
+### `<honua-studio-content-browser>` — Studio content browser
+
+Implementation: `src/elements/studio-content-browser-element.ts` (honua-studio#9
+build item 1). Lists Studio content items (immutable, saved) and package
+drafts (mutable) — server PR #3014's `GET /content-items` / `GET
+/package-drafts` shapes exactly: `family`/`workspaceId`/`owner`/`state`/`q`
+filters, opaque cursor pagination ("Load more"), and the joined publication
+badge on content-item rows. Read-only: the only mutating thing it does is
+dispatch `honua-studio-open-item`.
+
+**Properties**: `auth` (same fallback as chat/canvas); `client` —
+a `StudioLifecycleClient` (`src/lifecycle/lifecycle-client.ts`); defaults to
+one reading `/api`, bearer-attached via `.auth`.
+
+**Methods**: `refresh(): void` — reloads both lists from the start.
+
+**Events**: `honua-studio-open-item` (`{ itemId?, draftId?, family, packageKey }`
+— at least one of `itemId`/`draftId` is always present).
+
+### `<honua-studio-lifecycle-panel>` — the open item/draft view
+
+Implementation: `src/elements/studio-lifecycle-panel-element.ts`
+(honua-studio#9 build item 2). Draft status (generation, validation
+summary), save-as-version, version list, version comparison
+(content-hash/dependencies/validation/provenance diff, per the comparison
+endpoint shape), reopen-as-draft, and the publish/rollback flows.
+
+**Attributes / properties**: `item-id` / `itemId`; `draft-id` / `draftId`
+(setting either reloads); `auth`; `client` (same defaulting as the content
+browser); `draft` (read-only, the loaded `StudioPackageDraft`); `versions`
+(read-only, the loaded item's immutable versions).
+
+**Events**: `honua-studio-lifecycle-activity`
+(`{ kind, itemId?, draftId?, versionId?, message? }` — `kind` one of
+`draft-loaded`/`draft-validated`/`version-saved`/`version-reopened`/
+`comparison-ready`/`publish-requested`/`publish-rejected`/
+`rollback-requested`/`error`; `studio-app-element.ts` forwards every one of
+these into the shared activity log as a `lifecycle_action` entry).
+
+**THE HUMAN GATE — spec REQ-009.** `honua_studio_propose_publication`
+(server PR #3016, the only publish-adjacent MCP tool an agent can call) only
+ever writes `envelope.publicationIntent` onto a draft. When the loaded draft
+carries one, this panel renders an informational pending-proposal banner —
+it calls nothing. Turning that into an actual publish, or running a
+rollback, requires opening this panel's own confirm dialog and typing the
+exact package key; only that dialog's confirm button calls
+`StudioLifecycleClient.requestPublish`/`.requestRollback` — the ONLY call
+site for either method anywhere in this package, verified both statically
+and at runtime by `test/lifecycle/human-gate.test.ts`. No chat/MCP
+tool-call/activity-log event handler anywhere in the app can reach either
+method.
+
 ## Lifecycle
 
 `src/elements/base-element.ts`'s `HonuaStudioElementBase` (every element

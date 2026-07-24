@@ -1,0 +1,28 @@
+{
+  "packageKey": "fixture-dashboard-roads-condition",
+  "family": "dashboard",
+  "envelope": {
+    "family": "dashboard",
+    "schemaVersion": "1.0",
+    "format": "studio_dashboard_package.v1",
+    "bindings": [
+      {
+        "key": "roads",
+        "kind": "content",
+        "ref": "content.roads",
+        "crs": "EPSG:4326",
+        "srid": 4326,
+        "requiredPermissions": ["metadata.read"]
+      }
+    ],
+    "dependencies": [{ "kind": "content-item", "ref": "content.roads", "required": true }],
+    "validation": { "status": "not-validated", "diagnostics": [] },
+    "provenance": [{ "kind": "source", "ref": "console-authored-fixture", "rel": "generated-by" }],
+    "body": {
+      "widgets": [
+        { "id": "condition-summary", "kind": "chart", "sourceId": "roads", "title": "Condition by district" },
+        { "id": "condition-table", "kind": "table", "sourceId": "roads", "title": "Roads below fair condition" }
+      ]
+    }
+  }
+}

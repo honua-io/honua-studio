@@ -188,5 +188,49 @@ export interface HonuaStudioSelectionChangeDetail {
   readonly targets: readonly CompositionTarget[];
 }
 
+/**
+ * `honua-studio-open-item` — dispatched by `<honua-studio-content-browser>`
+ * (honua-studio#9) when a user picks "Open" on a content-item or draft row.
+ * At least one of `itemId`/`draftId` is always present; a draft row without
+ * an immutable version yet has `draftId` only, a content item with no open
+ * draft has `itemId` only, and reopening a version (from the lifecycle
+ * panel, not this event) always produces both.
+ */
+export interface HonuaStudioOpenItemDetail {
+  readonly itemId?: string;
+  readonly draftId?: string;
+  readonly family: string;
+  readonly packageKey: string;
+}
+
+/**
+ * `honua-studio-lifecycle-activity` — dispatched by
+ * `<honua-studio-lifecycle-panel>` (honua-studio#9) after every lifecycle
+ * action so a host can log it to a shared `<honua-studio-activity-log>`
+ * (`studio-app-element.ts` wires this into the same log the chat console
+ * and MCP orchestrator already append to — spec REQ-012's "recorded in the
+ * activity log like any other context" extends to lifecycle actions here).
+ * `kind: "publish-requested"` / `"rollback-requested"` only ever follow a
+ * human-confirmed dialog inside the panel's own shadow DOM — see
+ * `studio-lifecycle-panel-element.ts`'s module doc and
+ * `test/lifecycle/human-gate.test.ts`.
+ */
+export interface HonuaStudioLifecycleActivityDetail {
+  readonly kind:
+    | "draft-loaded"
+    | "draft-validated"
+    | "version-saved"
+    | "version-reopened"
+    | "comparison-ready"
+    | "publish-requested"
+    | "publish-rejected"
+    | "rollback-requested"
+    | "error";
+  readonly itemId?: string;
+  readonly draftId?: string;
+  readonly versionId?: string;
+  readonly message?: string;
+}
+
 /** The minimal `CustomElementRegistry` surface the registry module needs — a real registry or a scoped/in-memory stand-in both satisfy this. */
 export type HonuaStudioComponentRegistry = Pick<CustomElementRegistry, "get" | "define">;

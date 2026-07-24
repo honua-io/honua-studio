@@ -1,0 +1,23 @@
+{
+  "packageKey": "fixture-query-wells-below-threshold",
+  "family": "query",
+  "envelope": {
+    "family": "query",
+    "schemaVersion": "1.0",
+    "format": "studio_query_package.v1",
+    "bindings": [
+      {
+        "key": "source",
+        "kind": "content",
+        "ref": "content.wells",
+        "crs": "EPSG:4326",
+        "srid": 4326,
+        "requiredPermissions": ["metadata.read"]
+      }
+    ],
+    "dependencies": [{ "kind": "content-item", "ref": "content.wells", "required": true }],
+    "validation": { "status": "not-validated", "diagnostics": [] },
+    "provenance": [{ "kind": "source", "ref": "console-authored-fixture", "rel": "generated-by" }],
+    "body": { "where": "water_level_ft < 5", "outFields": ["well_id", "water_level_ft"] }
+  }
+}
