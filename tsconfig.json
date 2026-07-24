@@ -15,6 +15,14 @@
     "baseUrl": ".",
     "types": ["vite/client"]
   },
-  "include": ["src", "test/**/*.test.ts", "vite.config.ts", "vitest.config.ts"],
+  "include": [
+    "src",
+    "harness/bare",
+    "harness/blazor-host-src",
+    "test/**/*.test.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vite.blazor-assets.config.ts"
+  ],
   "exclude": ["test/playwright"]
 }

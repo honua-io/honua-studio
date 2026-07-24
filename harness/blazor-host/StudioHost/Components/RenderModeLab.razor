@@ -1,0 +1,60 @@
+@implements IDisposable
+
+<section class="render-mode-lab" data-testid="render-mode-lab">
+    <h2>Render-mode lab (interactive-server)</h2>
+
+    <p>
+        Toggle cycles so far: <strong data-testid="toggle-cycles">@_toggleCount</strong>. This component only
+        knows whether IT rendered a <code>&lt;honua-studio-canvas&gt;</code> — whether the element itself leaked
+        a listener/observer across cycles is asserted independently, by the Playwright spec reading
+        <code>window.HonuaStudioCanvasElement.instanceCount</code> straight off the class (see
+        harness/blazor-host-src/mount.ts and test/playwright/blazor-host.spec.mjs).
+    </p>
+    <button type="button" data-testid="toggle-canvas" @onclick="ToggleCanvas">
+        @(_showCanvas ? "Remove canvas" : "Add canvas")
+    </button>
+
+    @if (_showCanvas)
+    {
+        <div data-testid="render-mode-canvas-slot">
+            <honua-studio-canvas label="Render-mode lab canvas"></honua-studio-canvas>
+        </div>
+    }
+
+    <p>
+        Live clock (interactive-server re-render via <code>StateHasChanged</code>, unrelated to Studio — this is
+        the "SSR/interactive DOM patch happening elsewhere on the page" the focus-preservation spec drives):
+        <strong data-testid="clock">@_now.ToString("HH:mm:ss.fff")</strong>
+    </p>
+</section>
+
+@code {
+    private bool _showCanvas;
+    private int _toggleCount;
+    private DateTime _now = DateTime.Now;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        _timer = new Timer(
+            _ =>
+            {
+                _now = DateTime.Now;
+                InvokeAsync(StateHasChanged);
+            },
+            null,
+            TimeSpan.FromMilliseconds(200),
+            TimeSpan.FromMilliseconds(200));
+    }
+
+    private void ToggleCanvas()
+    {
+        _showCanvas = !_showCanvas;
+        _toggleCount++;
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}

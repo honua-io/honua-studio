@@ -1,0 +1,29 @@
+@inherits LayoutComponentBase
+
+<div class="host-shell">
+    <header class="host-topbar">
+        <strong>Honua Studio — Blazor Web App test host</strong>
+        <nav>
+            <a href="/studio" data-testid="blazor-nav-studio">Studio</a>
+            <a href="/studio/about" data-testid="blazor-nav-second">Second page</a>
+        </nav>
+    </header>
+
+    @* honua-studio#5: no persistent Studio mount point declared anywhere in
+       Razor markup — see Components/App.razor's comment and
+       harness/blazor-host-src/mount.ts's ensureContainer(). Any element a
+       .razor file declares (this layout outside @Body included) is
+       something Blazor's client-side patcher reconciles children against
+       on every navigation, which clears imperatively-added content;
+       mount.ts creates its own container purely client-side instead. *@
+
+    <main class="host-body">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

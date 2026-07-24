@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Third-Party Host Page (bare embed harness)</title>
+    <!--
+      honua-studio#5 REQ-003: a minimal host page proving third-party
+      embedding WITHOUT the standalone shell (no src/main.ts, no
+      theme-standalone.css/theme-console.css token stylesheets, no
+      honua-studio brand chrome around it) and WITHOUT the console. This
+      page's own styling is deliberately generic/unrelated ("a random
+      customer's website") to make shadow-DOM encapsulation visible: if
+      Honua Studio's chrome ever leaked host styles in, or leaked its own
+      styles OUT onto this page, it would be obvious here.
+
+      This page deliberately does NOT include src/theme/tokens.css or the
+      theme-set stylesheets — src/elements/styles.ts's var(--hn-*, fallback)
+      values are what keep the element legible anyway, proving the
+      "theming via token sets" contract degrades gracefully instead of
+      breaking when a host doesn't opt in.
+    -->
+    <style>
+      body {
+        margin: 0;
+        font-family: "Times New Roman", serif;
+        background: #4b2e83;
+        color: #f4f0ff;
+      }
+      .host-chrome {
+        padding: 2rem;
+      }
+      .host-chrome h1 {
+        margin: 0 0 0.5rem;
+      }
+      .host-note {
+        max-width: 40rem;
+        opacity: 0.85;
+      }
+      #bare-host {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background: #fff;
+        border-radius: 4px;
+        color: #111;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="host-chrome">
+      <h1>Acme Ops Portal</h1>
+      <p class="host-note" data-testid="host-page-marker">
+        This page belongs to a fictional third party embedding Honua Studio — not the standalone shell, not console.
+        It never imports anything from `src/elements/` beyond the public registry entry point.
+      </p>
+      <div id="bare-host" data-testid="bare-host"></div>
+    </div>
+    <script type="module" src="./mount.ts"></script>
+  </body>
+</html>
