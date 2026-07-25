@@ -104,6 +104,7 @@ Other commands:
 | `npm test` | Unit tests (Vitest) |
 | `npm run test:browser` | Builds, then runs the Playwright boot/bare-harness smokes (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
+| `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs` |
 
 Design tokens live in `src/theme/`: `tokens.css` holds the structural
 spacing/type/radius/elevation scale, and `theme-standalone.css` /

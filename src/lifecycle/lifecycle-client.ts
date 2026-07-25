@@ -195,12 +195,19 @@ export class StudioLifecycleClient {
     return this.#request("POST", `/package-drafts/${encodeURIComponent(draftId)}/preview-plan`);
   }
 
-  /** Saves a draft as an immutable content version and advances the item's current pointer. Never publishes — see the module doc. */
+  /**
+   * Saves a draft as an immutable content version and advances the item's
+   * current pointer. Never publishes — see the module doc. Always sends a
+   * JSON object body (empty when there is no change note): the real
+   * honua-server endpoint 400s a bodyless POST here (verified against the
+   * deployed server; the mock fixture is more permissive), unlike its
+   * validate/preview-plan siblings.
+   */
   public saveAsVersion(draftId: string, changeNote?: string): Promise<StudioContentVersion> {
     return this.#request(
       "POST",
       `/package-drafts/${encodeURIComponent(draftId)}/content-versions`,
-      changeNote !== undefined ? { changeNote } : undefined,
+      changeNote !== undefined ? { changeNote } : {},
     );
   }
 

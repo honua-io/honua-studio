@@ -23,7 +23,8 @@
     "test:watch": "vitest",
     "mock-server": "node mock-server.mjs",
     "test:browser:install": "playwright install --with-deps chromium",
-    "test:browser": "npm run build --silent && playwright test --grep-invert @blazor",
+    "test:browser": "npm run build --silent && playwright test --grep-invert \"@blazor|@live\"",
+    "test:browser:live": "npm run build --silent && playwright test --grep @live",
     "build:blazor-host": "npm run build:blazor-assets --silent && dotnet build harness/blazor-host/StudioHost/StudioHost.csproj",
     "test:browser:blazor": "npm run build:blazor-host --silent && playwright test --grep @blazor"
   },
