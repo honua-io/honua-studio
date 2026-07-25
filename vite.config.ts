@@ -21,6 +21,17 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 // swap issuers per run without rebaking the bundle, exactly like /api.
 const honuaBaseUrl = process.env.HONUA_BASE_URL;
 
+// Optional admin API key for LIVE runs against a real honua-server (e.g. the
+// demo environment): when set, the dev/preview PROXY attaches it server-side
+// as `X-API-Key` on every forwarded request. The key never reaches client
+// code or the built bundle — it lives only in this Node process, exactly the
+// posture README.md documents for live-mode credentials. The client keeps
+// sending its own bearer header (or none); honua-server authenticates the
+// request off the injected API key. Used by
+// test/playwright/live-demo-journeys.spec.mjs (HONUA_LIVE_API_KEY is passed
+// through as HONUA_API_KEY when it spawns `vite preview`).
+const honuaApiKey = process.env.HONUA_API_KEY;
+
 export default defineConfig(({ mode }) => {
   if (mode === "live" && !honuaBaseUrl) {
     throw new Error(
@@ -29,16 +40,32 @@ export default defineConfig(({ mode }) => {
     );
   }
 
+  const apiKeyHeaders = honuaApiKey ? { "x-api-key": honuaApiKey } : undefined;
   const proxy = honuaBaseUrl
     ? {
         "/api": {
           target: honuaBaseUrl,
           changeOrigin: true,
           rewrite: (requestPath: string) => requestPath.replace(/^\/api/, ""),
+          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
         },
         "/oidc": {
           target: honuaBaseUrl,
           changeOrigin: true,
+        },
+        // MCP lives at the server ORIGIN's /mcp (honua-server#3002 serves it
+        // at the root, not under the REST /api prefix). Against the mock
+        // fixture HONUA_BASE_URL has no path, so this target is identical to
+        // the base itself (and the fixture's /mcp is also reachable via the
+        // /api rewrite above — both paths keep working); against a real
+        // deployment whose HONUA_BASE_URL carries an /api path (e.g.
+        // https://demo.honua.io/api) this strips the path so /mcp resolves
+        // at the origin. Used by live MCP journeys via
+        // `enableLiveComposition({ baseUrl: "" })`.
+        "/mcp": {
+          target: new URL(honuaBaseUrl).origin,
+          changeOrigin: true,
+          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
         },
       }
     : undefined;

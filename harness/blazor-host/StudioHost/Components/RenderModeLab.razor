@@ -1,6 +1,15 @@
 @implements IDisposable
 
-<section class="render-mode-lab" data-testid="render-mode-lab">
+@* data-interactive flips to "true" only once the interactive-server circuit
+   has actually rendered this component (OnAfterRender never runs during the
+   static prerender pass). Blazor statically prerenders this markup first —
+   including the toggle button — and @onclick handlers are dead until the
+   circuit attaches, so a click landing in that window is silently lost.
+   test/playwright/blazor-host.spec.mjs waits for this attribute before
+   driving the toggle (the CI-observed hazard-2 flake: the "Add canvas"
+   click no-opped against the prerendered button, so the canvas slot never
+   appeared). *@
+<section class="render-mode-lab" data-testid="render-mode-lab" data-interactive="@(_interactive ? "true" : "false")">
     <h2>Render-mode lab (interactive-server)</h2>
 
     <p>
@@ -30,9 +39,22 @@
 
 @code {
     private bool _showCanvas;
+    private bool _interactive;
     private int _toggleCount;
     private DateTime _now = DateTime.Now;
     private Timer? _timer;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Runs only under the interactive circuit (never during static
+            // prerender) — the honest "event handlers are live now" signal
+            // the data-interactive attribute above surfaces to the specs.
+            _interactive = true;
+            StateHasChanged();
+        }
+    }
 
     protected override void OnInitialized()
     {
