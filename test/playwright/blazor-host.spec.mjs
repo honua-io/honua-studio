@@ -83,6 +83,13 @@ test.describe("Blazor Web App test host (harness/blazor-host) @blazor", () => {
   }) => {
     await page.goto(`${host.url}/studio`);
     await expect(page.getByTestId("render-mode-lab")).toBeVisible();
+    // The lab's markup (toggle included) is statically prerendered before
+    // the interactive-server circuit attaches, and a click in that window
+    // is silently dropped — the CI-observed flake where the "Add canvas"
+    // click no-opped and the canvas slot never appeared. Wait for the
+    // component's own "my event handlers are live" signal (set from
+    // OnAfterRender, which never runs during prerender) before toggling.
+    await expect(page.getByTestId("render-mode-lab")).toHaveAttribute("data-interactive", "true");
 
     const baseline = await page.evaluate(() => window.HonuaStudioCanvasElement.instanceCount);
     const toggle = page.getByTestId("toggle-canvas");
