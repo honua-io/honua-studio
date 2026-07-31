@@ -14,8 +14,11 @@ const BLAZOR_START_TIMEOUT_MS = 30_000;
  */
 export function startPreviewServer(extraEnv = {}, extraArgs = []) {
   return new Promise((resolve, reject) => {
-    const viteBin = path.join(projectRoot, "node_modules", ".bin", process.platform === "win32" ? "vite.cmd" : "vite");
-    const child = spawn(viteBin, ["preview", "--host", "127.0.0.1", ...extraArgs], {
+    // Invoke Vite's JavaScript entrypoint through the current Node runtime.
+    // Spawning the npm-generated vite.cmd shim directly fails with EINVAL on
+    // Windows, while this path is identical and portable on every runner.
+    const viteBin = path.join(projectRoot, "node_modules", "vite", "bin", "vite.js");
+    const child = spawn(process.execPath, [viteBin, "preview", "--host", "127.0.0.1", ...extraArgs], {
       cwd: projectRoot,
       // NO_COLOR keeps vite's stdout free of ANSI escapes so the "Local:"
       // line parses reliably regardless of how the parent's stdout is

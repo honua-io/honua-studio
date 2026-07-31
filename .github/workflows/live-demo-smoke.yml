@@ -1,0 +1,52 @@
+name: Live AWS Studio browser smoke
+
+on:
+  schedule:
+    - cron: "41 16 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-aws-studio-browser-smoke
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20.19.0"
+  HONUA_LIVE_BASE_URL: "https://demo.honua.io/api"
+
+jobs:
+  live-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npm run test:browser:install
+
+      - name: Run Studio journeys against the live AWS demo
+        env:
+          HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
+        run: npm run test:browser:live -- --reporter=list,json
+
+      - name: Upload live browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: live-aws-studio-browser-smoke
+          path: |
+            .tmp/live-studio-report.json
+            .tmp/playwright-output
+          if-no-files-found: error
