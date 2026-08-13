@@ -48,13 +48,21 @@ import type {
   CompositionTarget,
   CompositionWidget,
 } from "../composition/model.js";
-import type {
-  BasemapStyle,
-  CompositionMapFactory,
-  CompositionMapView,
-  CompositionSourceDescriptor,
-  UnresolvedCompositionLayer,
-} from "../map/index.js";
+// Imported from the concrete modules, NOT `../map/index.js`. The barrel
+// re-exports `agent-map-kit`, which `studio-app-element.ts` also imports
+// *statically* — so a dynamic `import("../map/index.js")` makes the lazy map
+// chunk import back into the entry chunk, and that circularity is not
+// harmless: under ASP.NET Core's `MapStaticAssets` the entry is served both
+// un-fingerprinted (the host's own `<script src>`) and fingerprinted (the
+// import map rewrites the chunk's back-import), so the SAME module evaluates
+// **twice** under two URLs. Two copies of every element class: the first
+// wins `customElements.define`, the second overwrites the exports a host
+// reads. honua-studio#23 hit exactly this — the Blazor harness's leak probe
+// read a class whose instances were being counted on the other copy.
+import type { BasemapStyle } from "../map/basemap.js";
+import type { CompositionMapFactory, CompositionMapView } from "../map/composition-map-view.js";
+import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
+import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, canvasStyles } from "./styles.js";
@@ -402,7 +410,13 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       this.#mapGeneration !== generation || !this.isConnected || this.#composition !== controller;
     this.#mapPending = true;
     try {
-      const { CompositionMapView: MapViewClass, isWebglAvailable, MAPLIBRE_CSS } = await import("../map/index.js");
+      // Two concrete modules rather than the barrel — see the import block at
+      // the top of this file for why the barrel would be a correctness bug
+      // here, not just a bundling preference.
+      const [{ CompositionMapView: MapViewClass, isWebglAvailable }, { MAPLIBRE_CSS }] = await Promise.all([
+        import("../map/composition-map-view.js"),
+        import("../map/maplibre-styles.js"),
+      ]);
       if (stale()) return;
       if (!this.#mapFactory && !isWebglAvailable()) {
         this.#setMapUnavailable("This browser has no WebGL context available.");
