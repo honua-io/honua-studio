@@ -36,7 +36,14 @@ export type ActivityLogEntryType =
   // honua-studio#10: GP authoring/validation/preview/execution actions taken
   // in `<honua-studio-gp-panel>` — `detail.kind` carries the finer-grained
   // GP action (`HonuaStudioGpActivityDetail["kind"]` in `../elements/types.js`).
-  | "gp_action";
+  | "gp_action"
+  // honua-studio#23 REQ-004: the user switched composition between
+  // fixture/offline mode (the default — REQ-005) and the AD-8 authoritative
+  // live server-draft path, from the shell's own control rather than a test
+  // hook. `detail.mode` is `"fixture" | "live"`; `detail.packageKey`/`family`
+  // are present for `"live"`. Logged because switching where composition
+  // writes to is at least as consequential as any single tool call.
+  | "composition_mode_changed";
 
 export interface ActivityLogEntry {
   /** Monotonic within one log instance, assigned on append (1-based). */

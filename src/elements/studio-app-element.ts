@@ -34,10 +34,13 @@
  * own wiring — this element never reaches into a host-supplied child beyond
  * the same public properties/events any embedder could use.
  */
+import type { HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
+
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
-import { StudioClient } from "../client/studio-client.js";
+import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
+import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
@@ -54,6 +57,7 @@ import type { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
+  HonuaStudioCompositionModeChangeDetail,
   HonuaStudioGpActivityDetail,
   HonuaStudioGpAddOutputDetail,
   HonuaStudioLifecycleActivityDetail,
@@ -91,6 +95,12 @@ const ROUTES: readonly StudioRoute[] = [
   },
   { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
 ];
+
+/** Package families whose drafts carry a composition body — mirrors `mock-server.mjs`'s `COMPOSITION_ELIGIBLE_FAMILIES` and honua-server#3002's own gate. */
+const LIVE_COMPOSITION_FAMILIES: readonly StudioPackageFamilyWire[] = ["map", "app"];
+
+/** Shown when composition applies through the local reducer only — the default (REQ-005). */
+const FIXTURE_MODE_LABEL = "Fixture mode";
 
 const THEME_SETS: readonly ThemeSet[] = ["standalone", "console"];
 const THEME_MODES: readonly ThemeMode[] = ["light", "dark", "auto"];
@@ -140,6 +150,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #chromeBuilt = false;
   #composition: CompositionController | undefined;
   #orchestrator: ToolCallOrchestrator | undefined;
+  #liveCompositionPackageKey: string | undefined;
+  #aiMapKit: HonuaAiMapKit | undefined;
+  #sourceCatalog: readonly CatalogDataset[] | undefined;
+  #catalogRequested = false;
+  #catalogFromHost = false;
+  #lastAuthStatus: string | undefined;
 
   /**
    * Host-injected session adapter — the primary embed injection path
@@ -181,6 +197,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // already re-queries `#view` live on every call.
     if (this.routingMode === "hash") this.#setupHashRouter();
     else this.renderView();
+    // honua-studio#23: the composition map resolves its sources against the
+    // catalog, which is bearer-gated — so a new session means a new catalog
+    // (and, on a standalone boot, the first one that can be read at all).
+    this.#refreshSourceCatalog();
   }
 
   /**
@@ -234,12 +254,122 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /**
+   * The catalog the composition map resolves layer sources against
+   * (honua-studio#23) and the AI map kit advertises to a model. Fetched once
+   * per connection from `.studioClient`; a host that already has the listing
+   * (or wants to constrain it) may assign it instead, which also skips the
+   * fetch.
+   */
+  public get sourceCatalog(): readonly CatalogDataset[] | undefined {
+    return this.#sourceCatalog;
+  }
+
+  public set sourceCatalog(catalog: readonly CatalogDataset[] | undefined) {
+    // A host that assigns the catalog owns it: no fetch will overwrite it,
+    // and a later session change will not discard it.
+    this.#catalogFromHost = true;
+    this.#catalogRequested = true;
+    this.#applySourceCatalog(catalog);
+  }
+
+  #applySourceCatalog(catalog: readonly CatalogDataset[] | undefined): void {
+    this.#sourceCatalog = catalog;
+    // The kit advertises the catalog, so it has to be rebuilt around a new one.
+    this.#aiMapKit = undefined;
+    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (canvas) canvas.sourceCatalog = catalog;
+  }
+
+  /**
+   * Fetches the catalog once and hands it to the canvas. Failure is
+   * deliberately silent at this level: no catalog means composed layers
+   * report as "not renderable" in the canvas (with a reason and a readout
+   * row), which is a better failure than a shell that refuses to boot
+   * because a listing endpoint was unreachable.
+   */
+  async #loadSourceCatalog(): Promise<void> {
+    if (this.#catalogRequested || this.#sourceCatalog !== undefined) return;
+    // Never fetch while signed out. `StudioClient` turns a second 401 into a
+    // `StudioSessionExpiredError` and the session records the failure, so an
+    // eager anonymous fetch would flip a freshly-booted, never-signed-in
+    // shell from "Signed out" to "Session expired" — a false and alarming
+    // claim, and one `test/playwright/boot-mock.spec.mjs` rightly fails on.
+    // `#onAuthStatusChanged` calls back here the moment a session exists.
+    const status = this.auth.getState().status;
+    if (status !== "fresh" && status !== "refreshing") return;
+    this.#catalogRequested = true;
+    try {
+      const catalog = await this.studioClient.listCatalog();
+      if (!this.isConnected) return;
+      this.#applySourceCatalog(catalog);
+    } catch {
+      // See the doc above — an unreachable catalog degrades the map, it does
+      // not break the shell. It is also *expected* on a standalone boot: the
+      // catalog is bearer-gated and the shell renders before sign-in, which
+      // is exactly what `#refreshSourceCatalog` below exists to recover from.
+    }
+  }
+
+  /**
+   * Re-fetches the catalog after the session changed — a new session can mean
+   * a different server, a different tenant, or simply the first one that can
+   * actually read the catalog at all.
+   *
+   * Called from two places: the `.session` setter (a host swapping the
+   * adapter) and an auth **status transition** into `"fresh"`. The transition
+   * gate is not incidental: `AuthSession.getAccessToken()` dispatches a state
+   * change on every single call (see `resetAuth`'s comment about the render
+   * loop this already caused once) and `listCatalog()` calls it, so retrying
+   * on every dispatch would be an unbounded fetch loop.
+   */
+  #refreshSourceCatalog(): void {
+    if (this.#catalogFromHost) return;
+    this.#sourceCatalog = undefined;
+    this.#catalogRequested = false;
+    void this.#loadSourceCatalog();
+  }
+
+  #onAuthStatusChanged(): void {
+    const status = this.#auth?.getState().status;
+    if (status === this.#lastAuthStatus) return;
+    this.#lastAuthStatus = status;
+    if (status !== "fresh" || this.#sourceCatalog !== undefined) return;
+    this.#refreshSourceCatalog();
+  }
+
+  /**
+   * The SDK AI map kit (honua-studio#23 REQ-002) over `.composition` —
+   * `createHonuaAiMapKit`'s tool definitions (Honua/MCP/OpenAI shapes),
+   * capability-aware map context, system prompt, and policy-gated
+   * `execute()`. Lazily built and rebuilt whenever the catalog it advertises
+   * changes, so a model driving Studio can only reference sources the server
+   * actually published (#1 REQ-001). See `../map/agent-map-kit.ts` for the
+   * sdk-js#1259 `StudioAgentSession` seam.
+   */
+  public get aiMapKit(): HonuaAiMapKit {
+    if (!this.#aiMapKit) {
+      this.#aiMapKit = createStudioAiMapKit({
+        controller: this.composition,
+        ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),
+      });
+    }
+    return this.#aiMapKit;
+  }
+
+  /**
    * Attaches a live MCP session so subsequent chat tool-call intents mutate
    * a real Studio lifecycle draft via `honua_studio_*` tools (AD-8's
    * authoritative path) instead of applying through the local reducer only.
    * Bearer-attached via `.auth`, same as `.studioClient`. A host that never
    * calls this stays in fixture/offline mode — the only mode CI and the
    * default dev/demo experience use (NFR-001).
+   *
+   * honua-studio#23 REQ-004: this is still the public API, but it is no
+   * longer only reachable from `window.__honuaStudioApp`. The shell's own
+   * "Go live…" control in the header calls exactly this method, and every
+   * mode change (either direction) is announced as
+   * `honua-studio-composition-mode-change` and recorded in the shared
+   * activity log.
    */
   public enableLiveComposition(options: {
     readonly baseUrl?: string;
@@ -254,6 +384,32 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       ...(options.family !== undefined ? { family: options.family } : {}),
       ...(options.schemaVersion !== undefined ? { schemaVersion: options.schemaVersion } : {}),
     });
+    this.#liveCompositionPackageKey = options.packageKey;
+    this.#announceCompositionMode({
+      mode: "live",
+      packageKey: options.packageKey,
+      ...(options.family !== undefined ? { family: options.family } : {}),
+    });
+  }
+
+  /**
+   * Returns composition to fixture/offline mode — the default the whole app
+   * boots in (REQ-005). Detaching does NOT roll back state the server
+   * already accepted; it stops future tool calls going to the server, which
+   * is the honest thing for a control that says "return to fixture mode".
+   */
+  public disableLiveComposition(): void {
+    if (!this.toolCallOrchestrator.isLive) return;
+    this.toolCallOrchestrator.detachLiveSession();
+    this.#liveCompositionPackageKey = undefined;
+    this.#announceCompositionMode({ mode: "fixture" });
+  }
+
+  #announceCompositionMode(detail: HonuaStudioCompositionModeChangeDetail): void {
+    this.paintLiveCompositionControls();
+    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    chat?.activityLog.append("composition_mode_changed", { ...detail });
+    this.dispatchTypedEvent<HonuaStudioCompositionModeChangeDetail>("honua-studio-composition-mode-change", detail);
   }
 
   /** `"hash"` (default, self-owned) or `"host"` (host-owned URL — see docs/element-contract.md § Routing). */
@@ -353,6 +509,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // the header's status label / sign-in-out button visibility.
     this.#authUnsubscribe = auth.subscribe(() => {
       this.paintAuthControls();
+      this.#onAuthStatusChanged();
     });
     if (this.isConnected) void this.completeStandaloneRedirectCallback(auth);
     return auth;
@@ -473,6 +630,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // privileged internal APIs" boundary `main.ts`'s doc calls out).
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas && !canvas.composition) canvas.composition = this.composition;
+    // honua-studio#23: the canvas needs the catalog to turn a composition
+    // layer's bare `sourceId` into something MapLibre can draw. Assign what
+    // we already have synchronously; otherwise fetch it in the background so
+    // the shell never blocks on it.
+    if (canvas && this.#sourceCatalog) canvas.sourceCatalog = this.#sourceCatalog;
+    else void this.#loadSourceCatalog();
     void this.toolCallOrchestrator; // constructs it now, while `<honua-studio-chat>` (if any) is resolvable for its ActivityLog.
     this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
       const detail = (event as CustomEvent<HonuaStudioChatToolCallResultDetail>).detail;
@@ -621,6 +784,40 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
             <span class="hn-muted" data-testid="auth-status"></span>
             ${authControlsMarkup}
           </div>
+          <!-- honua-studio#23 REQ-004: live composition is a real control,
+               not a test hook. Collapsed by default and announcing "Fixture
+               mode", because fixture/offline IS the default (REQ-005) and a
+               user should be able to see which one they are in without
+               opening a console. -->
+          <div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Composition mode">
+            <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
+            <button
+              type="button"
+              class="hn-btn hn-btn--sm"
+              data-testid="live-composition-toggle"
+              aria-expanded="false"
+              aria-controls="live-composition-form"
+            >Go live…</button>
+            <form class="live-form" id="live-composition-form" data-testid="live-composition-form" hidden>
+              <label class="live-field">
+                <span class="hn-muted">Studio package key</span>
+                <input type="text" required data-testid="live-composition-package-key" placeholder="pkg-…" />
+              </label>
+              <label class="live-field">
+                <span class="hn-muted">Family</span>
+                <select data-testid="live-composition-family">
+                  ${LIVE_COMPOSITION_FAMILIES.map((family) => `<option value="${family}">${family}</option>`).join("")}
+                </select>
+              </label>
+              <div class="live-actions">
+                <button type="submit" class="hn-btn hn-btn--sm" data-testid="live-composition-submit">Connect</button>
+                <button type="button" class="hn-btn hn-btn--sm" data-testid="live-composition-cancel">Cancel</button>
+              </div>
+              <p class="hn-muted live-note">
+                Tool calls will mutate a real Studio draft on the connected server instead of local fixture state.
+              </p>
+            </form>
+          </div>
           <div class="app-theme-controls" data-testid="theme-controls" ${switcherHidden ? "hidden" : ""}>
             <div class="theme-group" role="group" aria-label="Theme set">
               ${THEME_SETS.map(
@@ -700,9 +897,83 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       { signal },
     );
 
+    this.bindLiveCompositionControls();
+
     this.syncThemeControls();
     this.syncNavCurrent();
     this.paintAuthControls();
+    this.paintLiveCompositionControls();
+  }
+
+  /** Wires the REQ-004 control group. Listeners are `connectedSignal`-scoped, so a chrome rebuild never doubles them up. */
+  private bindLiveCompositionControls(): void {
+    const root = this.shadowRoot;
+    const signal = this.connectedSignal;
+    if (!root) return;
+    const form = root.querySelector<HTMLFormElement>('[data-testid="live-composition-form"]');
+    const toggle = root.querySelector<HTMLButtonElement>('[data-testid="live-composition-toggle"]');
+    toggle?.addEventListener(
+      "click",
+      () => {
+        // One button, two jobs, decided by the mode you are in: open the
+        // connect form from fixture mode, drop back to fixture from live.
+        if (this.toolCallOrchestrator.isLive) {
+          this.disableLiveComposition();
+          return;
+        }
+        if (!form) return;
+        form.hidden = !form.hidden;
+        toggle.setAttribute("aria-expanded", String(!form.hidden));
+        if (!form.hidden) {
+          root.querySelector<HTMLInputElement>('[data-testid="live-composition-package-key"]')?.focus();
+        }
+      },
+      { signal },
+    );
+    root.querySelector<HTMLButtonElement>('[data-testid="live-composition-cancel"]')?.addEventListener(
+      "click",
+      () => {
+        if (form) form.hidden = true;
+        toggle?.setAttribute("aria-expanded", "false");
+      },
+      { signal },
+    );
+    form?.addEventListener(
+      "submit",
+      (event) => {
+        event.preventDefault();
+        const packageKey = root
+          .querySelector<HTMLInputElement>('[data-testid="live-composition-package-key"]')
+          ?.value.trim();
+        if (!packageKey) return;
+        const family = root.querySelector<HTMLSelectElement>('[data-testid="live-composition-family"]')?.value as
+          | StudioPackageFamilyWire
+          | undefined;
+        form.hidden = true;
+        toggle?.setAttribute("aria-expanded", "false");
+        this.enableLiveComposition({ packageKey, ...(family ? { family } : {}) });
+      },
+      { signal },
+    );
+  }
+
+  /** Reflects the current composition mode into the header — called on every chrome build and on every mode change. */
+  private paintLiveCompositionControls(): void {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const live = this.#orchestrator?.isLive === true;
+    const status = root.querySelector<HTMLElement>('[data-testid="live-composition-status"]');
+    if (status) {
+      status.textContent = live ? `Live · ${this.#liveCompositionPackageKey ?? "connected"}` : FIXTURE_MODE_LABEL;
+      status.setAttribute("data-mode", live ? "live" : "fixture");
+    }
+    const toggle = root.querySelector<HTMLButtonElement>('[data-testid="live-composition-toggle"]');
+    if (toggle) toggle.textContent = live ? "Return to fixture" : "Go live…";
+    if (live) {
+      const form = root.querySelector<HTMLFormElement>('[data-testid="live-composition-form"]');
+      if (form) form.hidden = true;
+      toggle?.setAttribute("aria-expanded", "false");
+    }
   }
 
   private syncThemeControls(): void {
