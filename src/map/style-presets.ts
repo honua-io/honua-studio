@@ -57,6 +57,27 @@ export function defaultPaintFor(layerType: CompositionLayerType, color: string):
   }
 }
 
+/**
+ * The paint property a layer archetype fades through, and the base value it
+ * fades from. honua-studio#25's `opacity` control multiplies the archetype's
+ * own default rather than overwriting it, so dragging a fill layer's slider
+ * to 100% restores the 0.45 wash the projection chose — not an opaque slab
+ * that hides everything beneath it.
+ */
+export function opacityPaintFor(layerType: CompositionLayerType, value: number): Record<string, unknown> {
+  const clamped = Math.min(Math.max(value, 0), 1);
+  switch (layerType) {
+    case "fill":
+      return { "fill-opacity": 0.45 * clamped };
+    case "line":
+      return { "line-opacity": clamped };
+    case "circle":
+      return { "circle-opacity": clamped, "circle-stroke-opacity": clamped };
+    case "raster":
+      return { "raster-opacity": clamped };
+  }
+}
+
 /** MapLibre `paint` for the companion outline a `fill` layer gets, so polygons read as shapes rather than blobs. */
 export function outlinePaintFor(color: string): Record<string, unknown> {
   return { "line-color": color, "line-width": 1 };
@@ -67,9 +88,22 @@ export function outlinePaintFor(color: string): Record<string, unknown> {
  * layer already uses, recoloured to the styleId's preset colour, plus the
  * `honua:styleRefFallback` audit marker described in this module's doc.
  */
-export function styleRefFallbackOverride(styleId: string, layerType: CompositionLayerType): Record<string, unknown> {
+export function styleRefFallbackOverride(
+  styleId: string,
+  layerType: CompositionLayerType,
+  opacity?: number,
+): Record<string, unknown> {
   return {
-    paint: defaultPaintFor(layerType, styleRefColorFor(styleId)),
+    // The override replaces the layer's whole `paint`, so a runtime opacity
+    // (honua-studio#25) has to be folded in HERE as well as in the projected
+    // layer. Without this, an `opacity` control on a style-ref'd layer moves
+    // and nothing happens — the override silently restores the archetype's
+    // default, which is exactly the "control that changes nothing" failure
+    // this issue exists to prevent.
+    paint: {
+      ...defaultPaintFor(layerType, styleRefColorFor(styleId)),
+      ...(opacity !== undefined ? opacityPaintFor(layerType, opacity) : {}),
+    },
     metadata: { "honua:styleRefFallback": styleId },
   };
 }

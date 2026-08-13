@@ -300,6 +300,10 @@ export function canvasStyles(): string {
        map, then what analyses it, then the structural detail. It hides itself
        when the composition holds no widgets (see widgetDeckStyles). */
     .canvas-widgets { flex: 0 0 auto; }
+    /* honua-studio#25: controls are chrome, so they sit ABOVE the map, in
+       reading order before the thing they act on — and the bar collapses to
+       nothing when the composition declares no controls. */
+    .canvas-controls { flex: 0 0 auto; }
     .canvas-map-status { font-size: var(--hn-text-sm, 0.8125rem); margin: 0; }
     /* In map mode the readout is a compact table of contents under the map;
        in details mode it takes the panel. It is never hidden — see
@@ -455,6 +459,80 @@ export function widgetDeckStyles(): string {
     .widget-time { display: flex; align-items: center; gap: var(--hn-space-2, 8px); }
     .widget-time-slider { flex: 1 1 auto; accent-color: var(--hn-accent, #0b6b4d); }
     .widget-time-label { font-size: var(--hn-text-sm, 0.8125rem); font-variant-numeric: tabular-nums; }
+  `;
+}
+
+/**
+ * `<honua-studio-control-bar>` (honua-studio#25) — the controls collection.
+ *
+ * A wrapping row of small cards rather than the deck's scrolling strip: ADR-0031
+ * calls controls *chrome*, and chrome that scrolls sideways hides itself. A
+ * navigation cluster and a scale bar are a few dozen pixels each, so the bar
+ * wraps and stays entirely visible at any width — which is also what lets it
+ * sit directly above the map without stealing height from it.
+ */
+export function controlBarStyles(): string {
+  return `
+    :host([data-empty="true"]) { display: none; }
+    .control-bar {
+      display: flex; flex-wrap: wrap;
+      gap: var(--hn-space-2, 8px);
+      align-items: flex-start;
+    }
+    .control {
+      display: flex; flex-direction: column; gap: var(--hn-space-1, 4px);
+      flex: 0 1 auto; min-width: 8rem; max-width: 22rem;
+      background: var(--hn-surface-raised, #fff);
+      border: 1px solid var(--hn-line, #dfe4df);
+      border-radius: var(--hn-radius-lg, 10px);
+      padding: var(--hn-space-2, 8px) var(--hn-space-3, 12px);
+    }
+    .control[data-state="unsupported"] {
+      border-style: dashed;
+      border-color: var(--hn-warning-border, #d9a441);
+      background: var(--hn-warning-tint, #fbf1dd);
+    }
+    .control-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--hn-space-2, 8px); }
+    .control-title { font-size: var(--hn-text-sm, 0.8125rem); font-weight: 600; margin: 0; }
+    .control-kind { flex: 0 0 auto; font-family: var(--hn-font-mono, ui-monospace, monospace); }
+    .control-body { display: flex; flex-direction: column; gap: var(--hn-space-1, 4px); }
+    .control-status, .control-note { font-size: var(--hn-text-xs, 0.75rem); margin: 0; }
+    .control-row { display: flex; gap: var(--hn-space-1, 4px); flex-wrap: wrap; }
+    .control-icon { min-width: 2.25rem; padding: 0 var(--hn-space-2, 8px); font-variant-numeric: tabular-nums; }
+    .control-field { display: flex; align-items: center; gap: var(--hn-space-2, 8px); }
+    .control-field--range { flex-wrap: wrap; }
+    .control-label { font-size: var(--hn-text-xs, 0.75rem); color: var(--hn-ink-muted, #5f6e66); }
+    .control-slider { flex: 1 1 auto; min-width: 6rem; accent-color: var(--hn-accent, #0b6b4d); }
+    .control-select, .control-field input[type="date"] {
+      font: inherit; color: inherit;
+      background: var(--hn-surface-raised, #fff);
+      border: 1px solid var(--hn-border-control, #7c8a81);
+      border-radius: var(--hn-radius, 6px);
+      height: calc(var(--hn-control-height, 2.25rem) - var(--hn-space-2, 8px));
+      padding: 0 var(--hn-space-2, 8px);
+      max-width: 100%;
+    }
+    .control-value, .control-measure-value {
+      font-size: var(--hn-text-sm, 0.8125rem);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    /* The scale bar is a real measurement: the rule's width IS the distance. */
+    .control-scale { display: flex; align-items: center; gap: var(--hn-space-2, 8px); }
+    .control-scale-bar {
+      display: inline-block; height: 0.5rem;
+      border: 1px solid var(--hn-ink-secondary, #46554d);
+      border-top: none;
+    }
+    .control-scale-label { font-size: var(--hn-text-xs, 0.75rem); font-variant-numeric: tabular-nums; }
+    .control-attribution {
+      list-style: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column; gap: 2px;
+      font-size: var(--hn-text-xs, 0.75rem); color: var(--hn-ink-muted, #5f6e66);
+    }
+    .control-bookmarks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--hn-space-1, 4px); }
+    .control-measure { display: flex; align-items: center; gap: var(--hn-space-2, 8px); flex-wrap: wrap; }
+    .control-measure[data-active="true"] { outline: 2px solid var(--hn-accent, #0b6b4d); outline-offset: 4px; }
   `;
 }
 

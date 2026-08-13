@@ -10,11 +10,12 @@ import {
 } from "../../src/elements/registry.js";
 
 describe("elements/registry", () => {
-  it("lists exactly the eight contract tags", () => {
+  it("lists exactly the nine contract tags", () => {
     expect(STUDIO_ELEMENT_TAGS).toEqual([
       "honua-studio-chat",
       "honua-studio-activity-log",
       "honua-studio-widget-deck",
+      "honua-studio-control-bar",
       "honua-studio-canvas",
       "honua-studio-content-browser",
       "honua-studio-lifecycle-panel",

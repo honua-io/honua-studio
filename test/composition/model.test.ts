@@ -10,7 +10,16 @@ import {
 describe("composition/model", () => {
   it("createEmptyCompositionState returns a fresh, empty composition", () => {
     const state = createEmptyCompositionState();
-    expect(state).toEqual({ version: 1, layers: [], view: {}, widgets: [], annotations: [], pins: [] });
+    expect(state).toEqual({
+      version: 1,
+      layers: [],
+      view: {},
+      widgets: [],
+      controls: [],
+      interactions: [],
+      annotations: [],
+      pins: [],
+    });
   });
 
   it("canonicalCompositionJson sorts object keys deterministically regardless of insertion order", () => {

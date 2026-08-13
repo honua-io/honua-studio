@@ -61,10 +61,36 @@ export interface StudioMcpWidgetInput {
   readonly config?: Record<string, unknown>;
 }
 
+/** ADR-0031's control entry, as honua-server#3196 models it (`StudioCompositionControl`). Same shape as the widget entry, deliberately. */
+export interface StudioMcpControlInput {
+  readonly id: string;
+  readonly kind: string;
+  readonly title?: string;
+  readonly sourceId?: string;
+  readonly config?: Record<string, unknown>;
+}
+
+/** ADR-0030's binding, as honua-server#3175 models it (`StudioInteraction`). */
+export interface StudioMcpInteractionInput {
+  readonly id: string;
+  readonly on: { readonly ref: string; readonly event: string };
+  readonly do: { readonly ref: string; readonly verb: string; readonly args?: Record<string, unknown> };
+  readonly disabled?: boolean;
+}
+
 export interface StudioCompositionBodyWire {
   readonly layers: readonly StudioMcpLayerInput[];
   readonly view: StudioMcpViewInput;
   readonly widgets: readonly StudioMcpWidgetInput[];
+  /**
+   * Optional, and **nullable rather than empty-by-default** on the server
+   * side: honua-server#3175/#3196 keep both blocks unset until something
+   * writes one, so an unrelated edit does not stamp `"controls": []` into
+   * every stored package. This client mirrors that by omitting the key
+   * entirely when the composition holds none.
+   */
+  readonly controls?: readonly StudioMcpControlInput[];
+  readonly interactions?: readonly StudioMcpInteractionInput[];
 }
 
 /** Mirrors `StudioPackageDraft` restricted to the fields this app reads (matches `composition/history.ts`'s `CompositionDraft`). */
