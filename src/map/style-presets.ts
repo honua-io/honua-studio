@@ -31,57 +31,17 @@
  * @module
  */
 
+import { COMPOSITION_LAYER_PALETTE, paletteColorFor, stableHash, styleRefColorFor } from "../composition/palette.js";
 import type { CompositionLayerType } from "./source-resolution.js";
 
 /**
- * Qualitative palette for composed layers. Chosen for contrast against the
- * offline basemap's muted land/water and against each other; ordered so
- * adjacent entries never collide.
+ * The palette, its hash, the per-id colour, and the style-ref preset lookup
+ * moved to `../composition/palette.ts` in honua-studio#24 so the legend and
+ * layer-list widgets can show the same swatch this module paints without
+ * dragging `src/map/` into the entry bundle. Re-exported here because this is
+ * still where every paint consumer looks for them.
  */
-export const COMPOSITION_LAYER_PALETTE: readonly string[] = [
-  "#0b6b4d",
-  "#b4531b",
-  "#3a5fa8",
-  "#8a2f6b",
-  "#1f7a8c",
-  "#94741a",
-  "#5c3b8f",
-  "#a03a3a",
-];
-
-/** Named style presets. A `styleId` that matches one of these gets a real, intended look rather than a hashed fallback colour. */
-const NAMED_PRESETS: Readonly<Record<string, string>> = {
-  neutral: "#5f6e66",
-  accent: "#0b6b4d",
-  warning: "#b4531b",
-  critical: "#a03a3a",
-  cool: "#3a5fa8",
-};
-
-/**
- * FNV-1a. Small, dependency-free, and — the property that actually matters
- * here — stable across runs and platforms, so a snapshot taken in CI matches
- * one taken on a developer's machine.
- */
-export function stableHash(value: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
-}
-
-/** Deterministic palette entry for an id. */
-export function paletteColorFor(id: string): string {
-  const palette = COMPOSITION_LAYER_PALETTE;
-  return palette[stableHash(id) % palette.length] ?? palette[0] ?? "#0b6b4d";
-}
-
-/** Resolves a `styleId` to a colour: a named preset when one matches, otherwise a deterministic hashed one. */
-export function styleRefColorFor(styleId: string): string {
-  return NAMED_PRESETS[styleId.toLowerCase()] ?? paletteColorFor(`style:${styleId}`);
-}
+export { COMPOSITION_LAYER_PALETTE, paletteColorFor, stableHash, styleRefColorFor };
 
 /** MapLibre `paint` for a layer archetype in a given colour. */
 export function defaultPaintFor(layerType: CompositionLayerType, color: string): Record<string, unknown> {

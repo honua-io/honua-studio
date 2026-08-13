@@ -295,6 +295,11 @@ export function canvasStyles(): string {
     }
     .canvas-map[hidden] { display: none; }
     .canvas-map-status:empty { display: none; }
+    /* honua-studio#24: the composed widget deck sits between the map and the
+       readout — chrome the agent added, in the order it reads: what is on the
+       map, then what analyses it, then the structural detail. It hides itself
+       when the composition holds no widgets (see widgetDeckStyles). */
+    .canvas-widgets { flex: 0 0 auto; }
     .canvas-map-status { font-size: var(--hn-text-sm, 0.8125rem); margin: 0; }
     /* In map mode the readout is a compact table of contents under the map;
        in details mode it takes the panel. It is never hidden — see
@@ -338,6 +343,118 @@ export function canvasStyles(): string {
     .composition-empty { color: var(--hn-ink-faint, #8b988f); margin: 0; }
     .composition-view-fields { display: flex; flex-wrap: wrap; gap: var(--hn-space-2, 8px); margin: 0; padding: 0; list-style: none; }
     .composition-view-fields li { font-size: var(--hn-text-sm, 0.8125rem); }
+  `;
+}
+
+/**
+ * `<honua-studio-widget-deck>` (honua-studio#24) — the composed chrome:
+ * layer list, legend, grid, chart, compare switch, time stepper.
+ *
+ * The deck is a horizontally-scrolling strip of cards rather than a grid,
+ * because the number of widgets is decided by the conversation, not by a
+ * layout: an agent may add one or six, and a wrapping grid would reflow the
+ * map every time a tool call landed. Each card holds its own scroll, so a
+ * 500-row grid never grows the panel.
+ */
+export function widgetDeckStyles(): string {
+  return `
+    :host([data-empty="true"]) { display: none; }
+    .widget-deck {
+      display: flex;
+      gap: var(--hn-space-3, 12px);
+      overflow-x: auto;
+      padding-bottom: var(--hn-space-1, 4px);
+      align-items: stretch;
+    }
+    .widget {
+      display: flex; flex-direction: column; gap: var(--hn-space-2, 8px);
+      flex: 0 0 auto;
+      min-width: 15rem; max-width: 26rem;
+      background: var(--hn-surface-raised, #fff);
+      border: 1px solid var(--hn-line, #dfe4df);
+      border-radius: var(--hn-radius-lg, 10px);
+      padding: var(--hn-space-3, 12px);
+    }
+    .widget[data-widget-kind="table"], .widget[data-widget-kind="chart"] { min-width: 20rem; }
+    .widget-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--hn-space-2, 8px); }
+    .widget-title { font-size: var(--hn-text-sm, 0.8125rem); font-weight: 600; margin: 0; }
+    .widget-kind { flex: 0 0 auto; }
+    .widget-body { display: flex; flex-direction: column; gap: var(--hn-space-2, 8px); min-height: 0; }
+    .widget-status { font-size: var(--hn-text-xs, 0.75rem); margin: 0; }
+    .widget-empty { margin: 0; font-size: var(--hn-text-sm, 0.8125rem); }
+    .widget-swatch {
+      display: inline-block; flex: 0 0 auto;
+      width: 0.75rem; height: 0.75rem; border-radius: 3px;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+    }
+    .widget-flag {
+      font-size: var(--hn-text-xs, 0.75rem);
+      color: var(--hn-warning-text, #7a5308);
+      background: var(--hn-warning-tint, #fbf1dd);
+      border-radius: var(--hn-radius, 6px);
+      padding: 0 var(--hn-space-1, 4px);
+    }
+
+    /* Layer list + legend */
+    .widget-toc, .widget-legend {
+      list-style: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column; gap: var(--hn-space-1, 4px);
+      max-height: 12rem; overflow-y: auto;
+    }
+    .widget-toc-row { display: flex; align-items: center; gap: var(--hn-space-2, 8px); }
+    .widget-toc-toggle { flex: 0 0 auto; accent-color: var(--hn-accent, #0b6b4d); cursor: pointer; }
+    .widget-toc-toggle:disabled { cursor: not-allowed; }
+    .widget-toc-label {
+      display: flex; align-items: center; gap: var(--hn-space-2, 8px);
+      flex: 1 1 auto; min-width: 0;
+      text-align: left; font: inherit; color: inherit;
+      background: none; border: 1px solid transparent;
+      border-radius: var(--hn-radius, 6px);
+      padding: var(--hn-space-1, 4px) var(--hn-space-2, 8px);
+      cursor: pointer;
+    }
+    .widget-toc-label:hover { border-color: var(--hn-accent, #0b6b4d); }
+    .widget-toc-label[aria-pressed="true"] {
+      border-color: var(--hn-accent, #0b6b4d);
+      background: var(--hn-accent-tint, #e3f1ea);
+    }
+    .widget-toc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .widget-toc-row[data-visible="false"] .widget-toc-name { color: var(--hn-ink-faint, #8b988f); }
+    .widget-legend-item { display: flex; align-items: center; gap: var(--hn-space-2, 8px); font-size: var(--hn-text-sm, 0.8125rem); }
+    .widget-legend-item[data-hidden="true"] { opacity: 0.55; }
+    .widget-legend-style { font-size: var(--hn-text-xs, 0.75rem); }
+
+    /* Data grid */
+    .widget-grid-scroll { overflow: auto; max-height: 14rem; border: 1px solid var(--hn-line, #dfe4df); border-radius: var(--hn-radius, 6px); }
+    .widget-grid { border-collapse: collapse; width: 100%; font-size: var(--hn-text-xs, 0.75rem); }
+    .widget-grid th, .widget-grid td {
+      text-align: left; padding: var(--hn-space-1, 4px) var(--hn-space-2, 8px);
+      border-bottom: 1px solid var(--hn-line, #dfe4df);
+      white-space: nowrap;
+    }
+    .widget-grid thead th {
+      position: sticky; top: 0; z-index: 1;
+      background: var(--hn-surface-sunken, #e9ede9);
+      font-weight: 600;
+    }
+    .widget-grid tbody tr[data-action] { cursor: pointer; }
+    .widget-grid tbody tr[data-action]:hover { background: var(--hn-surface-sunken, #e9ede9); }
+    .widget-grid tbody tr[aria-selected="true"] { background: var(--hn-accent-tint, #e3f1ea); }
+    .widget-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--hn-space-2, 8px); font-size: var(--hn-text-xs, 0.75rem); }
+
+    /* Chart */
+    .widget-chart { margin: 0; display: flex; flex-direction: column; gap: var(--hn-space-1, 4px); }
+    .widget-chart-svg { width: 100%; height: auto; overflow: visible; }
+    .widget-chart-grid { stroke: var(--hn-line, #dfe4df); stroke-width: 0.5; }
+    .widget-chart-tick, .widget-chart-label { font-size: 7px; fill: var(--hn-ink-muted, #5f6e66); font-family: var(--hn-font-ui, system-ui, sans-serif); }
+    .widget-chart figcaption { font-size: var(--hn-text-xs, 0.75rem); }
+
+    /* Compare + time */
+    .widget-compare { display: flex; gap: var(--hn-space-1, 4px); flex-wrap: wrap; }
+    .widget-compare-option { flex: 1 1 auto; }
+    .widget-time { display: flex; align-items: center; gap: var(--hn-space-2, 8px); }
+    .widget-time-slider { flex: 1 1 auto; accent-color: var(--hn-accent, #0b6b4d); }
+    .widget-time-label { font-size: var(--hn-text-sm, 0.8125rem); font-variant-numeric: tabular-nums; }
   `;
 }
 

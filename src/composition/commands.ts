@@ -69,6 +69,7 @@ export type CompositionCommand =
   | { readonly name: "addLayer"; readonly layer: AddLayerInput; readonly beforeId?: string }
   | { readonly name: "removeLayer"; readonly target: CompositionTarget }
   | { readonly name: "setLayerStyleRef"; readonly target: CompositionTarget; readonly styleRef?: CompositionStyleRef }
+  | { readonly name: "setVisibility"; readonly target: CompositionTarget; readonly visible: boolean }
   | { readonly name: "setView"; readonly view: Partial<CompositionView> }
   | { readonly name: "addWidget"; readonly widget: AddWidgetInput }
   | { readonly name: "removeWidget"; readonly target: CompositionTarget }
@@ -81,6 +82,7 @@ export const COMPOSITION_COMMAND_NAMES = [
   "addLayer",
   "removeLayer",
   "setLayerStyleRef",
+  "setVisibility",
   "setView",
   "addWidget",
   "removeWidget",
@@ -123,6 +125,8 @@ export function validateCompositionCommand(input: unknown): CompositionCommandVa
       return validateTargetedCommand(input, "removeLayer");
     case "setLayerStyleRef":
       return validateSetLayerStyleRef(input);
+    case "setVisibility":
+      return validateSetVisibility(input);
     case "setView":
       return validateSetView(input);
     case "addWidget":
@@ -188,6 +192,25 @@ function validateSetLayerStyleRef(input: Record<string, unknown>): CompositionCo
       ...(input.styleRef !== undefined ? { styleRef: input.styleRef as CompositionStyleRef } : {}),
     },
   };
+}
+
+/**
+ * `setVisibility` — the mutation a TOC's checkbox performs (honua-studio#24
+ * REQ-003) and the one an agent uses to say "hide the parcels".
+ *
+ * Named after the SDK's `HonuaAppController.setVisibility`, whose vocabulary
+ * `reducer.ts` already mirrors, so the composition command and the runtime
+ * method a custom binding would call are the same word. It stays in the
+ * bounded command set precisely so that the TOC's *intrinsic* toggle and an
+ * agent's *authored* one are the same write path: there is no chrome-only
+ * side door around the reducer, pins, history, or draft sync.
+ */
+function validateSetVisibility(input: Record<string, unknown>): CompositionCommandValidation {
+  const errors: string[] = [];
+  const target = validateTarget(input.target, errors, "setVisibility.target");
+  if (typeof input.visible !== "boolean") errors.push("setVisibility.visible must be a boolean");
+  if (errors.length > 0 || !target) return fail(errors);
+  return { ok: true, command: { name: "setVisibility", target, visible: input.visible as boolean } };
 }
 
 function validateSetView(input: Record<string, unknown>): CompositionCommandValidation {

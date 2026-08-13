@@ -47,7 +47,7 @@ import {
 } from "@honua/sdk-js/agent-tools";
 
 import type { CompositionController } from "../composition/controller.js";
-import type { CompositionView } from "../composition/model.js";
+import type { CompositionTarget, CompositionView } from "../composition/model.js";
 import { DEFAULT_MAP_PACKAGE_ID } from "./constants.js";
 import type { CompositionSourceDescriptor } from "./source-resolution.js";
 
@@ -144,6 +144,35 @@ export function createCompositionAgentRuntime(options: CompositionAgentRuntimeOp
       });
     },
     getSelection: selectedFeatureTargets,
+    /**
+     * The agent's half of honua-studio#24 REQ-005. A grid row and the SDK's
+     * `selectFeature` tool must mean the same thing, so both land on
+     * `controller.select(...)` — the same ephemeral deictic selection a map
+     * click sets. Without this the tool was simply absent from the kit, and
+     * "select the parcel in row 3" had no route back into the composition.
+     *
+     * Selection is ephemeral rather than a command, so it does not go
+     * through `apply()`: it is not part of composition state (see
+     * `../composition/model.ts`'s CompositionTargetKind note) and must not
+     * enter undo history.
+     */
+    selectFeature: (target, selectOptions) => {
+      // `FeatureSelectionTarget` is `FeatureId | SourceQualifiedFeatureSelectionTarget`.
+      // A composition `feature` target is source-qualified by definition, so a
+      // bare id is rejected rather than guessed at — attributing a feature to
+      // the wrong layer would produce a confidently wrong "THIS".
+      const qualified = typeof target === "object" && target !== null ? target : undefined;
+      const sourceId = typeof qualified?.sourceId === "string" ? qualified.sourceId : undefined;
+      const featureId = qualified?.id;
+      if (!sourceId || (typeof featureId !== "string" && typeof featureId !== "number")) {
+        throw new Error("selectFeature requires a source-qualified target: { sourceId, id }.");
+      }
+      const next: CompositionTarget = { kind: "feature", sourceId, featureId };
+      // `replace` defaults to true, matching the SDK controller's own default
+      // and the canvas's click behaviour (one click, one "THIS").
+      controller.select(selectOptions?.replace === false ? [...controller.selection, next] : [next]);
+      return selectedFeatureTargets();
+    },
   };
 }
 

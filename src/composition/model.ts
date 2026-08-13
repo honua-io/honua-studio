@@ -52,8 +52,19 @@ export interface CompositionView {
   readonly bearing?: number;
 }
 
-/** The bounded set of composable widget surfaces (mirrors #1's REQ-002 "table, chart, compare, time" list, plus legend). */
-export type CompositionWidgetKind = "table" | "chart" | "compare" | "time" | "legend";
+/**
+ * The bounded set of composable widget surfaces (mirrors #1's REQ-002
+ * "table, chart, compare, time" list, plus legend and — honua-studio#24
+ * REQ-002 — `toc`, the layer list).
+ *
+ * `toc` is the one kind that binds to *composition state itself* rather than
+ * to a data source: it lists `state.layers`, so a layer added by any later
+ * tool call appears in it automatically. Nothing "pulls layers into" a TOC,
+ * which is why it carries no source binding and why its visibility toggles
+ * are intrinsic (REQ-003) rather than authored — see
+ * `../widgets/widget-config.ts`.
+ */
+export type CompositionWidgetKind = "table" | "chart" | "compare" | "time" | "legend" | "toc";
 
 export const COMPOSITION_WIDGET_KINDS: readonly CompositionWidgetKind[] = [
   "table",
@@ -61,6 +72,7 @@ export const COMPOSITION_WIDGET_KINDS: readonly CompositionWidgetKind[] = [
   "compare",
   "time",
   "legend",
+  "toc",
 ];
 
 /** A composed widget/analysis surface. */

@@ -20,7 +20,7 @@
  *     or a prior call entirely).
  *
  * The vocabulary here (`addLayer`/`removeLayer`/`setLayerStyleRef`/
- * `setView`/`addWidget`/`removeWidget`/`pin`/`unpin`, target resolution by
+ * `setVisibility`/`setView`/`addWidget`/`removeWidget`/`pin`/`unpin`, target resolution by
  * `{ kind: "layer" | "feature" | "region" | "component" }`) intentionally
  * mirrors `@honua/sdk-js`'s `src/agent-tools/index.ts` naming and
  * `src/app-controller/controller.ts`'s target vocabulary (layer/source
@@ -227,6 +227,17 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       return {
         ...state,
         layers: state.layers.map((layer) => (layer.id === id ? withStyleRef(layer, command.styleRef) : layer)),
+      };
+    }
+    case "setVisibility": {
+      const resolution = requireResolved(state, command.target, "layer", command);
+      guardPin(resolution, command);
+      const id = nonFeatureTargetId(command.target);
+      return {
+        ...state,
+        layers: state.layers.map((layer) =>
+          layer.id === id && layer.visible !== command.visible ? { ...layer, visible: command.visible } : layer,
+        ),
       };
     }
     case "setView":
