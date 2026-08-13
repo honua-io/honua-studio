@@ -150,6 +150,16 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   addLayer: compositionPassthroughEntry("addLayer", "honua_studio_add_layer"),
   removeLayer: compositionPassthroughEntry("removeLayer", "honua_studio_remove_layer"),
   setLayerStyleRef: compositionPassthroughEntry("setLayerStyleRef", "honua_studio_set_layer_style"),
+  // honua-studio#24's TOC/compare/time toggles and any agent-authored
+  // "hide the parcels" both land here. Deliberately carries NO
+  // `serverToolName`: honua-server#3002's tool set has no
+  // `honua_studio_set_layer_visibility`, so in live mode this applies
+  // locally (the same route `pin`/`unpin`/annotations already take) and the
+  // next server draft sync is authoritative. Unlike pins, `visible` *is* part
+  // of the server's wire shape (`toStudioCompositionBody` sends it), so this
+  // is a real gap rather than a deliberate client-only concept — it is the
+  // headline item in #24 REQ-006's upstream contribution list.
+  setVisibility: compositionPassthroughEntry("setVisibility"),
   setView: compositionPassthroughEntry("setView", "honua_studio_set_view"),
   addWidget: compositionPassthroughEntry("addWidget", "honua_studio_add_widget"),
   removeWidget: compositionPassthroughEntry("removeWidget", "honua_studio_remove_widget"),

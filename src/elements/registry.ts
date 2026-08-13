@@ -19,6 +19,7 @@ import { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { HonuaStudioContentBrowserElement } from "./studio-content-browser-element.js";
 import { HonuaStudioGpPanelElement } from "./studio-gp-panel-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
+import { HonuaStudioWidgetDeckElement } from "./studio-widget-deck-element.js";
 import type { HonuaStudioComponentRegistry } from "./types.js";
 
 export type { HonuaStudioComponentRegistry } from "./types.js";
@@ -35,6 +36,7 @@ export type { HonuaStudioComponentRegistry } from "./types.js";
 const STUDIO_ELEMENTS: ReadonlyMap<string, CustomElementConstructor> = new Map<string, CustomElementConstructor>([
   ["honua-studio-chat", HonuaStudioChatElement],
   ["honua-studio-activity-log", HonuaStudioActivityLogElement],
+  ["honua-studio-widget-deck", HonuaStudioWidgetDeckElement],
   ["honua-studio-canvas", HonuaStudioCanvasElement],
   ["honua-studio-content-browser", HonuaStudioContentBrowserElement],
   ["honua-studio-lifecycle-panel", HonuaStudioLifecyclePanelElement],
@@ -44,6 +46,20 @@ const STUDIO_ELEMENTS: ReadonlyMap<string, CustomElementConstructor> = new Map<s
 
 /** Every tag {@link registerAllStudioElements} will define — useful for asserting expected coverage in tests/docs. */
 export const STUDIO_ELEMENT_TAGS: readonly string[] = Array.from(STUDIO_ELEMENTS.keys());
+
+/**
+ * Tags an element composes into its own shadow DOM, and therefore needs
+ * defined even when a host registers only the outer tag
+ * (honua-studio#24). `<honua-studio-canvas>` builds a
+ * `<honua-studio-widget-deck>` for the composed widgets; an undefined tag
+ * would upgrade to nothing and the widgets would silently not render, which
+ * is precisely the class of failure this registry's define-once discipline
+ * exists to avoid. `registerAllStudioElements` covers these anyway — this
+ * map only matters for the per-tag entry point.
+ */
+const STUDIO_ELEMENT_DEPENDENCIES: ReadonlyMap<string, readonly string[]> = new Map([
+  ["honua-studio-canvas", ["honua-studio-widget-deck"]],
+]);
 
 function defineIfMissing(
   registry: HonuaStudioComponentRegistry,
@@ -69,6 +85,10 @@ export function registerStudioElement(
   const ctor = STUDIO_ELEMENTS.get(tagName);
   if (!ctor) throw new HonuaStudioElementRegistryError(tagName);
   defineIfMissing(registry, tagName, ctor);
+  for (const dependency of STUDIO_ELEMENT_DEPENDENCIES.get(tagName) ?? []) {
+    const dependencyCtor = STUDIO_ELEMENTS.get(dependency);
+    if (dependencyCtor) defineIfMissing(registry, dependency, dependencyCtor);
+  }
 }
 
 /** Registers every `honua-studio-*` tag. The bootstrap (src/main.ts) calls this explicitly — nothing in this package auto-registers on import. */

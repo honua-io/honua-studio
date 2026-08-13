@@ -83,6 +83,14 @@ export {
 export type { CompositionControllerListener, Unsubscribe } from "./controller.js";
 export { CompositionController } from "./controller.js";
 
+export {
+  COMPOSITION_LAYER_PALETTE,
+  compositionLayerColor,
+  paletteColorFor,
+  stableHash,
+  styleRefColorFor,
+} from "./palette.js";
+
 export type { CompositionToolCall, CompositionToolCallScript } from "./tool-call.js";
 export { isCompositionToolCall } from "./tool-call.js";
 
