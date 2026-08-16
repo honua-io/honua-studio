@@ -40,7 +40,9 @@ import type { HonuaStyleSpecification } from "@honua/sdk-js/style";
 
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
+import type { BasemapStyle } from "./basemap.js";
 import {
+  type CompositionLayerAppearance,
   type CompositionMapProjection,
   type CompositionMapProjectionOptions,
   compositionToMapPackage,
@@ -63,6 +65,22 @@ export interface CompositionMapLike {
   queryRenderedFeatures?(point: unknown, options?: { layers?: readonly string[] }): readonly unknown[];
   resize(): unknown;
   remove(): void;
+  // honua-studio#25's map-affordance controls. Every one is OPTIONAL, and
+  // that is the contract, not laziness: a real `maplibre-gl.Map` has all of
+  // them, a test double has whichever the test needs, and a control whose
+  // method is missing renders disabled with a stated reason rather than
+  // throwing into a click handler.
+  getZoom?(): number;
+  getCenter?(): { lng: number; lat: number } | readonly [number, number];
+  getBearing?(): number;
+  getContainer?(): HTMLElement;
+}
+
+/** A camera reading, normalized out of whatever shape the map returned. */
+export interface CompositionMapCamera {
+  readonly zoom: number;
+  readonly center: readonly [number, number];
+  readonly bearing: number;
 }
 
 export interface CompositionMapFactoryOptions {
@@ -87,8 +105,17 @@ export interface CompositionMapViewOptions {
   readonly viewTransitionMs?: number;
   /** Called when a click resolves to a composed layer/feature — the deictic "THIS" (#1 REQ-012). */
   readonly onSelection?: (targets: readonly CompositionTarget[]) => void;
+  /**
+   * Called with the geographic point of EVERY map click, hit or miss — what a
+   * `measure` control (honua-studio#25) collects vertices from. Kept separate
+   * from `onSelection` because measuring cares about empty water as much as
+   * about a parcel, and a measurement click must not also select.
+   */
+  readonly onMapClick?: (point: { readonly lng: number; readonly lat: number }) => void;
   /** Called after every applied update, and on failure. The canvas renders status from this. */
   readonly onChange?: (view: CompositionMapView) => void;
+  /** Initial runtime appearance (honua-studio#25 control state). Updated later through {@link CompositionMapView.setAppearance}. */
+  readonly appearance?: CompositionLayerAppearance;
 }
 
 /** Where the camera sits before a composition says otherwise: the whole world, so an empty composition still reads as a map. */
@@ -155,10 +182,79 @@ export class CompositionMapView {
   #queue: Promise<void> = Promise.resolve();
   #generation = 0;
   #appliedView: CompositionView | undefined;
+  #appearance: CompositionLayerAppearance | undefined;
+  #basemap: BasemapStyle | undefined;
   #disposed = false;
 
   public constructor(options: CompositionMapViewOptions) {
     this.#options = options;
+    this.#appearance = options.appearance;
+    this.#basemap = options.projection?.basemap;
+  }
+
+  /**
+   * Applies runtime control appearance — per-layer filters and opacity
+   * (honua-studio#25). Goes through the normal projection + style-diff path,
+   * which is the only path that survives the next composition change; see
+   * `./map-package-projection.ts`'s `appearance` doc for why an imperative
+   * `map.setFilter` would not.
+   */
+  public setAppearance(appearance: CompositionLayerAppearance | undefined): void {
+    this.#appearance = appearance;
+    this.#scheduleUpdate();
+  }
+
+  /** Swaps the basemap a `basemapSwitcher` control chose, without re-mounting the map (which would cost the camera and every source). */
+  public setBasemap(basemap: BasemapStyle | undefined): void {
+    this.#basemap = basemap;
+    this.#scheduleUpdate();
+  }
+
+  /** The live camera, normalized. `undefined` when the map cannot report one — a `scale` control then says so instead of drawing a bar from a guess. */
+  public camera(): CompositionMapCamera | undefined {
+    const map = this.#map;
+    if (!map || typeof map.getZoom !== "function" || typeof map.getCenter !== "function") return undefined;
+    try {
+      const zoom = map.getZoom();
+      const rawCenter = map.getCenter();
+      const center: readonly [number, number] = Array.isArray(rawCenter)
+        ? [Number(rawCenter[0]), Number(rawCenter[1])]
+        : [Number((rawCenter as { lng: number }).lng), Number((rawCenter as { lat: number }).lat)];
+      if (!Number.isFinite(zoom) || !Number.isFinite(center[0]) || !Number.isFinite(center[1])) return undefined;
+      const bearing = typeof map.getBearing === "function" ? map.getBearing() : 0;
+      return { zoom, center, bearing: Number.isFinite(bearing) ? bearing : 0 };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Moves the camera without going through composition state — the intrinsic gesture a `navigation` control performs (REQ-003). */
+  public nudgeCamera(patch: { readonly zoomBy?: number; readonly bearing?: number }): void {
+    const map = this.#map;
+    const camera = this.camera();
+    if (!map || !camera) return;
+    const next: Record<string, unknown> = {};
+    if (patch.zoomBy !== undefined) next.zoom = Math.min(Math.max(camera.zoom + patch.zoomBy, 0), 24);
+    if (patch.bearing !== undefined) next.bearing = patch.bearing;
+    if (Object.keys(next).length === 0) return;
+    try {
+      map.easeTo({ ...next, duration: this.#options.viewTransitionMs ?? 300 });
+    } catch {
+      // A detached or mid-teardown map refuses to move; not worth surfacing.
+    }
+  }
+
+  /** The map's own container element, for the `fullscreen` control. `undefined` when the map cannot report one. */
+  public container(): HTMLElement | undefined {
+    const map = this.#map;
+    if (map && typeof map.getContainer === "function") {
+      try {
+        return map.getContainer();
+      } catch {
+        return undefined;
+      }
+    }
+    return this.#options.container;
   }
 
   public get status(): CompositionMapStatus {
@@ -249,9 +345,32 @@ export class CompositionMapView {
   }
 
   #project(): CompositionMapProjection {
-    const projection = compositionToMapPackage(this.#options.controller.state, this.#options.projection ?? {});
+    const projection = compositionToMapPackage(this.#options.controller.state, {
+      ...(this.#options.projection ?? {}),
+      ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
+      ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
+    });
     this.#projection = projection;
     return projection;
+  }
+
+  /**
+   * Every attribution the composed style declares, deduplicated and in style
+   * order — what an `attribution` control renders. Read off the projection
+   * rather than off MapLibre's own control, because the readout has to be
+   * correct even when the map is unavailable and the canvas fell back to
+   * Details.
+   */
+  public attributions(): readonly string[] {
+    const sources = this.#projection?.mapPackage.mapSpec.sources ?? {};
+    const credits: string[] = [];
+    for (const source of Object.values(sources)) {
+      const attribution = (source as { attribution?: unknown }).attribution;
+      if (typeof attribution === "string" && attribution.length > 0 && !credits.includes(attribution)) {
+        credits.push(attribution);
+      }
+    }
+    return credits;
   }
 
   /**
@@ -341,8 +460,11 @@ export class CompositionMapView {
    */
   #bindClicks(map: CompositionMapLike): void {
     map.on("click", (event) => {
+      if (!isRecord(event)) return;
+      const point = readLngLat(event.lngLat);
+      if (point) this.#options.onMapClick?.(point);
       const onSelection = this.#options.onSelection;
-      if (!onSelection || !isRecord(event)) return;
+      if (!onSelection) return;
       const layerIds = this.#projection?.renderedLayerIds ?? [];
       if (layerIds.length === 0) return;
       const features = map.queryRenderedFeatures?.(event.point, { layers: [...layerIds] }) ?? [];
@@ -408,6 +530,19 @@ export function compositionTargetsFromFeatures(features: readonly unknown[]): Co
   }
   targets.push({ kind: "layer", id: layerId });
   return targets;
+}
+
+/** MapLibre hands `{ lng, lat }`; a test double may hand `[lng, lat]`. Both are read, neither is assumed. */
+function readLngLat(value: unknown): { readonly lng: number; readonly lat: number } | undefined {
+  if (Array.isArray(value) && value.length >= 2) {
+    const [lng, lat] = value;
+    return Number.isFinite(lng) && Number.isFinite(lat) ? { lng: Number(lng), lat: Number(lat) } : undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  const { lng, lat } = value as { lng?: unknown; lat?: unknown };
+  return typeof lng === "number" && typeof lat === "number" && Number.isFinite(lng) && Number.isFinite(lat)
+    ? { lng, lat }
+    : undefined;
 }
 
 function viewsEqual(a: CompositionView, b: CompositionView | undefined): boolean {

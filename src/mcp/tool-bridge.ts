@@ -41,7 +41,9 @@ import { createEmptyCompositionState } from "../composition/model.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
 import type {
   StudioCompositionBodyWire,
+  StudioMcpControlInput,
   StudioMcpDraft,
+  StudioMcpInteractionInput,
   StudioMcpLayerInput,
   StudioMcpToolName,
   StudioMcpViewInput,
@@ -163,6 +165,21 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   setView: compositionPassthroughEntry("setView", "honua_studio_set_view"),
   addWidget: compositionPassthroughEntry("addWidget", "honua_studio_add_widget"),
   removeWidget: compositionPassthroughEntry("removeWidget", "honua_studio_remove_widget"),
+  /**
+   * honua-studio#25's controls. Deliberately carry NO `serverToolName`, the
+   * same way `setVisibility` does and for a comparable reason:
+   * `honua_studio_add_control` / `honua_studio_remove_control` are
+   * honua-server#3196, which is OPEN at the time of writing. Until it lands,
+   * a control applies locally and reaches the draft through the body of the
+   * next `honua_studio_update_draft` — `toStudioCompositionBody` sends the
+   * `controls` block, and the server's editor overlay preserves body keys it
+   * does not yet model. Point these at the real tools once #3196 merges.
+   */
+  addControl: compositionPassthroughEntry("addControl"),
+  removeControl: compositionPassthroughEntry("removeControl"),
+  /** ADR-0030 bindings. Same treatment: honua-server#3175 landed the tools, but this client syncs the block through the draft body rather than pinning to a tool signature it has not exercised. */
+  bindInteraction: compositionPassthroughEntry("bindInteraction"),
+  removeInteraction: compositionPassthroughEntry("removeInteraction"),
   addAnnotation: compositionPassthroughEntry("addAnnotation"),
   removeAnnotation: compositionPassthroughEntry("removeAnnotation"),
   pin: compositionPassthroughEntry("pin"),
@@ -298,6 +315,52 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       return finalizeCommand("removeWidget", { target: { kind: "component", id: args.widgetId } });
     },
   },
+  // honua-server#3196's tool names, understood on the INBOUND side already:
+  // an external MCP client (or the model, once the tools are advertised) may
+  // call them against this app's tool plane before this app is calling them
+  // outbound, and refusing to interpret a call whose semantics we implement
+  // would be the wrong kind of strict.
+  honua_studio_add_control: {
+    vocabulary: "server-mcp",
+    build: (args) => {
+      const controlInput = args.control;
+      if (!isPlainObject(controlInput) || !isNonEmptyString(controlInput.id) || !isNonEmptyString(controlInput.kind)) {
+        return { ok: false, reason: 'honua_studio_add_control requires "control.id" and "control.kind".' };
+      }
+      return finalizeCommand("addControl", { control: controlInput });
+    },
+  },
+  honua_studio_remove_control: {
+    vocabulary: "server-mcp",
+    build: (args) => {
+      if (!isNonEmptyString(args.controlId)) {
+        return { ok: false, reason: 'honua_studio_remove_control requires a non-empty string "controlId".' };
+      }
+      return finalizeCommand("removeControl", {
+        target: { kind: "control", id: args.controlId },
+        ...(typeof args.cascadeInteractions === "boolean" ? { cascadeInteractions: args.cascadeInteractions } : {}),
+      });
+    },
+  },
+  honua_studio_bind_interaction: {
+    vocabulary: "server-mcp",
+    build: (args) => {
+      const interaction = args.interaction;
+      if (!isPlainObject(interaction)) {
+        return { ok: false, reason: 'honua_studio_bind_interaction requires an "interaction" object.' };
+      }
+      return finalizeCommand("bindInteraction", { interaction });
+    },
+  },
+  honua_studio_remove_interaction: {
+    vocabulary: "server-mcp",
+    build: (args) => {
+      if (!isNonEmptyString(args.interactionId)) {
+        return { ok: false, reason: 'honua_studio_remove_interaction requires a non-empty string "interactionId".' };
+      }
+      return finalizeCommand("removeInteraction", { interactionId: args.interactionId });
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -423,6 +486,13 @@ export function applyStudioDraftBody(
     layers: (body.layers ?? []).map((layer) => studioLayerToComposition(layer)),
     view: studioViewToComposition(body.view),
     widgets: (body.widgets ?? []).map((widget) => studioWidgetToComposition(widget)),
+    // Absent blocks mean "unset", not "empty": the server keeps them null
+    // until written, so a draft that predates honua-studio#25 must not clear
+    // controls the local session has already composed.
+    controls: body.controls ? body.controls.map((control) => studioControlToComposition(control)) : base.controls,
+    interactions: body.interactions
+      ? body.interactions.map((interaction) => studioInteractionToComposition(interaction))
+      : base.interactions,
   };
 }
 
@@ -482,6 +552,58 @@ export function toStudioCompositionBody(state: CompositionState): StudioComposit
       ...(widget.sourceId !== undefined ? { sourceId: widget.sourceId } : {}),
       ...(widget.config !== undefined ? { config: widget.config } : {}),
     })),
+    // Omitted entirely when empty — see `StudioCompositionBodyWire`'s note on
+    // why the server keeps these blocks nullable.
+    ...(state.controls.length > 0
+      ? {
+          controls: state.controls.map((control) => ({
+            id: control.id,
+            kind: control.kind,
+            ...(control.title !== undefined ? { title: control.title } : {}),
+            ...(control.sourceId !== undefined ? { sourceId: control.sourceId } : {}),
+            ...(control.config !== undefined ? { config: control.config as Record<string, unknown> } : {}),
+          })),
+        }
+      : {}),
+    ...(state.interactions.length > 0
+      ? {
+          interactions: state.interactions.map((interaction) => ({
+            id: interaction.id,
+            on: { ...interaction.on },
+            do: {
+              ref: interaction.do.ref,
+              verb: interaction.do.verb,
+              ...(interaction.do.args !== undefined ? { args: interaction.do.args as Record<string, unknown> } : {}),
+            },
+            ...(interaction.disabled !== undefined ? { disabled: interaction.disabled } : {}),
+          })),
+        }
+      : {}),
+  };
+}
+
+function studioControlToComposition(control: StudioMcpControlInput): CompositionState["controls"][number] {
+  return {
+    id: control.id,
+    kind: control.kind as CompositionState["controls"][number]["kind"],
+    ...(control.title !== undefined ? { title: control.title } : {}),
+    ...(control.sourceId !== undefined ? { sourceId: control.sourceId } : {}),
+    ...(control.config !== undefined ? { config: control.config } : {}),
+  };
+}
+
+function studioInteractionToComposition(
+  interaction: StudioMcpInteractionInput,
+): CompositionState["interactions"][number] {
+  return {
+    id: interaction.id,
+    on: { ref: interaction.on.ref, event: interaction.on.event as never },
+    do: {
+      ref: interaction.do.ref,
+      verb: interaction.do.verb as never,
+      ...(interaction.do.args !== undefined ? { args: interaction.do.args } : {}),
+    },
+    ...(interaction.disabled !== undefined ? { disabled: interaction.disabled } : {}),
   };
 }
 

@@ -24,9 +24,14 @@
 
 import {
   COMPOSITION_ANNOTATION_KINDS,
+  COMPOSITION_CONTROL_KINDS,
+  COMPOSITION_INTERACTION_EVENTS,
+  COMPOSITION_INTERACTION_VERBS,
   COMPOSITION_TARGET_KINDS,
   COMPOSITION_WIDGET_KINDS,
   type CompositionAnnotationKind,
+  type CompositionControlKind,
+  type CompositionInteraction,
   type CompositionStyleRef,
   type CompositionTarget,
   type CompositionTargetKind,
@@ -55,6 +60,15 @@ export interface AddWidgetInput {
   readonly config?: Readonly<Record<string, unknown>>;
 }
 
+/** Mirrors {@link AddWidgetInput} field for field — ADR-0031's entry shape is deliberately the widget entry's. */
+export interface AddControlInput {
+  readonly id: string;
+  readonly kind: CompositionControlKind;
+  readonly title?: string;
+  readonly sourceId?: string;
+  readonly config?: Readonly<Record<string, unknown>>;
+}
+
 export interface AddAnnotationInput {
   readonly id: string;
   readonly kind: CompositionAnnotationKind;
@@ -73,6 +87,21 @@ export type CompositionCommand =
   | { readonly name: "setView"; readonly view: Partial<CompositionView> }
   | { readonly name: "addWidget"; readonly widget: AddWidgetInput }
   | { readonly name: "removeWidget"; readonly target: CompositionTarget }
+  | { readonly name: "addControl"; readonly control: AddControlInput }
+  /**
+   * `cascadeInteractions` mirrors honua-server#3196's `remove_control`
+   * argument exactly, including its default: `false` **rejects** the removal
+   * while any binding still references the control, `true` removes the
+   * dependent bindings with it. There is no third option — ADR-0031 states
+   * plainly that silently retaining an unresolvable binding is not conformant.
+   */
+  | {
+      readonly name: "removeControl";
+      readonly target: CompositionTarget;
+      readonly cascadeInteractions?: boolean;
+    }
+  | { readonly name: "bindInteraction"; readonly interaction: CompositionInteraction }
+  | { readonly name: "removeInteraction"; readonly interactionId: string }
   | { readonly name: "addAnnotation"; readonly annotation: AddAnnotationInput }
   | { readonly name: "removeAnnotation"; readonly target: CompositionTarget }
   | { readonly name: "pin"; readonly target: CompositionTarget }
@@ -86,6 +115,10 @@ export const COMPOSITION_COMMAND_NAMES = [
   "setView",
   "addWidget",
   "removeWidget",
+  "addControl",
+  "removeControl",
+  "bindInteraction",
+  "removeInteraction",
   "addAnnotation",
   "removeAnnotation",
   "pin",
@@ -133,6 +166,14 @@ export function validateCompositionCommand(input: unknown): CompositionCommandVa
       return validateAddWidget(input);
     case "removeWidget":
       return validateTargetedCommand(input, "removeWidget");
+    case "addControl":
+      return validateAddControl(input);
+    case "removeControl":
+      return validateRemoveControl(input);
+    case "bindInteraction":
+      return validateBindInteraction(input);
+    case "removeInteraction":
+      return validateRemoveInteraction(input);
     case "addAnnotation":
       return validateAddAnnotation(input);
     case "removeAnnotation":
@@ -247,6 +288,118 @@ function validateAddWidget(input: Record<string, unknown>): CompositionCommandVa
   }
   if (errors.length > 0) return fail(errors);
   return { ok: true, command: { name: "addWidget", widget: widget as unknown as AddWidgetInput } };
+}
+
+/**
+ * `addControl` — ADR-0031's `add_control`, with its closed 14-kind admission
+ * gate. The gate is the point: a control kind this app cannot name is a
+ * control no host can render, and rejecting it at authoring time is the
+ * difference between an agent learning it asked for something that does not
+ * exist and a user staring at a document that renders nothing.
+ *
+ * Deliberately *not* validated here: whether `sourceId` resolves to a layer.
+ * honua-server#3196 enforces that at its three gates, but this app's state is
+ * a projection where a control may legitimately arrive before the layer it
+ * reads from (a streamed conversation adds them in whichever order the model
+ * chose) — so an unresolvable `sourceId` is a *render-time* reported reason
+ * (`../controls/control-config.ts`), not an authoring-time rejection.
+ */
+function validateAddControl(input: Record<string, unknown>): CompositionCommandValidation {
+  const errors: string[] = [];
+  const control = input.control;
+  if (!isPlainObject(control)) return fail(["addControl.control must be an object"]);
+  if (!isNonEmptyString(control.id)) errors.push("addControl.control.id must be a non-empty string");
+  if (typeof control.kind !== "string" || !(COMPOSITION_CONTROL_KINDS as readonly string[]).includes(control.kind)) {
+    errors.push(`addControl.control.kind must be one of ${COMPOSITION_CONTROL_KINDS.join(", ")}`);
+  }
+  if (control.title !== undefined && typeof control.title !== "string") {
+    errors.push("addControl.control.title must be a string");
+  }
+  if (control.sourceId !== undefined && !isNonEmptyString(control.sourceId)) {
+    errors.push("addControl.control.sourceId must be a non-empty string when present");
+  }
+  if (control.config !== undefined && !isPlainObject(control.config)) {
+    errors.push("addControl.control.config must be an object");
+  }
+  if (errors.length > 0) return fail(errors);
+  return { ok: true, command: { name: "addControl", control: control as unknown as AddControlInput } };
+}
+
+function validateRemoveControl(input: Record<string, unknown>): CompositionCommandValidation {
+  const errors: string[] = [];
+  const target = validateTarget(input.target, errors, "removeControl.target");
+  if (input.cascadeInteractions !== undefined && typeof input.cascadeInteractions !== "boolean") {
+    errors.push("removeControl.cascadeInteractions must be a boolean");
+  }
+  if (errors.length > 0 || !target) return fail(errors);
+  return {
+    ok: true,
+    command: {
+      name: "removeControl",
+      target,
+      ...(typeof input.cascadeInteractions === "boolean" ? { cascadeInteractions: input.cascadeInteractions } : {}),
+    },
+  };
+}
+
+/** The `map | layer:{id} | widget:{id} | control:{id}` grammar, verbatim from ADR-0030's `componentRef` pattern. */
+const INTERACTION_REF_PATTERN = /^(map|layer:.+|widget:.+|control:.+)$/;
+
+function validateBindInteraction(input: Record<string, unknown>): CompositionCommandValidation {
+  const errors: string[] = [];
+  const interaction = input.interaction;
+  if (!isPlainObject(interaction)) return fail(["bindInteraction.interaction must be an object"]);
+  if (!isNonEmptyString(interaction.id)) errors.push("bindInteraction.interaction.id must be a non-empty string");
+
+  const on = interaction.on;
+  if (!isPlainObject(on)) {
+    errors.push("bindInteraction.interaction.on must be an object");
+  } else {
+    if (!isNonEmptyString(on.ref) || !INTERACTION_REF_PATTERN.test(on.ref)) {
+      errors.push(
+        'bindInteraction.interaction.on.ref must match "map", "layer:{id}", "widget:{id}", or "control:{id}"',
+      );
+    }
+    if (typeof on.event !== "string" || !(COMPOSITION_INTERACTION_EVENTS as readonly string[]).includes(on.event)) {
+      errors.push(`bindInteraction.interaction.on.event must be one of ${COMPOSITION_INTERACTION_EVENTS.join(", ")}`);
+    }
+  }
+
+  const action = interaction.do;
+  if (!isPlainObject(action)) {
+    errors.push("bindInteraction.interaction.do must be an object");
+  } else {
+    if (!isNonEmptyString(action.ref) || !INTERACTION_REF_PATTERN.test(action.ref)) {
+      errors.push(
+        'bindInteraction.interaction.do.ref must match "map", "layer:{id}", "widget:{id}", or "control:{id}"',
+      );
+    }
+    if (
+      typeof action.verb !== "string" ||
+      !(COMPOSITION_INTERACTION_VERBS as readonly string[]).includes(action.verb)
+    ) {
+      errors.push(`bindInteraction.interaction.do.verb must be one of ${COMPOSITION_INTERACTION_VERBS.join(", ")}`);
+    }
+    if (action.args !== undefined && !isPlainObject(action.args)) {
+      errors.push("bindInteraction.interaction.do.args must be an object");
+    }
+  }
+
+  if (interaction.disabled !== undefined && typeof interaction.disabled !== "boolean") {
+    errors.push("bindInteraction.interaction.disabled must be a boolean");
+  }
+  if (errors.length > 0) return fail(errors);
+  return {
+    ok: true,
+    command: { name: "bindInteraction", interaction: interaction as unknown as CompositionInteraction },
+  };
+}
+
+function validateRemoveInteraction(input: Record<string, unknown>): CompositionCommandValidation {
+  if (!isNonEmptyString(input.interactionId)) {
+    return fail(["removeInteraction.interactionId must be a non-empty string"]);
+  }
+  return { ok: true, command: { name: "removeInteraction", interactionId: input.interactionId } };
 }
 
 function validateAddAnnotation(input: Record<string, unknown>): CompositionCommandValidation {

@@ -17,6 +17,7 @@ import { HonuaStudioAppElement } from "./studio-app-element.js";
 import { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 import { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { HonuaStudioContentBrowserElement } from "./studio-content-browser-element.js";
+import { HonuaStudioControlBarElement } from "./studio-control-bar-element.js";
 import { HonuaStudioGpPanelElement } from "./studio-gp-panel-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
 import { HonuaStudioWidgetDeckElement } from "./studio-widget-deck-element.js";
@@ -37,6 +38,7 @@ const STUDIO_ELEMENTS: ReadonlyMap<string, CustomElementConstructor> = new Map<s
   ["honua-studio-chat", HonuaStudioChatElement],
   ["honua-studio-activity-log", HonuaStudioActivityLogElement],
   ["honua-studio-widget-deck", HonuaStudioWidgetDeckElement],
+  ["honua-studio-control-bar", HonuaStudioControlBarElement],
   ["honua-studio-canvas", HonuaStudioCanvasElement],
   ["honua-studio-content-browser", HonuaStudioContentBrowserElement],
   ["honua-studio-lifecycle-panel", HonuaStudioLifecyclePanelElement],
@@ -58,7 +60,7 @@ export const STUDIO_ELEMENT_TAGS: readonly string[] = Array.from(STUDIO_ELEMENTS
  * map only matters for the per-tag entry point.
  */
 const STUDIO_ELEMENT_DEPENDENCIES: ReadonlyMap<string, readonly string[]> = new Map([
-  ["honua-studio-canvas", ["honua-studio-widget-deck"]],
+  ["honua-studio-canvas", ["honua-studio-widget-deck", "honua-studio-control-bar"]],
 ]);
 
 function defineIfMissing(

@@ -33,6 +33,7 @@
 
 import {
   type AddAnnotationInput,
+  type AddControlInput,
   type AddLayerInput,
   type AddWidgetInput,
   type CompositionCommand,
@@ -40,6 +41,8 @@ import {
 } from "./commands.js";
 import {
   type CompositionAnnotation,
+  type CompositionControl,
+  type CompositionInteraction,
   type CompositionLayer,
   type CompositionState,
   type CompositionStyleRef,
@@ -50,6 +53,7 @@ import {
   canonicalCompositionJson,
   compositionTargetKey,
   compositionTargetsEqual,
+  interactionsReferencingControl,
 } from "./model.js";
 
 // ---------------------------------------------------------------------------
@@ -61,7 +65,15 @@ export type CompositionCommandErrorCode =
   | "duplicate-id"
   | "target-not-found"
   | "pin-violation"
-  | "out-of-bounds";
+  | "out-of-bounds"
+  /**
+   * `removeControl` was asked to remove a control an interaction still
+   * references, with `cascadeInteractions` left at its default `false`
+   * (honua-studio#25; mirrors honua-server#3196's refusal). The error names
+   * the offending binding ids and the way forward, because "the removal
+   * failed" without them is a dead end for both a human and an agent.
+   */
+  | "interaction-conflict";
 
 /** Thrown by {@link applyCompositionCommand} for any rejected command. Never thrown mid-mutation — state is untouched on failure. */
 export class CompositionCommandError extends Error {
@@ -129,7 +141,7 @@ export interface CompositionTargetResolution {
   readonly target: CompositionTarget;
   readonly exists: boolean;
   readonly pinned: boolean;
-  readonly entity?: CompositionLayer | CompositionWidget | CompositionAnnotation;
+  readonly entity?: CompositionLayer | CompositionWidget | CompositionControl | CompositionAnnotation;
 }
 
 /** True when `target` (by its stable key — see {@link compositionTargetKey}) is present in `state.pins`. */
@@ -157,6 +169,10 @@ export function resolveCompositionTarget(
   }
   if (target.kind === "component") {
     const entity = state.widgets.find((widget) => widget.id === target.id);
+    return { target, exists: entity !== undefined, pinned: isPinned(state, target), entity };
+  }
+  if (target.kind === "control") {
+    const entity = state.controls.find((control) => control.id === target.id);
     return { target, exists: entity !== undefined, pinned: isPinned(state, target), entity };
   }
   if (target.kind === "region") {
@@ -250,6 +266,25 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       const id = nonFeatureTargetId(command.target);
       return { ...state, widgets: state.widgets.filter((widget) => widget.id !== id) };
     }
+    case "addControl":
+      return applyAddControl(state, command.control, command);
+    case "removeControl":
+      return applyRemoveControl(state, command);
+    case "bindInteraction":
+      return applyBindInteraction(state, command.interaction);
+    case "removeInteraction": {
+      if (!state.interactions.some((interaction) => interaction.id === command.interactionId)) {
+        throw new CompositionCommandError(
+          "target-not-found",
+          `removeInteraction: interaction "${command.interactionId}" does not exist`,
+          { command },
+        );
+      }
+      return {
+        ...state,
+        interactions: state.interactions.filter((interaction) => interaction.id !== command.interactionId),
+      };
+    }
     case "addAnnotation":
       return applyAddAnnotation(state, command.annotation, command);
     case "removeAnnotation": {
@@ -306,6 +341,68 @@ function applyAddWidget(
     ...(widget.config !== undefined ? { config: widget.config } : {}),
   };
   return { ...state, widgets: [...state.widgets, nextWidget] };
+}
+
+function applyAddControl(
+  state: CompositionState,
+  control: AddControlInput,
+  command: CompositionCommand,
+): CompositionState {
+  if (state.controls.some((existing) => existing.id === control.id)) {
+    throw new CompositionCommandError("duplicate-id", `addControl: control "${control.id}" already exists`, {
+      command,
+    });
+  }
+  const nextControl: CompositionControl = {
+    id: control.id,
+    kind: control.kind,
+    ...(control.title !== undefined ? { title: control.title } : {}),
+    ...(control.sourceId !== undefined ? { sourceId: control.sourceId } : {}),
+    ...(control.config !== undefined ? { config: control.config } : {}),
+  };
+  return { ...state, controls: [...state.controls, nextControl] };
+}
+
+/**
+ * `removeControl`, with ADR-0031's dangling-binding obligation. The default
+ * (`cascadeInteractions: false`) refuses, naming the bindings; `true` removes
+ * them with the control. Silently leaving an unresolvable `control:{id}`
+ * reference behind is the one outcome the standard rules out, so it is the
+ * one outcome this function cannot produce.
+ */
+function applyRemoveControl(
+  state: CompositionState,
+  command: CompositionCommand & { readonly name: "removeControl" },
+): CompositionState {
+  const resolution = requireResolved(state, command.target, "control", command);
+  guardPin(resolution, command);
+  const id = nonFeatureTargetId(command.target);
+  const referencing = interactionsReferencingControl(state, id);
+  if (referencing.length > 0 && command.cascadeInteractions !== true) {
+    throw new CompositionCommandError(
+      "interaction-conflict",
+      `removeControl: control "${id}" is still referenced by ${referencing
+        .map((interaction) => `"${interaction.id}"`)
+        .join(", ")} — remove those bindings first, or pass cascadeInteractions: true`,
+      { command, details: referencing.map((interaction) => interaction.id) },
+    );
+  }
+  const cascaded = new Set(referencing.map((interaction) => interaction.id));
+  return {
+    ...state,
+    controls: state.controls.filter((control) => control.id !== id),
+    interactions:
+      cascaded.size === 0 ? state.interactions : state.interactions.filter((entry) => !cascaded.has(entry.id)),
+  };
+}
+
+/** `bindInteraction` is add-or-**replace** by id, matching honua-server#3175's editor: re-binding the same id is an edit, not a duplicate-id error. */
+function applyBindInteraction(state: CompositionState, interaction: CompositionInteraction): CompositionState {
+  const index = state.interactions.findIndex((existing) => existing.id === interaction.id);
+  if (index === -1) return { ...state, interactions: [...state.interactions, interaction] };
+  const interactions = [...state.interactions];
+  interactions[index] = interaction;
+  return { ...state, interactions };
 }
 
 function applyAddAnnotation(
@@ -436,6 +533,18 @@ function diffCompositionState(before: CompositionState, after: CompositionState)
       after.widgets,
       (widget) => widget.id,
       (id) => `widgets[${id}]`,
+    ),
+    ...diffKeyedArray(
+      before.controls,
+      after.controls,
+      (control) => control.id,
+      (id) => `controls[${id}]`,
+    ),
+    ...diffKeyedArray(
+      before.interactions,
+      after.interactions,
+      (interaction) => interaction.id,
+      (id) => `interactions[${id}]`,
     ),
     ...diffKeyedArray(
       before.annotations,

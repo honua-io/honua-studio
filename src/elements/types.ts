@@ -192,6 +192,32 @@ export interface HonuaStudioSelectionChangeDetail {
 }
 
 /**
+ * `honua-studio-control-change` — dispatched by
+ * `<honua-studio-control-bar>` (honua-studio#25) after a control gesture.
+ *
+ * **This is a notification, not the transport.** ADR-0030 bindings are driven
+ * by the SDK's exploration context (a `FilterClause` published under the
+ * control's id through `bindFilterControlsToExploration`), which is what
+ * `src/interactions/declarative.ts` observes; this event exists so a host can
+ * watch controls without reaching into that context, and nothing downstream
+ * of the control depends on anyone listening to it. Two event paths would be
+ * two sources of truth — there is one, and this is not it.
+ *
+ * `source` carries the same discriminator `HonuaController` uses
+ * (`controller | exploration | adapter | snapshot`): a control gesture is
+ * always `"adapter"`, which is how a listener can tell a user's action from
+ * an action-driven state change and honour ADR-0030's "actions never emit
+ * events" rule.
+ */
+export interface HonuaStudioControlChangeDetail {
+  readonly controlId: string;
+  readonly kind: string;
+  readonly source: "controller" | "exploration" | "adapter" | "snapshot";
+  /** The value the control now holds. `undefined` means the control was cleared (an "All" option, an emptied date range). */
+  readonly value: unknown;
+}
+
+/**
  * `honua-studio-composition-mode-change` — dispatched by
  * `<honua-studio-app>` when composition switches between fixture/offline
  * mode and the live server-draft path (honua-studio#23 REQ-004). Before #23

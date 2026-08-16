@@ -85,6 +85,137 @@ export interface CompositionWidget {
 }
 
 /**
+ * The closed control vocabulary (geospatial-mcp ADR-0031, honua-studio#25
+ * REQ-001) — verbatim, in the upstream schema's enum order. It is a *closed*
+ * set on purpose: a host that renders an unknown kind cannot know what the
+ * affordance means, and the standard would rather reject the document than
+ * let each host invent a dialect.
+ *
+ * The upstream schema splits the vocabulary semantically, and that split is
+ * load-bearing for this module's consumers:
+ *
+ *  - **Map affordances** — `navigation`, `scale`, `fullscreen`, `geolocate`,
+ *    `attribution`, `basemapSwitcher`, `bookmarks`, `measure`, `search`.
+ *    These act on the map directly through the host; their behavior is
+ *    *intrinsic* (REQ-003) and needs no authored binding.
+ *  - **Data-binding affordances that emit `change`** — `timeSlider`,
+ *    `filterSelect`, `filterSlider`, `filterDateRange`, `opacity`. These are
+ *    the input half ADR-0030 interactions bind to.
+ *
+ * See `../controls/control-config.ts` for the per-kind normalization, and
+ * `CONTROL_KIND_EMITS_CHANGE` there for the machine-readable split.
+ *
+ * There is deliberately **no draw/edit kind** — ADR-0031's own exclusion:
+ * a draw control writing to a source dataset would put feature mutation
+ * behind an agent-authored document, bypassing the governed `edit_features`
+ * boundary ADR-0028 makes the only admitted path (honua-studio#25 NFR-001).
+ */
+export type CompositionControlKind =
+  | "navigation"
+  | "scale"
+  | "fullscreen"
+  | "geolocate"
+  | "search"
+  | "measure"
+  | "timeSlider"
+  | "filterSelect"
+  | "filterSlider"
+  | "filterDateRange"
+  | "bookmarks"
+  | "opacity"
+  | "attribution"
+  | "basemapSwitcher";
+
+export const COMPOSITION_CONTROL_KINDS: readonly CompositionControlKind[] = [
+  "navigation",
+  "scale",
+  "fullscreen",
+  "geolocate",
+  "search",
+  "measure",
+  "timeSlider",
+  "filterSelect",
+  "filterSlider",
+  "filterDateRange",
+  "bookmarks",
+  "opacity",
+  "attribution",
+  "basemapSwitcher",
+];
+
+/**
+ * A composed control — an input affordance, and a **peer of a widget rather
+ * than a widget kind**. Same entry shape as {@link CompositionWidget}
+ * (`{ id, kind, title?, sourceId?, config? }`), deliberately: ADR-0031 mirrors
+ * the widget entry so a host that can read one can read the other.
+ *
+ * Controls are **chrome, not `layout` grid items** — docked to a map corner
+ * or a rail — which is exactly why they live in their own collection instead
+ * of forcing every host to carry a rule for "which widget kinds are exempt
+ * from layout".
+ */
+export interface CompositionControl {
+  readonly id: string;
+  readonly kind: CompositionControlKind;
+  readonly title?: string;
+  /** The layer or datasource the control reads its domain from. Presentation-only kinds omit it. */
+  readonly sourceId?: string;
+  readonly config?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * ADR-0030's closed event vocabulary. `change` is the one a control emits —
+ * and the only one honua-studio#25 produces; the rest are named so a binding
+ * authored against them round-trips rather than being dropped.
+ */
+export type CompositionInteractionEvent = "featureSelect" | "featureHover" | "selection" | "change" | "viewportChange";
+
+export const COMPOSITION_INTERACTION_EVENTS: readonly CompositionInteractionEvent[] = [
+  "featureSelect",
+  "featureHover",
+  "selection",
+  "change",
+  "viewportChange",
+];
+
+/** ADR-0030's closed verb vocabulary. Presentation/exploration only — no verb touches source records. */
+export type CompositionInteractionVerb =
+  | "setFilter"
+  | "setViewport"
+  | "selectFeature"
+  | "runWidgetQuery"
+  | "setVisibility";
+
+export const COMPOSITION_INTERACTION_VERBS: readonly CompositionInteractionVerb[] = [
+  "setFilter",
+  "setViewport",
+  "selectFeature",
+  "runWidgetQuery",
+  "setVisibility",
+];
+
+/**
+ * One declarative binding (ADR-0030): `on` a component's event, `do` a verb
+ * on a component. `ref` is the `map | layer:{id} | widget:{id} | control:{id}`
+ * grammar — the same string {@link compositionTargetKey} produces for a
+ * {@link CompositionTarget}, which is why `control:{id}` resolution is a
+ * lookup rather than a parser.
+ *
+ * Bindings are **data, never code**: `args` is static JSON plus `$event.`
+ * path substitution, with no expression language.
+ */
+export interface CompositionInteraction {
+  readonly id: string;
+  readonly on: { readonly ref: string; readonly event: CompositionInteractionEvent };
+  readonly do: {
+    readonly ref: string;
+    readonly verb: CompositionInteractionVerb;
+    readonly args?: Readonly<Record<string, unknown>>;
+  };
+  readonly disabled?: boolean;
+}
+
+/**
  * The bounded set of annotation-as-target kinds (honua-studio#8's scope-note
  * comment, REQ-012): a user-drawn/labeled screen region or point (the
  * deictic "THIS" a click/lasso in the chat console — honua-studio#6 —
@@ -115,14 +246,30 @@ export interface CompositionAnnotation {
  * in the SDK's exploration context) — it resolves structurally so a
  * `#6`-authored annotation chip referencing a clicked feature is a valid
  * target shape even though no v0 command mutates feature state.
+ *
+ * honua-studio#25 adds `control`, and it is worth saying why it is a target
+ * kind of its own rather than another `component`: ADR-0030's reference
+ * grammar is `map | layer:{id} | widget:{id} | control:{id}`, and
+ * {@link compositionTargetKey} renders a target as exactly `kind:id`. So
+ * `{ kind: "control", id: "year-built" }` *is* the string
+ * `control:year-built` a binding references — resolving a `control:` ref
+ * becomes a lookup rather than a parser, and a control can be pinned and
+ * selected through the same machinery every other composed entity uses.
  */
-export type CompositionTargetKind = "layer" | "feature" | "region" | "component";
+export type CompositionTargetKind = "layer" | "feature" | "region" | "component" | "control";
 
-export const COMPOSITION_TARGET_KINDS: readonly CompositionTargetKind[] = ["layer", "feature", "region", "component"];
+export const COMPOSITION_TARGET_KINDS: readonly CompositionTargetKind[] = [
+  "layer",
+  "feature",
+  "region",
+  "component",
+  "control",
+];
 
 export type CompositionTarget =
   | { readonly kind: "layer"; readonly id: string }
   | { readonly kind: "component"; readonly id: string }
+  | { readonly kind: "control"; readonly id: string }
   | { readonly kind: "region"; readonly id: string }
   | { readonly kind: "feature"; readonly sourceId: string; readonly featureId: string | number };
 
@@ -132,6 +279,10 @@ export interface CompositionState {
   readonly layers: readonly CompositionLayer[];
   readonly view: CompositionView;
   readonly widgets: readonly CompositionWidget[];
+  /** Input affordances (honua-studio#25) — chrome, and a peer collection of `widgets`, never a widget kind. */
+  readonly controls: readonly CompositionControl[];
+  /** Declarative event→action bindings (ADR-0030). Data, never code — see {@link CompositionInteraction}. */
+  readonly interactions: readonly CompositionInteraction[];
   readonly annotations: readonly CompositionAnnotation[];
   /** Targets the agent must not alter — see `reducer.ts`'s pin enforcement. */
   readonly pins: readonly CompositionTarget[];
@@ -139,7 +290,25 @@ export interface CompositionState {
 
 /** A fresh, empty composition — the reducer's identity element and every test/fixture's starting point. */
 export function createEmptyCompositionState(): CompositionState {
-  return { version: COMPOSITION_STATE_VERSION, layers: [], view: {}, widgets: [], annotations: [], pins: [] };
+  return {
+    version: COMPOSITION_STATE_VERSION,
+    layers: [],
+    view: {},
+    widgets: [],
+    controls: [],
+    interactions: [],
+    annotations: [],
+    pins: [],
+  };
+}
+
+/** Every interaction whose `on.ref` is `control:{id}` for the given control — the set `removeControl` must cascade or refuse over. */
+export function interactionsReferencingControl(
+  state: CompositionState,
+  controlId: string,
+): readonly CompositionInteraction[] {
+  const ref = `control:${controlId}`;
+  return state.interactions.filter((interaction) => interaction.on.ref === ref || interaction.do.ref === ref);
 }
 
 /** A stable string identity for a {@link CompositionTarget}, used for pin-set membership and diff paths. */

@@ -170,6 +170,8 @@ honua-studio#8 structured readout kept alongside it.
 | — | `mapView` | `CompositionMapView \| undefined` (read-only) | — | The live binding: `.status`, `.statusDetail`, `.projection` (the `HonuaMapPackage` and any unrenderable layers), `.map`. |
 | — | `widgetDataLoader` | `WidgetDataLoader \| undefined` | the catalog-backed loader | Test seam only — the grid/chart analogue of `mapFactory`. |
 | — | `widgetDeck` | `HonuaStudioWidgetDeckElement \| undefined` (read-only) | — | The composed `<honua-studio-widget-deck>` (honua-studio#24), built once with the shell and fed catalog/base-url/loader. |
+| — | `controlBar` | `HonuaStudioControlBarElement \| undefined` (read-only) | — | The composed `<honua-studio-control-bar>` (honua-studio#25), built once with the shell above the map. |
+| — | `interactions` | `StudioInteractionRuntime \| undefined` (read-only) | — | The ADR-0030 interaction runtime, created lazily the first time the composition declares a control or a binding. `.compiled` carries the compiler's `issues`/`unsupported`/`bindings`; `.appearance` is the per-layer filter/opacity the map projects. |
 
 **The map.** Composition state is projected to a `honua_map_package.v1`
 package and composed with the SDK's own `composeStyle`, then handed to
@@ -207,6 +209,67 @@ of subscription that leaks silently if `disconnectedCallback` is incomplete.
 and `harness/blazor-host`'s render-mode-switch spec to assert no leak across
 repeated mount/unmount cycles; the `composition` subscription is torn down
 on disconnect (and on reassignment) with the same discipline.
+
+### `<honua-studio-control-bar>` — the composed controls
+
+Implementation: `src/elements/studio-control-bar-element.ts`
+(honua-studio#25). `<honua-studio-canvas>` composes one into its own shadow
+DOM **above** the map — controls are chrome, so they read before the thing
+they act on — and it hides itself entirely (`[data-empty="true"]`) while the
+composition holds no controls. Usable standalone, like the deck.
+
+Controls are a **peer collection of widgets, not a widget kind**
+(geospatial-mcp ADR-0031): they are input affordances, they are chrome
+rather than `layout` grid items, and `CompositionState.controls` is their
+own collection with its own `addControl`/`removeControl` commands.
+
+| Attribute | Property | Type | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `label` | — | `string` | `"Controls"` | `aria-label` for the bar region. |
+| — | `composition` | `CompositionController \| undefined` | unset | Subscribed to. Every control is a projection of `controller.state`. |
+| — | `interactions` | `StudioInteractionRuntime \| undefined` | unset | Where a `change` is published. Without it, change-emitting controls render disabled and say so. |
+| — | `map` | `ControlBarMapBridge \| undefined` | unset | The narrow duck-typed map seam the intrinsic affordances act on (`camera`, `nudge`, `container`, `attributions`, `setBasemap`). Declared locally so this element never imports the lazy map chunk — and so every intrinsic behavior is testable against an object literal. |
+| — | `dataLoader` | `WidgetDataLoader \| undefined` | catalog-backed | Derives a `filterSelect`'s option domain from its bound source. Same seam the deck uses. |
+| — | `isMeasuring()` | `() => boolean` | — | True while a `measure` control is collecting vertices; the canvas suppresses selection so a measuring click does not also select. |
+| — | `appendMeasurePoint(point)` | `(LngLat) => void` | — | Feeds one map click into every active `measure` control. |
+
+**Kinds.** The closed 14-kind ADR-0031 vocabulary, in two halves the
+upstream schema itself draws:
+
+- **Map affordances** — `navigation`, `scale`, `fullscreen`, `geolocate`,
+  `attribution`, `basemapSwitcher`, `bookmarks`, `measure`. Behavior is
+  *intrinsic*: an agent writes `addControl({ kind: "navigation" })` and gets
+  working zoom buttons, with no authored binding. Where the behavior is a
+  composition mutation (a bookmark's camera move, a geolocate fix) it goes
+  through `controller.apply(...)` — the same reducer, pins, history and
+  draft sync as any agent-authored `setView`.
+- **Data-binding affordances** — `timeSlider`, `filterSelect`,
+  `filterSlider`, `filterDateRange`, `opacity`. These emit `change`.
+
+`search` reports **explicit unsupported**: ADR-0031's control `config`
+declares no search-provider vocabulary (geocoder endpoint vs. feature search
+over `sourceId`), and Studio will neither invent one privately nor call an
+off-origin geocoder. Any control whose config or `sourceId` cannot be
+resolved reports its own reason in
+`[data-testid="studio-control-unsupported"]` and renders
+`data-state="unsupported"`. Nothing is ever silently dropped, and the
+canvas readout carries a matching "not rendered" flag.
+
+**How `change` reaches an interaction.** One transport, and it is the SDK's:
+a control publishes a `FilterClause` keyed by its own id through
+`bindFilterControlsToExploration` (`@honua/sdk-js/interactions`) on a shared
+`ExplorationContext`. `src/interactions/declarative.ts` — the local stand-in
+for `@honua/sdk-js/interactions/declarative` (sdk-js#1259), which is not in
+the published `0.1.2-beta.0` — subscribes to that same slice on a *separate*
+exploration view and runs the bound verb. `honua-studio-control-change` is a
+DOM **notification** of the same gesture for hosts, never the transport.
+
+**Actions never emit events** (ADR-0030) is enforced three ways: the
+compiler's exploration view is separate from the controls' one (bound views
+ignore their own notifications); every event carries the `source`
+discriminator `HonuaController` uses and only `adapter`/`exploration`
+gestures dispatch; and a re-entrancy guard drops anything raised while a verb
+is running.
 
 ### `<honua-studio-widget-deck>` — the composed chrome
 
@@ -357,10 +420,10 @@ hot-reloaded module, a second harness importing the same bundle) is always a
 no-op, never a `NotSupportedError`.
 
 One tag pulls another in with it: `registerStudioElement("honua-studio-canvas")`
-also defines `honua-studio-widget-deck`, because the canvas composes that tag
-into its own shadow DOM and an undefined tag would upgrade to nothing — the
-composed widgets would silently not render, with nothing thrown to explain
-it. That dependency is declared in `registry.ts` rather than inferred, and
+also defines `honua-studio-widget-deck` and `honua-studio-control-bar`,
+because the canvas composes those tags into its own shadow DOM and an
+undefined tag would upgrade to nothing — the composed widgets and controls
+would silently not render, with nothing thrown to explain it. That dependency is declared in `registry.ts` rather than inferred, and
 the canvas additionally calls `customElements.upgrade` on the node before
 assigning any property to it (assigning to a not-yet-upgraded custom element
 writes an own data property that permanently shadows the accessor).

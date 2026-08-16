@@ -44,7 +44,13 @@ import {
   isCompositionSourceResolution,
   resolveCompositionSource,
 } from "./source-resolution.js";
-import { defaultPaintFor, outlinePaintFor, paletteColorFor, styleRefFallbackOverride } from "./style-presets.js";
+import {
+  defaultPaintFor,
+  opacityPaintFor,
+  outlinePaintFor,
+  paletteColorFor,
+  styleRefFallbackOverride,
+} from "./style-presets.js";
 
 export { DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX };
 
@@ -60,6 +66,25 @@ export interface CompositionMapProjectionOptions {
   /** Real style-ref bodies keyed by `styleId`, when the caller could fetch them. A styleId absent here falls back to a deterministic preset — see `./style-presets.ts`. */
   readonly styleRefBodies?: Readonly<Record<string, HonuaStyleRefBody>>;
   readonly mapPackageId?: string;
+  /**
+   * Runtime appearance a control produced (honua-studio#25): per composition
+   * layer id, a MapLibre filter expression and/or an opacity multiplier.
+   *
+   * These are **projection inputs, not composition state**. Applying them
+   * imperatively (`map.setFilter`) would be reverted by the next
+   * `setStyle(…, { diff: true })` — composition correct, readout correct,
+   * nothing thrown, and the filter silently gone. And they are not stored in
+   * the document because `StudioCompositionBody` has no member for them; they
+   * are session state, and the SDK's exploration context owns them (see
+   * `../interactions/studio-interactions.ts`).
+   */
+  readonly appearance?: CompositionLayerAppearance;
+}
+
+/** Per-composition-layer runtime appearance. Mirrors `../interactions/studio-interactions.ts`'s `StudioLayerAppearance`, declared here so `src/map/` does not depend on the interaction runtime. */
+export interface CompositionLayerAppearance {
+  readonly filters?: Readonly<Record<string, unknown>>;
+  readonly opacity?: Readonly<Record<string, number>>;
 }
 
 /** One layer the map could not render, and why. Surfaced in the UI — never swallowed. */
@@ -93,13 +118,20 @@ function buildComposedLayer(
   layer: CompositionLayer,
   layerType: CompositionLayerType,
   sourceId: string,
+  appearance: CompositionLayerAppearance | undefined,
 ): HonuaLayerSpecification {
   const color = paletteColorFor(layer.id);
+  const opacity = appearance?.opacity?.[layer.id];
+  const filter = appearance?.filters?.[layer.id];
   const spec: HonuaLayerSpecification = {
     id: layer.id,
     type: maplibreLayerType(layerType),
     source: sourceId,
-    paint: defaultPaintFor(layerType, color),
+    ...(filter !== undefined ? { filter } : {}),
+    paint: {
+      ...defaultPaintFor(layerType, color),
+      ...(opacity !== undefined ? opacityPaintFor(layerType, opacity) : {}),
+    },
     metadata: {
       "honua:compositionLayerId": layer.id,
       "honua:compositionSourceId": layer.sourceId,
@@ -150,13 +182,22 @@ export function compositionToMapPackage(
       if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
     }
 
-    mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId));
+    mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
     if (resolution.layerType === "fill") {
+      // The outline carries the same filter, or a polygon would keep its
+      // outline after its fill was filtered away — a ghost the user cannot
+      // click and cannot explain.
+      const outlineFilter = options.appearance?.filters?.[layer.id];
+      const outlineOpacity = options.appearance?.opacity?.[layer.id];
       mapSpec.layers.push({
         id: `${layer.id}${OUTLINE_LAYER_SUFFIX}`,
         type: "line",
         source: styleSourceId,
-        paint: outlinePaintFor(paletteColorFor(layer.id)),
+        ...(outlineFilter !== undefined ? { filter: outlineFilter } : {}),
+        paint: {
+          ...outlinePaintFor(paletteColorFor(layer.id)),
+          ...(outlineOpacity !== undefined ? { "line-opacity": Math.min(Math.max(outlineOpacity, 0), 1) } : {}),
+        },
         ...(layer.visible ? {} : { layout: { visibility: "none" } }),
       });
     }
@@ -165,7 +206,11 @@ export function compositionToMapPackage(
     if (layer.styleRef) {
       const supplied = options.styleRefBodies?.[layer.styleRef.styleId];
       const body: HonuaStyleRefBody = supplied ?? {
-        [layer.id]: styleRefFallbackOverride(layer.styleRef.styleId, resolution.layerType),
+        [layer.id]: styleRefFallbackOverride(
+          layer.styleRef.styleId,
+          resolution.layerType,
+          options.appearance?.opacity?.[layer.id],
+        ),
       };
       styleRefs.push({ styleId: layer.styleRef.styleId, body });
     }

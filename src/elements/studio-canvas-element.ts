@@ -44,10 +44,12 @@
 import type { CompositionController } from "../composition/controller.js";
 import type {
   CompositionAnnotation,
+  CompositionControl,
   CompositionLayer,
   CompositionTarget,
   CompositionWidget,
 } from "../composition/model.js";
+import { type ControlStatus, describeControl } from "../controls/control-config.js";
 // Imported from the concrete modules, NOT `../map/index.js`. The barrel
 // re-exports `agent-map-kit`, which `studio-app-element.ts` also imports
 // *statically* — so a dynamic `import("../map/index.js")` makes the lazy map
@@ -59,6 +61,8 @@ import type {
 // wins `customElements.define`, the second overwrites the exports a host
 // reads. honua-studio#23 hit exactly this — the Blazor harness's leak probe
 // read a class whose instances were being counted on the other copy.
+import type { LngLat } from "../controls/geodesy.js";
+import type { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
 import type { BasemapStyle } from "../map/basemap.js";
 import type { CompositionMapFactory, CompositionMapView } from "../map/composition-map-view.js";
 import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
@@ -66,6 +70,9 @@ import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
+// Type-only, same reasoning as the widget deck below: the control bar is
+// composed in by tag name and upgraded, never `instanceof`-checked.
+import type { ControlBarMapBridge, HonuaStudioControlBarElement } from "./studio-control-bar-element.js";
 // Type-only: the deck is composed into this shadow root **by tag name**, and
 // `registry.ts` defines it alongside this element (see its
 // STUDIO_ELEMENT_DEPENDENCIES). Importing the class for an `instanceof` check
@@ -113,6 +120,9 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** Last-rendered set of unrenderable layer ids — see `#onMapChanged`. */
   #unresolvedKey = "";
   #shellKind: "placeholder" | "composition" | undefined;
+  /** The ADR-0030 interaction runtime (honua-studio#25), imported lazily — see `#ensureInteractionRuntime`. */
+  #interactions: StudioInteractionRuntime | undefined;
+  #interactionsPending = false;
 
   /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
   public get auth(): AuthSession | undefined {
@@ -134,6 +144,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
     this.#teardownMapView();
+    this.#teardownInteractions();
     this.#composition = composition;
     if (composition && this.isConnected) {
       this.#compositionUnsubscribe = composition.subscribe(() => this.#syncComposition());
@@ -196,6 +207,16 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** The composed widget surface, once the shell has built it. `undefined` in placeholder mode, or where the tag was never registered. */
   public get widgetDeck(): HonuaStudioWidgetDeckElement | undefined {
     return this.shadowRoot?.querySelector<HonuaStudioWidgetDeckElement>("honua-studio-widget-deck") ?? undefined;
+  }
+
+  /** The composed control surface (honua-studio#25), once the shell has built it. */
+  public get controlBar(): HonuaStudioControlBarElement | undefined {
+    return this.shadowRoot?.querySelector<HonuaStudioControlBarElement>("honua-studio-control-bar") ?? undefined;
+  }
+
+  /** The interaction runtime driving `control:{id}` bindings. `undefined` until a composition declares a control or a binding. */
+  public get interactions(): StudioInteractionRuntime | undefined {
+    return this.#interactions;
   }
 
   /** Camera animation duration in ms; `0` makes view changes instantaneous (what the browser suite uses). */
@@ -275,6 +296,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
     this.#teardownMapView();
+    this.#teardownInteractions();
     this.#shellKind = undefined;
   }
 
@@ -292,6 +314,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     }
     this.#syncTitle();
     if (kind === "composition") {
+      void this.#ensureInteractionRuntime();
+      this.#syncControlBar();
       this.#syncWidgetDeck();
       this.#syncReadout();
       this.#syncSurface();
@@ -322,7 +346,12 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
             ? `<div class="canvas-surface" data-testid="studio-canvas-surface" tabindex="0">
                  <span>Composition canvas placeholder — honua-studio#8.</span>
                </div>`
-            : `<div
+            : `<honua-studio-control-bar
+                 class="canvas-controls"
+                 data-testid="studio-canvas-control-bar"
+                 label="Composed controls"
+               ></honua-studio-control-bar>
+               <div
                  class="canvas-map"
                  data-testid="studio-canvas-map"
                  role="region"
@@ -340,6 +369,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       </section>
     `);
     if (kind !== "composition") return;
+    this.#syncControlBar();
     this.#syncWidgetDeck();
     const signal = this.connectedSignal;
     for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-surface-option]") ?? []) {
@@ -386,6 +416,106 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     }));
   }
 
+  /**
+   * Hands the control bar (honua-studio#25) its composition, the interaction
+   * runtime a `change` publishes through, and the narrow map seam its
+   * intrinsic affordances act on.
+   *
+   * The `customElements.upgrade` call is load-bearing for the same reason it
+   * is on the deck: the bar is created **by tag name** in this shadow root,
+   * and assigning a property to a not-yet-upgraded custom element writes an
+   * own data property that permanently shadows the accessor — the controls
+   * would then never render, with nothing thrown to explain it.
+   */
+  #syncControlBar(): void {
+    const bar = this.shadowRoot?.querySelector<HonuaStudioControlBarElement>("honua-studio-control-bar");
+    if (!bar) return;
+    if (typeof customElements !== "undefined" && typeof customElements.upgrade === "function") {
+      customElements.upgrade(bar);
+    }
+    if (!("composition" in bar)) return;
+    bar.dataLoader = this.#widgetDataLoader;
+    bar.map = this.#mapBridge();
+    bar.interactions = this.#interactions;
+    bar.composition = this.#composition;
+  }
+
+  /**
+   * The map, narrowed to what a control needs. Built fresh on each sync so it
+   * always closes over the current `CompositionMapView` — a bridge captured
+   * once would keep pointing at a disposed map after a projection input
+   * changed and `#restartMapView` rebuilt it.
+   */
+  #mapBridge(): ControlBarMapBridge {
+    return {
+      available: this.#mapUsable(),
+      camera: () => this.#mapView?.camera(),
+      nudge: (patch) => this.#mapView?.nudgeCamera(patch),
+      container: () => this.#mapView?.container(),
+      attributions: () => this.#mapView?.attributions() ?? [],
+      setBasemap: (option) => {
+        void this.#applyBasemapOption(option.theme ?? "light");
+      },
+    };
+  }
+
+  /**
+   * Swaps the vendored offline basemap's palette. The import is dynamic
+   * because `../map/basemap.js` carries the vendored Natural Earth geometry —
+   * a composition with no basemap switcher must not pay for a second copy of
+   * it in the entry bundle (it already lives in the lazy map chunk).
+   */
+  async #applyBasemapOption(theme: "light" | "dark"): Promise<void> {
+    const view = this.#mapView;
+    if (!view) return;
+    const { createOfflineBasemapStyle } = await import("../map/basemap.js");
+    if (this.#mapView !== view) return;
+    view.setBasemap(createOfflineBasemapStyle({ theme }));
+  }
+
+  /**
+   * Creates the interaction runtime the first time a composition declares a
+   * control or a binding.
+   *
+   * Lazy for the same reason the chart pipeline and MapLibre are: the SDK's
+   * exploration context and interaction bindings are dead weight for a
+   * composition that is only a map and a legend. The import names the two
+   * concrete modules rather than `../interactions/index.js` — honua-studio#23's
+   * lazy-chunk rule (see this file's import block).
+   */
+  async #ensureInteractionRuntime(): Promise<void> {
+    const controller = this.#composition;
+    if (this.#interactions || this.#interactionsPending || !controller) return;
+    if (controller.state.controls.length === 0 && controller.state.interactions.length === 0) return;
+    this.#interactionsPending = true;
+    try {
+      const { StudioInteractionRuntime: RuntimeClass } = await import("../interactions/studio-interactions.js");
+      if (this.#composition !== controller || !this.isConnected) return;
+      this.#interactions = new RuntimeClass({
+        controller,
+        onAppearanceChange: (appearance) => {
+          this.#mapView?.setAppearance(appearance);
+          this.#syncControlBar();
+        },
+      });
+      this.#mapView?.setAppearance(this.#interactions.appearance);
+      this.#syncControlBar();
+    } catch (error) {
+      this.dispatchTypedEvent("honua-studio-error", {
+        message: `Controls could not be wired to interactions: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      });
+    } finally {
+      this.#interactionsPending = false;
+    }
+  }
+
+  #teardownInteractions(): void {
+    this.#interactions?.dispose();
+    this.#interactions = undefined;
+    this.#interactionsPending = false;
+  }
+
   #syncTitle(): void {
     const label = this.getAttribute("label") ?? "Canvas";
     const section = this.shadowRoot?.querySelector<HTMLElement>(".canvas");
@@ -396,6 +526,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   /** One composition change: readout + map status. The map itself is driven by `CompositionMapView`'s own subscription, not from here. */
   #syncComposition(): void {
+    void this.#ensureInteractionRuntime();
+    this.#syncControlBar();
     this.#syncReadout();
     this.#syncMapStatus();
   }
@@ -445,6 +577,9 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       // list that implies every row is drawn would be the same silent lie.
       this.#syncWidgetDeck();
     }
+    // A `scale` control reads the live camera and a `navigation` control reads
+    // the bearing — both only become correct once the map has settled.
+    this.#syncControlBar();
     this.#syncSurface();
   }
 
@@ -506,7 +641,14 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         },
         ...(this.#mapFactory !== undefined ? { mapFactory: this.#mapFactory } : {}),
         ...(this.#viewTransitionMs !== undefined ? { viewTransitionMs: this.#viewTransitionMs } : {}),
-        onSelection: (targets) => this.#applySelection(targets),
+        ...(this.#interactions !== undefined ? { appearance: this.#interactions.appearance } : {}),
+        onSelection: (targets) => {
+          // A measuring click is a measuring click. Letting it also select
+          // would fire a deictic "THIS" the user never asked for, mid-measure.
+          if (this.controlBar?.isMeasuring()) return;
+          this.#applySelection(targets);
+        },
+        onMapClick: (point: LngLat) => this.controlBar?.appendMeasurePoint(point),
         onChange: () => this.#onMapChanged(),
       });
       await view.start();
@@ -613,6 +755,19 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
             ),
         )}
         ${renderSection(
+          "Controls",
+          "controls",
+          state.controls,
+          (control) => control.id,
+          (control) =>
+            renderControlRow(
+              control,
+              selectionKeys,
+              state.pins.some((pin) => targetMatches(pin, "control", control.id)),
+              describeControl(state, control),
+            ),
+        )}
+        ${renderSection(
           "Annotations",
           "annotations",
           state.annotations,
@@ -659,7 +814,11 @@ function targetKey(target: CompositionTarget): string {
     : `${target.kind}:${target.id}`;
 }
 
-function targetMatches(target: CompositionTarget, kind: "layer" | "component" | "region", id: string): boolean {
+function targetMatches(
+  target: CompositionTarget,
+  kind: "layer" | "component" | "region" | "control",
+  id: string,
+): boolean {
   return target.kind === kind && (target as { readonly id?: string }).id === id;
 }
 
@@ -709,6 +868,33 @@ function renderWidgetRow(widget: CompositionWidget, selectionKeys: Set<string>, 
   return renderRow("component", widget.id, widget.title ?? widget.id, detail, selected, pinned);
 }
 
+/**
+ * A control in the readout. It carries the same "not on map" style flag a
+ * layer does, for the same reason: a control the canvas could not render is
+ * still a control the composition holds, and a readout that lists it as if it
+ * were working would be the silent lie honua-studio#23's class doc rules out.
+ */
+function renderControlRow(
+  control: CompositionControl,
+  selectionKeys: Set<string>,
+  pinned: boolean,
+  status: ControlStatus,
+): string {
+  const target: CompositionTarget = { kind: "control", id: control.id };
+  const selected = selectionKeys.has(targetKey(target));
+  const detail = [control.kind, control.sourceId].filter((part): part is string => Boolean(part)).join(" · ");
+  return renderRow(
+    "control",
+    control.id,
+    control.title ?? control.id,
+    detail,
+    selected,
+    pinned,
+    status.state === "unsupported" ? status.reason : undefined,
+    "not rendered",
+  );
+}
+
 function renderAnnotationRow(annotation: CompositionAnnotation, selectionKeys: Set<string>, pinned: boolean): string {
   const target: CompositionTarget = { kind: "region", id: annotation.id };
   const selected = selectionKeys.has(targetKey(target));
@@ -724,6 +910,7 @@ function renderRow(
   selected: boolean,
   pinned: boolean,
   unresolvedReason?: string,
+  flagLabel = "not on map",
 ): string {
   return `
     <button
@@ -738,7 +925,7 @@ function renderRow(
     >
       <span>${escapeHtml(title)}${pinned ? ' <span aria-label="pinned">📌</span>' : ""}${
         unresolvedReason
-          ? ' <span class="composition-flag" data-testid="studio-canvas-unrendered">not on map</span>'
+          ? ` <span class="composition-flag" data-testid="studio-canvas-unrendered">${escapeHtml(flagLabel)}</span>`
           : ""
       }</span>
       ${detail ? `<span class="hn-muted">${escapeHtml(detail)}</span>` : ""}
