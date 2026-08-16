@@ -65,6 +65,49 @@ describe("createCompositionAgentRuntime (honua-studio#23 REQ-002)", () => {
   });
 });
 
+/**
+ * honua-studio#24 REQ-005's other half. A grid row and the SDK's
+ * `selectFeature` tool have to mean the same thing, so both end at
+ * `controller.select(...)`. Before #24 the runtime simply did not implement
+ * `selectFeature`, which meant "select the parcel in row 3" had no route back
+ * into the composition at all.
+ */
+describe("createCompositionAgentRuntime: selectFeature (honua-studio#24 REQ-005)", () => {
+  it("selects a source-qualified feature as the deictic selection", async () => {
+    const { controller, runtime } = setup();
+    const returned = await runtime.selectFeature?.({ sourceId: "hi-parcels", id: 12 });
+    expect(controller.selection).toEqual([{ kind: "feature", sourceId: "hi-parcels", featureId: 12 }]);
+    expect(returned).toEqual([{ sourceId: "hi-parcels", id: 12 }]);
+  });
+
+  it("replaces by default and appends when asked — matching the SDK controller's own default", async () => {
+    const { controller, runtime } = setup();
+    await runtime.selectFeature?.({ sourceId: "hi-parcels", id: 1 });
+    await runtime.selectFeature?.({ sourceId: "hi-parcels", id: 2 });
+    expect(controller.selection).toEqual([{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]);
+
+    await runtime.selectFeature?.({ sourceId: "hi-parcels", id: 3 }, { replace: false });
+    expect(controller.selection).toHaveLength(2);
+  });
+
+  it("refuses a bare feature id rather than attributing it to a guessed layer", async () => {
+    const { runtime } = setup();
+    await expect(async () => await runtime.selectFeature?.(12)).rejects.toThrow(/source-qualified/);
+  });
+
+  it("does not enter undo history — selection is ephemeral, not composition state", async () => {
+    const { controller, runtime } = setup();
+    await runtime.selectFeature?.({ sourceId: "hi-parcels", id: 1 });
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it("is offered to the model as a tool now that the runtime implements it", () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    const kit = createStudioAiMapKit({ controller, catalog: CATALOG });
+    expect(kit.tools.map((tool) => tool.name)).toContain("selectFeature");
+  });
+});
+
 describe("createStudioAiMapKit", () => {
   it("produces the SDK's tool definitions in Honua and MCP shapes", () => {
     const controller = new CompositionController(createEmptyCompositionState());

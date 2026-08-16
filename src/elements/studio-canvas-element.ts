@@ -63,8 +63,16 @@ import type { BasemapStyle } from "../map/basemap.js";
 import type { CompositionMapFactory, CompositionMapView } from "../map/composition-map-view.js";
 import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
+import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
+// Type-only: the deck is composed into this shadow root **by tag name**, and
+// `registry.ts` defines it alongside this element (see its
+// STUDIO_ELEMENT_DEPENDENCIES). Importing the class for an `instanceof` check
+// would be a worse guarantee than it looks — under the double-module-URL
+// hazard the class doc describes, `instanceof` compares against the wrong
+// copy — so the wiring below upgrades the node and assigns properties instead.
+import type { HonuaStudioWidgetDeckElement } from "./studio-widget-deck-element.js";
 import { baseElementStyles, canvasStyles } from "./styles.js";
 import type { AuthSession, HonuaStudioCanvasResizeDetail, HonuaStudioSelectionChangeDetail } from "./types.js";
 
@@ -92,6 +100,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   #sourceBaseUrl = "/api";
   #viewTransitionMs: number | undefined;
   #mapView: CompositionMapView | undefined;
+  #widgetDataLoader: WidgetDataLoader | undefined;
   /**
    * Bumped whenever a projection input changes. `#ensureMapView` captures it
    * and re-checks after every `await`, so a `.sourceCatalog` assignment that
@@ -145,6 +154,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   public set sourceCatalog(catalog: readonly CompositionSourceDescriptor[] | undefined) {
     this.#sourceCatalog = catalog;
+    this.#syncWidgetDeck();
     this.#restartMapView();
   }
 
@@ -165,7 +175,27 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   public set sourceBaseUrl(baseUrl: string) {
     this.#sourceBaseUrl = baseUrl;
+    this.#syncWidgetDeck();
     this.#restartMapView();
+  }
+
+  /**
+   * Replaces the widget deck's feature loader (honua-studio#24). The
+   * injection seam `../widgets/widget-data.ts` documents — the grid/chart
+   * analogue of `mapFactory`; production never sets it.
+   */
+  public get widgetDataLoader(): WidgetDataLoader | undefined {
+    return this.#widgetDataLoader;
+  }
+
+  public set widgetDataLoader(loader: WidgetDataLoader | undefined) {
+    this.#widgetDataLoader = loader;
+    this.#syncWidgetDeck();
+  }
+
+  /** The composed widget surface, once the shell has built it. `undefined` in placeholder mode, or where the tag was never registered. */
+  public get widgetDeck(): HonuaStudioWidgetDeckElement | undefined {
+    return this.shadowRoot?.querySelector<HonuaStudioWidgetDeckElement>("honua-studio-widget-deck") ?? undefined;
   }
 
   /** Camera animation duration in ms; `0` makes view changes instantaneous (what the browser suite uses). */
@@ -262,6 +292,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     }
     this.#syncTitle();
     if (kind === "composition") {
+      this.#syncWidgetDeck();
       this.#syncReadout();
       this.#syncSurface();
       void this.#ensureMapView();
@@ -299,11 +330,17 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
                  aria-describedby="composition-readout"
                ></div>
                <p class="canvas-map-status hn-muted" data-testid="studio-canvas-map-status" role="status"></p>
+               <honua-studio-widget-deck
+                 class="canvas-widgets"
+                 data-testid="studio-canvas-widget-deck"
+                 label="Composed widgets"
+               ></honua-studio-widget-deck>
                <div class="composition-readout" id="composition-readout" data-testid="studio-canvas-readout"></div>`
         }
       </section>
     `);
     if (kind !== "composition") return;
+    this.#syncWidgetDeck();
     const signal = this.connectedSignal;
     for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-surface-option]") ?? []) {
       button.addEventListener(
@@ -314,6 +351,39 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         { signal },
       );
     }
+  }
+
+  /**
+   * Hands the composed widget deck (honua-studio#24) everything it needs and
+   * points its selections back at this element's single dispatcher.
+   *
+   * `customElements.upgrade` is called first for a real reason: the deck is
+   * created **by tag name** inside this shadow root, and assigning a property
+   * to a not-yet-upgraded custom element writes an own data property that
+   * permanently shadows the accessor — the widgets would then never render,
+   * with nothing thrown to explain it. `registry.ts` already defines the deck
+   * alongside this element; the upgrade call makes the ordering irrelevant
+   * rather than merely likely-correct.
+   */
+  #syncWidgetDeck(): void {
+    const deck = this.shadowRoot?.querySelector<HonuaStudioWidgetDeckElement>("honua-studio-widget-deck");
+    if (!deck) return;
+    if (typeof customElements !== "undefined" && typeof customElements.upgrade === "function") {
+      customElements.upgrade(deck);
+    }
+    // Never assigned before upgrade — see above. A host that registered only
+    // `<honua-studio-canvas>` through some path registry.ts does not cover
+    // still gets the map and the readout, which lists every widget.
+    if (!("composition" in deck)) return;
+    deck.sourceBaseUrl = this.#sourceBaseUrl;
+    deck.sourceCatalog = this.#sourceCatalog;
+    deck.dataLoader = this.#widgetDataLoader;
+    deck.onSelection = (targets) => this.#applySelection(targets);
+    deck.composition = this.#composition;
+    deck.unrenderableLayers = (this.#mapView?.projection?.unresolved ?? []).map((entry) => ({
+      layerId: entry.layerId,
+      reason: entry.reason,
+    }));
   }
 
   #syncTitle(): void {
@@ -371,6 +441,9 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     if (key !== this.#unresolvedKey) {
       this.#unresolvedKey = key;
       this.#syncReadout();
+      // The TOC carries the same "not on map" flag the readout does — a layer
+      // list that implies every row is drawn would be the same silent lie.
+      this.#syncWidgetDeck();
     }
     this.#syncSurface();
   }

@@ -10,10 +10,11 @@ import {
 } from "../../src/elements/registry.js";
 
 describe("elements/registry", () => {
-  it("lists exactly the seven contract tags", () => {
+  it("lists exactly the eight contract tags", () => {
     expect(STUDIO_ELEMENT_TAGS).toEqual([
       "honua-studio-chat",
       "honua-studio-activity-log",
+      "honua-studio-widget-deck",
       "honua-studio-canvas",
       "honua-studio-content-browser",
       "honua-studio-lifecycle-panel",
@@ -24,11 +25,27 @@ describe("elements/registry", () => {
 
   it("registers a single known tag on an isolated registry", () => {
     const registry = createStudioComponentRegistry();
+    expect(registry.get("honua-studio-chat")).toBeUndefined();
+    registerStudioElement("honua-studio-chat", registry);
+    expect(registry.get("honua-studio-chat")).toBeDefined();
+    // Every other tag stays unregistered — registering one tag never claims the rest.
     expect(registry.get("honua-studio-canvas")).toBeUndefined();
+    expect(registry.get("honua-studio-app")).toBeUndefined();
+  });
+
+  /**
+   * honua-studio#24: `<honua-studio-canvas>` composes a
+   * `<honua-studio-widget-deck>` into its own shadow DOM by tag name. If a
+   * host registers only the canvas, an undefined deck tag upgrades to nothing
+   * and the composed widgets silently do not render — so the canvas pulls its
+   * dependency in with it. This is the one exception to "registering one tag
+   * never claims the rest", and it is deliberate.
+   */
+  it("registering the canvas also defines the widget deck it composes", () => {
+    const registry = createStudioComponentRegistry();
     registerStudioElement("honua-studio-canvas", registry);
     expect(registry.get("honua-studio-canvas")).toBeDefined();
-    // Every other tag stays unregistered — registering one tag never claims the rest.
-    expect(registry.get("honua-studio-chat")).toBeUndefined();
+    expect(registry.get("honua-studio-widget-deck")).toBeDefined();
     expect(registry.get("honua-studio-app")).toBeUndefined();
   });
 

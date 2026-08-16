@@ -168,6 +168,8 @@ honua-studio#8 structured readout kept alongside it.
 | — | `viewTransitionMs` | `number \| undefined` | `700` | Camera animation duration; `0` jumps. |
 | — | `mapFactory` | `CompositionMapFactory \| undefined` | the `maplibre-gl` import | Test seam only. |
 | — | `mapView` | `CompositionMapView \| undefined` (read-only) | — | The live binding: `.status`, `.statusDetail`, `.projection` (the `HonuaMapPackage` and any unrenderable layers), `.map`. |
+| — | `widgetDataLoader` | `WidgetDataLoader \| undefined` | the catalog-backed loader | Test seam only — the grid/chart analogue of `mapFactory`. |
+| — | `widgetDeck` | `HonuaStudioWidgetDeckElement \| undefined` (read-only) | — | The composed `<honua-studio-widget-deck>` (honua-studio#24), built once with the shell and fed catalog/base-url/loader. |
 
 **The map.** Composition state is projected to a `honua_map_package.v1`
 package and composed with the SDK's own `composeStyle`, then handed to
@@ -205,6 +207,56 @@ of subscription that leaks silently if `disconnectedCallback` is incomplete.
 and `harness/blazor-host`'s render-mode-switch spec to assert no leak across
 repeated mount/unmount cycles; the `composition` subscription is torn down
 on disconnect (and on reassignment) with the same discipline.
+
+### `<honua-studio-widget-deck>` — the composed chrome
+
+Implementation: `src/elements/studio-widget-deck-element.ts`
+(honua-studio#24). `<honua-studio-canvas>` composes one into its own shadow
+DOM between the map and the readout; it is also usable standalone, which is
+what lets a host embed just a layer list. It renders one card per
+`CompositionWidget` and hides itself entirely (`[data-empty="true"]`) while
+the composition holds none.
+
+| Attribute | Property | Type | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `label` | — | `string` | `"Widgets"` | `aria-label` for the deck region. |
+| — | `composition` | `CompositionController \| undefined` | unset | Subscribed to. Every card is a projection of `controller.state`, never a copy. |
+| — | `sourceCatalog` | `CompositionSourceDescriptor[] \| undefined` | unset | Resolves a widget's `sourceId` to the route its rows come from — the same resolution the map uses. |
+| — | `sourceBaseUrl` | `string` | `"/api"` | Server root for resolved source URLs. |
+| — | `dataLoader` | `WidgetDataLoader \| undefined` | catalog-backed | Injection seam (`src/widgets/widget-data.ts`), the grid/chart analogue of `mapFactory`. |
+| — | `unrenderableLayers` | `{ layerId, reason }[]` | `[]` | Layers the map could not draw; the TOC flags them "not on map" rather than implying they are drawn. |
+| — | `onSelection` | `(targets) => void \| undefined` | unset | Where a selection goes. The canvas points this at its own dispatcher so the composed app has exactly one selection path; unset, the deck selects and dispatches `honua-studio-selection-change` itself. |
+
+**Kinds.** `toc` (layer list), `legend`, `table` (data grid), `chart`,
+`compare`, `time` — the bounded `COMPOSITION_WIDGET_KINDS` vocabulary. A
+widget that cannot be rendered as authored (a `compare` naming one layer, a
+`chart` with no `groupBy`, a `time` with no steps) shows the reason in
+`[data-testid="studio-widget-status"]`; it is never silently blank.
+
+**Intrinsic interactions, not authored ones.** A TOC's visibility
+checkboxes, the compare switch, and the time stepper come with the kind — an
+agent writes `addWidget({ kind: "toc" })` and gets working toggles, never
+chrome boilerplate. They are not a side door: each applies a `setVisibility`
+**command** through `controller.apply(...)`, so they share the reducer's
+validation, pin enforcement, history, and draft sync with any agent-authored
+`setVisibility`. A pinned layer's toggle is disabled rather than allowed to
+fail.
+
+**Selection.** A grid row resolves to `{ kind: "feature", sourceId,
+featureId }` — the same deictic target a map click produces — and travels
+the normal path (`onSelection` → the canvas → `controller.select` + one
+`honua-studio-selection-change`). Rows are focusable and operable with
+Enter/Space.
+
+**Charts** are derived from the SDK's own `chartWidgetToVegaLiteSpec`
+(`@honua/sdk-js/studio`) and drawn by a bounded native SVG renderer;
+`src/widgets/chart-render.ts` documents that trade. The spec is the
+contract — aggregation reads `spec.encoding`, and a deployment wanting full
+Vega can hand the same spec object to `vega-embed`. The chart pipeline is
+dynamically imported, so a composition without a chart never loads it.
+
+`HonuaStudioWidgetDeckElement.instanceCount` is the same static
+live-instance leak probe the other elements carry.
 
 ### `<honua-studio-content-browser>` — Studio content browser
 
@@ -302,7 +354,18 @@ registerAllStudioElements(); // or registerStudioElement("honua-studio-canvas")
 `registerStudioElement`/`registerAllStudioElements` use a `defineIfMissing`
 guard — re-registering an already-defined tag (a second host page, a
 hot-reloaded module, a second harness importing the same bundle) is always a
-no-op, never a `NotSupportedError`. `createStudioComponentRegistry()`
+no-op, never a `NotSupportedError`.
+
+One tag pulls another in with it: `registerStudioElement("honua-studio-canvas")`
+also defines `honua-studio-widget-deck`, because the canvas composes that tag
+into its own shadow DOM and an undefined tag would upgrade to nothing — the
+composed widgets would silently not render, with nothing thrown to explain
+it. That dependency is declared in `registry.ts` rather than inferred, and
+the canvas additionally calls `customElements.upgrade` on the node before
+assigning any property to it (assigning to a not-yet-upgraded custom element
+writes an own data property that permanently shadows the accessor).
+
+`createStudioComponentRegistry()`
 returns a real scoped `CustomElementRegistry` where the runtime supports
 constructing one, otherwise an in-memory `{ get, define }` stand-in with the
 same idempotency — for a host that wants Studio's tags kept out of its own
