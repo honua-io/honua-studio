@@ -1628,6 +1628,158 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
   return { handle };
 }
 
+// ── Fixture feature data (honua-studio#23) ──────────────────────────────────
+//
+// honua-studio#23 REQ-001 asks for a map that *visibly mutates* as tool calls
+// stream. The catalog above advertises four datasets but this fixture served
+// no geometry for any of them, so before this change an offline "add the
+// parcels layer" produced a correct composition and an empty map — the exact
+// gap the issue was filed about.
+//
+// So the fixture now serves features, the same way a real honua-server does:
+// OGC API – Features (`/ogc/collections/{id}/items`) for the `ogc-features`
+// datasets and a GeoServices `/query?f=geojson` for the FeatureServer one.
+// The geometry is **generated, not copied** — a deterministic grid over Oʻahu,
+// clearly synthetic, sized so the whole collection fits in one bounded
+// response. Nothing here claims to be real parcel data; it is fixture data
+// with a plausible shape, which is what makes the fixture journey both
+// legible and byte-stable (REQ-005).
+
+/** Bounding box the fixture datasets are generated inside: Oʻahu, where `compose-districts-map` composes. */
+const FIXTURE_EXTENT = { west: -158.28, south: 21.25, east: -157.65, north: 21.72 };
+
+const FIXTURE_DISTRICTS = ["Honolulu", "ʻEwa", "Koʻolaupoko", "Wahiawā"];
+const FIXTURE_ZONING_CODES = ["R-5", "B-2", "AG-1", "P-2"];
+
+function fixtureLongitude(column, columns) {
+  return FIXTURE_EXTENT.west + ((FIXTURE_EXTENT.east - FIXTURE_EXTENT.west) * column) / columns;
+}
+
+function fixtureLatitude(row, rows) {
+  return FIXTURE_EXTENT.south + ((FIXTURE_EXTENT.north - FIXTURE_EXTENT.south) * row) / rows;
+}
+
+function round6(value) {
+  return Number(value.toFixed(6));
+}
+
+/** 8x6 grid of rectangular "parcels", each tagged with the district/zoning fields `compose-districts-map` styles and charts by. */
+function buildFixtureParcels() {
+  const columns = 8;
+  const rows = 6;
+  const features = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const west = fixtureLongitude(column + 0.1, columns);
+      const east = fixtureLongitude(column + 0.9, columns);
+      const south = fixtureLatitude(row + 0.1, rows);
+      const north = fixtureLatitude(row + 0.9, rows);
+      const index = row * columns + column;
+      features.push({
+        type: "Feature",
+        id: index + 1,
+        properties: {
+          parcel_id: `TMK-${String(index + 1).padStart(4, "0")}`,
+          district: FIXTURE_DISTRICTS[(row + column) % FIXTURE_DISTRICTS.length],
+          zoning_code: FIXTURE_ZONING_CODES[index % FIXTURE_ZONING_CODES.length],
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [round6(west), round6(south)],
+              [round6(east), round6(south)],
+              [round6(east), round6(north)],
+              [round6(west), round6(north)],
+              [round6(west), round6(south)],
+            ],
+          ],
+        },
+      });
+    }
+  }
+  return features;
+}
+
+/** Six road centerlines: three running east-west, three north-south. */
+function buildFixtureRoads() {
+  const features = [];
+  for (let index = 0; index < 3; index += 1) {
+    const latitude = fixtureLatitude(index * 2 + 1, 6);
+    features.push({
+      type: "Feature",
+      id: index + 1,
+      properties: { route: `Route ${index + 1}`, surface: index === 0 ? "asphalt" : "concrete" },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [round6(FIXTURE_EXTENT.west), round6(latitude)],
+          [round6(FIXTURE_EXTENT.east), round6(latitude)],
+        ],
+      },
+    });
+  }
+  for (let index = 0; index < 3; index += 1) {
+    const longitude = fixtureLongitude(index * 2 + 1, 6);
+    features.push({
+      type: "Feature",
+      id: index + 4,
+      properties: { route: `Belt ${index + 1}`, surface: "asphalt" },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [round6(longitude), round6(FIXTURE_EXTENT.south)],
+          [round6(longitude), round6(FIXTURE_EXTENT.north)],
+        ],
+      },
+    });
+  }
+  return features;
+}
+
+/** Twenty monitoring wells on a 5x4 lattice. */
+function buildFixtureWells() {
+  const features = [];
+  for (let row = 0; row < 4; row += 1) {
+    for (let column = 0; column < 5; column += 1) {
+      const index = row * 5 + column;
+      features.push({
+        type: "Feature",
+        id: index + 1,
+        properties: {
+          well_id: `WELL-${String(index + 1).padStart(3, "0")}`,
+          chloride_mg_l: 40 + ((index * 17) % 180),
+        },
+        geometry: {
+          type: "Point",
+          coordinates: [round6(fixtureLongitude(column + 0.5, 5)), round6(fixtureLatitude(row + 0.5, 4))],
+        },
+      });
+    }
+  }
+  return features;
+}
+
+/** Built once per process — deterministic, so two runs serve byte-identical responses. */
+const FIXTURE_FEATURES = {
+  "hi-parcels": buildFixtureParcels(),
+  "hi-roads": buildFixtureRoads(),
+  "hi-wells": buildFixtureWells(),
+};
+
+/** `hi-imagery` is deliberately absent: it is the raster/STAC dataset the composition map reports as not renderable, and that path needs to stay exercised. */
+export function fixtureFeatureCollection(collectionId, limit) {
+  const features = FIXTURE_FEATURES[collectionId];
+  if (!features) return undefined;
+  const bounded = typeof limit === "number" && limit > 0 ? features.slice(0, limit) : features;
+  return {
+    type: "FeatureCollection",
+    features: bounded,
+    numberMatched: features.length,
+    numberReturned: bounded.length,
+  };
+}
+
 const CATALOG = {
   datasets: [
     { id: "hi-parcels", title: "Hawai'i statewide parcels", protocol: "ogc-features", geometryType: "Polygon" },
@@ -2077,6 +2229,52 @@ export async function startMockServer({ port = 0 } = {}) {
         const handled = await gpJobRest.handle(req, res, req.method, subPath);
         if (handled) return;
       }
+    }
+
+    // ── Feature data planes the composition map reads (honua-studio#23) ──
+    //
+    // Deliberately unauthenticated, matching honua-server's own posture for
+    // published read-only collections: MapLibre fetches a GeoJSON source URL
+    // directly from the renderer, with no opportunity to attach the session
+    // bearer the REST client uses. Studio's data plane is read-only either
+    // way (#1 REQ-005 / server ADR-0028) — only GET is served here.
+    if (pathname === "/ogc/collections" && req.method === "GET") {
+      json(res, 200, {
+        collections: catalogDatasets
+          .filter((dataset) => fixtureFeatureCollection(dataset.id) !== undefined)
+          .map((dataset) => ({ id: dataset.id, title: dataset.title, itemType: "feature" })),
+      });
+      return;
+    }
+    const ogcItemsMatch = /^\/ogc\/collections\/([^/]+)\/items$/.exec(pathname);
+    if (ogcItemsMatch && req.method === "GET") {
+      const collectionId = decodeURIComponent(ogcItemsMatch[1]);
+      const limit = Number.parseInt(requestUrl.searchParams.get("limit") ?? "", 10);
+      const collection = fixtureFeatureCollection(collectionId, Number.isNaN(limit) ? undefined : limit);
+      if (!collection) {
+        json(res, 404, { error: "not_found", collectionId });
+        return;
+      }
+      json(res, 200, collection, { "access-control-allow-origin": "*" });
+      return;
+    }
+    const featureServerMatch = /^\/rest\/services\/([^/]+)\/FeatureServer\/(\d+)\/query$/.exec(pathname);
+    if (featureServerMatch && req.method === "GET") {
+      const serviceId = decodeURIComponent(featureServerMatch[1]);
+      const count = Number.parseInt(requestUrl.searchParams.get("resultRecordCount") ?? "", 10);
+      const collection = fixtureFeatureCollection(serviceId, Number.isNaN(count) ? undefined : count);
+      if (!collection) {
+        json(res, 404, { error: "not_found", serviceId });
+        return;
+      }
+      // Only the `f=geojson` shape the SDK's MapLibre projection asks for —
+      // this fixture is not a GeoServices implementation.
+      if (requestUrl.searchParams.get("f") !== "geojson") {
+        json(res, 400, { error: "unsupported_format", supported: ["geojson"] });
+        return;
+      }
+      json(res, 200, collection, { "access-control-allow-origin": "*" });
+      return;
     }
 
     if (pathname === "/health" && req.method === "GET") {

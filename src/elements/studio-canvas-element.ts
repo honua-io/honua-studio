@@ -1,17 +1,45 @@
 /**
- * `<honua-studio-canvas>` — the composition canvas surface (honua-studio#5
- * scaffolded a placeholder; honua-studio#8 realizes it here). Phase 1 scope
- * (honua-studio#8 build item 6): a structured readout of a
- * {@link CompositionState} — layers, view, widgets, pins — driven by a
- * {@link CompositionController}, NOT a map renderer (see #8's own scope
- * note: real map rendering is later work). Rows are clickable and emit
- * `honua-studio-selection-change` with the row's {@link CompositionTarget}
- * — the deictic reference the chat console (honua-studio#6) attaches to a
- * follow-up prompt as a "THIS" chip (REQ-012).
+ * `<honua-studio-canvas>` — the composition canvas surface.
+ *
+ * honua-studio#5 scaffolded a placeholder; #8 made it a structured *text
+ * readout* of {@link CompositionState} and said plainly that real map
+ * rendering was later work. honua-studio#23 is that later work: the primary
+ * surface is now a real MapLibre GL map that mutates as tool calls stream in
+ * (REQ-001), rendered through `../map/` — the composition state is projected
+ * to a `HonuaMapPackage` and composed with the SDK's own `composeStyle`, so
+ * there is no second renderer and no second reducer (REQ-002).
+ *
+ * **The readout did not go away, and it is not dead weight.** REQ-001 asks
+ * for it to stay "as a debug/accessibility view", and it earns both words:
+ *
+ *  - *Accessibility.* A WebGL canvas is opaque to assistive technology. The
+ *    readout is the map's accessible description — the map region carries
+ *    `aria-describedby` pointing at it — and it is where keyboard users
+ *    still select layers, widgets, and annotations. It is present in the DOM
+ *    in both surface modes for exactly this reason; the Details mode simply
+ *    gives it the whole panel.
+ *  - *Debug.* It shows what the map structurally cannot: widgets, pins,
+ *    annotations, and layers whose source did not resolve to anything
+ *    renderable. That last one matters most — a layer the map cannot draw is
+ *    still a layer the composition holds, and silently dropping it from both
+ *    surfaces would be the worst possible outcome.
+ *
+ * Consequently every `data-testid` #8 introduced (`studio-canvas-readout`,
+ * `-layers`, `-view`, `-widgets`, `-annotations`, `-pins`, `-row`, `-pin`)
+ * is unchanged and still asserted against — those tests kept their meaning
+ * rather than being retargeted at the map. The map adds its own
+ * (`studio-canvas-map`, `-map-status`, `-mode-map`, `-mode-details`).
+ *
+ * Rendering discipline: a WebGL map cannot survive `innerHTML =`. The shell
+ * is therefore built **once** per connection, and every subsequent
+ * composition change re-renders only the readout subtree and syncs
+ * attributes — the map container node is never replaced while connected. Get
+ * this wrong and the map silently re-mounts (losing camera, sources, and the
+ * whole point) on every single tool call.
  *
  * Still honors honua-studio#5's original scope: the `ResizeObserver`
  * leak-detection probe (`instanceCount`) and cleanup discipline are
- * unchanged — see that issue's doc comment on the class, preserved below.
+ * unchanged.
  */
 import type { CompositionController } from "../composition/controller.js";
 import type {
@@ -20,14 +48,35 @@ import type {
   CompositionTarget,
   CompositionWidget,
 } from "../composition/model.js";
+// Imported from the concrete modules, NOT `../map/index.js`. The barrel
+// re-exports `agent-map-kit`, which `studio-app-element.ts` also imports
+// *statically* — so a dynamic `import("../map/index.js")` makes the lazy map
+// chunk import back into the entry chunk, and that circularity is not
+// harmless: under ASP.NET Core's `MapStaticAssets` the entry is served both
+// un-fingerprinted (the host's own `<script src>`) and fingerprinted (the
+// import map rewrites the chunk's back-import), so the SAME module evaluates
+// **twice** under two URLs. Two copies of every element class: the first
+// wins `customElements.define`, the second overwrites the exports a host
+// reads. honua-studio#23 hit exactly this — the Blazor harness's leak probe
+// read a class whose instances were being counted on the other copy.
+import type { BasemapStyle } from "../map/basemap.js";
+import type { CompositionMapFactory, CompositionMapView } from "../map/composition-map-view.js";
+import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
+import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, canvasStyles } from "./styles.js";
 import type { AuthSession, HonuaStudioCanvasResizeDetail, HonuaStudioSelectionChangeDetail } from "./types.js";
 
+/** Which surface the canvas is showing. The readout stays in the DOM in both — see the class doc. */
+export type HonuaStudioCanvasSurface = "map" | "details";
+
+const SURFACES: readonly HonuaStudioCanvasSurface[] = ["map", "details"];
+const SURFACE_LABELS: Record<HonuaStudioCanvasSurface, string> = { map: "Map", details: "Details" };
+
 export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
-    return ["label"];
+    return ["label", "surface"];
   }
 
   /** Live (connected) instance count — a leak-detection probe, not part of the public contract proper. See the class doc and test/elements/cleanup.test.ts. */
@@ -37,6 +86,24 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   #resizeObserver: ResizeObserver | undefined;
   #composition: CompositionController | undefined;
   #compositionUnsubscribe: (() => void) | undefined;
+  #sourceCatalog: readonly CompositionSourceDescriptor[] | undefined;
+  #basemapStyle: BasemapStyle | undefined;
+  #mapFactory: CompositionMapFactory | undefined;
+  #sourceBaseUrl = "/api";
+  #viewTransitionMs: number | undefined;
+  #mapView: CompositionMapView | undefined;
+  /**
+   * Bumped whenever a projection input changes. `#ensureMapView` captures it
+   * and re-checks after every `await`, so a `.sourceCatalog` assignment that
+   * lands mid-boot (the common case: the app element fetches the catalog
+   * right after mounting the canvas) discards the in-flight map instead of
+   * quietly finishing with the stale inputs.
+   */
+  #mapGeneration = 0;
+  #mapPending = false;
+  /** Last-rendered set of unrenderable layer ids — see `#onMapChanged`. */
+  #unresolvedKey = "";
+  #shellKind: "placeholder" | "composition" | undefined;
 
   /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
   public get auth(): AuthSession | undefined {
@@ -48,7 +115,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.render();
   }
 
-  /** The composition engine controller (honua-studio#8) this canvas renders a readout of. `undefined` renders the honua-studio#5 placeholder. */
+  /** The composition engine controller (honua-studio#8) this canvas renders. `undefined` renders the honua-studio#5 placeholder. */
   public get composition(): CompositionController | undefined {
     return this.#composition;
   }
@@ -57,15 +124,89 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     if (this.#composition === composition) return;
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
+    this.#teardownMapView();
     this.#composition = composition;
     if (composition && this.isConnected) {
-      this.#compositionUnsubscribe = composition.subscribe(() => this.render());
+      this.#compositionUnsubscribe = composition.subscribe(() => this.#syncComposition());
     }
     this.render();
   }
 
-  public attributeChangedCallback(): void {
-    if (!this.isConnected) return;
+  /**
+   * Sources the server advertises (`StudioClient.listCatalog()`), used to
+   * turn a composition layer's bare `sourceId` into something renderable —
+   * see `../map/source-resolution.ts`. Without it, only layers carrying an
+   * explicit `metadata.honua.source` can draw; the rest are reported as
+   * unresolved rather than silently missing.
+   */
+  public get sourceCatalog(): readonly CompositionSourceDescriptor[] | undefined {
+    return this.#sourceCatalog;
+  }
+
+  public set sourceCatalog(catalog: readonly CompositionSourceDescriptor[] | undefined) {
+    this.#sourceCatalog = catalog;
+    this.#restartMapView();
+  }
+
+  /** Overrides the vendored offline basemap (REQ-003's default) with a deployment's own style document. */
+  public get basemapStyle(): BasemapStyle | undefined {
+    return this.#basemapStyle;
+  }
+
+  public set basemapStyle(style: BasemapStyle | undefined) {
+    this.#basemapStyle = style;
+    this.#restartMapView();
+  }
+
+  /** Server root for composed source URLs. Defaults to `/api`, matching `StudioClient`. */
+  public get sourceBaseUrl(): string {
+    return this.#sourceBaseUrl;
+  }
+
+  public set sourceBaseUrl(baseUrl: string) {
+    this.#sourceBaseUrl = baseUrl;
+    this.#restartMapView();
+  }
+
+  /** Camera animation duration in ms; `0` makes view changes instantaneous (what the browser suite uses). */
+  public get viewTransitionMs(): number | undefined {
+    return this.#viewTransitionMs;
+  }
+
+  public set viewTransitionMs(duration: number | undefined) {
+    this.#viewTransitionMs = duration;
+  }
+
+  /** Replaces the `maplibre-gl` map constructor. The injection seam `../map/composition-map-view.ts` documents; production never sets it. */
+  public get mapFactory(): CompositionMapFactory | undefined {
+    return this.#mapFactory;
+  }
+
+  public set mapFactory(factory: CompositionMapFactory | undefined) {
+    this.#mapFactory = factory;
+    this.#restartMapView();
+  }
+
+  /** The live map binding, once started. `undefined` when the canvas is in placeholder mode or WebGL is unavailable. */
+  public get mapView(): CompositionMapView | undefined {
+    return this.#mapView;
+  }
+
+  /** Which surface is showing. Setting it mirrors to the `surface` attribute, so a host can drive it from markup too. */
+  public get surface(): HonuaStudioCanvasSurface {
+    return this.getAttribute("surface") === "details" ? "details" : "map";
+  }
+
+  public set surface(surface: HonuaStudioCanvasSurface) {
+    this.setAttribute("surface", surface);
+  }
+
+  public attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
+    if (!this.isConnected || oldValue === newValue) return;
+    if (name === "surface") {
+      this.#syncSurface();
+      return;
+    }
     this.render();
   }
 
@@ -77,12 +218,17 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       else this.dispatchTypedEvent("honua-studio-session-required", { reason: "honua-studio-canvas has no session" });
     }
     if (this.#composition && !this.#compositionUnsubscribe) {
-      this.#compositionUnsubscribe = this.#composition.subscribe(() => this.render());
+      this.#compositionUnsubscribe = this.#composition.subscribe(() => this.#syncComposition());
     }
     if (typeof ResizeObserver !== "undefined") {
       this.#resizeObserver = new ResizeObserver((entries) => {
         const entry = entries[0];
         if (!entry) return;
+        // The map measures its own container, and the container only changes
+        // size when this element does — so the same observer #5 added for
+        // leak detection is also what keeps the map from rendering into a
+        // stale viewport.
+        this.#mapView?.resize();
         this.dispatchTypedEvent<HonuaStudioCanvasResizeDetail>("honua-studio-canvas-resize", {
           width: entry.contentRect.width,
           height: entry.contentRect.height,
@@ -98,34 +244,275 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.#resizeObserver = undefined;
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
+    this.#teardownMapView();
+    this.#shellKind = undefined;
   }
 
+  /**
+   * Builds the shell when its KIND changes (placeholder <-> composition) and
+   * otherwise only syncs. Never rebuilds the shell for a composition change:
+   * that would replace the map container node and re-mount MapLibre — see
+   * the class doc.
+   */
   protected render(): void {
+    const kind = this.#composition ? "composition" : "placeholder";
+    if (this.#shellKind !== kind || !this.shadowRoot?.querySelector(".canvas")) {
+      this.#buildShell(kind);
+      this.#shellKind = kind;
+    }
+    this.#syncTitle();
+    if (kind === "composition") {
+      this.#syncReadout();
+      this.#syncSurface();
+      void this.#ensureMapView();
+    }
+  }
+
+  #buildShell(kind: "placeholder" | "composition"): void {
     const label = this.getAttribute("label") ?? "Canvas";
-    const body = this.#composition ? this.#renderReadout(this.#composition) : this.#renderPlaceholder();
     this.setShadowHtml(`
       <style>${baseElementStyles()}${canvasStyles()}</style>
       <section class="canvas hn-panel" part="panel" aria-label="${escapeHtml(label)}" data-testid="studio-canvas">
-        <h2 class="hn-panel-title">${escapeHtml(label)}</h2>
-        ${body}
+        <div class="canvas-head">
+          <h2 class="hn-panel-title" data-testid="studio-canvas-title">${escapeHtml(label)}</h2>
+          ${
+            kind === "composition"
+              ? `<div class="canvas-surfaces" role="group" aria-label="Canvas surface">
+                   ${SURFACES.map(
+                     (surface) =>
+                       `<button type="button" class="hn-btn hn-btn--sm" data-surface-option="${surface}" data-testid="studio-canvas-mode-${surface}">${SURFACE_LABELS[surface]}</button>`,
+                   ).join("")}
+                 </div>`
+              : ""
+          }
+        </div>
+        ${
+          kind === "placeholder"
+            ? `<div class="canvas-surface" data-testid="studio-canvas-surface" tabindex="0">
+                 <span>Composition canvas placeholder — honua-studio#8.</span>
+               </div>`
+            : `<div
+                 class="canvas-map"
+                 data-testid="studio-canvas-map"
+                 role="region"
+                 aria-label="Composition map"
+                 aria-describedby="composition-readout"
+               ></div>
+               <p class="canvas-map-status hn-muted" data-testid="studio-canvas-map-status" role="status"></p>
+               <div class="composition-readout" id="composition-readout" data-testid="studio-canvas-readout"></div>`
+        }
       </section>
     `);
-    this.#bindRowListeners();
+    if (kind !== "composition") return;
+    const signal = this.connectedSignal;
+    for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-surface-option]") ?? []) {
+      button.addEventListener(
+        "click",
+        () => {
+          this.surface = (button.dataset.surfaceOption as HonuaStudioCanvasSurface) ?? "map";
+        },
+        { signal },
+      );
+    }
   }
 
-  #renderPlaceholder(): string {
-    return `
-      <div class="canvas-surface" data-testid="studio-canvas-surface" tabindex="0">
-        <span>Composition canvas placeholder — honua-studio#8.</span>
-      </div>
-    `;
+  #syncTitle(): void {
+    const label = this.getAttribute("label") ?? "Canvas";
+    const section = this.shadowRoot?.querySelector<HTMLElement>(".canvas");
+    section?.setAttribute("aria-label", label);
+    const title = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-title"]');
+    if (title) title.textContent = label;
+  }
+
+  /** One composition change: readout + map status. The map itself is driven by `CompositionMapView`'s own subscription, not from here. */
+  #syncComposition(): void {
+    this.#syncReadout();
+    this.#syncMapStatus();
+  }
+
+  #syncSurface(): void {
+    const root = this.shadowRoot;
+    if (!root) return;
+    // Falling back to Details when the map cannot render is what keeps this
+    // element useful (and its tests meaningful) under happy-dom, in a
+    // WebGL-less browser, and before the map has started.
+    const surface = this.#mapUsable() ? this.surface : "details";
+    const map = root.querySelector<HTMLElement>('[data-testid="studio-canvas-map"]');
+    if (map) map.hidden = surface !== "map";
+    // The readout is never hidden — it is the map's accessible description
+    // (`aria-describedby`) and its keyboard-reachable layer/widget list, so
+    // "Map" mode means map *plus* a compact readout below it (a table of
+    // contents, the way a real GIS surface pairs them), and "Details" mode
+    // just gives the readout the whole panel. Hiding it in map mode would
+    // trade an accessible surface for nothing.
+    root.querySelector<HTMLElement>(".canvas")?.setAttribute("data-surface", surface);
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-surface-option]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.surfaceOption === surface));
+      button.disabled = button.dataset.surfaceOption === "map" && !this.#mapUsable();
+    }
+    if (surface === "map") this.#mapView?.resize();
+    this.#syncMapStatus();
+  }
+
+  #mapUsable(): boolean {
+    return this.#mapView?.status === "ready";
+  }
+
+  /**
+   * The map finished applying an update. Which layers turned out to be
+   * unrenderable is only known *after* the projection runs, and the readout
+   * renders that flag — so repaint it, but only when the flagged set actually
+   * changed. Repainting on every update would replace the readout's DOM on
+   * every streamed tool call and could steal focus from a row mid-keyboard
+   * navigation.
+   */
+  #onMapChanged(): void {
+    const key = (this.#mapView?.projection?.unresolved ?? []).map((entry) => entry.layerId).join("|");
+    if (key !== this.#unresolvedKey) {
+      this.#unresolvedKey = key;
+      this.#syncReadout();
+    }
+    this.#syncSurface();
+  }
+
+  #syncMapStatus(): void {
+    const status = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-map-status"]');
+    if (!status) return;
+    status.textContent = this.#mapStatusText();
+  }
+
+  #mapStatusText(): string {
+    const view = this.#mapView;
+    if (!view || view.status === "idle" || view.status === "starting") return "Preparing the map…";
+    if (view.status === "unavailable") {
+      return `Map unavailable — showing the composition details instead.${
+        view.statusDetail ? ` (${view.statusDetail})` : ""
+      }`;
+    }
+    const unresolved = view.projection?.unresolved ?? [];
+    if (unresolved.length > 0) return unresolvedSummary(unresolved);
+    return view.statusDetail ?? "";
+  }
+
+  /**
+   * Lazily creates the map binding. The `../map/` import is dynamic so
+   * MapLibre and the vendored basemap stay out of Studio's entry bundle, and
+   * the WebGL probe runs first so environments that cannot render one never
+   * pay for the import at all.
+   */
+  async #ensureMapView(): Promise<void> {
+    if (this.#mapView || this.#mapPending) return;
+    const controller = this.#composition;
+    const container = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-map"]');
+    if (!controller || !container || !this.isConnected) return;
+    const generation = this.#mapGeneration;
+    const stale = (): boolean =>
+      this.#mapGeneration !== generation || !this.isConnected || this.#composition !== controller;
+    this.#mapPending = true;
+    try {
+      // Two concrete modules rather than the barrel — see the import block at
+      // the top of this file for why the barrel would be a correctness bug
+      // here, not just a bundling preference.
+      const [{ CompositionMapView: MapViewClass, isWebglAvailable }, { MAPLIBRE_CSS }] = await Promise.all([
+        import("../map/composition-map-view.js"),
+        import("../map/maplibre-styles.js"),
+      ]);
+      if (stale()) return;
+      if (!this.#mapFactory && !isWebglAvailable()) {
+        this.#setMapUnavailable("This browser has no WebGL context available.");
+        return;
+      }
+      this.#injectMapStyles(MAPLIBRE_CSS);
+      const view = new MapViewClass({
+        container,
+        controller,
+        projection: {
+          baseUrl: this.#sourceBaseUrl,
+          ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),
+          ...(this.#basemapStyle !== undefined ? { basemap: this.#basemapStyle } : {}),
+        },
+        ...(this.#mapFactory !== undefined ? { mapFactory: this.#mapFactory } : {}),
+        ...(this.#viewTransitionMs !== undefined ? { viewTransitionMs: this.#viewTransitionMs } : {}),
+        onSelection: (targets) => this.#applySelection(targets),
+        onChange: () => this.#onMapChanged(),
+      });
+      await view.start();
+      if (stale()) {
+        view.dispose();
+        return;
+      }
+      this.#mapView = view;
+      this.#syncSurface();
+      // The readout's "not on map" flags come from the projection, which only
+      // exists once the view has run — repaint it now that it does.
+      this.#onMapChanged();
+    } catch (error) {
+      if (!stale()) this.#setMapUnavailable(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (this.#mapGeneration === generation) this.#mapPending = false;
+    }
+  }
+
+  /** Records an unavailable map without a `CompositionMapView` to hold the state — the import itself may be what failed. */
+  #setMapUnavailable(detail: string): void {
+    const status = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-map-status"]');
+    if (status) status.textContent = `Map unavailable — showing the composition details instead. (${detail})`;
+    const map = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-map"]');
+    if (map) map.hidden = true;
+    this.shadowRoot?.querySelector<HTMLElement>(".canvas")?.setAttribute("data-surface", "details");
+    for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-surface-option]") ?? []) {
+      button.disabled = button.dataset.surfaceOption === "map";
+      button.setAttribute("aria-pressed", String(button.dataset.surfaceOption === "details"));
+    }
+  }
+
+  /** MapLibre's stylesheet, injected once per shell build (shadow DOM does not inherit document styles). */
+  #injectMapStyles(css: string): void {
+    const root = this.shadowRoot;
+    if (!root || root.querySelector('style[data-honua-maplibre="true"]')) return;
+    const style = document.createElement("style");
+    style.setAttribute("data-honua-maplibre", "true");
+    style.textContent = css;
+    root.appendChild(style);
+  }
+
+  #teardownMapView(): void {
+    this.#mapView?.dispose();
+    this.#mapView = undefined;
+  }
+
+  /** A projection input changed; the map has to be rebuilt around it. No-op while the canvas has never had one. */
+  #restartMapView(): void {
+    if (!this.#mapView && !this.#mapPending) return;
+    this.#mapGeneration += 1;
+    this.#mapPending = false;
+    this.#teardownMapView();
+    if (this.isConnected && this.#composition) void this.#ensureMapView();
+  }
+
+  #applySelection(targets: readonly CompositionTarget[]): void {
+    if (targets.length === 0) return;
+    this.#composition?.select(targets);
+    this.dispatchTypedEvent<HonuaStudioSelectionChangeDetail>("honua-studio-selection-change", {
+      targets: [...targets],
+    });
+  }
+
+  #syncReadout(): void {
+    const readout = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-readout"]');
+    const controller = this.#composition;
+    if (!readout || !controller) return;
+    readout.innerHTML = this.#renderReadout(controller);
+    this.#bindRowListeners();
   }
 
   #renderReadout(controller: CompositionController): string {
     const state = controller.state;
     const selectionKeys = new Set(controller.selection.map(targetKey));
+    const unresolved = new Map(
+      (this.#mapView?.projection?.unresolved ?? []).map((entry) => [entry.layerId, entry.reason] as const),
+    );
     return `
-      <div class="composition-readout" data-testid="studio-canvas-readout">
         ${renderSection(
           "Layers",
           "layers",
@@ -136,6 +523,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
               layer,
               selectionKeys,
               state.pins.some((pin) => targetMatches(pin, "layer", layer.id)),
+              unresolved.get(layer.id),
             ),
         )}
         ${renderViewSection(state.view)}
@@ -164,7 +552,6 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
             ),
         )}
         ${renderPinsSection(state.pins)}
-      </div>
     `;
   }
 
@@ -179,16 +566,18 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
           const kind = row.dataset.targetKind;
           const id = row.dataset.targetId;
           if (!kind || !id) return;
-          const target = { kind, id } as CompositionTarget;
-          this.#composition?.select([target]);
-          this.dispatchTypedEvent<HonuaStudioSelectionChangeDetail>("honua-studio-selection-change", {
-            targets: [target],
-          });
+          this.#applySelection([{ kind, id } as CompositionTarget]);
         },
         { signal },
       );
     }
   }
+}
+
+function unresolvedSummary(unresolved: readonly UnresolvedCompositionLayer[]): string {
+  const first = unresolved[0];
+  if (unresolved.length === 1 && first) return `1 layer is not renderable: ${first.reason}`;
+  return `${unresolved.length} layers are not renderable — see Details.`;
 }
 
 function targetKey(target: CompositionTarget): string {
@@ -222,7 +611,12 @@ function renderSection<T>(
   `;
 }
 
-function renderLayerRow(layer: CompositionLayer, selectionKeys: Set<string>, pinned: boolean): string {
+function renderLayerRow(
+  layer: CompositionLayer,
+  selectionKeys: Set<string>,
+  pinned: boolean,
+  unresolvedReason: string | undefined,
+): string {
   const target: CompositionTarget = { kind: "layer", id: layer.id };
   const selected = selectionKeys.has(targetKey(target));
   const detail = [
@@ -232,7 +626,7 @@ function renderLayerRow(layer: CompositionLayer, selectionKeys: Set<string>, pin
   ]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
-  return renderRow("layer", layer.id, layer.title ?? layer.id, detail, selected, pinned);
+  return renderRow("layer", layer.id, layer.title ?? layer.id, detail, selected, pinned, unresolvedReason);
 }
 
 function renderWidgetRow(widget: CompositionWidget, selectionKeys: Set<string>, pinned: boolean): string {
@@ -256,6 +650,7 @@ function renderRow(
   detail: string,
   selected: boolean,
   pinned: boolean,
+  unresolvedReason?: string,
 ): string {
   return `
     <button
@@ -266,8 +661,13 @@ function renderRow(
       data-target-id="${escapeHtml(id)}"
       aria-pressed="${selected}"
       data-pinned="${pinned}"
+      ${unresolvedReason ? `data-unrendered="true" title="${escapeHtml(unresolvedReason)}"` : ""}
     >
-      <span>${escapeHtml(title)}${pinned ? ' <span aria-label="pinned">📌</span>' : ""}</span>
+      <span>${escapeHtml(title)}${pinned ? ' <span aria-label="pinned">📌</span>' : ""}${
+        unresolvedReason
+          ? ' <span class="composition-flag" data-testid="studio-canvas-unrendered">not on map</span>'
+          : ""
+      }</span>
       ${detail ? `<span class="hn-muted">${escapeHtml(detail)}</span>` : ""}
     </button>
   `;

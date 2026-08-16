@@ -37,13 +37,24 @@ supplied its own light-DOM children with those tag names — see
 | — | `session` | `SessionAdapter \| undefined` | unset | The embed session injection surface (primary path) — see `docs/embed-session.md`. Reassigning after connection switches auth mode live. |
 | — | `auth` | `AuthSession` (read-only) | resolved lazily | The live session `.session` resolves to (standalone OIDC or a host-adapter wrapping `.session`) — what the shell (and, by inheritance, `<honua-studio-chat>`/`<honua-studio-canvas>`) actually renders from. |
 | — | `studioClient` | `StudioClient` | a default instance reading `/api`, bearer-attached via `.auth` | Override for fixtures/tests. |
+| — | `sourceCatalog` | `CatalogDataset[] \| undefined` | fetched once a session exists | What the composition map resolves layer sources against and the AI map kit advertises to a model. Assigning it takes ownership: no fetch will overwrite it, and a session change will not discard it. |
+| — | `aiMapKit` | `HonuaAiMapKit` (read-only) | built lazily | The SDK's `createHonuaAiMapKit` over `.composition` — tool definitions (Honua/MCP/OpenAI), capability-aware map context, system prompt, policy-gated `execute()`. See `src/map/agent-map-kit.ts`. |
+
+**Methods**: `enableLiveComposition({ packageKey, family?, schemaVersion?,
+baseUrl? })` attaches a live MCP session so tool calls mutate a real Studio
+draft; `disableLiveComposition()` returns to fixture/offline mode (the
+default). Both are also reachable from the header's own control
+(honua-studio#23 REQ-004) — the "Fixture mode" / "Live · &lt;key&gt;" badge
+plus a "Go live…" form; there is no test-hook-only path.
 
 **Events** (all `CustomEvent`, `bubbles: true, composed: true` — cross the
 shadow boundary): `honua-studio-ready` (base contract, see below),
 `honua-studio-navigate` (`{ path, replace? }` — host-owned mode only, a
 *request*, never applied by the element itself), `honua-studio-theme-change`
 (`{ themeSet, mode }`), `honua-studio-session-required` (`{ reason }`),
-`honua-studio-error` (`{ message, error? }`).
+`honua-studio-error` (`{ message, error? }`),
+`honua-studio-composition-mode-change` (`{ mode: "fixture" | "live",
+packageKey?, family? }`).
 
 Sign-in/sign-out controls (and any interactive auth affordance at all) only
 render when `auth.mode === "standalone"` — REQ-003 (honua-studio#4): in
@@ -139,20 +150,51 @@ untouched).
 
 ### `<honua-studio-canvas>` — composition canvas
 
-Implementation: `src/elements/studio-canvas-element.ts`. Attributes:
-`label`. Properties: `auth` (same fallback as chat); `composition` — a
-`CompositionController` (`src/composition/controller.ts`, honua-studio#8).
-Unset (the honua-studio#5 default), the element renders the original
-placeholder surface. Set, it renders a structured, reactive readout of the
-controller's `CompositionState` — layers, view, widgets, and pins — NOT a
-map render (real map rendering is later work; see `src/composition/`'s
-module docs for the engine itself: `model.ts`/`commands.ts`/`reducer.ts`/
-`history.ts`). Each layer/widget/annotation row is a clickable button that
-calls `composition.select([target])` and dispatches
-`honua-studio-selection-change` (`{ targets: CompositionTarget[] }`) — the
-deictic reference honua-studio#6's chat console attaches to a follow-up
-prompt as a "THIS" chip (REQ-012). Pinned targets render a 📌 marker and
-`data-pinned="true"`.
+Implementation: `src/elements/studio-canvas-element.ts`. Unset
+`composition` (the honua-studio#5 default) still renders the original
+placeholder surface. Set, the element renders a **live MapLibre GL map**
+bound to the controller's `CompositionState` (honua-studio#23), with the
+honua-studio#8 structured readout kept alongside it.
+
+| Attribute | Property | Type | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `label` | — | `string` | `"Canvas"` | Panel heading and `aria-label`. |
+| `surface` | `surface` | `"map" \| "details"` | `"map"` | Which surface has the panel. `"map"` shows the map with the readout beneath it as a table of contents; `"details"` gives the readout the whole panel. Falls back to `"details"` (and disables the Map button) whenever no map could be constructed. |
+| — | `composition` | `CompositionController \| undefined` | unset | `src/composition/controller.ts`. Drives both surfaces. |
+| — | `auth` | `AuthSession \| undefined` | inherited | Same ancestor fallback as `<honua-studio-chat>`. |
+| — | `sourceCatalog` | `CompositionSourceDescriptor[] \| undefined` | unset | What the server advertises (`StudioClient.listCatalog()`). Turns a composition layer's bare `sourceId` into a renderable source — see `src/map/source-resolution.ts`. `<honua-studio-app>` assigns this automatically. |
+| — | `basemapStyle` | `HonuaStyleSpecification \| undefined` | the vendored offline basemap | A deployment with its own style/tile/glyph server overrides the default here. |
+| — | `sourceBaseUrl` | `string` | `"/api"` | Server root for composed source URLs. |
+| — | `viewTransitionMs` | `number \| undefined` | `700` | Camera animation duration; `0` jumps. |
+| — | `mapFactory` | `CompositionMapFactory \| undefined` | the `maplibre-gl` import | Test seam only. |
+| — | `mapView` | `CompositionMapView \| undefined` (read-only) | — | The live binding: `.status`, `.statusDetail`, `.projection` (the `HonuaMapPackage` and any unrenderable layers), `.map`. |
+
+**The map.** Composition state is projected to a `honua_map_package.v1`
+package and composed with the SDK's own `composeStyle`, then handed to
+MapLibre's style differ — so an applied command mutates the running map
+rather than re-mounting it. Layer ids on the map are the composition's own
+layer ids. A click on a rendered feature dispatches
+`honua-studio-selection-change` with the most specific target first
+(`{ kind: "feature", sourceId, featureId }`, then `{ kind: "layer", id }`).
+All map assets are vendored — there is no runtime CDN dependency
+(honua-studio#23 REQ-003); see `src/map/assets/README.md`.
+
+**The readout is still here, and still asserted against.** It is the map's
+accessible description (the map region carries `aria-describedby` pointing
+at it), the keyboard-reachable way to select layers/widgets/annotations, and
+the only surface that can show what a map structurally cannot: widgets,
+pins, annotations, and layers whose source did not resolve to anything
+renderable (flagged "not on map", with the reason as a tooltip). It is
+present in the DOM in **both** surface modes. Each row is a clickable button
+that calls `composition.select([target])` and dispatches
+`honua-studio-selection-change` — the deictic reference honua-studio#6's
+chat console attaches to a follow-up prompt as a "THIS" chip (REQ-012).
+Pinned targets render a 📌 marker and `data-pinned="true"`.
+
+When the map cannot be constructed (no WebGL, a refused context), that is a
+**state, not an error**: the canvas reports it in
+`[data-testid="studio-canvas-map-status"]` and falls back to the readout —
+exactly the surface it had before honua-studio#23.
 
 Also runs a `ResizeObserver` on itself (`honua-studio-canvas-resize`,
 `{ width, height }`) specifically to give the cleanup-invariant tests

@@ -179,13 +179,31 @@ export interface HonuaStudioCanvasResizeDetail {
 
 /**
  * `honua-studio-selection-change` — dispatched by `<honua-studio-canvas>`
- * when the user clicks a rendered layer/widget/annotation row in the
- * composition readout. `targets` is a list of {@link CompositionTarget}s —
- * deictic references the chat console (honua-studio#6) can attach to the
- * next prompt as a "THIS" chip (honua-studio#8 REQ-012).
+ * when the user picks something on the canvas: a row in the composition
+ * readout, or (honua-studio#23) a feature on the MapLibre map itself.
+ * `targets` is a list of {@link CompositionTarget}s — deictic references the
+ * chat console (honua-studio#6) can attach to the next prompt as a "THIS"
+ * chip (honua-studio#8 REQ-012). A map click yields the most specific target
+ * available first: `{ kind: "feature", … }` when the hit feature carries an
+ * id, followed by its `{ kind: "layer", … }`.
  */
 export interface HonuaStudioSelectionChangeDetail {
   readonly targets: readonly CompositionTarget[];
+}
+
+/**
+ * `honua-studio-composition-mode-change` — dispatched by
+ * `<honua-studio-app>` when composition switches between fixture/offline
+ * mode and the live server-draft path (honua-studio#23 REQ-004). Before #23
+ * the only way to make that switch was `window.__honuaStudioApp`, a test
+ * hook; the shell now owns a real control and announces the result, so an
+ * embedding host can mirror the state in its own chrome instead of guessing.
+ */
+export interface HonuaStudioCompositionModeChangeDetail {
+  readonly mode: "fixture" | "live";
+  /** The Studio package the live session writes to. Present only for `"live"`. */
+  readonly packageKey?: string;
+  readonly family?: string;
 }
 
 /**

@@ -53,9 +53,29 @@ function focusSelector(element: Element): string | undefined {
   return undefined;
 }
 
+/**
+ * Reads `root.activeElement` defensively.
+ *
+ * Resolving the active element across shadow boundaries is a surprisingly
+ * sharp edge: it walks from the document's focus outward through every
+ * enclosing root, so a *different* element's shadow DOM being mid-change can
+ * make it throw. happy-dom does exactly that when focus sits inside one
+ * Studio element's shadow root while another one re-renders (honua-studio#23
+ * hit it: the live-composition control focuses its package-key input, and the
+ * chat element then repaints on an auth dispatch). Focus preservation is a
+ * best-effort nicety — it must never be able to break a render.
+ */
+function activeElementIn(root: ShadowRoot): Element | null {
+  try {
+    return root.activeElement;
+  } catch {
+    return null;
+  }
+}
+
 /** Captures enough of the current focus (element + text selection) inside `root` to restore it after an `innerHTML` replace. */
 export function captureFocus(root: ShadowRoot): FocusSnapshot | undefined {
-  const active = root.activeElement;
+  const active = activeElementIn(root);
   if (!active) return undefined;
   const selector = focusSelector(active);
   if (!selector) return undefined;

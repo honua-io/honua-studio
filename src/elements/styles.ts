@@ -132,6 +132,32 @@ export function appShellStyles(): string {
     .entity-list li { border-bottom: 1px solid var(--hn-line, #dfe4df); padding-bottom: var(--hn-space-2, 8px); }
     .entity-list li:last-child { border-bottom: none; padding-bottom: 0; }
     .app-slots { display: flex; flex-direction: column; gap: var(--hn-space-5, 24px); }
+    /* honua-studio#23 REQ-004 — the live-composition control group. */
+    .app-composition-mode { display: flex; align-items: center; gap: var(--hn-space-2, 8px); position: relative; }
+    .app-composition-mode .hn-badge[data-mode="live"] {
+      background: var(--hn-accent-tint, #e3f1ea); color: var(--hn-accent, #0b6b4d);
+    }
+    .live-form {
+      position: absolute; top: calc(100% + var(--hn-space-2, 8px)); right: 0; z-index: 10;
+      display: flex; flex-direction: column; gap: var(--hn-space-2, 8px);
+      min-width: 18rem; padding: var(--hn-space-3, 12px);
+      background: var(--hn-surface-raised, #fff);
+      border: 1px solid var(--hn-line, #dfe4df);
+      border-radius: var(--hn-radius-lg, 10px);
+      box-shadow: var(--hn-shadow-raised, 0 6px 20px rgb(15 30 22 / 12%));
+    }
+    .live-form[hidden] { display: none; }
+    .live-field { display: flex; flex-direction: column; gap: var(--hn-space-1, 4px); font-size: var(--hn-text-sm, 0.8125rem); }
+    .live-field input, .live-field select {
+      font: inherit; color: inherit;
+      background: var(--hn-surface-raised, #fff);
+      border: 1px solid var(--hn-border-control, #7c8a81);
+      border-radius: var(--hn-radius, 6px);
+      height: var(--hn-control-height, 2.25rem);
+      padding: 0 var(--hn-space-2, 8px);
+    }
+    .live-actions { display: flex; gap: var(--hn-space-2, 8px); }
+    .live-note { margin: 0; font-size: var(--hn-text-xs, 0.75rem); }
   `;
 }
 
@@ -254,6 +280,34 @@ export function lifecycleStyles(): string {
 export function canvasStyles(): string {
   return `
     .canvas { display: flex; flex-direction: column; gap: var(--hn-space-2, 8px); min-height: 12rem; }
+    .canvas-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--hn-space-3, 12px); }
+    .canvas-surfaces { display: flex; gap: var(--hn-space-1, 4px); }
+    /* honua-studio#23: the live MapLibre surface. A WebGL canvas needs a real
+       height — a flex child that collapses to 0 renders nothing at all — so
+       the map keeps a floor and grows into whatever the panel gives it. */
+    .canvas-map {
+      flex: 1 1 auto; min-height: 18rem;
+      border: 1px solid var(--hn-line, #dfe4df);
+      border-radius: var(--hn-radius-lg, 10px);
+      overflow: hidden;
+      position: relative;
+      background: var(--hn-surface-sunken, #e9ede9);
+    }
+    .canvas-map[hidden] { display: none; }
+    .canvas-map-status:empty { display: none; }
+    .canvas-map-status { font-size: var(--hn-text-sm, 0.8125rem); margin: 0; }
+    /* In map mode the readout is a compact table of contents under the map;
+       in details mode it takes the panel. It is never hidden — see
+       studio-canvas-element.ts's class doc. */
+    .canvas[data-surface="map"] .composition-readout { max-height: 14rem; overflow-y: auto; }
+    .composition-flag {
+      font-size: var(--hn-text-xs, 0.75rem);
+      color: var(--hn-warning-text, #7a5308);
+      background: var(--hn-warning-tint, #fbf1dd);
+      border-radius: var(--hn-radius, 6px);
+      padding: 0 var(--hn-space-1, 4px);
+    }
+    .composition-row[data-unrendered="true"] { border-style: dashed; border-color: var(--hn-warning-border, #d9a441); }
     .canvas-surface {
       flex: 1; min-height: 10rem;
       border: 1px dashed var(--hn-line-strong, #c2cac3);
