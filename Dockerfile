@@ -1,11 +1,11 @@
-FROM node:20.19-alpine AS build
+FROM node:20.19-alpine@sha256:658d0f63e501824d6c23e06d4bb95c71e7d704537c9d9272f488ac03a370d448 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
 ENV HONUA_SERVER_BASE_URL=/api \
     HONUA_OIDC_ISSUER= \
     HONUA_OIDC_CLIENT_ID= \

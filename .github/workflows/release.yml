@@ -12,8 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   NODE_VERSION: "20.19.0"
@@ -22,6 +21,9 @@ jobs:
   release:
     name: Static bundle and container
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
