@@ -230,9 +230,7 @@ describe("composition/controls", () => {
           target: { kind: "control", id: YEAR_FILTER.id },
           cascadeInteractions: true,
         });
-        // honua-server#3196 is still open — the bridge carries no server tool
-        // name yet, so live mode syncs through the draft body instead.
-        expect(removed.serverToolName).toBeUndefined();
+        expect(removed.serverToolName).toBe("honua_studio_remove_control");
       }
     });
   });

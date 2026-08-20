@@ -7,10 +7,9 @@
  * source of truth. The reducer (`reducer.ts`) is a pure merge engine; the
  * server draft (`history.ts`'s `DraftSync` / `CompositionDraftStore` seam)
  * owns persistence, and undo/redo (`history.ts`) is designed to map to draft
- * revisions once `DraftSync` is wired to the real Studio lifecycle client
- * (`@honua/sdk-js`'s `src/studio/lifecycle-client.ts`, merged to trunk in
- * sdk-js#783 but not yet in the published `0.1.2-beta.0` this app depends
- * on — see `history.ts`'s module doc for the seam).
+ * revisions through `DraftSync`. The model remains local because it also
+ * carries Studio-only ephemeral selection, pins, and annotations around the
+ * SDK/server composition body projection.
  *
  * Every field here is plain, JSON-serializable data — no class instances, no
  * DOM references, no functions — so it round-trips unchanged through

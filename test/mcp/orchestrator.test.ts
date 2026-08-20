@@ -175,6 +175,51 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     expect(log.entries().map((e) => e.type)).toEqual(["composition_command_applied"]);
   });
 
+  it("routes TOC visibility through honua_studio_set_layer_visibility and accepts the returned draft", async () => {
+    const controller = new CompositionController({
+      ...createEmptyCompositionState(),
+      layers: [{ id: "roads", sourceId: "s", visible: true }],
+    });
+    draftStore.body = { layers: [{ id: "roads", sourceId: "s", visible: true }], view: {}, widgets: [] };
+    const seen = vi.fn();
+    const fetchImpl = fetchRouter({
+      honua_studio_create_draft: () => ({
+        structuredContent: {
+          draftId: draftStore.draftId,
+          packageKey: "pkg-1",
+          generation: draftStore.generation,
+          envelope: { family: "map", schemaVersion: "1", body: draftStore.body },
+        },
+      }),
+      honua_studio_set_layer_visibility: (_id, args) => {
+        seen(args);
+        draftStore.generation += 1;
+        draftStore.body = { ...draftStore.body, layers: [{ id: "roads", sourceId: "s", visible: false }] };
+        return {
+          structuredContent: {
+            draftId: draftStore.draftId,
+            packageKey: "pkg-1",
+            generation: draftStore.generation,
+            envelope: { family: "map", schemaVersion: "1", body: draftStore.body },
+          },
+        };
+      },
+    });
+    const orchestrator = new ToolCallOrchestrator({
+      controller,
+      live: { client: new McpClient({ fetchImpl: fetchImpl as never }), packageKey: "pkg-1" },
+    });
+
+    const result = await orchestrator.handleToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "layer", id: "roads" }, visible: false },
+    });
+
+    expect(result).toMatchObject({ ok: true, mode: "server" });
+    expect(seen).toHaveBeenCalledWith({ draftId: "draft-1", generation: 1, layerId: "roads", visible: false });
+    expect(controller.state.layers[0]?.visible).toBe(false);
+  });
+
   it("a failed_precondition (stale generation) triggers exactly one reload + retry, then succeeds", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
     let addLayerAttempts = 0;

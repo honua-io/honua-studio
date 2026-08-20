@@ -14,33 +14,11 @@
  * state, so the draft's own `generation` history becomes, in effect, the
  * durable half of the undo stack.
  *
- * ## The lifecycle-client seam
- *
- * `@honua/sdk-js`'s Studio lifecycle client
- * (`src/studio/lifecycle-client.ts`, `HonuaStudioLifecycleClient`) merged to
- * `honua-sdk-js` trunk in sdk-js#783 and is the real implementation of the
- * draft surface this module targets: `drafts.create(...)`,
- * `drafts.get(draftId)`, `drafts.replace(draftId, { envelope, generation })`
- * throwing on a `409` with `code: "generation-conflict"`
- * (`isHonuaStudioGenerationConflict`). **This app's `package.json` still
- * pins `@honua/sdk-js@0.1.2-beta.0`, published before #783 landed — that
- * version does not export the lifecycle client at all.** Rather than block
- * on a republish, this module defines a local structural interface,
- * {@link CompositionDraftStore}, matching the shape of
- * `HonuaStudioLifecycleClient.drafts` exactly (`draftId`/`generation`/
- * `envelope.body` field names, `create`/`get`/`replace` method names,
- * `generation`-conflict as a distinguishable error), plus
- * {@link FixtureDraftStore}, a pure in-memory implementation for tests and
- * fixture-conversation mode (NFR-001: deterministic, model- and
- * network-free CI).
- *
- * When the SDK republishes with the lifecycle client, a thin adapter —
- * `{ create: (r) => lifecycleClient.drafts.create({ packageKey: r.packageKey, itemId: r.itemId, envelope: r.envelope }), get: (id) => lifecycleClient.drafts.get(id), replace: (id, r) => lifecycleClient.drafts.replace(id, r) }`
- * — satisfies {@link CompositionDraftStore} with zero changes to this
- * module, `DraftSync`, or any test written against the structural
- * interface. That adapter is intentionally NOT written here yet: writing it
- * against a dependency this app cannot `npm install` would mean the compiler
- * could never actually check it.
+ * `@honua/sdk-js@0.1.7-beta.0` now owns the network lifecycle client. This
+ * module remains local because it owns Studio's undo revision stack and the
+ * deterministic {@link FixtureDraftStore}; its small structural
+ * {@link CompositionDraftStore} lets either the SDK client or a fixture back
+ * the same history algorithm without coupling that algorithm to transport.
  *
  * @module
  */

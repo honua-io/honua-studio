@@ -39,6 +39,7 @@ import type { GpJobClient } from "../gp/job-client.js";
  */
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioPackageDraft, StudioPreviewPlan } from "../lifecycle/lifecycle-types.js";
+import { getRuntimeConfig } from "../runtime-config.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, gpPanelStyles, lifecycleStyles } from "./styles.js";
@@ -105,7 +106,8 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
   }
 
   public get client(): StudioLifecycleClient {
-    if (!this.#client) this.#client = new StudioLifecycleClient({ baseUrl: "/api", auth: this.#auth });
+    if (!this.#client)
+      this.#client = new StudioLifecycleClient({ baseUrl: getRuntimeConfig().serverBaseUrl, auth: this.#auth });
     return this.#client;
   }
 

@@ -41,6 +41,7 @@ const applyCommand = (command) => window.__honuaStudioApp.composition.apply(comm
 
 async function signIn(page) {
   const token = mintFixtureAccessToken();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__honuaStudioApp))).toBe(true);
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
   }, token);

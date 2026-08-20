@@ -5,10 +5,8 @@
  * that `src/mcp/client.ts` actually speaks — `initialize`, `tools/list`,
  * `tools/call` — against honua-server's `POST /mcp` endpoint
  * (`docs/guides/connect/ai-agents-mcp.md` in honua-server). Deliberately NOT
- * a full MCP SDK surface (no resources/prompts/sampling/roots): the Studio
- * tool plane only ever needs these three methods (see `client.ts`'s module
- * doc for why this is a hand-rolled client rather than
- * `@modelcontextprotocol/sdk`).
+ * a full MCP SDK surface (no resources/prompts/sampling/roots): this is the
+ * temporary advertised-extension seam described in `client.ts`.
  *
  * @module
  */

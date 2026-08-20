@@ -25,12 +25,9 @@
  *    `allowedTools`, audit hooks) rather than Studio hand-rolling its own
  *    permission checks.
  *
- * **Seam for sdk-js#1259.** That PR adds a `StudioAgentSession` plus five
- * composition verbs and the declarative interaction compiler; it is unmerged,
- * so this repo pins and builds against what is published. When it lands, the
- * change is confined to {@link createStudioAiMapKit}: construct the session
- * and hand it this same runtime. Nothing outside this module knows how the
- * kit was built — `<honua-studio-app>` only reads `.aiMapKit`.
+ * `StudioAgentSession` now owns the live multi-round tool loop in
+ * `<honua-studio-app>`. This adapter remains the SDK runtime supplied to that
+ * session, keeping policy/audit and map mutations on the canonical SDK path.
  *
  * @module
  */

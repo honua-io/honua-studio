@@ -34,20 +34,25 @@
  * own wiring — this element never reaches into a host-supplied child beyond
  * the same public properties/events any embedder could use.
  */
-import type { HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
+import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
+import { isHonuaStudioMcpToolName } from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
+import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
+import { isGovernedStudioAgentTool, isGpAgentTool } from "../mcp/agent-tool-policy.js";
 import { McpClient } from "../mcp/client.js";
+import { forwardAdvertisedMcpTool } from "../mcp/forwarded-agent-tool.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
-import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
+import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
 import { renderContent } from "../pages/content.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
+import { getRuntimeConfig } from "../runtime-config.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
@@ -133,6 +138,32 @@ function disposeAuthSession(auth: AuthSession | undefined): void {
   (auth as (AuthSession & { dispose?: () => void }) | undefined)?.dispose?.();
 }
 
+function agentToolResult(
+  tool: string,
+  status: "ok" | "error",
+  data?: unknown,
+  message?: string,
+  action = true,
+): HonuaAgentToolResult {
+  const timestamp = new Date().toISOString();
+  return {
+    tool,
+    status,
+    ...(data !== undefined ? { data } : {}),
+    ...(message ? { deniedReason: message } : {}),
+    audit: {
+      tool,
+      status,
+      dryRun: false,
+      action,
+      outcome: status === "ok" ? "allowed" : "error",
+      parameters: {},
+      ...(message ? { message } : {}),
+      timestamp,
+    },
+  } as unknown as HonuaAgentToolResult;
+}
+
 export class HonuaStudioAppElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["data-theme-set", "data-theme", "routing-mode", "current-path", "base-path", "theme-switcher"];
@@ -156,6 +187,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #catalogRequested = false;
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
+  #liveAgentSetup: Promise<void> | undefined;
+  #liveAgentSetupGeneration = 0;
 
   /**
    * Host-injected session adapter — the primary embed injection path
@@ -216,7 +249,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** The `StudioClient` powering the catalog/packages view — bearer-attached via `.auth`. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
   public get studioClient(): StudioClient {
-    if (!this.#studioClient) this.#studioClient = new StudioClient("/api", this.auth);
+    if (!this.#studioClient) this.#studioClient = new StudioClient(getRuntimeConfig().serverBaseUrl, this.auth);
     return this.#studioClient;
   }
 
@@ -377,7 +410,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     readonly family?: StudioPackageFamilyWire;
     readonly schemaVersion?: string;
   }): void {
-    const client = new McpClient({ baseUrl: options.baseUrl ?? "/api", auth: this.auth });
+    const baseUrl = options.baseUrl ?? getRuntimeConfig().serverBaseUrl;
+    const client = new McpClient({ baseUrl, auth: this.auth });
     this.toolCallOrchestrator.attachLiveSession({
       client,
       packageKey: options.packageKey,
@@ -390,6 +424,87 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       packageKey: options.packageKey,
       ...(options.family !== undefined ? { family: options.family } : {}),
     });
+    const setupGeneration = ++this.#liveAgentSetupGeneration;
+    this.#liveAgentSetup = this.#attachLiveAgentSession(client, baseUrl, setupGeneration).catch((error) => {
+      if (setupGeneration !== this.#liveAgentSetupGeneration) return;
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      chat?.activityLog.append("assistant_turn_error", {
+        errorMessage: `Live agent setup is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    });
+  }
+
+  async #attachLiveAgentSession(client: McpClient, baseUrl: string, setupGeneration: number): Promise<void> {
+    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    // An explicitly supplied transport is host-owned (notably the model-free
+    // fixture replay used by demos and CI). Live MCP composition can still be
+    // enabled for authoritative draft mutations without silently replacing
+    // that conversation transport with the SDK model loop.
+    if (!chat || chat.hasCustomTransport) return;
+    const [draft, listed] = await Promise.all([this.toolCallOrchestrator.ensureLiveDraft(), client.listTools()]);
+    if (!this.toolCallOrchestrator.isLive || setupGeneration !== this.#liveAgentSetupGeneration) return;
+    const advertisedTools: HonuaAgentToolDefinitionLike[] = listed.tools
+      .filter((tool) => isGovernedStudioAgentTool(tool.name))
+      .map((tool) => ({
+        name: tool.name,
+        title: tool.title ?? tool.name,
+        description: tool.description ?? `Server-advertised ${tool.name} tool.`,
+        mode: tool.annotations?.readOnlyHint ? "read" : "action",
+        inputSchema: tool.inputSchema as HonuaAgentToolDefinitionLike["inputSchema"],
+      }));
+    const advertisedByName = new Map(listed.tools.map((tool) => [tool.name, tool]));
+    const execute = async (call: { readonly name: string; readonly args?: unknown }) => {
+      const args = (call.args ?? {}) as Record<string, unknown>;
+      // Removal gate: sdk-js#1288. Released 0.1.7 does not classify visibility
+      // or control tools as Studio MCP tools, so route just those through the
+      // sync-safe local bridge until the SDK release owns them.
+      if (call.name.startsWith("honua_studio_") && !isHonuaStudioMcpToolName(call.name)) {
+        const result = await this.toolCallOrchestrator.handleToolCall({ toolName: call.name, arguments: args });
+        return agentToolResult(
+          call.name,
+          result.ok ? "ok" : "error",
+          result.ok ? (result.draft ?? result.command) : undefined,
+          result.ok ? undefined : result.reason,
+        );
+      }
+      if (isGpAgentTool(call.name)) {
+        const descriptor = advertisedByName.get(call.name);
+        if (!descriptor) return agentToolResult(call.name, "error", undefined, "Tool was not advertised.");
+        // The server schema is authoritative for Esri and OGC alike.
+        return forwardAdvertisedMcpTool(client, descriptor, args);
+      }
+      return this.aiMapKit.execute(call as never);
+    };
+    chat.attachAgentSession({
+      baseUrl,
+      auth: this.auth,
+      kit: this.aiMapKit,
+      tools: advertisedTools,
+      execute: execute as never,
+      draft,
+      ...getRuntimeConfig().model,
+      system: () =>
+        buildStudioSystemPrompt({
+          draftId: this.toolCallOrchestrator.draftId ?? draft.draftId,
+          generation: this.toolCallOrchestrator.generation ?? draft.generation,
+          catalog: this.#sourceCatalog,
+          composition: this.composition.state,
+        }),
+      onEvent: (event) => {
+        if (event.type !== "toolResult") return;
+        if (event.result.draft) {
+          this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
+        }
+        if (isGpAgentTool(event.result.toolName)) {
+          chat.activityLog.append("gp_action", {
+            kind: "job-status",
+            toolName: event.result.toolName,
+            ok: event.result.ok,
+            content: event.result.content,
+          });
+        }
+      },
+    });
   }
 
   /**
@@ -401,6 +516,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public disableLiveComposition(): void {
     if (!this.toolCallOrchestrator.isLive) return;
     this.toolCallOrchestrator.detachLiveSession();
+    this.#liveAgentSetupGeneration += 1;
+    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    this.#liveAgentSetup = undefined;
     this.#liveCompositionPackageKey = undefined;
     this.#announceCompositionMode({ mode: "fixture" });
   }
@@ -656,6 +774,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const detail = (event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail;
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
       chat?.activityLog.append("lifecycle_action", { ...detail });
+      if (detail.kind === "publication-status" && detail.publicUrl) {
+        chat?.appendAssistantNotice(`Shared after human approval: ${detail.publicUrl}`);
+      }
     });
 
     // honua-studio#10 build item 2: GP authoring/validation/preview/execution

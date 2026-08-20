@@ -108,12 +108,11 @@ stops the upstream call. `SseChatTransport.streamChat()` passes its
 — matching `ChatTransport`'s contract that cancellation is a normal outcome,
 not a transport failure.
 
-## What this client does NOT implement yet
+## Live session ownership
 
-- `tools`/`toolChoice` on the outgoing request — `<honua-studio-chat>`
-  sends plain `{ role, content }` history only; the tool-call events it
-  RECEIVES and renders don't require the client to have declared any tools
-  (a future composition engine, honua-studio#8, is expected to own tool
-  declarations once it exists).
-- The `/capabilities` endpoint isn't consulted by the chat console's render
-  path (see above) — `fetchStudioAiCapabilities()` exists but is unwired.
+In live composition mode, SDK `StudioAgentSession` declares the governed tool
+schemas, sends `toolChoice`, executes each tool in order, feeds the tool result
+back as a `role: "tool"` message, and continues until the model ends the turn.
+It also consults `/capabilities` to resolve the configured provider. The raw
+`SseChatTransport` path remains only for deterministic fixture conversations
+and embedders that explicitly supply their own transport.

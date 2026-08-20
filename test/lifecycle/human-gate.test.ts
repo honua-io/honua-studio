@@ -47,6 +47,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../..");
 const srcRoot = join(repoRoot, "src");
 
+function relativeSource(file: string): string {
+  return relative(srcRoot, file).replaceAll("\\", "/");
+}
+
 /** Every `.ts` file under `src/`, relative to `src/`. */
 function listSourceFiles(dir: string): string[] {
   const entries = readdirSync(dir);
@@ -72,7 +76,7 @@ describe("THE HUMAN GATE — spec REQ-009 (static analysis)", () => {
   it("the only file anywhere under src/ that calls .requestPublish(/.requestRollback( is the lifecycle panel element", () => {
     const callers = allSourceFiles
       .filter((file) => GATED_METHOD_CALL_PATTERN.test(readFileSync(file, "utf8")))
-      .map((file) => relative(srcRoot, file));
+      .map(relativeSource);
     expect(callers).toEqual(["elements/studio-lifecycle-panel-element.ts"]);
   });
 
@@ -80,7 +84,7 @@ describe("THE HUMAN GATE — spec REQ-009 (static analysis)", () => {
     const agentReachableDirs = ["mcp", "chat", "composition"];
     const offenders: string[] = [];
     for (const file of allSourceFiles) {
-      const relativePath = relative(srcRoot, file);
+      const relativePath = relativeSource(file);
       if (!agentReachableDirs.some((dir) => relativePath.startsWith(`${dir}/`))) continue;
       const content = readFileSync(file, "utf8");
       if (LIFECYCLE_CLIENT_IMPORT_PATTERN.test(content) || GATED_METHOD_CALL_PATTERN.test(content)) {

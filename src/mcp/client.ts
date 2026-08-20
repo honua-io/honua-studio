@@ -6,39 +6,11 @@ import { McpProtocolError, McpToolError, McpTransportError } from "./errors.js";
  * `tools/list`, `tools/call` — nothing else (no resources/prompts/sampling;
  * Studio's tool plane never needs them).
  *
- * ## SDK vs. hand-rolled (the decision this module records)
- *
- * `@modelcontextprotocol/sdk` was evaluated and rejected for this app:
- *
- *  - It is a `node_modules`-heavy, transport-and-protocol-agnostic kit built
- *    around `Server`/`Client` classes, stdio transports, and a
- *    request-router abstraction sized for building an MCP SERVER or a
- *    general-purpose agent host — this app is neither. It only ever issues
- *    three method calls against one already-known HTTP endpoint.
- *  - It pulls in `zod` (schema validation this app doesn't otherwise need —
- *    `commands.ts`'s own module doc already commits this repo to hand-rolled
- *    structural validation, "no schema-validation dependency") and a
- *    `content-type`/`raw-body`/`eventsource-parser` chain sized for its own
- *    SSE + stdio transports, none of which are exercised by a
- *    request/response POST client.
- *  - This app already hand-rolls an equally protocol-sensitive streaming
- *    client (`../chat/sse-transport.ts` + `../chat/sse-parser.ts`) rather
- *    than reach for a dependency — the same call applies here, and the
- *    surface is smaller (three JSON-RPC methods, no streaming to parse in
- *    the common case).
- *  - Bundle size matters: this app ships to a browser tab (REQ-001's own
- *    "MCP served where the state lives" runs the client from the SAME
- *    browser context as the rest of Studio, per AD-5), and the SDK is not
- *    tree-shake-friendly against a three-method usage.
- *
- * A ~250-line hand-rolled client that speaks exactly the transport
- * honua-server documents is safer for bundle size and matches this
- * repo's established pattern (`sse-transport.ts`, `studio-client.ts`) of
- * thin, dependency-free fetch wrappers with a typed error channel. If a
- * future need for resources/prompts/sampling/roots emerges, or the SDK
- * publishes a slim browser-only transport package, revisit this decision —
- * nothing about the {@link McpClient} public surface below is SDK-shaped in
- * a way that would make swapping it out later disruptive.
+ * SDK `StudioAgentSession` owns its composition MCP calls. This narrow client
+ * remains for `tools/list` (the server-advertised governed GP roster) and for
+ * the visibility/control gap tracked by sdk-js#1288. It is intentionally only
+ * initialize/list/call; removal gate: use the SDK client exclusively once it
+ * exposes advertised extension tools and the complete Studio tool roster.
  *
  * ## Session handling
  *

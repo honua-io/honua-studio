@@ -51,6 +51,7 @@ const controlBar = () =>
 
 async function signIn(page) {
   const token = mintFixtureAccessToken();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__honuaStudioApp))).toBe(true);
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
   }, token);
@@ -243,7 +244,7 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
         interaction: {
           id: "b",
           on: { ref: "control:zoning", event: "change" },
-          do: { ref: "map", verb: "setViewport", args: { view: { zoom: 8 } } },
+          do: { ref: "map", verb: "setViewport", args: { zoom: 8 } },
         },
       });
 

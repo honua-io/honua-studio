@@ -161,6 +161,13 @@ export interface SetStudioLayerStyleInput {
   readonly styleRef?: string;
 }
 
+export interface SetStudioLayerVisibilityInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly layerId: string;
+  readonly visible: boolean;
+}
+
 export interface SetStudioViewInput {
   readonly draftId: string;
   readonly generation: number;
@@ -208,9 +215,14 @@ export const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_add_layer",
   "honua_studio_remove_layer",
   "honua_studio_set_layer_style",
+  "honua_studio_set_layer_visibility",
   "honua_studio_set_view",
   "honua_studio_add_widget",
   "honua_studio_remove_widget",
+  "honua_studio_add_control",
+  "honua_studio_remove_control",
+  "honua_studio_bind_interaction",
+  "honua_studio_remove_interaction",
   "honua_studio_propose_publication",
 ] as const;
 
@@ -282,6 +294,11 @@ export class StudioMcpToolClient {
 
   public async setLayerStyle(input: SetStudioLayerStyleInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_layer_style", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async setLayerVisibility(input: SetStudioLayerVisibilityInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_set_layer_visibility", { ...input });
     return structured<StudioMcpDraft>(result);
   }
 
