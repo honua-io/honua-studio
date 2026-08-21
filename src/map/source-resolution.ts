@@ -12,8 +12,7 @@
  *
  *  1. **The layer says so.** `layer.metadata.honua.source` (a raw MapLibre
  *     source spec) wins outright. This is the seam a GP output, a
- *     `StudioAgentSession` verb (sdk-js#1259, unmerged — see
- *     `./index.ts`'s note), or any future server-authored binding uses to
+ *     `StudioAgentSession` verb, or any future server-authored binding uses to
  *     hand us a fully-formed source without teaching this module a new
  *     protocol.
  *  2. **The catalog says so.** The `protocol`/`geometryType` a

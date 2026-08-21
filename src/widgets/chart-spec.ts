@@ -16,7 +16,7 @@
  *
  * ## Two documented post-projections
  *
- * The published helper (`0.1.2-beta.0`) covers `categories` / `histogram` /
+ * The SDK helper covers `categories` / `histogram` /
  * `time-series`, and its output is authoritative for all three. Two things
  * the *subset* declares but the *helper* never emits are applied here, both
  * staying strictly inside `HonuaVegaLiteChartSpec`:

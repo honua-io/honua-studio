@@ -827,6 +827,29 @@ function createStudioLifecycleRestRouter(store) {
     return summary;
   }
 
+  // honua-server#3304 contract fixture. The mock's existing, explicitly
+  // human-confirmed publish POST moves the pointer synchronously, so its
+  // accepted request is immediately observable as published here. This is
+  // contract coverage only; it is not evidence that #3304 has landed.
+  function publicationRequestStatus(request) {
+    const item = store.items.get(request.itemId);
+    const published = request.status === "accepted" && item?.publishedVersionId === request.versionId;
+    return {
+      requestId: request.requestId,
+      itemId: request.itemId,
+      versionId: request.versionId,
+      status: request.status === "rejected" ? "rejected" : published ? "published" : "pending",
+      ...(published
+        ? {
+            decidedAt: request.createdAt,
+            decidedBy: request.requestedBy,
+            publicationId: `mock-publication-${request.itemId}`,
+            publicUrl: `/api/v1/published/studio/${item.packageKey}`,
+          }
+        : {}),
+    };
+  }
+
   function packageFamilyCapabilities() {
     const families = [...KNOWN_FAMILIES].map((family) => ({
       family,
@@ -1256,6 +1279,29 @@ function createStudioLifecycleRestRouter(store) {
       if (rest === "/versions" && method === "GET") {
         if (!requireItemOr404(itemId, res)) return true;
         apiResponse(res, 200, { itemId, versions: versionsForItem(itemId) });
+        return true;
+      }
+
+      if (rest === "/publish-requests" && method === "GET") {
+        if (!requireItemOr404(itemId, res)) return true;
+        const requests = [...store.publicationRequests.values()]
+          .filter((request) => request.itemId === itemId)
+          .reverse()
+          .map(publicationRequestStatus);
+        apiResponse(res, 200, { requests });
+        return true;
+      }
+
+      const publicationRequestMatch = /^\/publish-requests\/([^/]+)$/.exec(rest);
+      if (publicationRequestMatch && method === "GET") {
+        if (!requireItemOr404(itemId, res)) return true;
+        const requestId = decodeURIComponent(publicationRequestMatch[1]);
+        const request = store.publicationRequests.get(requestId);
+        if (!request || request.itemId !== itemId) {
+          problemResponse(res, 404, "Publication request not found", `No publication request '${requestId}' exists.`);
+          return true;
+        }
+        apiResponse(res, 200, publicationRequestStatus(request));
         return true;
       }
 

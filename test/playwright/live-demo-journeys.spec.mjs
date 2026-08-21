@@ -220,7 +220,7 @@ test.describe("live demo-server journeys @live", () => {
       await submit.click();
 
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeHidden();
-      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Published");
+      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Human approval complete");
 
       // Independent of the UI: the REAL store now shows the item published.
       const items = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);

@@ -152,34 +152,19 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   addLayer: compositionPassthroughEntry("addLayer", "honua_studio_add_layer"),
   removeLayer: compositionPassthroughEntry("removeLayer", "honua_studio_remove_layer"),
   setLayerStyleRef: compositionPassthroughEntry("setLayerStyleRef", "honua_studio_set_layer_style"),
-  // honua-studio#24's TOC/compare/time toggles and any agent-authored
-  // "hide the parcels" both land here. Deliberately carries NO
-  // `serverToolName`: honua-server#3002's tool set has no
-  // `honua_studio_set_layer_visibility`, so in live mode this applies
-  // locally (the same route `pin`/`unpin`/annotations already take) and the
-  // next server draft sync is authoritative. Unlike pins, `visible` *is* part
-  // of the server's wire shape (`toStudioCompositionBody` sends it), so this
-  // is a real gap rather than a deliberate client-only concept — it is the
-  // headline item in #24 REQ-006's upstream contribution list.
-  setVisibility: compositionPassthroughEntry("setVisibility"),
+  // TOC/compare/time toggles and agent-authored visibility changes delegate
+  // to the granular server tool. Removal gate: sdk-js#1288; until the SDK
+  // session classifies it, Studio keeps this narrow direct mapping.
+  setVisibility: compositionPassthroughEntry("setVisibility", "honua_studio_set_layer_visibility"),
   setView: compositionPassthroughEntry("setView", "honua_studio_set_view"),
   addWidget: compositionPassthroughEntry("addWidget", "honua_studio_add_widget"),
   removeWidget: compositionPassthroughEntry("removeWidget", "honua_studio_remove_widget"),
-  /**
-   * honua-studio#25's controls. Deliberately carry NO `serverToolName`, the
-   * same way `setVisibility` does and for a comparable reason:
-   * `honua_studio_add_control` / `honua_studio_remove_control` are
-   * honua-server#3196, which is OPEN at the time of writing. Until it lands,
-   * a control applies locally and reaches the draft through the body of the
-   * next `honua_studio_update_draft` — `toStudioCompositionBody` sends the
-   * `controls` block, and the server's editor overlay preserves body keys it
-   * does not yet model. Point these at the real tools once #3196 merges.
-   */
-  addControl: compositionPassthroughEntry("addControl"),
-  removeControl: compositionPassthroughEntry("removeControl"),
-  /** ADR-0030 bindings. Same treatment: honua-server#3175 landed the tools, but this client syncs the block through the draft body rather than pinning to a tool signature it has not exercised. */
-  bindInteraction: compositionPassthroughEntry("bindInteraction"),
-  removeInteraction: compositionPassthroughEntry("removeInteraction"),
+  // Controls and interactions use their landed granular server tools. They
+  // share the sdk-js#1288 removal gate with visibility in the live session.
+  addControl: compositionPassthroughEntry("addControl", "honua_studio_add_control"),
+  removeControl: compositionPassthroughEntry("removeControl", "honua_studio_remove_control"),
+  bindInteraction: compositionPassthroughEntry("bindInteraction", "honua_studio_bind_interaction"),
+  removeInteraction: compositionPassthroughEntry("removeInteraction", "honua_studio_remove_interaction"),
   addAnnotation: compositionPassthroughEntry("addAnnotation"),
   removeAnnotation: compositionPassthroughEntry("removeAnnotation"),
   pin: compositionPassthroughEntry("pin"),
@@ -276,6 +261,19 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       return finalizeCommand("setLayerStyleRef", fields);
     },
   },
+  honua_studio_set_layer_visibility: {
+    vocabulary: "server-mcp",
+    serverToolName: "honua_studio_set_layer_visibility",
+    build: (args) => {
+      if (!isNonEmptyString(args.layerId) || typeof args.visible !== "boolean") {
+        return { ok: false, reason: 'honua_studio_set_layer_visibility requires "layerId" and boolean "visible".' };
+      }
+      return finalizeCommand("setVisibility", {
+        target: { kind: "layer", id: args.layerId },
+        visible: args.visible,
+      });
+    },
+  },
   honua_studio_set_view: {
     vocabulary: "server-mcp",
     serverToolName: "honua_studio_set_view",
@@ -322,6 +320,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   // would be the wrong kind of strict.
   honua_studio_add_control: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_add_control",
     build: (args) => {
       const controlInput = args.control;
       if (!isPlainObject(controlInput) || !isNonEmptyString(controlInput.id) || !isNonEmptyString(controlInput.kind)) {
@@ -332,6 +331,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
   honua_studio_remove_control: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_remove_control",
     build: (args) => {
       if (!isNonEmptyString(args.controlId)) {
         return { ok: false, reason: 'honua_studio_remove_control requires a non-empty string "controlId".' };
@@ -344,6 +344,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
   honua_studio_bind_interaction: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_bind_interaction",
     build: (args) => {
       const interaction = args.interaction;
       if (!isPlainObject(interaction)) {
@@ -354,6 +355,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
   honua_studio_remove_interaction: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_remove_interaction",
     build: (args) => {
       if (!isNonEmptyString(args.interactionId)) {
         return { ok: false, reason: 'honua_studio_remove_interaction requires a non-empty string "interactionId".' };
@@ -446,12 +448,35 @@ export function buildServerToolInvocation(
         name: "honua_studio_set_layer_style",
         arguments: { ...base, layerId: targetId(command.target), styleRef: command.styleRef?.styleId ?? null },
       };
+    case "setVisibility":
+      return {
+        name: "honua_studio_set_layer_visibility",
+        arguments: { ...base, layerId: targetId(command.target), visible: command.visible },
+      };
     case "setView":
       return { name: "honua_studio_set_view", arguments: { ...base, view: { ...command.view } } };
     case "addWidget":
       return { name: "honua_studio_add_widget", arguments: { ...base, widget: { ...command.widget } } };
     case "removeWidget":
       return { name: "honua_studio_remove_widget", arguments: { ...base, widgetId: targetId(command.target) } };
+    case "addControl":
+      return { name: "honua_studio_add_control", arguments: { ...base, control: { ...command.control } } };
+    case "removeControl":
+      return {
+        name: "honua_studio_remove_control",
+        arguments: {
+          ...base,
+          controlId: targetId(command.target),
+          ...(command.cascadeInteractions !== undefined ? { cascadeInteractions: command.cascadeInteractions } : {}),
+        },
+      };
+    case "bindInteraction":
+      return { name: "honua_studio_bind_interaction", arguments: { ...base, interaction: { ...command.interaction } } };
+    case "removeInteraction":
+      return {
+        name: "honua_studio_remove_interaction",
+        arguments: { ...base, interactionId: command.interactionId },
+      };
     default:
       return undefined;
   }

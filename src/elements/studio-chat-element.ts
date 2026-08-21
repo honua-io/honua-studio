@@ -14,6 +14,13 @@
  * the intended consumer of that event.
  */
 import {
+  type StudioAgentSession,
+  type StudioAgentSessionEvent,
+  type StudioAgentSessionOptions,
+  createStudioAgentSession,
+} from "@honua/sdk-js/studio-agent";
+
+import {
   type ActivityLog,
   type AnnotationRef,
   type ChatState,
@@ -28,6 +35,7 @@ import {
   createAnnotationRef,
   initialChatState,
 } from "../chat/index.js";
+import { getRuntimeConfig } from "../runtime-config.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
@@ -60,6 +68,8 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   #messageSeq = 0;
   #annotationSeq = 0;
   #activeAbort: AbortController | undefined;
+  #agentSession: StudioAgentSession | undefined;
+  #agentMessageId: string | undefined;
 
   /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
   public get auth(): AuthSession | undefined {
@@ -89,13 +99,50 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
    * `studio-app-element.ts`'s `.studioClient`.
    */
   public get transport(): ChatTransport {
-    if (!this.#transport) this.#transport = new SseChatTransport({ baseUrl: "/api", auth: this.#auth });
+    if (!this.#transport)
+      this.#transport = new SseChatTransport({ baseUrl: getRuntimeConfig().serverBaseUrl, auth: this.#auth });
     return this.#transport;
   }
 
   public set transport(transport: ChatTransport) {
     this.#transport = transport;
     this.#transportOverridden = true;
+  }
+
+  /** True when a host deliberately owns chat transport (for example a deterministic fixture replay). */
+  public get hasCustomTransport(): boolean {
+    return this.#transportOverridden;
+  }
+
+  /** Activates the SDK-owned live tool loop. Fixture transport remains the default until this is called. */
+  public attachAgentSession(options: StudioAgentSessionOptions): StudioAgentSession {
+    const callerOnEvent = options.onEvent;
+    this.#agentSession = createStudioAgentSession({
+      ...options,
+      onEvent: (event) => {
+        callerOnEvent?.(event);
+        this.#consumeAgentSessionEvent(event);
+      },
+    });
+    return this.#agentSession;
+  }
+
+  public detachAgentSession(): void {
+    this.#agentSession = undefined;
+    this.#agentMessageId = undefined;
+  }
+
+  /** Returns a governed lifecycle outcome to the visible conversation. */
+  public appendAssistantNotice(text: string): void {
+    const id = this.#nextMessageId();
+    this.#state = chatReducer(this.#state, { type: "assistant-turn-started", id });
+    this.#state = chatReducer(this.#state, { type: "ai-event", id, event: { type: "textDelta", text } });
+    this.#state = chatReducer(this.#state, {
+      type: "ai-event",
+      id,
+      event: { type: "messageStop", stopReason: "endTurn" },
+    });
+    this.render();
   }
 
   /** This console's own replayable activity log (spec REQ-012) — read-only; assign a fresh `createActivityLog()` (e.g. with a deterministic `clock`) BEFORE sending any messages to control its timestamps. */
@@ -219,7 +266,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
 
     const annotations = this.#state.pendingAnnotations;
     const wireContent = composeMessageContent(trimmed, annotations);
-    this.#history.push({ role: "user", content: wireContent });
+    if (!this.#agentSession) this.#history.push({ role: "user", content: wireContent });
 
     const userMessageId = this.#nextMessageId();
     this.#state = chatReducer(this.#state, {
@@ -238,10 +285,10 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     this.dispatchTypedEvent<HonuaStudioChatMessageDetail>("honua-studio-chat-message", { text: trimmed });
     this.render();
 
-    await this.#runAssistantTurn();
+    await this.#runAssistantTurn(wireContent);
   }
 
-  async #runAssistantTurn(): Promise<void> {
+  async #runAssistantTurn(wireContent: string): Promise<void> {
     const assistantMessageId = this.#nextMessageId();
     this.#state = chatReducer(this.#state, { type: "assistant-turn-started", id: assistantMessageId });
     this.activityLog.append("assistant_turn_started", { messageId: assistantMessageId });
@@ -250,6 +297,54 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     const controller = new AbortController();
     this.#activeAbort = controller;
     let settled = false;
+
+    if (this.#agentSession) {
+      this.#agentMessageId = assistantMessageId;
+      try {
+        const turn = await this.#agentSession.chat(wireContent, { signal: controller.signal });
+        if (turn.status === "completed") {
+          settled = true;
+          const stopEvent = { type: "messageStop" as const, stopReason: turn.stopReason ?? "endTurn" };
+          this.#state = chatReducer(this.#state, { type: "ai-event", id: assistantMessageId, event: stopEvent });
+          this.activityLog.append("assistant_turn_completed", {
+            messageId: assistantMessageId,
+            stopReason: stopEvent.stopReason,
+            rounds: turn.rounds,
+          });
+          this.dispatchTypedEvent<HonuaStudioChatTurnCompleteDetail>("honua-studio-chat-turn-complete", {
+            messageId: assistantMessageId,
+            stopReason: stopEvent.stopReason,
+          });
+        } else if (turn.status === "cancelled") {
+          settled = false;
+        } else {
+          settled = true;
+          const errorMessage = turn.errorMessage ?? `Studio agent turn ${turn.status}.`;
+          this.#state = chatReducer(this.#state, {
+            type: "ai-event",
+            id: assistantMessageId,
+            event: { type: "error", errorMessage },
+          });
+          this.activityLog.append("assistant_turn_error", { messageId: assistantMessageId, errorMessage });
+          this.dispatchTypedEvent<HonuaStudioChatTurnErrorDetail>("honua-studio-chat-turn-error", {
+            messageId: assistantMessageId,
+            errorMessage,
+          });
+        }
+      } finally {
+        this.#agentMessageId = undefined;
+        if (this.#activeAbort === controller) this.#activeAbort = undefined;
+        if (!settled) {
+          this.#state = chatReducer(this.#state, { type: "turn-cancelled", id: assistantMessageId });
+          this.activityLog.append("assistant_turn_cancelled", { messageId: assistantMessageId });
+          this.dispatchTypedEvent<HonuaStudioChatTurnCancelledDetail>("honua-studio-chat-turn-cancelled", {
+            messageId: assistantMessageId,
+          });
+        }
+        this.render();
+      }
+      return;
+    }
 
     try {
       for await (const event of this.transport.streamChat({ messages: this.#history }, controller.signal)) {
@@ -339,6 +434,41 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
       }
       this.render();
     }
+  }
+
+  #consumeAgentSessionEvent(sessionEvent: StudioAgentSessionEvent): void {
+    const messageId = this.#agentMessageId;
+    if (!messageId) return;
+    if (sessionEvent.type === "toolResult") {
+      this.activityLog.append("tool_call_completed", {
+        messageId,
+        toolCallId: sessionEvent.result.toolCallId,
+        toolName: sessionEvent.result.toolName,
+        ok: sessionEvent.result.ok,
+        plane: sessionEvent.result.plane,
+        retriedAfterConflict: sessionEvent.result.retriedAfterConflict ?? false,
+      });
+      return;
+    }
+    const event = sessionEvent.event;
+    // StudioAgentSession may run several assistant rounds. Intermediate
+    // messageStop events mean "dispatch tools", not "the UI turn is done";
+    // the final status is applied after chat() resolves above.
+    if (event.type === "messageStop" || event.type === "error") return;
+    this.#state = chatReducer(this.#state, { type: "ai-event", id: messageId, event });
+    if (event.type === "toolCallStart" && event.toolCallId && event.toolName) {
+      this.activityLog.append("tool_call_started", {
+        messageId,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+      });
+      this.dispatchTypedEvent<HonuaStudioChatToolCallStartDetail>("honua-studio-chat-tool-call-start", {
+        messageId,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+      });
+    }
+    this.render();
   }
 
   #nextMessageId(): string {

@@ -9,6 +9,7 @@ import type {
   StudioContentVersionListResponse,
   StudioPackageDraft,
   StudioPublicationRequest,
+  StudioPublicationRequestStatusResult,
   StudioRollbackRequest,
   StudioVersionComparison,
 } from "../../src/lifecycle/lifecycle-types.js";
@@ -55,6 +56,13 @@ class FakeLifecycleClient {
     versionId: "version-1",
     status: "accepted",
     createdAt: "2026-01-01T00:00:00Z",
+  };
+  public publicationStatus: StudioPublicationRequestStatusResult = {
+    requestId: "req-1",
+    itemId: "item-1",
+    versionId: "version-1",
+    status: "published",
+    publicUrl: "/api/v1/published/studio/parcels-overview",
   };
   public rollbackResponse: StudioRollbackRequest = {
     requestId: "req-2",
@@ -116,6 +124,10 @@ class FakeLifecycleClient {
   async requestPublish(itemId: unknown, versionId: unknown, input: unknown): Promise<StudioPublicationRequest> {
     this.requestPublishCalls.push({ itemId, versionId, input });
     return this.publishResponse;
+  }
+
+  async getPublicationRequest(): Promise<StudioPublicationRequestStatusResult> {
+    return this.publicationStatus;
   }
 
   async requestRollback(itemId: unknown, input: unknown): Promise<StudioRollbackRequest> {
@@ -305,8 +317,46 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       expect(client.requestRollbackCalls).toHaveLength(0);
       expect(el.shadowRoot?.querySelector('[data-testid="lifecycle-confirm-dialog"]')).toBeFalsy(); // dialog closes after success
       expect(el.shadowRoot?.querySelector('[data-testid="lifecycle-panel-message"]')?.textContent).toContain(
-        "Published",
+        "Human approval complete",
       );
+      expect(
+        el.shadowRoot?.querySelector<HTMLAnchorElement>('[data-testid="lifecycle-approved-public-link"]')?.href,
+      ).toContain("/api/v1/published/studio/parcels-overview");
+    });
+
+    it("never renders or emits a link until the request status is approved or published", async () => {
+      const client = new FakeLifecycleClient();
+      client.publicationStatus = {
+        ...client.publicationStatus,
+        status: "pending",
+        // A defensive contract case: even a premature server URL must not
+        // cross Studio's approval boundary.
+        publicUrl: "/api/v1/published/studio/not-approved",
+      };
+      const { el } = mount(client);
+      const activity = vi.fn();
+      el.addEventListener("honua-studio-lifecycle-activity", activity);
+      el.draftId = "draft-1";
+      await flush();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-publish"]')?.click();
+      await flush();
+
+      const input = el.shadowRoot?.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]');
+      if (input) {
+        input.value = "parcels-overview";
+        input.dispatchEvent(new Event("input"));
+      }
+      await flush();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')?.click();
+      await flush();
+
+      expect(el.shadowRoot?.querySelector('[data-testid="lifecycle-approved-public-link"]')).toBeFalsy();
+      expect(el.shadowRoot?.querySelector('[data-testid="lifecycle-publication-pending"]')).toBeTruthy();
+      const statusEvent = activity.mock.calls
+        .map((call) => (call[0] as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail)
+        .find((detail) => detail.kind === "publication-status");
+      expect(statusEvent).toMatchObject({ kind: "publication-status", message: "pending" });
+      expect(statusEvent).not.toHaveProperty("publicUrl");
     });
 
     it("Cancel closes the dialog without ever calling requestPublish", async () => {

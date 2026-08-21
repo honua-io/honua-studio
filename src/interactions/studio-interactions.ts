@@ -10,8 +10,8 @@
  * control's own id, through `bindFilterControlsToExploration` — the published
  * `@honua/sdk-js/interactions` primitive. That single write is:
  *
- *  - what a `control:{id}` + `change` binding observes (`./declarative.ts`
- *    subscribes to the same slice on its own view), and
+ *  - what a `control:{id}` + `change` binding observes (the SDK declarative
+ *    compiler subscribes to the same slice on its own view), and
  *  - what this runtime reads back to compute the map's *appearance* — per
  *    layer filters and opacity.
  *
@@ -25,9 +25,8 @@
  * differ on every applied command. A filter set imperatively with
  * `map.setFilter(...)` would be reverted by the very next diff — composition
  * state is correct, the readout is correct, nothing throws, and the map
- * silently drops the filter. (The same class of bug
- * `pruneUndefinedStyleProperties` exists to prevent.) So filters and opacity
- * are **projection inputs**, applied where every other visual property is.
+ * silently drops the filter. So filters and opacity are **projection
+ * inputs**, applied where every other visual property is.
  *
  * They are deliberately *not* composition state: `StudioCompositionBody` has
  * no filter or opacity member (honua-server#3002/#3196), and inventing local
@@ -41,17 +40,16 @@
 import { createExplorationContext } from "@honua/sdk-js/exploration";
 import type { ExplorationContext, ExplorationViewController, FilterClause } from "@honua/sdk-js/exploration";
 import { bindFilterControlsToExploration } from "@honua/sdk-js/interactions";
+import {
+  type HonuaCompiledInteractions,
+  type HonuaInteractionComponents,
+  type HonuaInteractionDispatch,
+  compileHonuaInteractions,
+} from "@honua/sdk-js/interactions/declarative";
 
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionControl, CompositionState, CompositionTarget } from "../composition/model.js";
 import { CONTROL_KIND_EMITS_CHANGE, controlTargetLayers, readControlConfig } from "../controls/control-config.js";
-import {
-  type CompileStudioInteractionsOptions,
-  type InteractionDispatchRecord,
-  type StudioCompiledInteractions,
-  type StudioInteractionComponents,
-  compileStudioInteractions,
-} from "./declarative.js";
 import { type MaplibreFilter, clausesToMaplibreFilter } from "./filter-expression.js";
 
 /**
@@ -76,7 +74,7 @@ export interface StudioInteractionRuntimeOptions {
   /** Called whenever the computed appearance changes — the canvas hands it to the map view. */
   readonly onAppearanceChange?: (appearance: StudioLayerAppearance) => void;
   /** Called after every action a binding ran. The activity log's hook. */
-  readonly onDispatch?: (dispatch: InteractionDispatchRecord) => void;
+  readonly onDispatch?: (dispatch: HonuaInteractionDispatch) => void;
 }
 
 /**
@@ -86,7 +84,7 @@ export interface StudioInteractionRuntimeOptions {
  * Three exploration views, and the split matters:
  *
  *  - `controls` (role `filter`) — what control gestures publish through.
- *  - `interactions` (role `custom`) — what `./declarative.ts` subscribes on.
+ *  - `interactions` (role `custom`) — what the SDK compiler subscribes on.
  *    Separate from `controls` so a verb's own write cannot wake the compiler:
  *    bound views ignore their own notifications.
  *  - `appearance` (role `map`) — what this runtime reads the merged filter
@@ -102,7 +100,7 @@ export class StudioInteractionRuntime {
   readonly #options: StudioInteractionRuntimeOptions;
   #unsubscribeAppearance: (() => void) | undefined;
   #unsubscribeComposition: (() => void) | undefined;
-  #compiled: StudioCompiledInteractions | undefined;
+  #compiled: HonuaCompiledInteractions | undefined;
   /** Clauses a `setFilter` verb wrote, keyed `layerId` -> `interactionId` -> clause. Never published into the shared slice — that would be an action emitting an event. */
   readonly #verbFilters = new Map<string, Map<string, FilterClause>>();
   #appearance: StudioLayerAppearance = EMPTY_LAYER_APPEARANCE;
@@ -130,7 +128,7 @@ export class StudioInteractionRuntime {
   }
 
   /** The compiled interaction block, or `undefined` before the first compile. Its `issues`/`unsupported` are what the canvas reports. */
-  public get compiled(): StudioCompiledInteractions | undefined {
+  public get compiled(): HonuaCompiledInteractions | undefined {
     return this.#compiled;
   }
 
@@ -205,24 +203,23 @@ export class StudioInteractionRuntime {
     this.#documentKey = this.#documentIdentity();
     this.#compiled?.dispose();
     this.#verbFilters.clear();
-    const options: CompileStudioInteractionsOptions = {
-      interactions: this.#controller.state.interactions,
+    const options = {
       view: this.#compilerView,
       components: this.#components(),
       ...(this.#options.onDispatch !== undefined ? { onDispatch: this.#options.onDispatch } : {}),
     };
-    this.#compiled = compileStudioInteractions(options);
+    this.#compiled = compileHonuaInteractions(this.#controller.state.interactions, options);
   }
 
   /**
    * Builds the component registry from composition state. Registry shape is
    * the SDK compiler's (`map` / `layers` / `widgets` / `controls`), so a
    * binding validated here is validated identically once the SDK module
-   * replaces `./declarative.ts`.
+   * compiles through `@honua/sdk-js/interactions/declarative`.
    */
-  #components(): StudioInteractionComponents {
+  #components(): HonuaInteractionComponents {
     const state = this.#controller.state;
-    const layerComponents: Record<string, NonNullable<StudioInteractionComponents["layers"]>[string]> = {};
+    const layerComponents: Record<string, NonNullable<HonuaInteractionComponents["layers"]>[string]> = {};
     for (const layer of state.layers) {
       layerComponents[layer.id] = {
         sourceId: layer.sourceId,
@@ -232,12 +229,9 @@ export class StudioInteractionRuntime {
         setFilter: (clause: FilterClause | undefined) => {
           this.#setVerbFilter(layer.id, clause);
         },
-        selectFeature: (featureId: string | number) => {
-          this.#controller.select([{ kind: "feature", sourceId: layer.sourceId, featureId }]);
-        },
       };
     }
-    const widgetComponents: Record<string, NonNullable<StudioInteractionComponents["widgets"]>[string]> = {};
+    const widgetComponents: Record<string, NonNullable<HonuaInteractionComponents["widgets"]>[string]> = {};
     for (const widget of state.widgets) widgetComponents[widget.id] = {};
     const controlComponents: Record<string, Record<string, unknown>> = {};
     for (const control of state.controls) controlComponents[control.id] = {};

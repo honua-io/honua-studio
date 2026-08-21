@@ -67,11 +67,11 @@ Implementation: `src/elements/studio-chat-element.ts` (honua-studio#6,
 realizing the honua-studio#5 placeholder shape). Renders a user/assistant/
 tool-call message list with streaming text, a composer with removable
 annotation reference chips (spec REQ-012), and cancellation. Talks to the
-model exclusively through the `ChatTransport` seam (`src/chat/transport.ts`)
-— never `fetch` directly — so the same element renders identically against
-the real server AI proxy or a deterministic fixture conversation (AD-4). Per
-AD-5/AD-8 this element EMITS tool-call intents and renders results; it does
-not own composition state (honua-studio#8 owns that).
+model through either the SDK `StudioAgentSession` live loop or the
+`ChatTransport` seam (`src/chat/transport.ts`) for deterministic fixture
+conversation replay (AD-4). It never calls `fetch` directly. Per AD-5/AD-8
+this element renders tool calls and results; composition state remains owned
+by honua-studio#8.
 
 **Attributes**: `label`, `placeholder`.
 
@@ -82,6 +82,7 @@ not own composition state (honua-studio#8 owns that).
 | `auth` | `AuthSession \| undefined` | Direct override; falls back to the nearest `<honua-studio-app>` ancestor's `.auth` (`src/elements/session.ts`). |
 | `transport` | `ChatTransport` | Defaults to a lazily-constructed `SseChatTransport` reading `/api` (honua-server#3010), bearer-attached via `.auth`. Override with `FixtureChatTransport` (`src/chat/fixture-transport.ts`) for deterministic dev/CI/demo replay — AD-4's "no-model fixture-conversation mode". |
 | `activityLog` | `ActivityLog` | This console's own replayable log (`src/chat/activity-log.ts`) — read-only in practice; assign a fresh instance (e.g. with a deterministic `clock`) before sending any messages to control it. |
+| `hasCustomTransport` | `boolean` | Read-only. True after a host explicitly assigns `.transport`; live MCP draft mode preserves that host-owned conversation instead of replacing it with an SDK model session. |
 | `messages` | `readonly ChatMessage[]` | Read-only. |
 | `pendingAnnotations` | `readonly AnnotationRef[]` | Read-only — chips attached in the composer but not yet sent. |
 | `streaming` | `boolean` | Read-only. |
@@ -93,7 +94,9 @@ replay), `removeAnnotation(id: string): void`, `sendMessage(text: string): Promi
 (folds pending annotations into the outgoing wire content — see
 `src/chat/annotation.ts`'s `composeMessageContent` — and streams the reply;
 resolves once the turn settles, never rejects), `cancel(): void` (aborts the
-in-flight turn, if any).
+in-flight turn, if any), `attachAgentSession(options): StudioAgentSession`
+(activates the SDK-owned multi-round live tool loop), and
+`detachAgentSession(): void`.
 
 **Events**: `honua-studio-chat-message` (`{ text }`, unchanged since
 honua-studio#5), `honua-studio-chat-annotation-added` (`{ annotation }`),
@@ -258,10 +261,10 @@ canvas readout carries a matching "not rendered" flag.
 **How `change` reaches an interaction.** One transport, and it is the SDK's:
 a control publishes a `FilterClause` keyed by its own id through
 `bindFilterControlsToExploration` (`@honua/sdk-js/interactions`) on a shared
-`ExplorationContext`. `src/interactions/declarative.ts` — the local stand-in
-for `@honua/sdk-js/interactions/declarative` (sdk-js#1259), which is not in
-the published `0.1.2-beta.0` — subscribes to that same slice on a *separate*
-exploration view and runs the bound verb. `honua-studio-control-change` is a
+`ExplorationContext`. The compiler from
+`@honua/sdk-js/interactions/declarative` subscribes to that same slice on a
+*separate* exploration view and runs the bound verb.
+`honua-studio-control-change` is a
 DOM **notification** of the same gesture for hosts, never the transport.
 
 **Actions never emit events** (ADR-0030) is enforced three ways: the

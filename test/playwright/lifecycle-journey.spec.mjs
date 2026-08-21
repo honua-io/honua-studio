@@ -124,7 +124,7 @@ test.describe("package lifecycle journey: browse -> open -> edit -> version -> c
       await submit.click();
 
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeHidden();
-      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Published");
+      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Human approval complete");
 
       // Verify against the REAL store, independent of the UI: the item is
       // now published, pointing at v2 (the version confirmed above).

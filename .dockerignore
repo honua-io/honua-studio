@@ -1,0 +1,9 @@
+.git
+.github
+.tmp
+.worktrees
+dist
+harness/blazor-host
+node_modules
+test
+*.log

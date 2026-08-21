@@ -5,29 +5,12 @@
  * #3003) — every method below corresponds 1:1 to one row of that doc's
  * endpoint table, at `${baseUrl}/v1/studio/...`.
  *
- * ## The sdk-js seam (mirrors `composition/history.ts`'s documented pattern)
- *
- * `@honua/sdk-js`'s Studio lifecycle client
- * (`src/studio/lifecycle-client.ts`, `HonuaStudioLifecycleClient`,
- * honua-sdk-js#780) is the eventual real implementation of this surface —
- * but this app's `package.json` pins `@honua/sdk-js@0.1.2-beta.0`, published
- * before that work merged; that version does not export a lifecycle client
- * at all. Rather than block this issue on a republish, this module is a
- * complete, independently-typed REST client against the documented endpoint
- * shapes (`lifecycle-types.ts` mirrors the server DTOs' `[JsonPropertyName]`
- * casing field-for-field), built the same way `client/studio-client.ts` and
- * `mcp/client.ts` are: a thin fetch wrapper, no schema-validation dependency,
- * bearer-attached via the same `TokenSource` shape those two already use.
- *
- * When the SDK republishes with the lifecycle client, every call site in
- * this package (`studio-content-browser-element.ts`,
- * `studio-lifecycle-panel-element.ts`) can swap `StudioLifecycleClient` for
- * a thin adapter with the SAME method names/shapes — nothing here is
- * hand-wavy about the swap because every method already matches
- * `docs/internal/admin-api/studio-package-lifecycle.md`'s table exactly, and
- * the request/response types in `lifecycle-types.ts` already match the
- * server DTOs the SDK will project from the same doc's "SDK Projection
- * Requirements" section.
+ * `@honua/sdk-js@0.1.7-beta.0` supplies the canonical lifecycle client for
+ * the stable draft/version surface. This thin projection remains temporarily
+ * because Studio also needs joined enumeration badges and the poll/list
+ * publication-request contract tracked by honua-server#3304, neither of
+ * which is exposed as one SDK surface yet. Removal gate: replace this module
+ * when the released SDK covers those three Studio UI reads.
  *
  * ## The human gate (spec REQ-009 — READ BEFORE TOUCHING THIS FILE)
  *
@@ -73,6 +56,8 @@ import type {
   StudioPreviewPlan,
   StudioProblemDetails,
   StudioPublicationRequest,
+  StudioPublicationRequestListResponse,
+  StudioPublicationRequestStatusResult,
   StudioPublishRequestInput,
   StudioRollbackRequest,
   StudioRollbackRequestInput,
@@ -255,6 +240,19 @@ export class StudioLifecycleClient {
       `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests`,
       request,
     );
+  }
+
+  /** honua-server#3304: poll the governed request; never approves it. */
+  public getPublicationRequest(itemId: string, requestId: string): Promise<StudioPublicationRequestStatusResult> {
+    return this.#request(
+      "GET",
+      `/content-items/${encodeURIComponent(itemId)}/publish-requests/${encodeURIComponent(requestId)}`,
+    );
+  }
+
+  /** honua-server#3304: newest-first request list for a pending-state surface. */
+  public listPublicationRequests(itemId: string): Promise<StudioPublicationRequestListResponse> {
+    return this.#request("GET", `/content-items/${encodeURIComponent(itemId)}/publish-requests`);
   }
 
   /**

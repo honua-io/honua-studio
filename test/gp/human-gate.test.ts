@@ -49,6 +49,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../..");
 const srcRoot = join(repoRoot, "src");
 
+function relativeSource(file: string): string {
+  return relative(srcRoot, file).replaceAll("\\", "/");
+}
+
 /** Every `.ts` file under `src/`, relative to `src/`. */
 function listSourceFiles(dir: string): string[] {
   const entries = readdirSync(dir);
@@ -74,7 +78,7 @@ describe("THE HUMAN GATE (GP execution) — spec REQ-009 discipline (static anal
   it("the only file anywhere under src/ that calls .submit( is the gp panel element", () => {
     const callers = allSourceFiles
       .filter((file) => GATED_METHOD_CALL_PATTERN.test(readFileSync(file, "utf8")))
-      .map((file) => relative(srcRoot, file))
+      .map(relativeSource)
       .sort();
     expect(callers).toEqual(["elements/studio-gp-panel-element.ts"]);
   });
@@ -83,7 +87,7 @@ describe("THE HUMAN GATE (GP execution) — spec REQ-009 discipline (static anal
     const agentReachableDirs = ["mcp", "chat", "composition"];
     const offenders: string[] = [];
     for (const file of allSourceFiles) {
-      const relativePath = relative(srcRoot, file);
+      const relativePath = relativeSource(file);
       if (!agentReachableDirs.some((dir) => relativePath.startsWith(`${dir}/`))) continue;
       const content = readFileSync(file, "utf8");
       if (JOB_CLIENT_IMPORT_PATTERN.test(content) || GATED_METHOD_CALL_PATTERN.test(content)) {

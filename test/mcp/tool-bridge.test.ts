@@ -30,6 +30,20 @@ describe("mcp/tool-bridge resolveToolCall", () => {
       expect(resolution.serverToolName).toBeUndefined();
     });
 
+    it("setVisibility delegates to honua_studio_set_layer_visibility", () => {
+      const resolution = resolveToolCall({
+        toolName: "setVisibility",
+        arguments: { target: { kind: "layer", id: "roads" }, visible: false },
+      });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.serverToolName).toBe("honua_studio_set_layer_visibility");
+      expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 4 })).toEqual({
+        name: "honua_studio_set_layer_visibility",
+        arguments: { draftId: "d1", generation: 4, layerId: "roads", visible: false },
+      });
+    });
+
     it("invalid composition arguments fail with invalid-arguments", () => {
       const resolution = resolveToolCall({ toolName: "addLayer", arguments: { layer: { id: "" } } });
       expect(resolution.ok).toBe(false);
