@@ -6,7 +6,7 @@
   "releaseContract": "honua-release#123/D9.3",
   "target": "local-docker",
   "planSha256": "4358e1c03a56f0cc8996133a608f421a5d9828cb8462a458983eab635348a1fe",
-  "sourceRevision": "5950d762010cee8f1d0dfe4340c3abe85b16db1a",
+  "sourceRevision": "5d5483f155fe4e7774a9c29dc2686031d6971dac",
   "mcpEndpointSha256": "a48ad26a33174a1b23960c4d2f269c6fa15dd13632b042901d7f3f81d67baffc",
   "candidateId": "manifest-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "releaseId": "2026.1-rc.2",
@@ -14,6 +14,7 @@
     "startedAt": "2026-08-20T12:00:00.000Z",
     "capturedVariables": {
       "serviceName": "zero-to-map",
+      "fixtureBaseUrl": "https://fixtures.example.test",
       "connectionId": "connectionId-fixture",
       "parcelsLayerId": "parcelsLayerId-fixture",
       "zoningLayerId": "zoningLayerId-fixture",
@@ -854,6 +855,6 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "7948fd232666e393aa4438dfe15507d8b543e071500da53a34ddafd7e1b99157"
+    "digest": "62ed766245d6d48243f5a95b60f478ee2217e1417fdf5f9b951129f46f73539d"
   }
 }

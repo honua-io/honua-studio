@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-export const REQUIRED_SDK_GIT_HEAD = "5950d762010cee8f1d0dfe4340c3abe85b16db1a";
+export const REQUIRED_SDK_GIT_HEAD = "5d5483f155fe4e7774a9c29dc2686031d6971dac";
 
 export function verifySdkPublication({ dependencyVersion, lockEntry, metadata }) {
   if (typeof dependencyVersion !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(dependencyVersion)) {

@@ -25,6 +25,14 @@ const CANONICAL_PLAN = JSON.parse(CANONICAL_PLAN_BYTES);
 const CANONICAL_CHECKPOINT = JSON.parse(
   await readFile(new URL("./fixtures/zero-to-map/checkpoint.v1.json", import.meta.url), "utf8"),
 );
+const CANONICAL_ADVERTISED_TOOLS = [
+  ...new Set(
+    CANONICAL_PLAN.stages
+      .flatMap((stage) => stage.actions)
+      .filter((action) => action.kind === "mcp")
+      .map((action) => action.tool),
+  ),
+].map((name) => ({ name, description: `Canonical ${name} fixture`, inputSchema: { type: "object" } }));
 const CURRENT_HEAD = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const CANDIDATE = `manifest-sha256:${"a".repeat(64)}`;
 const COMPONENTS = Object.fromEntries(
@@ -196,7 +204,10 @@ function fixture(target = "aws-ecs") {
       ],
     },
   ];
-  const capturedVariables = { serviceName: "zero-to-map" };
+  const capturedVariables = {
+    serviceName: "zero-to-map",
+    fixtureBaseUrl: "https://fixtures.example.test",
+  };
   let actionSecond = 0;
   const completedStages = stages.slice(0, 5).map((stage) => ({
     number: stage.number,
@@ -464,6 +475,11 @@ describe("candidate-bound real-model AI arc", () => {
     const { integrity, ...checkpointPayload } = CANONICAL_CHECKPOINT;
     expect(integrity).toEqual({ algorithm: "sha256", digest: sha256(canonicalJson(checkpointPayload)) });
     expect(indexCompletedReceipts(CANONICAL_PLAN, CANONICAL_CHECKPOINT)).toHaveProperty("size", 60);
+    const operations = buildOperations(CANONICAL_PLAN, CANONICAL_CHECKPOINT, CANONICAL_ADVERTISED_TOOLS);
+    expect(operations).toHaveLength(MODEL_ACTION_SPECS.length);
+    expect(operations.find((operation) => operation.action.id === "import-parcels")?.expected).toMatchObject({
+      body: { sourceUrl: "https://fixtures.example.test/parcels.geojson" },
+    });
     expect(CANONICAL_CHECKPOINT.resume.capturedVariables).toMatchObject({
       mapGeneration: 8,
       appGeneration: 8,
@@ -483,6 +499,19 @@ describe("candidate-bound real-model AI arc", () => {
     finalMismatch.resume.capturedVariables.mapGeneration = 999;
     expect(() => indexCompletedReceipts(CANONICAL_PLAN, finalMismatch)).toThrow(
       "captures do not equal action receipt captures",
+    );
+
+    const missingFixtureSource = structuredClone(CANONICAL_CHECKPOINT);
+    const { fixtureBaseUrl: _missingFixture, ...remainingVariables } = missingFixtureSource.resume.capturedVariables;
+    missingFixtureSource.resume.capturedVariables = remainingVariables;
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, missingFixtureSource)).toThrow(
+      "checkpoint fixtureBaseUrl seed is missing",
+    );
+
+    const privateFixtureSource = structuredClone(CANONICAL_CHECKPOINT);
+    privateFixtureSource.resume.capturedVariables.fixtureBaseUrl = "https://127.0.0.1";
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, privateFixtureSource)).toThrow(
+      "must not use a loopback or private endpoint",
     );
 
     const immutablePlan = structuredClone(CANONICAL_PLAN);

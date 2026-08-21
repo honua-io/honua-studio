@@ -17,7 +17,7 @@ const CONSOLE_SCHEMA = "honua.zero-to-map.console-receipt/v1";
 const CONSOLE_EVIDENCE_SCHEMA = "honua.console.ai-arc-evidence/v1";
 const JOURNEY_ID = "2026.1-zero-to-map";
 const RELEASE_CONTRACT = "honua-release#123/D9.3";
-export const EXPECTED_SDK_SHA = "5950d762010cee8f1d0dfe4340c3abe85b16db1a";
+export const EXPECTED_SDK_SHA = "5d5483f155fe4e7774a9c29dc2686031d6971dac";
 export const EXPECTED_PLAN_SHA256 = "4358e1c03a56f0cc8996133a608f421a5d9828cb8462a458983eab635348a1fe";
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -73,7 +73,7 @@ function modelContract(target) {
   throw new ArcRefusal("real-model contract target must be local-docker or aws-ecs");
 }
 
-/** Exact model-reconciled action roster owned by sdk-js 5950d762. Order and multiplicity are contract data. */
+/** Exact model-reconciled action roster owned by sdk-js 5d5483f1. Order and multiplicity are contract data. */
 export const MODEL_ACTION_SPECS = [
   actionSpec("admin-status", "admin", "server-status", "mcp", "honua_admin_server_status"),
   actionSpec("create-connection", "admin", "connection-create", "mcp", "honua_admin_connection_create"),
@@ -349,6 +349,35 @@ function httpsUrl(value, label) {
   return url.toString();
 }
 
+function normalizedPublicHttps(value, label) {
+  const result = text(value, label);
+  const url = new URL(result);
+  if (url.protocol !== "https:" || url.username || url.password || !url.hostname) {
+    throw new ArcRefusal(`${label} must be a public HTTPS URL without credentials`);
+  }
+  const hostname = url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname.startsWith("127.") ||
+    hostname.startsWith("10.") ||
+    hostname.startsWith("169.254.") ||
+    hostname.startsWith("192.168.") ||
+    /^172\.(?:1[6-9]|2[0-9]|3[01])\./.test(hostname) ||
+    /^(?:fc|fd)[0-9a-f]{2}:/.test(hostname) ||
+    /^fe[89ab][0-9a-f]:/.test(hostname)
+  ) {
+    throw new ArcRefusal(`${label} must not use a loopback or private endpoint`);
+  }
+  return result.replace(/\/$/, "");
+}
+
 function stripYamlComment(value) {
   let quoted = false;
   let quote = "";
@@ -471,7 +500,7 @@ function verifyCheckpoint(checkpoint, planBytes, manifest, endpoint, provisionBy
     throw new ArcRefusal("SDK checkpoint is stale or has a future creation time");
   }
   if (checkpoint.planSha256 !== EXPECTED_PLAN_SHA256) {
-    throw new ArcRefusal(`SDK checkpoint must bind canonical 5950d762 plan ${EXPECTED_PLAN_SHA256}`);
+    throw new ArcRefusal(`SDK checkpoint must bind canonical 5d5483f1 plan ${EXPECTED_PLAN_SHA256}`);
   }
   if (sha256(planBytes) !== EXPECTED_PLAN_SHA256)
     throw new ArcRefusal("SDK plan bytes do not match checkpoint.planSha256");
@@ -720,16 +749,24 @@ export function indexCompletedReceipts(plan, checkpoint) {
   });
   const captured = object(checkpoint.resume.capturedVariables, "checkpoint.resume.capturedVariables");
   const restored = {};
-  // serviceName is the one plan-owned identity DevOps #149 needs even when an
-  // Admin mutation does not echo it. The SDK checkpoint must carry it
-  // explicitly and byte-for-byte equal the pinned plan variable; no other
-  // plan defaults are silently promoted into evidence joins.
+  // These are the two non-secret checkpoint seeds owned by SDK 5d5483f1.
+  // serviceName is plan-bound; fixtureBaseUrl is the validated public source
+  // needed to reconstruct completed Admin import arguments after credentials
+  // have been removed for resume.
   if (Object.hasOwn(captured, "serviceName")) {
     if (!scalar(plan.variables?.serviceName) || captured.serviceName !== plan.variables.serviceName) {
       throw new ArcRefusal("checkpoint serviceName does not equal the manifest-pinned SDK plan variable");
     }
     restored.serviceName = captured.serviceName;
   }
+  if (!Object.hasOwn(captured, "fixtureBaseUrl")) {
+    throw new ArcRefusal("checkpoint fixtureBaseUrl seed is missing");
+  }
+  const fixtureBaseUrl = normalizedPublicHttps(captured.fixtureBaseUrl, "checkpoint fixtureBaseUrl");
+  if (fixtureBaseUrl !== captured.fixtureBaseUrl) {
+    throw new ArcRefusal("checkpoint fixtureBaseUrl seed is not normalized");
+  }
+  restored.fixtureBaseUrl = fixtureBaseUrl;
   for (const { action, receipt } of receipts.values()) {
     const beforeAction = { ...restored };
     const captureSources = new Map();

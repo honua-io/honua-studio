@@ -85,7 +85,8 @@ matching outputs and repairs a missing half of the evidence/receipt pair; it nev
 ## Candidate binding
 
 The producer is locally covered with a mocked transport and does not claim live evidence. SDK PR #1375 exact head
-`5950d762010cee8f1d0dfe4340c3abe85b16db1a` owns the full action roster. Its canonical
+`5d5483f155fe4e7774a9c29dc2686031d6971dac` owns the full action roster and the credential-free, public-HTTPS
+fixture source needed to resume it. Its canonical
 `mcp/release/zero-to-map/journey.v1.json` SHA-256 is
 `4358e1c03a56f0cc8996133a608f421a5d9828cb8462a458983eab635348a1fe`; both identities are hard gates. The
 running Studio source is always `git rev-parse HEAD`, must have no tracked worktree/index changes, and must equal
@@ -94,7 +95,7 @@ cannot produce a passed receipt.
 
 The browser currently consumes the occupied `@honua/sdk-js@0.1.7-beta.0` package for development compatibility,
 but that registry coordinate was built from an older commit and cannot satisfy release. `npm run release:verify-sdk`
-fails closed until an immutable new SDK version is published from exact head `5950d762...`, Studio pins that version
+fails closed until an immutable new SDK version is published from exact head `5d5483f1...`, Studio pins that version
 and lock integrity, and the public npm metadata reports the exact git head. The release workflow runs this gate
 before any container or GitHub Release publication. Its governance preflight also refuses to enter a missing or
 bypassable `production` environment: an owner must configure a required reviewer, disable administrator bypass,

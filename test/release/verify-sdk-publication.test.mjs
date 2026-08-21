@@ -17,7 +17,7 @@ const valid = {
 };
 
 describe("release SDK publication gate", () => {
-  it("accepts only the public package from exact sdk-js 5950d762 with matching lock integrity", () => {
+  it("accepts only the public package from exact sdk-js 5d5483f1 with matching lock integrity", () => {
     expect(() => verifySdkPublication(valid)).not.toThrow();
   });
 
