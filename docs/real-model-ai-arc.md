@@ -47,8 +47,11 @@ its own privileged audit revalidation.
 - AWS ECS: `honua.aws-ecs.real-model-ai-arc-evidence/v1` and
   `honua.aws-ecs.real-model-ai-arc/v1`, byte-compatible with honua-devops PR #149 at
   `c5806b7ad352c63b63f3b1ec55c9e52e6e9e0de8`;
-- local Docker: `honua.studio.real-model-ai-arc-evidence/v1` and the
-  `honua.release.evidence-receipt/v1` `studio-real-model` receipt consumed by honua-release PR #160.
+- local Docker: `honua.local-docker.real-model-ai-arc-evidence/v1` and
+  `honua.local-docker.real-model-ai-arc/v1` with id `local-docker-real-model-ai-arc`. The receipt carries the same
+  detailed model, lane, join, check, component, and content-addressed evidence shape as AWS, with the local target,
+  local prompt/eval versions, and deterministic checkpoint/Console aggregate/Console sidecar hashes required by
+  honua-release PR #160.
 
 Only response, prompt, transcript, checkpoint, endpoint, and evidence hashes plus scalar identity joins are
 serialized. Raw prompts/model events, tool payloads, credentials, and provider secrets remain in memory. A

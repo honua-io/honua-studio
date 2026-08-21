@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 
 export const PROMPT_VERSION = "honua.aws-ecs.ai-arc.prompt/v1";
 export const EVAL_VERSION = "honua.aws-ecs.ai-arc.eval/v1";
+export const LOCAL_PROMPT_VERSION = "honua.local-docker.ai-arc.prompt/v1";
+export const LOCAL_EVAL_VERSION = "honua.local-docker.ai-arc.eval/v1";
 const HANDOFF_SCHEMA = "honua.studio.real-model-ai-arc-handoff/v1";
 const AWS_EVIDENCE_SCHEMA = "honua.aws-ecs.real-model-ai-arc-evidence/v1";
 const AWS_RECEIPT_SCHEMA = "honua.aws-ecs.real-model-ai-arc/v1";
-const LOCAL_EVIDENCE_SCHEMA = "honua.studio.real-model-ai-arc-evidence/v1";
-const RELEASE_RECEIPT_SCHEMA = "honua.release.evidence-receipt/v1";
+const LOCAL_EVIDENCE_SCHEMA = "honua.local-docker.real-model-ai-arc-evidence/v1";
+const LOCAL_RECEIPT_SCHEMA = "honua.local-docker.real-model-ai-arc/v1";
 const CHECKPOINT_SCHEMA = "honua.zero-to-map.checkpoint/v1";
 const CONSOLE_SCHEMA = "honua.zero-to-map.console-receipt/v1";
 const CONSOLE_EVIDENCE_SCHEMA = "honua.console.ai-arc-evidence/v1";
@@ -33,6 +35,28 @@ const actionSpec = (id, lane, role, kind, tool, family, evidenceName) => ({
   ...(family ? { family } : {}),
   ...(evidenceName ? { evidenceName } : {}),
 });
+
+function modelContract(target) {
+  if (target === "aws-ecs") {
+    return {
+      receiptSchema: AWS_RECEIPT_SCHEMA,
+      receiptId: "aws-ecs-real-model-ai-arc",
+      evidenceSchema: AWS_EVIDENCE_SCHEMA,
+      promptVersion: PROMPT_VERSION,
+      evalVersion: EVAL_VERSION,
+    };
+  }
+  if (target === "local-docker") {
+    return {
+      receiptSchema: LOCAL_RECEIPT_SCHEMA,
+      receiptId: "local-docker-real-model-ai-arc",
+      evidenceSchema: LOCAL_EVIDENCE_SCHEMA,
+      promptVersion: LOCAL_PROMPT_VERSION,
+      evalVersion: LOCAL_EVAL_VERSION,
+    };
+  }
+  throw new ArcRefusal("real-model contract target must be local-docker or aws-ecs");
+}
 
 /** Exact model-reconciled action roster owned by sdk-js 5950d762. Order and multiplicity are contract data. */
 export const MODEL_ACTION_SPECS = [
@@ -813,6 +837,7 @@ function promptFor(item, context) {
 }
 
 export async function prepareArc(context, adapters) {
+  const contract = modelContract(context.target);
   const advertised = await adapters.mcp.listTools();
   const operations = buildOperations(context.plan, context.checkpoint, advertised);
   const joins = scalarJoins(context.checkpoint.resume.capturedVariables);
@@ -879,8 +904,8 @@ export async function prepareArc(context, adapters) {
     source: context.source,
     components: context.components,
     model: { provider: context.provider, modelId: actualModel },
-    promptVersion: PROMPT_VERSION,
-    evalVersion: EVAL_VERSION,
+    promptVersion: contract.promptVersion,
+    evalVersion: contract.evalVersion,
     transcriptSha256,
     deterministic: {
       target: context.target,
@@ -933,6 +958,7 @@ function checkpointJoin(captured, name, actual, label) {
 }
 
 export function verifyHandoff(handoff, context) {
+  const contract = modelContract(context.target);
   const value = object(handoff, "real-model handoff");
   verifyConsoleReceiptRequest(context.plan, context.checkpoint);
   exactKeySet(
@@ -979,7 +1005,7 @@ export function verifyHandoff(handoff, context) {
   exactKeySet(value.model, ["provider", "modelId"], "real-model handoff model");
   if (value.model.provider !== context.provider) throw new ArcRefusal("real-model handoff provider changed at resume");
   text(value.model.modelId, "real-model handoff model identity");
-  if (value.promptVersion !== PROMPT_VERSION || value.evalVersion !== EVAL_VERSION) {
+  if (value.promptVersion !== contract.promptVersion || value.evalVersion !== contract.evalVersion) {
     throw new ArcRefusal("real-model handoff prompt/eval contract changed");
   }
   sha256Value(value.transcriptSha256, "real-model handoff transcriptSha256");
@@ -1469,6 +1495,7 @@ function requireJoinCoverage(lanes, joins) {
 }
 
 export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, options = {}) {
+  const contract = modelContract(context.target);
   const handoff = verifyHandoff(rawHandoff, context);
   const console = verifyConsole(rawConsole, context.checkpoint, context);
   if (!options.consoleEvidence || !options.aggregateBytes || !options.sidecarBytes) {
@@ -1497,8 +1524,8 @@ export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, 
     endpointSha256: context.endpointSha256,
     source: context.source,
     model: handoff.model,
-    promptVersion: PROMPT_VERSION,
-    evalVersion: EVAL_VERSION,
+    promptVersion: contract.promptVersion,
+    evalVersion: contract.evalVersion,
     transcriptSha256: handoff.transcriptSha256,
     target: context.target,
     ...(context.provisionReceiptSha256 ? { provisionReceiptSha256: context.provisionReceiptSha256 } : {}),
@@ -1508,80 +1535,54 @@ export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, 
     lanes,
     joins,
   };
-  const evidence =
-    context.target === "aws-ecs"
-      ? { schemaVersion: AWS_EVIDENCE_SCHEMA, ...common }
-      : { schemaVersion: LOCAL_EVIDENCE_SCHEMA, ...common };
+  const evidence = { schemaVersion: contract.evidenceSchema, ...common };
   assertSecretFree(evidence, "real-model evidence");
   const evidenceBytes = `${JSON.stringify(evidence, null, 2)}\n`;
   const evidenceSha256 = sha256(evidenceBytes);
   const url = httpsUrl(evidenceUrl, "HONUA_AI_ARC_EVIDENCE_URL");
-  if (context.target === "aws-ecs") {
-    return {
-      evidence,
-      evidenceBytes,
-      receipt: {
-        schemaVersion: AWS_RECEIPT_SCHEMA,
-        id: "aws-ecs-real-model-ai-arc",
-        status: "passed",
-        target: "aws-ecs",
-        candidateId: context.candidateId,
-        releaseId: context.releaseId,
-        endpointSha256: context.endpointSha256,
-        source: context.source,
-        components: context.components,
-        model: handoff.model,
-        promptVersion: PROMPT_VERSION,
-        evalVersion: EVAL_VERSION,
-        transcriptSha256: handoff.transcriptSha256,
-        deterministic: {
-          target: "aws-ecs",
-          provisionReceiptSha256: context.provisionReceiptSha256,
-          checkpointDigest: context.checkpoint.integrity.digest,
-          consoleAggregateSha256: sha256(options.aggregateBytes),
-          consoleEvidenceSha256: sha256(options.sidecarBytes),
-        },
-        lanes,
-        joins,
-        checks: Object.fromEntries(
-          [
-            "natural-language-admin-setup-config-publish",
-            "natural-language-esri-gp",
-            "natural-language-native-analysis",
-            "natural-language-map-app-dashboard-composition-publication",
-            "deterministic-id-join",
-            "same-endpoint-candidate",
-            "no-secret-serialization",
-          ].map((name) => [name, "passed"]),
-        ),
-        evidence: { url, sha256: evidenceSha256 },
-      },
-    };
-  }
+  const deterministic = {
+    target: context.target,
+    ...(context.provisionReceiptSha256 ? { provisionReceiptSha256: context.provisionReceiptSha256 } : {}),
+    checkpointDigest: context.checkpoint.integrity.digest,
+    consoleAggregateSha256: sha256(options.aggregateBytes),
+    consoleEvidenceSha256: sha256(options.sidecarBytes),
+  };
+  const checks = Object.fromEntries(
+    [
+      "natural-language-admin-setup-config-publish",
+      "natural-language-esri-gp",
+      "natural-language-native-analysis",
+      "natural-language-map-app-dashboard-composition-publication",
+      "deterministic-id-join",
+      "same-endpoint-candidate",
+      "no-secret-serialization",
+    ].map((name) => [name, "passed"]),
+  );
+  const receipt = {
+    schemaVersion: contract.receiptSchema,
+    id: contract.receiptId,
+    status: "passed",
+    target: context.target,
+    candidateId: context.candidateId,
+    releaseId: context.releaseId,
+    endpointSha256: context.endpointSha256,
+    source: context.source,
+    components: context.components,
+    model: handoff.model,
+    promptVersion: contract.promptVersion,
+    evalVersion: contract.evalVersion,
+    transcriptSha256: handoff.transcriptSha256,
+    deterministic,
+    lanes,
+    joins,
+    checks,
+    evidence: { url, sha256: evidenceSha256 },
+  };
+  assertSecretFree(receipt, "real-model receipt");
   return {
     evidence,
     evidenceBytes,
-    receipt: {
-      schemaVersion: RELEASE_RECEIPT_SCHEMA,
-      id: "studio-real-model",
-      status: "passed",
-      candidateId: context.candidateId,
-      releaseId: context.releaseId,
-      source: context.source,
-      components: { "honua-studio": context.components["honua-studio"] },
-      evidence: { url, sha256: evidenceSha256 },
-      claims: {
-        target: "local-docker",
-        journeyId: JOURNEY_ID,
-        releaseContract: RELEASE_CONTRACT,
-        checks: {
-          "real-model-turn": "passed",
-          "map-compose-save-reopen": "passed",
-          "app-compose-save-reopen": "passed",
-          "dashboard-compose-save-reopen": "passed",
-        },
-      },
-    },
+    receipt,
   };
 }
 

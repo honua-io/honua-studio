@@ -4,6 +4,8 @@ import {
   ArcRefusal,
   EXPECTED_PLAN_SHA256,
   EXPECTED_SDK_SHA,
+  LOCAL_EVAL_VERSION,
+  LOCAL_PROMPT_VERSION,
   MODEL_ACTION_SPECS,
   buildOperations,
   canonicalJson,
@@ -116,7 +118,7 @@ function modelAction(spec) {
   };
 }
 
-function fixture() {
+function fixture(target = "aws-ecs") {
   const install = [
     { id: "install-local", title: "install-local", kind: "cli", args: ["admin", "install"] },
     { id: "install-status", title: "install-status", kind: "cli", args: ["admin", "status"] },
@@ -220,7 +222,7 @@ function fixture() {
     state: "paused",
     journeyId: plan.journeyId,
     releaseContract: plan.releaseContract,
-    target: "aws-ecs",
+    target,
     candidateId: CANDIDATE,
     releaseId: "2026.1-rc.2",
     resume: {
@@ -239,7 +241,7 @@ function fixture() {
     integrity: { algorithm: "sha256", digest: "b".repeat(64) },
   };
   const context = {
-    target: "aws-ecs",
+    target,
     endpoint: "https://candidate.example.test",
     candidateId: CANDIDATE,
     releaseId: "2026.1-rc.2",
@@ -248,7 +250,7 @@ function fixture() {
     components: COMPONENTS,
     provider: "bedrock",
     requestedModel: "claude-sonnet",
-    provisionReceiptSha256: "d".repeat(64),
+    ...(target === "aws-ecs" ? { provisionReceiptSha256: "d".repeat(64) } : {}),
     checkpoint,
     plan,
   };
@@ -391,8 +393,8 @@ function publicFetch(context, overrides = {}) {
   });
 }
 
-async function preparedFixture() {
-  const { context, tools } = fixture();
+async function preparedFixture(target = "aws-ecs") {
+  const { context, tools } = fixture(target);
   const selectTool = vi.fn(async ({ model, tool, expectedArguments }) => ({
     modelId: model,
     toolName: tool.name,
@@ -502,6 +504,92 @@ describe("candidate-bound real-model AI arc", () => {
     await expect(
       finalizeFixture(context, handoff, console, publicFetch(context, { serverRevision: "f".repeat(40) })),
     ).rejects.toThrow("public server capabilities do not prove");
+  });
+
+  it("emits the strict Release-certified local Docker receipt and detailed evidence", async () => {
+    const { context, handoff } = await preparedFixture("local-docker");
+    const console = consoleReceipt(context);
+    const result = await finalizeFixture(context, handoff, console);
+
+    expect(Object.keys(result.receipt).sort()).toEqual(
+      [
+        "schemaVersion",
+        "id",
+        "status",
+        "target",
+        "candidateId",
+        "releaseId",
+        "endpointSha256",
+        "source",
+        "components",
+        "model",
+        "promptVersion",
+        "evalVersion",
+        "transcriptSha256",
+        "deterministic",
+        "lanes",
+        "joins",
+        "checks",
+        "evidence",
+      ].sort(),
+    );
+    expect(result.receipt).toEqual(
+      expect.objectContaining({
+        schemaVersion: "honua.local-docker.real-model-ai-arc/v1",
+        id: "local-docker-real-model-ai-arc",
+        status: "passed",
+        target: "local-docker",
+        candidateId: context.candidateId,
+        releaseId: context.releaseId,
+        endpointSha256: context.endpointSha256,
+        source: context.source,
+        components: context.components,
+        promptVersion: LOCAL_PROMPT_VERSION,
+        evalVersion: LOCAL_EVAL_VERSION,
+        transcriptSha256: handoff.transcriptSha256,
+        lanes: result.evidence.lanes,
+        joins: result.evidence.joins,
+      }),
+    );
+    expect(result.receipt.deterministic).toEqual({
+      target: "local-docker",
+      checkpointDigest: context.checkpoint.integrity.digest,
+      consoleAggregateSha256: result.evidence.consoleAggregateSha256,
+      consoleEvidenceSha256: result.evidence.consoleEvidenceSha256,
+    });
+    expect(result.receipt.checks).toEqual({
+      "natural-language-admin-setup-config-publish": "passed",
+      "natural-language-esri-gp": "passed",
+      "natural-language-native-analysis": "passed",
+      "natural-language-map-app-dashboard-composition-publication": "passed",
+      "deterministic-id-join": "passed",
+      "same-endpoint-candidate": "passed",
+      "no-secret-serialization": "passed",
+    });
+    expect(result.evidence).toEqual({
+      schemaVersion: "honua.local-docker.real-model-ai-arc-evidence/v1",
+      candidateId: context.candidateId,
+      releaseId: context.releaseId,
+      endpointSha256: context.endpointSha256,
+      source: context.source,
+      model: handoff.model,
+      promptVersion: LOCAL_PROMPT_VERSION,
+      evalVersion: LOCAL_EVAL_VERSION,
+      transcriptSha256: handoff.transcriptSha256,
+      target: "local-docker",
+      checkpointDigest: context.checkpoint.integrity.digest,
+      consoleAggregateSha256: result.receipt.deterministic.consoleAggregateSha256,
+      consoleEvidenceSha256: result.receipt.deterministic.consoleEvidenceSha256,
+      lanes: result.receipt.lanes,
+      joins: result.receipt.joins,
+    });
+    expect(result.receipt.evidence).toEqual({
+      url: "https://evidence.example.test/arc.json",
+      sha256: sha256(result.evidenceBytes),
+    });
+    expect(Object.keys(result.receipt.joins).length).toBeGreaterThanOrEqual(40);
+    expect(result.receipt).not.toHaveProperty("claims");
+    expect(result.receipt.deterministic).not.toHaveProperty("provisionReceiptSha256");
   });
 
   it("rejects an SDK projection, tampered sidecar, or insecure public URL", async () => {
