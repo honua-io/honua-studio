@@ -40,6 +40,7 @@ describe("release workflow integrity contract", () => {
     expect(dockerfile).toMatch(/^ARG SOURCE_DATE_EPOCH/m);
     expect(dockerfile).toContain('RUN SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" npm run build');
     expect(dockerfile).toContain("RUN --mount=from=build,source=/app/dist,target=/tmp/studio-dist,ro");
+    expect(dockerfile).toContain("find /tmp/studio-dist -type f -print | LC_ALL=C sort");
     expect(dockerfile).toContain("/etc /etc/nginx/conf.d /etc/nginx/conf.d/default.conf \\");
     expect(ciWorkflow.match(/docker build --no-cache --provenance=false/g) ?? []).toHaveLength(1);
     expect(ciWorkflow).toContain("for image in honua-studio-ci honua-studio-ci-retry");

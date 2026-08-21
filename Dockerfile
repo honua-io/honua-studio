@@ -21,10 +21,19 @@ RUN --mount=from=build,source=/app/dist,target=/tmp/studio-dist,ro \
     --mount=type=bind,source=docker,target=/tmp/studio-docker,ro \
     set -eu; \
     rm -rf /usr/share/nginx/html/*; \
-    cp -a /tmp/studio-dist/. /usr/share/nginx/html/; \
+    find /tmp/studio-dist -type d -print | LC_ALL=C sort | while IFS= read -r source; do \
+      relative="${source#/tmp/studio-dist}"; \
+      mkdir -p "/usr/share/nginx/html$relative"; \
+    done; \
+    find /tmp/studio-dist -type f -print | LC_ALL=C sort | while IFS= read -r source; do \
+      relative="${source#/tmp/studio-dist/}"; \
+      cp "$source" "/usr/share/nginx/html/$relative"; \
+    done; \
     cp /tmp/studio-docker/nginx.conf /etc/nginx/conf.d/default.conf; \
     cp /tmp/studio-docker/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh; \
     chown -R 101:101 /usr/share/nginx/html; \
+    find /usr/share/nginx/html -type d -exec chmod 0755 {} +; \
+    find /usr/share/nginx/html -type f -exec chmod 0644 {} +; \
     chmod 0644 /etc/nginx/conf.d/default.conf; \
     chmod 0755 /docker-entrypoint.d/40-runtime-config.sh; \
     find /usr/share/nginx/html -exec touch -d "@$SOURCE_DATE_EPOCH" {} +; \

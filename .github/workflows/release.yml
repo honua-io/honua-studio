@@ -143,6 +143,10 @@ jobs:
           expected_fingerprint=$(fingerprint "$candidate_image")
           retry_fingerprint=$(fingerprint "$retry_image")
           if [[ "$retry_fingerprint" != "$expected_fingerprint" ]]; then
+            echo "candidate fingerprint: $expected_fingerprint" >&2
+            echo "retry fingerprint: $retry_fingerprint" >&2
+            docker image inspect "$candidate_image" "$retry_image" \
+              --format '{{.RepoTags}} {{json .RootFS.Layers}} {{json .Config}}' >&2
             echo "Clean release retry changed the occupied-coordinate fingerprint" >&2
             exit 1
           fi

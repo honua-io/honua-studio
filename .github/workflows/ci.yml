@@ -115,6 +115,10 @@ jobs:
           first=$(fingerprint honua-studio-ci)
           retry=$(fingerprint honua-studio-ci-retry)
           if [[ "$first" != "$retry" ]]; then
+            echo "first fingerprint: $first" >&2
+            echo "retry fingerprint: $retry" >&2
+            docker image inspect honua-studio-ci honua-studio-ci-retry \
+              --format '{{.RepoTags}} {{json .RootFS.Layers}} {{json .Config}}' >&2
             echo "Clean container rebuild changed the occupied-coordinate fingerprint" >&2
             exit 1
           fi
