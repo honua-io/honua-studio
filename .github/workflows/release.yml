@@ -7,27 +7,90 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing v-prefixed tag to release
+        description: Existing immutable SemVer tag to release
         required: true
         type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   NODE_VERSION: "20.19.0"
 
 jobs:
-  release:
-    name: Static bundle and container
+  governance:
+    name: Verify protected production release environment
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Refuse an absent or bypassable production gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          environment=$(gh api "repos/$GITHUB_REPOSITORY/environments/production")
+          jq -e '
+            .name == "production" and
+            .can_admins_bypass == false and
+            .deployment_branch_policy.protected_branches == false and
+            .deployment_branch_policy.custom_branch_policies == true and
+            any(.protection_rules[]?; .type == "required_reviewers" and (.reviewers | length) > 0)
+          ' <<< "$environment" >/dev/null || {
+            echo "production must require a reviewer, forbid admin bypass, and use custom deployment policies" >&2
+            exit 1
+          }
+          policies=$(gh api "repos/$GITHUB_REPOSITORY/environments/production/deployment-branch-policies?per_page=100")
+          jq -e '
+            .total_count == 1 and
+            (.branch_policies | length) == 1 and
+            .branch_policies[0].type == "tag" and
+            .branch_policies[0].name == "v*"
+          ' <<< "$policies" >/dev/null || {
+            echo "production must allow only the custom v* tag deployment policy" >&2
+            exit 1
+          }
+
+  release:
+    name: Immutable static bundle and container
+    needs: governance
+    runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: write
       packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+
+      - name: Resolve and verify immutable tag/source identity
+        id: release
+        env:
+          DISPATCH_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${DISPATCH_TAG:-$GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag must be an exact stable v-prefixed SemVer" >&2
+            exit 1
+          fi
+          source_sha=$(git rev-parse HEAD)
+          tag_sha=$(git rev-list -n 1 "refs/tags/$tag")
+          if [[ "$source_sha" != "$tag_sha" ]]; then
+            echo "Checked-out HEAD does not equal refs/tags/$tag^{commit}" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "source_epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -36,36 +99,107 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Build and archive static bundle
-        run: |
-          npm ci
-          npm run build
-          tar -C dist -czf honua-studio-static.tgz .
-
-      - name: Resolve release tag
-        id: release
+      - name: Verify exact SDK publication, build, and archive reproducibly
         env:
-          DISPATCH_TAG: ${{ inputs.release_tag }}
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.source_epoch }}
         run: |
-          tag="${DISPATCH_TAG:-$GITHUB_REF_NAME}"
-          case "$tag" in v*) ;; *) echo "Release tag must start with v" >&2; exit 1 ;; esac
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          npm ci
+          npm run release:verify-sdk
+          npm run build
+          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C dist -cf - . \
+            | gzip -n > honua-studio-static.tgz
+          sha256sum honua-studio-static.tgz > honua-studio-static.tgz.sha256
 
-      - name: Build and publish container
+      - name: Publish or verify immutable container coordinate
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY}:${RELEASE_TAG#v}"
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY}:$RELEASE_VERSION"
+          candidate_image="honua-studio-candidate:$RELEASE_VERSION"
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.version=$RELEASE_TAG" -t "$image" -t "ghcr.io/${GITHUB_REPOSITORY}:2026.1" .
-          docker push "$image"
-          docker push "ghcr.io/${GITHUB_REPOSITORY}:2026.1"
+          docker build \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --label "org.opencontainers.image.version=$RELEASE_TAG" \
+            -t "$candidate_image" .
+          expected_fingerprint=$(docker image inspect "$candidate_image" --format '{{json .RootFS.Layers}} {{json .Config}}' | sha256sum | cut -d ' ' -f 1)
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            docker pull "$image"
+            existing_revision=$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+            existing_version=$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')
+            existing_fingerprint=$(docker image inspect "$image" --format '{{json .RootFS.Layers}} {{json .Config}}' | sha256sum | cut -d ' ' -f 1)
+            if [[ "$existing_revision" != "$SOURCE_SHA" || "$existing_version" != "$RELEASE_TAG" || "$existing_fingerprint" != "$expected_fingerprint" ]]; then
+              echo "Occupied container coordinate $image differs from the reproducible source build" >&2
+              exit 1
+            fi
+          else
+            docker tag "$candidate_image" "$image"
+            docker push "$image"
+            docker pull "$image"
+            published_fingerprint=$(docker image inspect "$image" --format '{{json .RootFS.Layers}} {{json .Config}}' | sha256sum | cut -d ' ' -f 1)
+            if [[ "$published_fingerprint" != "$expected_fingerprint" ]]; then
+              echo "Published container does not equal the reproducible source build" >&2
+              exit 1
+            fi
+          fi
+          immutable=$(docker image inspect "$image" --format '{{ index .RepoDigests 0 }}')
+          case "$immutable" in *@sha256:????????????????????????????????????????????????????????????????) ;; *)
+            echo "Registry did not return an immutable image digest" >&2; exit 1;;
+          esac
+          printf '%s\n' "$immutable" > honua-studio-container.txt
+          sha256sum honua-studio-container.txt > honua-studio-container.txt.sha256
+          export STATIC_SHA256="$(sha256sum honua-studio-static.tgz | cut -d ' ' -f 1)"
+          export CONTAINER_COORDINATE="$immutable"
+          node <<'NODE'
+          const fs = require("node:fs");
+          const receipt = {
+            schemaVersion: "honua.studio.release-artifacts/v1",
+            tag: process.env.RELEASE_TAG,
+            version: process.env.RELEASE_VERSION,
+            sourceSha: process.env.SOURCE_SHA,
+            staticBundle: {
+              name: "honua-studio-static.tgz",
+              sha256: process.env.STATIC_SHA256,
+            },
+            container: process.env.CONTAINER_COORDINATE,
+          };
+          fs.writeFileSync("honua-studio-release.json", `${JSON.stringify(receipt, null, 2)}\n`);
+          NODE
+          sha256sum honua-studio-release.json > honua-studio-release.json.sha256
 
-      - name: Create or update GitHub release
+      - name: Create or verify immutable GitHub release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
-          gh release upload "$RELEASE_TAG" honua-studio-static.tgz --clobber
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 \
+            || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+          mkdir -p /tmp/honua-studio-release-assets
+          mapfile -t existing_assets < <(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+          missing_assets=()
+          for asset in \
+            honua-studio-static.tgz \
+            honua-studio-static.tgz.sha256 \
+            honua-studio-container.txt \
+            honua-studio-container.txt.sha256 \
+            honua-studio-release.json \
+            honua-studio-release.json.sha256
+          do
+            if printf '%s\n' "${existing_assets[@]}" | grep -Fxq "$asset"; then
+              gh release download "$RELEASE_TAG" --pattern "$asset" --dir /tmp/honua-studio-release-assets
+              cmp --silent "$asset" "/tmp/honua-studio-release-assets/$asset" || {
+                echo "Occupied release asset $asset differs; refusing overwrite" >&2
+                exit 1
+              }
+            else
+              missing_assets+=("$asset")
+            fi
+          done
+          if (( ${#missing_assets[@]} > 0 )); then
+            gh release upload "$RELEASE_TAG" "${missing_assets[@]}"
+          fi

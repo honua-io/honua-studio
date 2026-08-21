@@ -134,7 +134,7 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
     const options = [...control<HTMLSelectElement>(element, "live-composition-family").options].map(
       (option) => option.value,
     );
-    expect(options).toEqual(["map", "app"]);
+    expect(options).toEqual(["map", "app", "dashboard"]);
   });
 });
 

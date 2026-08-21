@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 export const PROMPT_VERSION = "honua.aws-ecs.ai-arc.prompt/v1";
 export const EVAL_VERSION = "honua.aws-ecs.ai-arc.eval/v1";
@@ -11,50 +12,234 @@ const LOCAL_EVIDENCE_SCHEMA = "honua.studio.real-model-ai-arc-evidence/v1";
 const RELEASE_RECEIPT_SCHEMA = "honua.release.evidence-receipt/v1";
 const CHECKPOINT_SCHEMA = "honua.zero-to-map.checkpoint/v1";
 const CONSOLE_SCHEMA = "honua.zero-to-map.console-receipt/v1";
+const CONSOLE_EVIDENCE_SCHEMA = "honua.console.ai-arc-evidence/v1";
 const JOURNEY_ID = "2026.1-zero-to-map";
 const RELEASE_CONTRACT = "honua-release#123/D9.3";
+export const EXPECTED_SDK_SHA = "5950d762010cee8f1d0dfe4340c3abe85b16db1a";
+export const EXPECTED_PLAN_SHA256 = "4358e1c03a56f0cc8996133a608f421a5d9828cb8462a458983eab635348a1fe";
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const COMPONENTS = ["honua-server", "honua-sdk-js", "honua-console", "honua-studio", "honua-devops", "honua-iac"];
 const PROVIDERS = new Set(["anthropic", "bedrock", "openai"]);
 const SECRET_KEY = /(?:password|authorization|api[-_]?key|access[-_]?key|secret(?:string|[-_]?key)|bearer|token)/i;
+const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
-const ADMIN_ACTIONS = new Map([
-  ["admin-status", ["server-status", undefined]],
-  ["create-connection", ["connection-create", undefined]],
-  ["test-connection", ["connection-test", undefined]],
-  ["import-parcels", ["import-upload-url", "parcels"]],
-  ["import-zoning", ["import-upload-url", "zoning"]],
-  ["publish-parcels", ["layer-publish", "parcels"]],
-  ["publish-zoning", ["layer-publish", "zoning"]],
-  ["set-public-access", ["service-access", undefined]],
-]);
-const ESRI_ACTIONS = new Map([
-  ["list-esri-gp-tasks", "list-tasks"],
-  ["describe-esri-buffer", "describe-buffer"],
-  ["buffer-esri-mcp", "execute-buffer"],
-  ["wait-esri-mcp-buffer", "wait-buffer"],
-  ["read-esri-mcp-buffer-results", "read-buffer-results"],
-]);
-const NATIVE_ACTIONS = new Map([
-  ["buffer-parcels", "execute-buffer"],
-  ["wait-direct-buffer", "wait-buffer"],
-  ["read-direct-buffer-results", "read-buffer-results"],
-]);
-const STUDIO_ROLES = new Map([
-  ["honua_studio_create_draft", "create-draft"],
-  ["honua_studio_add_layer", "add-layer"],
-  ["honua_studio_set_layer_style", "set-layer-style"],
-  ["honua_studio_set_view", "set-view"],
-  ["honua_studio_add_widget", "add-widget"],
-  ["honua_studio_add_control", "add-control"],
-  ["honua_studio_validate_draft", "validate-draft"],
-  ["honua_studio_save_version", "save-version"],
-  ["honua_studio_get_version", "get-version"],
-  ["honua_studio_reopen_version", "reopen-version"],
-  ["honua_studio_propose_publication", "propose-publication"],
-]);
-const REQUIRED_STUDIO_ROLES = [...new Set(STUDIO_ROLES.values())];
+const actionSpec = (id, lane, role, kind, tool, family, evidenceName) => ({
+  id,
+  lane,
+  role,
+  kind,
+  ...(tool ? { tool } : {}),
+  ...(family ? { family } : {}),
+  ...(evidenceName ? { evidenceName } : {}),
+});
+
+/** Exact model-reconciled action roster owned by sdk-js 5950d762. Order and multiplicity are contract data. */
+export const MODEL_ACTION_SPECS = [
+  actionSpec("admin-status", "admin", "server-status", "mcp", "honua_admin_server_status"),
+  actionSpec("create-connection", "admin", "connection-create", "mcp", "honua_admin_connection_create"),
+  actionSpec("test-connection", "admin", "connection-test", "mcp", "honua_admin_connection_test"),
+  actionSpec("import-parcels", "admin", "import-upload-url", "mcp", "honua_admin_import_upload_url", "parcels"),
+  actionSpec("import-zoning", "admin", "import-upload-url", "mcp", "honua_admin_import_upload_url", "zoning"),
+  actionSpec("publish-parcels", "admin", "layer-publish", "mcp", "honua_admin_layer_publish", "parcels"),
+  actionSpec("publish-zoning", "admin", "layer-publish", "mcp", "honua_admin_layer_publish", "zoning"),
+  actionSpec("set-public-access", "admin", "service-access", "mcp", "honua_admin_service_set_access_policy"),
+  {
+    id: "create-scoped-key",
+    lane: "admin",
+    role: "scoped-key-create",
+    kind: "mcp",
+    tool: "honua_admin_api_key_create",
+  },
+
+  actionSpec("list-esri-gp-tasks", "esriGp", "list-tasks", "mcp", "honua_esri_gp_list_tasks"),
+  actionSpec("describe-esri-buffer", "esriGp", "describe-buffer", "mcp", "honua_esri_gp_describe_task"),
+  actionSpec("buffer-esri-mcp", "esriGp", "execute-buffer", "mcp", "honua_esri_gp_execute_task"),
+  actionSpec("wait-esri-mcp-buffer", "esriGp", "wait-buffer", "mcp-resource"),
+  actionSpec("read-esri-mcp-buffer-results", "esriGp", "read-buffer-results", "mcp-resource"),
+  actionSpec(
+    "buffer-esri-gpserver",
+    "nativeAnalysis",
+    "execute-buffer-gpserver",
+    "gpserver",
+    undefined,
+    undefined,
+    "GPServer/analysis/Buffer",
+  ),
+  actionSpec("buffer-parcels", "nativeAnalysis", "execute-buffer", "mcp", "honua_buffer_features"),
+  actionSpec("wait-direct-buffer", "nativeAnalysis", "wait-buffer", "mcp-resource"),
+  actionSpec("read-direct-buffer-results", "nativeAnalysis", "read-buffer-results", "mcp-resource"),
+
+  actionSpec("create-map-draft", "studioPublication", "create-draft", "mcp", "honua_studio_create_draft", "map"),
+  actionSpec("add-map-parcels-layer", "studioPublication", "add-layer", "mcp", "honua_studio_add_layer", "map"),
+  actionSpec("add-map-buffer-layer", "studioPublication", "add-layer", "mcp", "honua_studio_add_layer", "map"),
+  actionSpec(
+    "style-map-buffer-layer",
+    "studioPublication",
+    "set-layer-style",
+    "mcp",
+    "honua_studio_set_layer_style",
+    "map",
+  ),
+  actionSpec(
+    "set-map-buffer-visibility",
+    "studioPublication",
+    "set-layer-visibility",
+    "mcp",
+    "honua_studio_set_layer_visibility",
+    "map",
+  ),
+  actionSpec("set-map-view", "studioPublication", "set-view", "mcp", "honua_studio_set_view", "map"),
+  actionSpec("add-map-widget", "studioPublication", "add-widget", "mcp", "honua_studio_add_widget", "map"),
+  actionSpec("add-map-control", "studioPublication", "add-control", "mcp", "honua_studio_add_control", "map"),
+  actionSpec("validate-map-draft", "studioPublication", "validate-draft", "mcp", "honua_studio_validate_draft", "map"),
+  actionSpec("save-map-version", "studioPublication", "save-version", "mcp", "honua_studio_save_version", "map"),
+  actionSpec("get-map-version", "studioPublication", "get-version", "mcp", "honua_studio_get_version", "map"),
+  actionSpec("reopen-map-version", "studioPublication", "reopen-version", "mcp", "honua_studio_reopen_version", "map"),
+
+  actionSpec("create-app-draft", "studioPublication", "create-draft", "mcp", "honua_studio_create_draft", "app"),
+  actionSpec("add-app-parcels-layer", "studioPublication", "add-layer", "mcp", "honua_studio_add_layer", "app"),
+  actionSpec("add-app-buffer-layer", "studioPublication", "add-layer", "mcp", "honua_studio_add_layer", "app"),
+  actionSpec(
+    "style-app-buffer-layer",
+    "studioPublication",
+    "set-layer-style",
+    "mcp",
+    "honua_studio_set_layer_style",
+    "app",
+  ),
+  actionSpec("set-app-view", "studioPublication", "set-view", "mcp", "honua_studio_set_view", "app"),
+  actionSpec("add-app-chart", "studioPublication", "add-widget", "mcp", "honua_studio_add_widget", "app"),
+  actionSpec("add-app-layer-control", "studioPublication", "add-control", "mcp", "honua_studio_add_control", "app"),
+  actionSpec(
+    "bind-app-chart-interaction",
+    "studioPublication",
+    "bind-interaction",
+    "mcp",
+    "honua_studio_bind_interaction",
+    "app",
+  ),
+  actionSpec("validate-app-draft", "studioPublication", "validate-draft", "mcp", "honua_studio_validate_draft", "app"),
+  actionSpec("save-app-version", "studioPublication", "save-version", "mcp", "honua_studio_save_version", "app"),
+  actionSpec("get-app-version", "studioPublication", "get-version", "mcp", "honua_studio_get_version", "app"),
+  actionSpec("reopen-app-version", "studioPublication", "reopen-version", "mcp", "honua_studio_reopen_version", "app"),
+
+  actionSpec(
+    "create-dashboard-draft",
+    "studioPublication",
+    "create-draft",
+    "mcp",
+    "honua_studio_create_draft",
+    "dashboard",
+  ),
+  actionSpec(
+    "add-dashboard-buffer-layer",
+    "studioPublication",
+    "add-layer",
+    "mcp",
+    "honua_studio_add_layer",
+    "dashboard",
+  ),
+  actionSpec(
+    "style-dashboard-buffer-layer",
+    "studioPublication",
+    "set-layer-style",
+    "mcp",
+    "honua_studio_set_layer_style",
+    "dashboard",
+  ),
+  actionSpec("set-dashboard-view", "studioPublication", "set-view", "mcp", "honua_studio_set_view", "dashboard"),
+  actionSpec("add-dashboard-chart", "studioPublication", "add-widget", "mcp", "honua_studio_add_widget", "dashboard"),
+  actionSpec(
+    "add-dashboard-layer-control",
+    "studioPublication",
+    "add-control",
+    "mcp",
+    "honua_studio_add_control",
+    "dashboard",
+  ),
+  actionSpec(
+    "validate-dashboard-draft",
+    "studioPublication",
+    "validate-draft",
+    "mcp",
+    "honua_studio_validate_draft",
+    "dashboard",
+  ),
+  actionSpec(
+    "save-dashboard-version",
+    "studioPublication",
+    "save-version",
+    "mcp",
+    "honua_studio_save_version",
+    "dashboard",
+  ),
+  actionSpec(
+    "get-dashboard-version",
+    "studioPublication",
+    "get-version",
+    "mcp",
+    "honua_studio_get_version",
+    "dashboard",
+  ),
+  actionSpec(
+    "reopen-dashboard-version",
+    "studioPublication",
+    "reopen-version",
+    "mcp",
+    "honua_studio_reopen_version",
+    "dashboard",
+  ),
+
+  actionSpec(
+    "propose-map-publication",
+    "studioPublication",
+    "propose-publication",
+    "mcp",
+    "honua_studio_propose_publication",
+    "map",
+  ),
+  actionSpec(
+    "save-map-publication-version",
+    "studioPublication",
+    "save-version",
+    "mcp",
+    "honua_studio_save_version",
+    "map",
+  ),
+  actionSpec(
+    "propose-app-publication",
+    "studioPublication",
+    "propose-publication",
+    "mcp",
+    "honua_studio_propose_publication",
+    "app",
+  ),
+  actionSpec(
+    "save-app-publication-version",
+    "studioPublication",
+    "save-version",
+    "mcp",
+    "honua_studio_save_version",
+    "app",
+  ),
+  actionSpec(
+    "propose-dashboard-publication",
+    "studioPublication",
+    "propose-publication",
+    "mcp",
+    "honua_studio_propose_publication",
+    "dashboard",
+  ),
+  actionSpec(
+    "save-dashboard-publication-version",
+    "studioPublication",
+    "save-version",
+    "mcp",
+    "honua_studio_save_version",
+    "dashboard",
+  ),
+];
 
 export class ArcRefusal extends Error {
   constructor(message) {
@@ -108,6 +293,14 @@ function normalizedEndpoint(value) {
   }
   url.pathname = url.pathname.replace(/\/$/, "");
   return url.toString().replace(/\/$/, "");
+}
+
+function normalizedConsoleOrigin(value) {
+  const url = new URL(text(value, "HONUA_AI_ARC_CONSOLE_ORIGIN"));
+  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new ArcRefusal("HONUA_AI_ARC_CONSOLE_ORIGIN must be a credential-free HTTPS origin");
+  }
+  return url.origin;
 }
 
 function httpsUrl(value, label) {
@@ -170,7 +363,17 @@ export function parsePlatformManifest(bytes) {
   for (const name of COMPONENTS) {
     if (!SHA.test(components[name] ?? "")) throw new ArcRefusal(`platform manifest has no exact ${name} SHA`);
   }
+  if (components["honua-sdk-js"] !== EXPECTED_SDK_SHA) {
+    throw new ArcRefusal(`platform manifest must pin honua-sdk-js ${EXPECTED_SDK_SHA}`);
+  }
   return { releaseId, components };
+}
+
+export function verifySourceRevision(sourceSha, manifest) {
+  if (!SHA.test(sourceSha) || sourceSha !== manifest.components["honua-studio"]) {
+    throw new ArcRefusal("producer is not running from the manifest-pinned honua-studio SHA");
+  }
+  return sourceSha;
 }
 
 function parseJson(bytes, label) {
@@ -216,6 +419,9 @@ function verifyCheckpoint(checkpoint, planBytes, manifest, endpoint, provisionBy
   if (checkpoint.sourceRevision !== manifest.components["honua-sdk-js"]) {
     throw new ArcRefusal("SDK checkpoint sourceRevision is not the manifest-pinned honua-sdk-js SHA");
   }
+  if (checkpoint.sourceRevision !== EXPECTED_SDK_SHA) {
+    throw new ArcRefusal(`SDK checkpoint must come from honua-sdk-js ${EXPECTED_SDK_SHA}`);
+  }
   if (!SHA256.test(checkpoint.planSha256 ?? "") || !SHA256.test(checkpoint.mcpEndpointSha256 ?? "")) {
     throw new ArcRefusal("SDK checkpoint lacks exact plan/endpoint hashes");
   }
@@ -225,7 +431,10 @@ function verifyCheckpoint(checkpoint, planBytes, manifest, endpoint, provisionBy
   if (checkpointAgeMs < 0 || checkpointAgeMs > 24 * 60 * 60 * 1_000) {
     throw new ArcRefusal("SDK checkpoint is stale or has a future creation time");
   }
-  if (checkpoint.planSha256 !== sha256(planBytes))
+  if (checkpoint.planSha256 !== EXPECTED_PLAN_SHA256) {
+    throw new ArcRefusal(`SDK checkpoint must bind canonical 5950d762 plan ${EXPECTED_PLAN_SHA256}`);
+  }
+  if (sha256(planBytes) !== EXPECTED_PLAN_SHA256)
     throw new ArcRefusal("SDK plan bytes do not match checkpoint.planSha256");
   const expectedMcp = sha256(`${endpoint}/mcp`);
   if (checkpoint.mcpEndpointSha256 !== expectedMcp)
@@ -370,8 +579,34 @@ function resolveTemplate(value, variables, path = "arguments") {
   });
 }
 
+function verifyConsoleReceiptRequest(plan, checkpoint) {
+  const action = plan.stages?.find((stage) => stage.id === "console")?.actions?.[0];
+  if (action?.id !== "console-approval" || action.kind !== "receipt" || action.receiptSchema !== CONSOLE_SCHEMA) {
+    throw new ArcRefusal("canonical SDK plan has no exact Console approval action");
+  }
+  const variables = {
+    ...(plan.variables ?? {}),
+    candidateId: checkpoint.candidateId,
+    releaseId: checkpoint.releaseId,
+    journeyId: plan.journeyId,
+    releaseContract: plan.releaseContract,
+    ...checkpoint.resume.capturedVariables,
+  };
+  const expected = {
+    schemaVersion: "honua.zero-to-map.console-receipt-request/v1",
+    actionId: action.id,
+    receiptSchema: action.receiptSchema,
+    matches: resolveTemplate(action.matches ?? {}, variables, "console receipt matches"),
+    requiredPointers: [...(action.requiredPointers ?? [])],
+    equalPointers: (action.equalPointers ?? []).map((pair) => [...pair]),
+  };
+  if (canonicalJson(checkpoint.consoleReceiptRequest) !== canonicalJson(expected)) {
+    throw new ArcRefusal("SDK checkpoint Console request is not the canonical plan-resolved receipt contract");
+  }
+}
+
 function familyFor(action) {
-  for (const family of ["map", "app", "dashboard"]) {
+  for (const family of ["map", "app", "dashboard", "parcels", "zoning"]) {
     if (action.id.includes(family) || action.arguments?.family === family) return family;
   }
   return undefined;
@@ -486,39 +721,23 @@ export function buildOperations(plan, checkpoint, advertisedTools) {
     candidateId: checkpoint.candidateId,
     releaseId: checkpoint.releaseId,
   };
-  const operations = [];
-  for (const [id, [role, family]] of ADMIN_ACTIONS) {
-    const pair = receipts.get(id);
-    if (!pair) throw new ArcRefusal(`SDK plan is missing exact Admin action ${id}`);
-    operations.push(operation("admin", role, pair, variables, family));
-  }
-  for (const [id, role] of ESRI_ACTIONS) {
-    const pair = receipts.get(id);
-    if (!pair) throw new ArcRefusal(`SDK plan is missing exact Esri GP action ${id}`);
-    operations.push(operation("esriGp", role, pair, variables));
-  }
-  for (const [id, role] of NATIVE_ACTIONS) {
-    const pair = receipts.get(id);
-    if (!pair) throw new ArcRefusal(`SDK plan is missing exact native analysis action ${id}`);
-    operations.push(operation("nativeAnalysis", role, pair, variables));
-  }
-  const gpserver = receipts.get("buffer-esri-gpserver");
-  if (!gpserver) throw new ArcRefusal("SDK plan is missing exact direct GPServer Buffer action");
-  operations.push(
-    operation("nativeAnalysis", "execute-buffer-gpserver", gpserver, variables, undefined, "GPServer/analysis/Buffer"),
-  );
-
-  for (const family of ["map", "app", "dashboard"]) {
-    const found = new Set();
-    for (const pair of receipts.values()) {
-      const role = STUDIO_ROLES.get(pair.action.tool);
-      if (!role || familyFor(pair.action) !== family) continue;
-      found.add(role);
-      operations.push(operation("studioPublication", role, pair, variables, family));
+  const operations = MODEL_ACTION_SPECS.map((spec) => {
+    const pair = receipts.get(spec.id);
+    if (!pair) throw new ArcRefusal(`SDK plan is missing exact model action ${spec.id}`);
+    if (
+      pair.action.kind !== spec.kind ||
+      (spec.tool !== undefined && pair.action.tool !== spec.tool) ||
+      (spec.family !== undefined && familyFor(pair.action) !== spec.family)
+    ) {
+      throw new ArcRefusal(`SDK plan action ${spec.id} does not match its canonical kind/tool/family contract`);
     }
-    const missing = REQUIRED_STUDIO_ROLES.filter((role) => !found.has(role));
-    if (missing.length) {
-      throw new ArcRefusal(`manifest-pinned SDK plan lacks ${family} real-model actions: ${missing.join(", ")}`);
+    return operation(spec.lane, spec.role, pair, variables, spec.family, spec.evidenceName);
+  });
+
+  const represented = new Set(MODEL_ACTION_SPECS.map((spec) => spec.id));
+  for (const { action } of receipts.values()) {
+    if (["mcp", "mcp-resource", "gpserver"].includes(action.kind) && !represented.has(action.id)) {
+      throw new ArcRefusal(`SDK plan contains unaccounted model action ${action.id}`);
     }
   }
 
@@ -623,11 +842,16 @@ export async function prepareArc(context, adapters) {
     if (actualModel && actualModel !== selected.modelId)
       throw new ArcRefusal("real-model arc changed model identity between calls");
     actualModel = selected.modelId;
+    if (!SHA256.test(selected.transcriptSha256 ?? "")) {
+      throw new ArcRefusal(`real model returned no transcript digest for ${item.action.id}`);
+    }
     const actionReceiptSha256 = sha256(canonicalJson(item.receipt));
     lanes[item.lane].push({
+      actionId: item.action.id,
+      actionReceiptSha256,
       role: item.role,
       ...(item.family ? { family: item.family } : {}),
-      kind: item.action.kind === "mcp" ? "mcp" : "mcp-resource",
+      kind: item.action.kind,
       name: item.evidenceName,
       status: "passed",
       responseSha256: sha256(canonicalJson({ modelTranscriptSha256: selected.transcriptSha256, actionReceiptSha256 })),
@@ -683,9 +907,59 @@ function scalarJoins(value) {
   );
 }
 
-function verifyHandoff(handoff, context) {
+function exactKeySet(value, expected, label) {
+  object(value, label);
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (canonicalJson(actual) !== canonicalJson(wanted)) {
+    throw new ArcRefusal(`${label} must have the exact fields ${wanted.join(", ")}`);
+  }
+}
+
+function sha256Value(value, label) {
+  if (!SHA256.test(value ?? "")) throw new ArcRefusal(`${label} must be a SHA-256 digest`);
+  return value;
+}
+
+function revision(value, label) {
+  if (!SHA.test(value ?? "")) throw new ArcRefusal(`${label} must be a full Git SHA`);
+  return value;
+}
+
+function checkpointJoin(captured, name, actual, label) {
+  if (!Object.hasOwn(captured, name) || canonicalJson(actual) !== canonicalJson(captured[name])) {
+    throw new ArcRefusal(`${label} is not the SDK checkpoint ${name} identity`);
+  }
+}
+
+export function verifyHandoff(handoff, context) {
   const value = object(handoff, "real-model handoff");
+  verifyConsoleReceiptRequest(context.plan, context.checkpoint);
+  exactKeySet(
+    value,
+    [
+      "schemaVersion",
+      "status",
+      "target",
+      "candidateId",
+      "releaseId",
+      "endpointSha256",
+      "source",
+      "components",
+      "model",
+      "promptVersion",
+      "evalVersion",
+      "transcriptSha256",
+      "deterministic",
+      "lanes",
+      "joins",
+      "consoleReceiptRequest",
+      "integrity",
+    ],
+    "real-model handoff",
+  );
   const integrity = object(value.integrity, "real-model handoff integrity");
+  exactKeySet(integrity, ["algorithm", "digest"], "real-model handoff integrity");
   const { integrity: _ignored, ...payload } = value;
   if (value.schemaVersion !== HANDOFF_SCHEMA || value.status !== "paused")
     throw new ArcRefusal("real-model evidence is not a paused Studio handoff");
@@ -700,15 +974,131 @@ function verifyHandoff(handoff, context) {
   ) {
     throw new ArcRefusal("real-model handoff source/components do not match this candidate");
   }
-  if (value.model?.provider !== context.provider) throw new ArcRefusal("real-model handoff provider changed at resume");
-  if (value.deterministic?.checkpointDigest !== context.checkpoint.integrity.digest)
-    throw new ArcRefusal("real-model handoff checkpoint digest changed");
+  exactKeySet(value.source, ["repository", "sha"], "real-model handoff source");
+  exactKeySet(value.components, COMPONENTS, "real-model handoff components");
+  exactKeySet(value.model, ["provider", "modelId"], "real-model handoff model");
+  if (value.model.provider !== context.provider) throw new ArcRefusal("real-model handoff provider changed at resume");
+  text(value.model.modelId, "real-model handoff model identity");
+  if (value.promptVersion !== PROMPT_VERSION || value.evalVersion !== EVAL_VERSION) {
+    throw new ArcRefusal("real-model handoff prompt/eval contract changed");
+  }
+  sha256Value(value.transcriptSha256, "real-model handoff transcriptSha256");
+  const deterministicKeys =
+    context.target === "aws-ecs"
+      ? ["target", "provisionReceiptSha256", "checkpointDigest"]
+      : ["target", "checkpointDigest"];
+  exactKeySet(value.deterministic, deterministicKeys, "real-model handoff deterministic binding");
+  if (
+    value.deterministic.target !== context.target ||
+    value.deterministic.checkpointDigest !== context.checkpoint.integrity.digest ||
+    (context.target === "aws-ecs" && value.deterministic.provisionReceiptSha256 !== context.provisionReceiptSha256)
+  ) {
+    throw new ArcRefusal("real-model handoff deterministic binding changed");
+  }
+  if (context.target === "aws-ecs") {
+    sha256Value(value.deterministic.provisionReceiptSha256, "real-model handoff provision receipt");
+  }
+
+  const expectedJoins = {
+    ...scalarJoins(context.checkpoint.resume.capturedVariables),
+    candidateId: context.candidateId,
+    releaseId: context.releaseId,
+  };
+  if (canonicalJson(value.joins) !== canonicalJson(expectedJoins)) {
+    throw new ArcRefusal("real-model handoff joins are not the exact SDK checkpoint joins");
+  }
+  if (canonicalJson(value.consoleReceiptRequest) !== canonicalJson(context.checkpoint.consoleReceiptRequest)) {
+    throw new ArcRefusal("real-model handoff Console request changed");
+  }
+
+  exactKeySet(value.lanes, ["admin", "esriGp", "nativeAnalysis", "studioPublication"], "real-model lanes");
+  const advertised = [...new Set(MODEL_ACTION_SPECS.map((spec) => spec.tool).filter((tool) => tool !== undefined))].map(
+    (name) => ({ name, description: name, inputSchema: { type: "object" } }),
+  );
+  const expectedOperations = buildOperations(context.plan, context.checkpoint, advertised);
+  for (const laneName of ["admin", "esriGp", "nativeAnalysis", "studioPublication"]) {
+    const lane = object(value.lanes[laneName], `real-model lane ${laneName}`);
+    exactKeySet(lane, ["promptSha256", "transcriptSha256", "calls"], `real-model lane ${laneName}`);
+    sha256Value(lane.promptSha256, `real-model lane ${laneName} promptSha256`);
+    sha256Value(lane.transcriptSha256, `real-model lane ${laneName} transcriptSha256`);
+    if (!Array.isArray(lane.calls)) throw new ArcRefusal(`real-model lane ${laneName} calls must be an array`);
+    const expectedCalls = expectedOperations.filter((item) => item.lane === laneName);
+    const expectedPromptSha256 = sha256(canonicalJson(expectedCalls.map((item) => sha256(promptFor(item, context)))));
+    if (lane.promptSha256 !== expectedPromptSha256) {
+      throw new ArcRefusal(`real-model lane ${laneName} prompt digest is not the canonical SDK prompt roster`);
+    }
+    if (lane.calls.length !== expectedCalls.length) {
+      throw new ArcRefusal(`real-model lane ${laneName} does not have the canonical action multiplicity`);
+    }
+    lane.calls.forEach((call, index) => {
+      const expected = expectedCalls[index];
+      const fields = [
+        "actionId",
+        "actionReceiptSha256",
+        "role",
+        "kind",
+        "name",
+        "status",
+        "responseSha256",
+        "result",
+        ...(expected.family ? ["family"] : []),
+      ];
+      exactKeySet(call, fields, `real-model call ${expected.action.id}`);
+      const expectedReceiptSha256 = sha256(canonicalJson(expected.receipt));
+      if (
+        call.actionId !== expected.action.id ||
+        call.actionReceiptSha256 !== expectedReceiptSha256 ||
+        call.role !== expected.role ||
+        call.kind !== expected.action.kind ||
+        call.name !== expected.evidenceName ||
+        call.status !== "passed" ||
+        call.family !== expected.family
+      ) {
+        throw new ArcRefusal(`real-model call ${expected.action.id} is not the canonical reconciled action`);
+      }
+      sha256Value(call.responseSha256, `real-model call ${expected.action.id} responseSha256`);
+      exactKeySet(call.result, ["status", "identities"], `real-model call ${expected.action.id} result`);
+      if (
+        call.result.status !== "reconciled" ||
+        canonicalJson(call.result.identities) !== canonicalJson(identitiesFor(expected, expectedJoins))
+      ) {
+        throw new ArcRefusal(`real-model call ${expected.action.id} identities are not checkpoint-owned`);
+      }
+    });
+  }
+  const expectedTranscriptSha256 = sha256(
+    canonicalJson(
+      ["admin", "esriGp", "nativeAnalysis", "studioPublication"].map(
+        (laneName) => value.lanes[laneName].transcriptSha256,
+      ),
+    ),
+  );
+  if (value.transcriptSha256 !== expectedTranscriptSha256) {
+    throw new ArcRefusal("real-model handoff transcript digest does not bind the exact lane transcripts");
+  }
   assertSecretFree(value, "real-model handoff");
   return value;
 }
 
 export function verifyConsole(console, checkpoint, context) {
   const receipt = object(console, "Console receipt");
+  exactKeySet(
+    receipt,
+    [
+      "schemaVersion",
+      "journeyId",
+      "releaseContract",
+      "status",
+      "candidate",
+      "proposals",
+      "publications",
+      "audit",
+      "resources",
+      "checks",
+      "shareUrl",
+    ],
+    "Console aggregate receipt",
+  );
   if (
     receipt.schemaVersion !== CONSOLE_SCHEMA ||
     receipt.journeyId !== JOURNEY_ID ||
@@ -719,6 +1109,127 @@ export function verifyConsole(console, checkpoint, context) {
   }
   if (receipt.candidate?.candidateId !== context.candidateId || receipt.candidate?.releaseId !== context.releaseId) {
     throw new ArcRefusal("Console receipt is not bound to this candidate");
+  }
+  exactKeySet(receipt.candidate, ["candidateId", "releaseId"], "Console aggregate candidate");
+  for (const group of ["proposals", "publications", "audit"]) {
+    exactKeySet(receipt[group], ["map", "app", "dashboard"], `Console aggregate ${group}`);
+  }
+  for (const family of ["map", "app", "dashboard"]) {
+    exactKeySet(
+      receipt.proposals[family],
+      ["draftId", "generation", "route", "proposalId", "executionOperationId"],
+      `Console ${family} proposal`,
+    );
+    exactKeySet(
+      receipt.publications[family],
+      ["requestId", "itemId", "versionId", "status", "publicationId", "publicUrl"],
+      `Console ${family} publication`,
+    );
+    exactKeySet(receipt.audit[family], ["correlationId", "operationId"], `Console ${family} audit`);
+    if (
+      receipt.publications[family].status !== "published" ||
+      receipt.publications[family].requestId !== receipt.proposals[family].proposalId ||
+      receipt.audit[family].operationId !== receipt.proposals[family].executionOperationId
+    ) {
+      throw new ArcRefusal(`Console ${family} proposal/publication/audit identities do not join`);
+    }
+  }
+  const captured = object(checkpoint.resume?.capturedVariables, "checkpoint capturedVariables");
+  const resources = object(receipt.resources, "Console aggregate resources");
+  exactKeySet(
+    resources,
+    [
+      "connectionId",
+      "serviceId",
+      "layerIds",
+      "jobs",
+      "gp",
+      ...(Object.hasOwn(resources, "gpServerResultNames") ? ["gpServerResultNames"] : []),
+      "artifactId",
+      "studio",
+    ],
+    "Console aggregate resources",
+  );
+  exactKeySet(resources.layerIds, ["parcels", "zoning"], "Console aggregate layerIds");
+  exactKeySet(resources.jobs, ["esriMcp", "gpServer", "directAnalysis"], "Console aggregate jobs");
+  exactKeySet(
+    resources.gp,
+    ["jobId", "serviceId", "taskName", "processId", "resultPackageId", "artifactId"],
+    "Console aggregate GP resource",
+  );
+  exactKeySet(resources.studio, ["map", "app", "dashboard"], "Console aggregate Studio resources");
+  const resourceJoins = {
+    connectionId: [resources.connectionId, "connectionId"],
+    serviceId: [resources.serviceId, "serviceName"],
+    "layerIds.parcels": [resources.layerIds.parcels, "parcelsLayerId"],
+    "layerIds.zoning": [resources.layerIds.zoning, "zoningLayerId"],
+    "jobs.esriMcp": [resources.jobs.esriMcp, "esriMcpJobId"],
+    "jobs.gpServer": [resources.jobs.gpServer, "gpServerJobId"],
+    "jobs.directAnalysis": [resources.jobs.directAnalysis, "directAnalysisJobId"],
+    "gp.jobId": [resources.gp.jobId, "esriMcpJobId"],
+    "gp.serviceId": [resources.gp.serviceId, "esriMcpServiceId"],
+    "gp.taskName": [resources.gp.taskName, "esriMcpTaskName"],
+    "gp.processId": [resources.gp.processId, "esriMcpProcessId"],
+    "gp.resultPackageId": [resources.gp.resultPackageId, "esriMcpResultPackageId"],
+    "gp.artifactId": [resources.gp.artifactId, "esriMcpArtifactId"],
+    artifactId: [resources.artifactId, "bufferArtifactId"],
+  };
+  for (const [label, [actual, name]] of Object.entries(resourceJoins)) {
+    checkpointJoin(captured, name, actual, `Console aggregate resources.${label}`);
+  }
+  if (Object.hasOwn(resources, "gpServerResultNames")) {
+    if (
+      !Array.isArray(resources.gpServerResultNames) ||
+      resources.gpServerResultNames.length === 0 ||
+      resources.gpServerResultNames.some((name) => typeof name !== "string" || !name)
+    ) {
+      throw new ArcRefusal("Console aggregate gpServerResultNames must be non-empty strings");
+    }
+  }
+  for (const family of ["map", "app", "dashboard"]) {
+    const studio = resources.studio[family];
+    exactKeySet(
+      studio,
+      ["draftId", "itemId", "versionId", "contentHash", "reopenedDraftId"],
+      `Console aggregate ${family} Studio resource`,
+    );
+    for (const [field, suffix] of [
+      ["draftId", "DraftId"],
+      ["itemId", "ItemId"],
+      ["versionId", "VersionId"],
+      ["contentHash", "ContentHash"],
+      ["reopenedDraftId", "ReopenedDraftId"],
+    ]) {
+      checkpointJoin(captured, `${family}${suffix}`, studio[field], `Console aggregate ${family}.${field}`);
+    }
+    checkpointJoin(
+      captured,
+      `${family}ReopenedDraftId`,
+      receipt.proposals[family].draftId,
+      `Console aggregate ${family} proposal draftId`,
+    );
+    checkpointJoin(
+      captured,
+      `${family}ProposalGeneration`,
+      receipt.proposals[family].generation,
+      `Console aggregate ${family} proposal generation`,
+    );
+    checkpointJoin(
+      captured,
+      `${family}ItemId`,
+      receipt.publications[family].itemId,
+      `Console aggregate ${family} publication itemId`,
+    );
+    checkpointJoin(
+      captured,
+      `${family}PublicationVersionId`,
+      receipt.publications[family].versionId,
+      `Console aggregate ${family} publication versionId`,
+    );
+  }
+  exactKeySet(receipt.checks, ["health", "audit", "recovery"], "Console aggregate checks");
+  if (Object.values(receipt.checks).some((status) => status !== "passed")) {
+    throw new ArcRefusal("Console aggregate checks have not all passed");
   }
   const request = object(checkpoint.consoleReceiptRequest, "checkpoint.consoleReceiptRequest");
   for (const [path, expected] of Object.entries(request.matches ?? {})) {
@@ -741,8 +1252,162 @@ export function verifyConsole(console, checkpoint, context) {
   for (const family of ["map", "app", "dashboard"])
     httpsUrl(receipt.publications?.[family]?.publicUrl, `Console ${family} publicUrl`);
   httpsUrl(receipt.shareUrl, "Console shareUrl");
+  if (receipt.shareUrl !== receipt.publications.app.publicUrl) {
+    throw new ArcRefusal("Console shareUrl is not the app publication URL");
+  }
   assertSecretFree(receipt, "Console receipt");
   return receipt;
+}
+
+export function verifyConsoleEvidence(sidecar, sidecarBytes, aggregateBytes, handoff, console, context) {
+  const evidence = object(sidecar, "Console evidence sidecar");
+  if (canonicalJson(parseJson(aggregateBytes, "Console aggregate bytes")) !== canonicalJson(console)) {
+    throw new ArcRefusal("Console aggregate object does not match the digest-bound aggregate bytes");
+  }
+  if (canonicalJson(parseJson(sidecarBytes, "Console evidence sidecar bytes")) !== canonicalJson(evidence)) {
+    throw new ArcRefusal("Console evidence object does not match the supplied sidecar bytes");
+  }
+  exactKeySet(
+    evidence,
+    [
+      "schemaVersion",
+      "status",
+      "target",
+      "candidate",
+      "endpointSha256",
+      "components",
+      "handoffDigest",
+      "checkpointDigest",
+      "aggregateSha256",
+      "runtime",
+      "publications",
+      "checks",
+      "integrity",
+    ],
+    "Console evidence sidecar",
+  );
+  if (
+    evidence.schemaVersion !== CONSOLE_EVIDENCE_SCHEMA ||
+    evidence.status !== "passed" ||
+    evidence.target !== context.target
+  ) {
+    throw new ArcRefusal("Console evidence sidecar has not passed the exact AI arc contract");
+  }
+  exactKeySet(evidence.candidate, ["candidateId", "releaseId"], "Console evidence candidate");
+  exactKeySet(evidence.components, COMPONENTS, "Console evidence components");
+  if (
+    canonicalJson(evidence.candidate) !==
+      canonicalJson({ candidateId: context.candidateId, releaseId: context.releaseId }) ||
+    canonicalJson(evidence.components) !== canonicalJson(context.components) ||
+    evidence.endpointSha256 !== context.endpointSha256 ||
+    evidence.handoffDigest !== handoff.integrity.digest ||
+    evidence.checkpointDigest !== context.checkpoint.integrity.digest ||
+    evidence.aggregateSha256 !== sha256(aggregateBytes)
+  ) {
+    throw new ArcRefusal("Console evidence sidecar is not digest-bound to this candidate/handoff/aggregate");
+  }
+  for (const name of ["endpointSha256", "handoffDigest", "checkpointDigest", "aggregateSha256"]) {
+    sha256Value(evidence[name], `Console evidence ${name}`);
+  }
+  exactKeySet(evidence.runtime, ["consoleCommit", "serverSourceRevision"], "Console evidence runtime");
+  revision(evidence.runtime.consoleCommit, "Console runtime commit");
+  revision(evidence.runtime.serverSourceRevision, "server runtime source revision");
+  if (
+    evidence.runtime.consoleCommit !== context.components["honua-console"] ||
+    evidence.runtime.serverSourceRevision !== context.components["honua-server"]
+  ) {
+    throw new ArcRefusal("Console evidence runtime does not match manifest component SHAs");
+  }
+  exactKeySet(evidence.publications, ["map", "app", "dashboard"], "Console evidence publications");
+  let sharedRecovery;
+  for (const family of ["map", "app", "dashboard"]) {
+    const publication = evidence.publications[family];
+    exactKeySet(
+      publication,
+      ["proposalId", "executionOperationId", "publicationId", "publicUrl", "auditCorrelationId", "recovery"],
+      `Console evidence ${family} publication`,
+    );
+    exactKeySet(
+      publication.recovery,
+      ["status", "deliberateFailureJobId", "resumedJobId", "actionableDiagnostics"],
+      `Console evidence ${family} recovery`,
+    );
+    if (
+      publication.proposalId !== console.proposals[family].proposalId ||
+      publication.executionOperationId !== console.proposals[family].executionOperationId ||
+      publication.publicationId !== console.publications[family].publicationId ||
+      publication.publicUrl !== console.publications[family].publicUrl ||
+      publication.auditCorrelationId !== console.audit[family].correlationId ||
+      publication.recovery.status !== "passed" ||
+      publication.recovery.actionableDiagnostics !== true
+    ) {
+      throw new ArcRefusal(`Console evidence ${family} facts do not match the aggregate/recovery witness`);
+    }
+    text(publication.recovery.deliberateFailureJobId, `Console evidence ${family} deliberate failure job`);
+    text(publication.recovery.resumedJobId, `Console evidence ${family} resumed job`);
+    sharedRecovery ??= canonicalJson(publication.recovery);
+    if (canonicalJson(publication.recovery) !== sharedRecovery) {
+      throw new ArcRefusal("Console evidence families do not share the same recovery witness");
+    }
+  }
+  exactKeySet(evidence.checks, ["browser", "approval", "publication", "audit", "recovery"], "Console evidence checks");
+  if (Object.values(evidence.checks).some((status) => status !== "passed")) {
+    throw new ArcRefusal("Console evidence sidecar checks have not all passed");
+  }
+  exactKeySet(evidence.integrity, ["algorithm", "digest"], "Console evidence integrity");
+  const { integrity, ...payload } = evidence;
+  if (integrity.algorithm !== "sha256" || integrity.digest !== sha256(canonicalJson(payload))) {
+    throw new ArcRefusal("Console evidence sidecar integrity is invalid");
+  }
+  sha256Value(integrity.digest, "Console evidence integrity digest");
+  if (sha256(sidecarBytes) === sha256(aggregateBytes)) {
+    throw new ArcRefusal("Console evidence sidecar must be distinct from the strict SDK aggregate bytes");
+  }
+  assertSecretFree(evidence, "Console evidence sidecar");
+  return evidence;
+}
+
+async function readPublicJson(fetchImpl, url, label) {
+  const response = await fetchImpl(url, { headers: { accept: "application/json" }, redirect: "error" });
+  if (!response.ok) throw new ArcRefusal(`${label} returned HTTP ${response.status}`);
+  try {
+    return await response.json();
+  } catch {
+    throw new ArcRefusal(`${label} returned invalid JSON`);
+  }
+}
+
+export async function verifyPublicCandidate(context, console, consoleEvidence, consoleOrigin, fetchImpl = fetch) {
+  const capabilitiesEnvelope = await readPublicJson(
+    fetchImpl,
+    `${context.endpoint}/api/v1/capabilities`,
+    "public server capabilities",
+  );
+  const capabilities = capabilitiesEnvelope.data ?? capabilitiesEnvelope;
+  const server = capabilities.server ?? {};
+  const serverRevision = server.deploymentRevision ?? server.serverRevision ?? capabilities.serverRevision;
+  const revisionSource = server.deploymentRevisionSource ?? capabilities.deploymentRevisionSource;
+  if (
+    !SHA.test(serverRevision ?? "") ||
+    serverRevision !== context.components["honua-server"] ||
+    serverRevision !== consoleEvidence.runtime.serverSourceRevision ||
+    !text(revisionSource, "public server deploymentRevisionSource")
+  ) {
+    throw new ArcRefusal("public server capabilities do not prove the manifest-pinned source revision");
+  }
+  const consoleVersion = await readPublicJson(
+    fetchImpl,
+    `${normalizedConsoleOrigin(consoleOrigin)}/version.json`,
+    "public Console version",
+  );
+  if (revision(consoleVersion.commit, "public Console commit") !== context.components["honua-console"]) {
+    throw new ArcRefusal("public Console version is not the manifest-pinned commit");
+  }
+  for (const family of ["map", "app", "dashboard"]) {
+    const url = console.publications[family].publicUrl;
+    const response = await fetchImpl(url, { headers: { accept: "text/html,application/json" }, redirect: "error" });
+    if (!response.ok) throw new ArcRefusal(`public ${family} publication returned HTTP ${response.status}`);
+  }
 }
 
 function consoleJoins(console) {
@@ -803,9 +1468,21 @@ function requireJoinCoverage(lanes, joins) {
   }
 }
 
-export function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl) {
+export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, options = {}) {
   const handoff = verifyHandoff(rawHandoff, context);
   const console = verifyConsole(rawConsole, context.checkpoint, context);
+  if (!options.consoleEvidence || !options.aggregateBytes || !options.sidecarBytes) {
+    throw new ArcRefusal("resume requires the Console aggregate bytes and HONUA_AI_ARC_CONSOLE_EVIDENCE sidecar");
+  }
+  const consoleEvidence = verifyConsoleEvidence(
+    options.consoleEvidence,
+    options.sidecarBytes,
+    options.aggregateBytes,
+    handoff,
+    console,
+    context,
+  );
+  await verifyPublicCandidate(context, console, consoleEvidence, options.consoleOrigin, options.fetchImpl ?? fetch);
   const joins = { ...handoff.joins, ...consoleJoins(console) };
   const lanes = structuredClone(handoff.lanes);
   for (const call of lanes.studioPublication.calls) {
@@ -826,6 +1503,8 @@ export function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl) {
     target: context.target,
     ...(context.provisionReceiptSha256 ? { provisionReceiptSha256: context.provisionReceiptSha256 } : {}),
     checkpointDigest: context.checkpoint.integrity.digest,
+    consoleAggregateSha256: sha256(options.aggregateBytes),
+    consoleEvidenceSha256: sha256(options.sidecarBytes),
     lanes,
     joins,
   };
@@ -859,6 +1538,8 @@ export function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl) {
           target: "aws-ecs",
           provisionReceiptSha256: context.provisionReceiptSha256,
           checkpointDigest: context.checkpoint.integrity.digest,
+          consoleAggregateSha256: sha256(options.aggregateBytes),
+          consoleEvidenceSha256: sha256(options.sidecarBytes),
         },
         lanes,
         joins,
@@ -914,6 +1595,7 @@ export async function loadArcContext(paths, settings) {
   const parsedManifest = parsePlatformManifest(manifestBytes);
   const manifest = { ...parsedManifest, candidateId: `manifest-sha256:${sha256(manifestBytes)}` };
   const endpoint = normalizedEndpoint(settings.endpoint);
+  const plan = parseJson(planBytes, "SDK plan");
   const checkpoint = verifyCheckpoint(
     parseJson(checkpointBytes, "SDK checkpoint"),
     planBytes,
@@ -922,12 +1604,19 @@ export async function loadArcContext(paths, settings) {
     provisionBytes,
     settings.now?.getTime() ?? Date.now(),
   );
+  verifyConsoleReceiptRequest(plan, checkpoint);
   if (checkpoint.target === "aws-ecs")
     verifyProvision(parseJson(provisionBytes, "AWS provision binding"), manifest, endpoint);
-  const sourceSha = settings.sourceSha ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  if (!SHA.test(sourceSha) || sourceSha !== manifest.components["honua-studio"]) {
-    throw new ArcRefusal("producer is not running from the manifest-pinned honua-studio SHA");
-  }
+  const trackedChanges = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8",
+  }).trim();
+  if (trackedChanges) throw new ArcRefusal("producer source has tracked changes beyond its claimed Git HEAD");
+  const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8",
+  }).trim();
+  verifySourceRevision(sourceSha, manifest);
   if (!PROVIDERS.has(settings.provider))
     throw new ArcRefusal("HONUA_AI_PROVIDER must be anthropic, bedrock, or openai");
   text(settings.model, "HONUA_AI_MODEL");
@@ -941,7 +1630,7 @@ export async function loadArcContext(paths, settings) {
     components: Object.fromEntries(COMPONENTS.map((name) => [name, manifest.components[name]])),
     provider: settings.provider,
     requestedModel: settings.model,
-    plan: parseJson(planBytes, "SDK plan"),
+    plan,
     checkpoint,
     ...(provisionBytes ? { provisionReceiptSha256: sha256(provisionBytes) } : {}),
   };

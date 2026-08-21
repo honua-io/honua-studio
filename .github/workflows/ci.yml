@@ -106,7 +106,7 @@ jobs:
         run: |
           docker run --rm -d --name honua-studio-ci -p 18080:8080 \
             -e HONUA_SERVER_BASE_URL=https://honua.example \
-            -e HONUA_OIDC_CLIENT_ID=studio-ci \
+            -e 'HONUA_OIDC_CLIENT_ID=studio-"quoted"-\tenant' \
             -e HONUA_MODEL_PROVIDER=fixture-provider \
             honua-studio-ci
           trap 'docker stop honua-studio-ci' EXIT
@@ -114,7 +114,8 @@ jobs:
             curl --fail --silent http://127.0.0.1:18080/ >/dev/null && break
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:18080/config.json | grep 'https://honua.example'
+          curl --fail --silent http://127.0.0.1:18080/config.json > /tmp/honua-studio-config.json
+          node -e 'const c=JSON.parse(require("node:fs").readFileSync("/tmp/honua-studio-config.json","utf8")); if(c.serverBaseUrl!=="https://honua.example"||c.oidc.clientId!==`studio-"quoted"-\\tenant`) process.exit(1)'
           test "$(docker inspect -f '{{.Config.User}}' honua-studio-ci)" != "root"
 
   browser-smoke:

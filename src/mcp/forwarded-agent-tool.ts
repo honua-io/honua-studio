@@ -2,7 +2,7 @@ import type { HonuaAgentToolResult } from "@honua/sdk-js/agent-tools";
 
 import type { McpClient } from "./client.js";
 import { McpToolError } from "./errors.js";
-import type { McpToolDescriptor } from "./protocol.js";
+import type { McpToolDescriptor, McpToolsCallResult } from "./protocol.js";
 
 function forwardedResult(
   tool: string,
@@ -35,10 +35,12 @@ export async function forwardAdvertisedMcpTool(
   client: Pick<McpClient, "callTool">,
   descriptor: McpToolDescriptor,
   args: Record<string, unknown>,
+  onSuccess?: (result: McpToolsCallResult) => void | Promise<void>,
 ): Promise<HonuaAgentToolResult> {
   const action = descriptor.annotations?.readOnlyHint !== true;
   try {
     const result = await client.callTool(descriptor.name, args);
+    await onSuccess?.(result);
     const data = result.structuredContent ?? result.content?.find((block) => block.type === "text")?.text ?? null;
     return forwardedResult(descriptor.name, "ok", action, data);
   } catch (error) {

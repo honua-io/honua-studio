@@ -19,4 +19,17 @@ describe("Studio agent tool policy", () => {
       expect(isGpAgentTool(advertised)).toBe(true);
     }
   });
+
+  it("allows the native buffer and governed save/get/reopen/propose lifecycle", () => {
+    for (const advertised of [
+      "honua_buffer_features",
+      "honua_studio_save_version",
+      "honua_studio_get_version",
+      "honua_studio_reopen_version",
+      "honua_studio_propose_publication",
+    ]) {
+      expect(isGovernedStudioAgentTool(advertised)).toBe(true);
+    }
+    expect(isGpAgentTool("honua_buffer_features")).toBe(true);
+  });
 });

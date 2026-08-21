@@ -53,4 +53,21 @@ describe("forwardAdvertisedMcpTool", () => {
       audit: { outcome: "error", message: "Buffer job failed" },
     });
   });
+
+  it("awaits lifecycle reconciliation before returning success", async () => {
+    const result = { structuredContent: { draftId: "draft-2", generation: 7 } };
+    const reconciled: unknown[] = [];
+    const forwarded = await forwardAdvertisedMcpTool(
+      { callTool: async () => result } as never,
+      descriptor("honua_studio_reopen_version"),
+      { itemId: "item-1", versionId: "version-1" },
+      async (observed) => {
+        await Promise.resolve();
+        reconciled.push(observed);
+      },
+    );
+
+    expect(reconciled).toEqual([result]);
+    expect(forwarded).toMatchObject({ status: "ok", data: result.structuredContent });
+  });
 });
