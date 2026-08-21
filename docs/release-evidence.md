@@ -1,5 +1,10 @@
 # 2026.1 release evidence
 
+The candidate-bound real-model producer and its focused Console pause/resume contract are documented in
+[real-model-ai-arc.md](./real-model-ai-arc.md). Its receipts are separate from the deterministic browser receipts
+below: mocked CI verifies the producer contract, while only an exact candidate endpoint and real provider may
+produce release evidence.
+
 | Capability | Repository evidence | External receipt |
 | --- | --- | --- |
 | Static release bundle | `npm run build`; CI artifact | Available when a version tag runs the release workflow |
