@@ -15,3 +15,10 @@ produce release evidence.
 | Hosted demo | No claim | Non-blocking; schedule after server gates and operator credentials |
 
 Do not convert a local mock result into a live-server or hosted-demo claim.
+
+For a tag-push release, the checked-out tag commit must equal both the live tag
+target and the immutable `GITHUB_SHA` recorded by the push event. Static archive
+timestamps and BuildKit image timestamps are clamped to the source commit's
+`SOURCE_DATE_EPOCH`. Both CI and the release transaction perform two no-cache
+image builds from that epoch and require the same `RootFS.Layers` plus image
+`Config` fingerprint used by the occupied-coordinate retry gate.

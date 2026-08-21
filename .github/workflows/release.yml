@@ -87,6 +87,10 @@ jobs:
             echo "Checked-out HEAD does not equal refs/tags/$tag^{commit}" >&2
             exit 1
           fi
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$source_sha" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out tag commit does not equal the immutable tag-push event SHA" >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
@@ -117,16 +121,31 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.source_epoch }}
         run: |
           set -euo pipefail
           image="ghcr.io/${GITHUB_REPOSITORY}:$RELEASE_VERSION"
           candidate_image="honua-studio-candidate:$RELEASE_VERSION"
+          retry_image="honua-studio-candidate-retry:$RELEASE_VERSION"
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker build \
-            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
-            --label "org.opencontainers.image.version=$RELEASE_TAG" \
-            -t "$candidate_image" .
-          expected_fingerprint=$(docker image inspect "$candidate_image" --format '{{json .RootFS.Layers}} {{json .Config}}' | sha256sum | cut -d ' ' -f 1)
+          for built_image in "$candidate_image" "$retry_image"; do
+            docker build --no-cache \
+              --provenance=false \
+              --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+              --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+              --label "org.opencontainers.image.version=$RELEASE_TAG" \
+              -t "$built_image" .
+          done
+          fingerprint() {
+            docker image inspect "$1" --format '{{json .RootFS.Layers}} {{json .Config}}' \
+              | sha256sum | cut -d ' ' -f 1
+          }
+          expected_fingerprint=$(fingerprint "$candidate_image")
+          retry_fingerprint=$(fingerprint "$retry_image")
+          if [[ "$retry_fingerprint" != "$expected_fingerprint" ]]; then
+            echo "Clean release retry changed the occupied-coordinate fingerprint" >&2
+            exit 1
+          fi
           if docker manifest inspect "$image" >/dev/null 2>&1; then
             docker pull "$image"
             existing_revision=$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')

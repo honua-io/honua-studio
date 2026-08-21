@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import {
   ArcRefusal,
@@ -10,6 +11,7 @@ import {
   buildOperations,
   canonicalJson,
   finalizeArc,
+  indexCompletedReceipts,
   parsePlatformManifest,
   prepareArc,
   sha256,
@@ -18,6 +20,11 @@ import {
 } from "../../scripts/lib/real-model-ai-arc.mjs";
 
 const FAMILIES = ["map", "app", "dashboard"];
+const CANONICAL_PLAN_BYTES = await readFile(new URL("./fixtures/zero-to-map/journey.v1.json", import.meta.url));
+const CANONICAL_PLAN = JSON.parse(CANONICAL_PLAN_BYTES);
+const CANONICAL_CHECKPOINT = JSON.parse(
+  await readFile(new URL("./fixtures/zero-to-map/checkpoint.v1.json", import.meta.url), "utf8"),
+);
 const CURRENT_HEAD = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const CANDIDATE = `manifest-sha256:${"a".repeat(64)}`;
 const COMPONENTS = Object.fromEntries(
@@ -79,7 +86,7 @@ function modelAction(spec) {
       title: spec.id,
       kind: "mcp-resource",
       uri: `honua://jobs/${job}${spec.id.includes("read-") ? "/results" : ""}`,
-      captures: Object.keys(captures).map((variable) => ({ variable, pointers: ["/contents/0/text"] })),
+      captures: Object.keys(captures).map((variable) => ({ variable, pointers: [`/contents/0/${variable}`] })),
       _captures: captures,
     };
   }
@@ -93,7 +100,7 @@ function modelAction(spec) {
       processId: "geometry.buffer",
       parameters: { distance: 25 },
       resultNames: ["result"],
-      captures: Object.keys(captures).map((variable) => ({ variable, pointers: ["/jobId"] })),
+      captures: Object.keys(captures).map((variable) => ({ variable, pointers: [`/${variable}`] })),
       _captures: captures,
     };
   }
@@ -113,7 +120,7 @@ function modelAction(spec) {
     kind: "mcp",
     tool: spec.tool,
     arguments: argumentsValue,
-    captures: Object.keys(captures).map((variable) => ({ variable, pointers: ["/structuredContent/value"] })),
+    captures: Object.keys(captures).map((variable) => ({ variable, pointers: [`/structuredContent/${variable}`] })),
     _captures: captures,
   };
 }
@@ -190,6 +197,7 @@ function fixture(target = "aws-ecs") {
     },
   ];
   const capturedVariables = { serviceName: "zero-to-map" };
+  let actionSecond = 0;
   const completedStages = stages.slice(0, 5).map((stage) => ({
     number: stage.number,
     id: stage.id,
@@ -197,12 +205,14 @@ function fixture(target = "aws-ecs") {
     status: "passed",
     actions: stage.actions.map(({ _captures = {}, ...planned }) => {
       Object.assign(capturedVariables, _captures);
+      const startedAt = new Date(Date.UTC(2026, 7, 20, 0, 0, actionSecond++)).toISOString();
+      const finishedAt = new Date(Date.UTC(2026, 7, 20, 0, 0, actionSecond++)).toISOString();
       return {
         id: planned.id,
         kind: planned.kind,
         status: "passed",
-        startedAt: "2026-08-20T00:00:00.000Z",
-        finishedAt: "2026-08-20T00:00:01.000Z",
+        startedAt,
+        finishedAt,
         ...(Object.keys(_captures).length ? { captures: _captures } : {}),
       };
     }),
@@ -226,6 +236,7 @@ function fixture(target = "aws-ecs") {
     candidateId: CANDIDATE,
     releaseId: "2026.1-rc.2",
     resume: {
+      startedAt: "2026-08-20T00:00:00.000Z",
       capturedVariables,
       completedStages,
       resumeAt: { stageId: "console", actionId: "console-approval" },
@@ -418,6 +429,20 @@ async function finalizeFixture(context, handoff, console, fetchImpl = publicFetc
   });
 }
 
+function canonicalAction(plan, id) {
+  const action = plan.stages.flatMap((stage) => stage.actions).find((candidate) => candidate.id === id);
+  if (!action) throw new Error(`canonical fixture action ${id} is missing`);
+  return action;
+}
+
+function canonicalActionReceipt(checkpoint, id) {
+  const receipt = checkpoint.resume.completedStages
+    .flatMap((stage) => stage.actions)
+    .find((candidate) => candidate.id === id);
+  if (!receipt) throw new Error(`canonical fixture action receipt ${id} is missing`);
+  return receipt;
+}
+
 describe("candidate-bound real-model AI arc", () => {
   it("pins the exact SDK source and canonical plan digest", () => {
     const yaml = [
@@ -430,6 +455,84 @@ describe("candidate-bound real-model AI arc", () => {
 
     const stale = yaml.replace(EXPECTED_SDK_SHA, "9".repeat(40));
     expect(() => parsePlatformManifest(stale)).toThrow(EXPECTED_SDK_SHA);
+  });
+
+  it("accepts the checksum-bound canonical SDK plan/checkpoint generation timeline", () => {
+    expect(sha256(CANONICAL_PLAN_BYTES)).toBe(EXPECTED_PLAN_SHA256);
+    expect(CANONICAL_CHECKPOINT.sourceRevision).toBe(EXPECTED_SDK_SHA);
+    expect(CANONICAL_CHECKPOINT.planSha256).toBe(EXPECTED_PLAN_SHA256);
+    const { integrity, ...checkpointPayload } = CANONICAL_CHECKPOINT;
+    expect(integrity).toEqual({ algorithm: "sha256", digest: sha256(canonicalJson(checkpointPayload)) });
+    expect(indexCompletedReceipts(CANONICAL_PLAN, CANONICAL_CHECKPOINT)).toHaveProperty("size", 60);
+    expect(CANONICAL_CHECKPOINT.resume.capturedVariables).toMatchObject({
+      mapGeneration: 8,
+      appGeneration: 8,
+      dashboardGeneration: 6,
+      mapReopenedGeneration: 2,
+      appReopenedGeneration: 2,
+      dashboardReopenedGeneration: 2,
+    });
+  });
+
+  it("rejects hostile generation advances, final snapshots, identities, tools, draft streams, sources, and receipts", () => {
+    const generationJump = structuredClone(CANONICAL_CHECKPOINT);
+    canonicalActionReceipt(generationJump, "add-map-parcels-layer").captures.mapGeneration = 3;
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, generationJump)).toThrow("must advance by exactly one");
+
+    const finalMismatch = structuredClone(CANONICAL_CHECKPOINT);
+    finalMismatch.resume.capturedVariables.mapGeneration = 999;
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, finalMismatch)).toThrow(
+      "captures do not equal action receipt captures",
+    );
+
+    const immutablePlan = structuredClone(CANONICAL_PLAN);
+    const immutableCheckpoint = structuredClone(CANONICAL_CHECKPOINT);
+    canonicalAction(immutablePlan, "test-connection").captures = [
+      { variable: "connectionId", pointers: ["/structuredContent/connectionId"] },
+    ];
+    canonicalActionReceipt(immutableCheckpoint, "test-connection").captures = { connectionId: "connectionId-fixture" };
+    expect(() => indexCompletedReceipts(immutablePlan, immutableCheckpoint)).toThrow("repeats immutable capture");
+
+    const nonStudioPlan = structuredClone(CANONICAL_PLAN);
+    canonicalAction(nonStudioPlan, "add-map-parcels-layer").tool = "honua_admin_generation_advance";
+    expect(() => indexCompletedReceipts(nonStudioPlan, CANONICAL_CHECKPOINT)).toThrow("repeats immutable capture");
+
+    const crossDraftPlan = structuredClone(CANONICAL_PLAN);
+    canonicalAction(crossDraftPlan, "add-map-parcels-layer").arguments.draftId = "${appDraftId}";
+    expect(() => indexCompletedReceipts(crossDraftPlan, CANONICAL_CHECKPOINT)).toThrow(
+      "is not the same Studio draft generation stream",
+    );
+
+    const wrongSourcePlan = structuredClone(CANONICAL_PLAN);
+    canonicalAction(wrongSourcePlan, "add-map-parcels-layer").captures[0].pointers = [
+      "/structuredContent/notGeneration",
+    ];
+    expect(() => indexCompletedReceipts(wrongSourcePlan, CANONICAL_CHECKPOINT)).toThrow(
+      "is not the same Studio draft generation stream",
+    );
+
+    const aliasMismatch = structuredClone(CANONICAL_CHECKPOINT);
+    canonicalActionReceipt(aliasMismatch, "propose-map-publication").captures.mapProposalGeneration = 99;
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, aliasMismatch)).toThrow(
+      "captured different values from the same response source",
+    );
+
+    const missingCapture = structuredClone(CANONICAL_CHECKPOINT);
+    const missingCaptureReceipt = canonicalActionReceipt(missingCapture, "add-map-parcels-layer");
+    const { mapGeneration: _omitted, ...remainingCaptures } = missingCaptureReceipt.captures;
+    missingCaptureReceipt.captures = remainingCaptures;
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, missingCapture)).toThrow("must have the exact fields");
+
+    const hostileReceipt = structuredClone(CANONICAL_CHECKPOINT);
+    canonicalActionReceipt(hostileReceipt, "add-map-parcels-layer").message =
+      "passed receipts cannot carry diagnostics";
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, hostileReceipt)).toThrow("must have the exact fields");
+
+    const hostileTimeline = structuredClone(CANONICAL_CHECKPOINT);
+    canonicalActionReceipt(hostileTimeline, "add-map-parcels-layer").startedAt = CANONICAL_CHECKPOINT.resume.startedAt;
+    expect(() => indexCompletedReceipts(CANONICAL_PLAN, hostileTimeline)).toThrow(
+      "outside the completed receipt timeline",
+    );
   });
 
   it("binds source claims to actual git HEAD rather than a caller override", () => {

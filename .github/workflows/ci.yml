@@ -99,8 +99,25 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
-      - name: Build image
-        run: docker build -t honua-studio-ci .
+      - name: Build twice from the commit epoch and verify the retry fingerprint
+        run: |
+          set -euo pipefail
+          source_epoch=$(git show -s --format=%ct HEAD)
+          for image in honua-studio-ci honua-studio-ci-retry; do
+            docker build --no-cache --provenance=false \
+              --build-arg "SOURCE_DATE_EPOCH=$source_epoch" \
+              -t "$image" .
+          done
+          fingerprint() {
+            docker image inspect "$1" --format '{{json .RootFS.Layers}} {{json .Config}}' \
+              | sha256sum | cut -d ' ' -f 1
+          }
+          first=$(fingerprint honua-studio-ci)
+          retry=$(fingerprint honua-studio-ci-retry)
+          if [[ "$first" != "$retry" ]]; then
+            echo "Clean container rebuild changed the occupied-coordinate fingerprint" >&2
+            exit 1
+          fi
 
       - name: Boot as non-root with runtime config
         run: |

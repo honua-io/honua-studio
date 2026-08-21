@@ -25,6 +25,21 @@ const COMPONENTS = ["honua-server", "honua-sdk-js", "honua-console", "honua-stud
 const PROVIDERS = new Set(["anthropic", "bedrock", "openai"]);
 const SECRET_KEY = /(?:password|authorization|api[-_]?key|access[-_]?key|secret(?:string|[-_]?key)|bearer|token)/i;
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const STUDIO_GENERATION_MUTATION_TOOLS = new Set([
+  "honua_studio_add_control",
+  "honua_studio_add_layer",
+  "honua_studio_add_widget",
+  "honua_studio_bind_interaction",
+  "honua_studio_propose_publication",
+  "honua_studio_set_layer_style",
+  "honua_studio_set_layer_visibility",
+  "honua_studio_set_view",
+]);
+const STUDIO_GENERATION_CAPTURE_POINTERS = ["/structuredContent/generation"];
+const STUDIO_PUBLICATION_GENERATION_CAPTURE_POINTERS = [
+  "/structuredContent/draft/generation",
+  "/structuredContent/generation",
+];
 
 const actionSpec = (id, lane, role, kind, tool, family, evidenceName) => ({
   id,
@@ -636,7 +651,7 @@ function familyFor(action) {
   return undefined;
 }
 
-function indexCompletedReceipts(plan, checkpoint) {
+export function indexCompletedReceipts(plan, checkpoint) {
   const receipts = new Map();
   const stages = Array.isArray(plan.stages) ? plan.stages : [];
   const completed = checkpoint.resume?.completedStages;
@@ -644,12 +659,16 @@ function indexCompletedReceipts(plan, checkpoint) {
   if (completed.length !== stages.findIndex((stage) => stage.id === "console")) {
     throw new ArcRefusal("SDK checkpoint is not the exact completed stage prefix through proposal");
   }
+  let previousFinishedAt = Date.parse(checkpoint.resume.startedAt);
+  if (!Number.isFinite(previousFinishedAt)) throw new ArcRefusal("SDK checkpoint resume.startedAt is invalid");
   completed.forEach((actualStage, stageIndex) => {
     const plannedStage = stages[stageIndex];
+    exactKeySet(actualStage, ["number", "id", "title", "status", "actions"], `SDK completed stage ${stageIndex + 1}`);
     if (
       !plannedStage ||
       actualStage.id !== plannedStage.id ||
       actualStage.number !== plannedStage.number ||
+      actualStage.title !== plannedStage.title ||
       actualStage.status !== "passed"
     ) {
       throw new ArcRefusal(`SDK completed stage ${stageIndex + 1} does not match the plan`);
@@ -659,14 +678,43 @@ function indexCompletedReceipts(plan, checkpoint) {
     }
     actualStage.actions.forEach((receipt, index) => {
       const action = plannedStage.actions[index];
+      const plannedCaptures = Array.isArray(action.captures) ? action.captures : [];
+      exactKeySet(
+        receipt,
+        [
+          "id",
+          "kind",
+          "status",
+          "startedAt",
+          "finishedAt",
+          ...(Object.hasOwn(receipt, "evidence") ? ["evidence"] : []),
+          ...(plannedCaptures.length ? ["captures"] : []),
+        ],
+        `SDK action receipt ${plannedStage.id}[${index}]`,
+      );
       if (receipt.id !== action.id || receipt.kind !== action.kind || receipt.status !== "passed") {
         throw new ArcRefusal(`SDK action receipt ${plannedStage.id}[${index}] is not exact and passed`);
       }
-      const allowedCaptures = new Set((action.captures ?? []).map((capture) => capture.variable));
-      for (const name of Object.keys(receipt.captures ?? {})) {
-        if (!allowedCaptures.has(name))
-          throw new ArcRefusal(`SDK action receipt ${action.id} has undeclared capture ${name}`);
+      const startedAt = Date.parse(receipt.startedAt);
+      const finishedAt = Date.parse(receipt.finishedAt);
+      if (
+        !Number.isFinite(startedAt) ||
+        !Number.isFinite(finishedAt) ||
+        startedAt < previousFinishedAt ||
+        finishedAt < startedAt
+      ) {
+        throw new ArcRefusal(`SDK action receipt ${action.id} is outside the completed receipt timeline`);
       }
+      previousFinishedAt = finishedAt;
+
+      const captures = plannedCaptures.length
+        ? object(receipt.captures, `SDK action receipt ${action.id} captures`)
+        : {};
+      const plannedCaptureNames = plannedCaptures.map((capture) => capture.variable);
+      if (new Set(plannedCaptureNames).size !== plannedCaptureNames.length) {
+        throw new ArcRefusal(`SDK plan action ${action.id} repeats a capture variable`);
+      }
+      exactKeySet(captures, plannedCaptureNames, `SDK action receipt ${action.id} captures`);
       receipts.set(action.id, { action, receipt });
     });
   });
@@ -682,15 +730,76 @@ function indexCompletedReceipts(plan, checkpoint) {
     }
     restored.serviceName = captured.serviceName;
   }
-  for (const { receipt } of receipts.values()) {
-    for (const [key, value] of Object.entries(receipt.captures ?? {})) {
-      if (Object.hasOwn(restored, key)) throw new ArcRefusal(`SDK checkpoint repeats capture ${key}`);
+  for (const { action, receipt } of receipts.values()) {
+    const beforeAction = { ...restored };
+    const captureSources = new Map();
+    for (const capture of action.captures ?? []) {
+      const key = capture.variable;
+      const value = receipt.captures[key];
+      if (value === undefined) throw new ArcRefusal(`SDK action receipt ${action.id} has undefined capture ${key}`);
+      if (Object.hasOwn(restored, key)) {
+        assertMutableGenerationAdvance(action, capture, restored[key], value, beforeAction);
+      }
+      const expected =
+        typeof capture.equals === "string"
+          ? resolveTemplate(capture.equals, { ...(plan.variables ?? {}), ...beforeAction }, `capture ${key}.equals`)
+          : capture.equals;
+      if (expected !== undefined && canonicalJson(value) !== canonicalJson(expected)) {
+        throw new ArcRefusal(`SDK checkpoint capture ${key} does not match its planned value`);
+      }
+      const sourceKey = canonicalJson({ pointers: capture.pointers, parsedPointers: capture.parsedPointers });
+      const priorSource = captureSources.get(sourceKey);
+      if (priorSource && canonicalJson(priorSource.value) !== canonicalJson(value)) {
+        throw new ArcRefusal(
+          `SDK action receipt ${action.id} captured different values from the same response source for ${priorSource.variable} and ${key}`,
+        );
+      }
+      captureSources.set(sourceKey, { variable: key, value });
       restored[key] = value;
     }
   }
   if (canonicalJson(restored) !== canonicalJson(captured))
     throw new ArcRefusal("SDK checkpoint captures do not equal action receipt captures");
   return receipts;
+}
+
+/**
+ * Studio draft generations are the sole mutable SDK checkpoint capture. The
+ * action must consume the same draft stream, use the canonical Studio
+ * mutation and response pointer, and advance the generation by exactly one.
+ */
+function assertMutableGenerationAdvance(action, capture, previous, next, beforeAction) {
+  const name = capture.variable;
+  const suffix = "Generation";
+  if (
+    action.kind !== "mcp" ||
+    !STUDIO_GENERATION_MUTATION_TOOLS.has(action.tool) ||
+    typeof name !== "string" ||
+    !name.endsWith(suffix) ||
+    name.length === suffix.length
+  ) {
+    throw new ArcRefusal(`SDK checkpoint repeats immutable capture ${name}`);
+  }
+  const draftIdName = `${name.slice(0, -suffix.length)}DraftId`;
+  const expectedPointers =
+    action.tool === "honua_studio_propose_publication"
+      ? STUDIO_PUBLICATION_GENERATION_CAPTURE_POINTERS
+      : STUDIO_GENERATION_CAPTURE_POINTERS;
+  if (
+    action.arguments?.generation !== `\${${name}}` ||
+    action.arguments?.draftId !== `\${${draftIdName}}` ||
+    capture.parsedPointers !== undefined ||
+    canonicalJson(capture.pointers) !== canonicalJson(expectedPointers) ||
+    typeof beforeAction[draftIdName] !== "string" ||
+    !beforeAction[draftIdName]
+  ) {
+    throw new ArcRefusal(`SDK checkpoint mutable capture ${name} is not the same Studio draft generation stream`);
+  }
+  if (!Number.isSafeInteger(previous) || previous < 1 || !Number.isSafeInteger(next) || next !== previous + 1) {
+    throw new ArcRefusal(
+      `SDK checkpoint mutable capture ${name} must advance by exactly one; got ${JSON.stringify(previous)} -> ${JSON.stringify(next)}`,
+    );
+  }
 }
 
 function operation(lane, role, pair, variables, family, evidenceName) {
