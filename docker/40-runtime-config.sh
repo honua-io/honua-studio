@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-output=${HONUA_CONFIG_OUTPUT:-/usr/share/nginx/html/config.json}
+output=${HONUA_CONFIG_OUTPUT:-/usr/share/nginx/studio/config.json}
 
 json_string() {
   value=$1

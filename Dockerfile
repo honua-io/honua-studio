@@ -20,26 +20,26 @@ USER 0
 RUN --mount=from=build,source=/app/dist,target=/tmp/studio-dist,ro \
     --mount=type=bind,source=docker,target=/tmp/studio-docker,ro \
     set -eu; \
-    rm -rf /usr/share/nginx/html/*; \
     find /tmp/studio-dist -type d -print | LC_ALL=C sort | while IFS= read -r source; do \
       relative="${source#/tmp/studio-dist}"; \
-      mkdir -p "/usr/share/nginx/html$relative"; \
+      mkdir -p "/usr/share/nginx/studio$relative"; \
     done; \
     find /tmp/studio-dist -type f -print | LC_ALL=C sort | while IFS= read -r source; do \
       relative="${source#/tmp/studio-dist/}"; \
-      cp "$source" "/usr/share/nginx/html/$relative"; \
+      cp "$source" "/usr/share/nginx/studio/$relative"; \
     done; \
     cp /tmp/studio-docker/nginx.conf /etc/nginx/conf.d/default.conf; \
     cp /tmp/studio-docker/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh; \
-    chown -R 101:101 /usr/share/nginx/html; \
-    find /usr/share/nginx/html -type d -exec chmod 0755 {} +; \
-    find /usr/share/nginx/html -type f -exec chmod 0644 {} +; \
+    chown -R 101:101 /usr/share/nginx/studio; \
+    find /usr/share/nginx/studio -type d -exec chmod 0755 {} +; \
+    find /usr/share/nginx/studio -type f -exec chmod 0644 {} +; \
     chmod 0644 /etc/nginx/conf.d/default.conf; \
     chmod 0755 /docker-entrypoint.d/40-runtime-config.sh; \
-    find /usr/share/nginx/html -exec touch -d "@$SOURCE_DATE_EPOCH" {} +; \
+    find /usr/share/nginx/studio -exec touch -d "@$SOURCE_DATE_EPOCH" {} +; \
     touch -d "@$SOURCE_DATE_EPOCH" \
-      /etc /etc/nginx/conf.d /etc/nginx/conf.d/default.conf \
-      /docker-entrypoint.d /docker-entrypoint.d/40-runtime-config.sh
+      / /docker-entrypoint.d /docker-entrypoint.d/40-runtime-config.sh \
+      /etc /etc/nginx /etc/nginx/conf.d /etc/nginx/conf.d/default.conf \
+      /usr /usr/share /usr/share/nginx
 USER 101
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1

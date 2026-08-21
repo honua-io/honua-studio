@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const workflow = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
 const ciWorkflow = await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8");
 const dockerfile = await readFile(new URL("../../Dockerfile", import.meta.url), "utf8");
+const nginxConfig = await readFile(new URL("../../docker/nginx.conf", import.meta.url), "utf8");
+const runtimeConfig = await readFile(new URL("../../docker/40-runtime-config.sh", import.meta.url), "utf8");
 
 describe("release workflow integrity contract", () => {
   it("binds the checked-out tag commit and immutable SDK package before publication", () => {
@@ -41,7 +43,11 @@ describe("release workflow integrity contract", () => {
     expect(dockerfile).toContain('RUN SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" npm run build');
     expect(dockerfile).toContain("RUN --mount=from=build,source=/app/dist,target=/tmp/studio-dist,ro");
     expect(dockerfile).toContain("find /tmp/studio-dist -type f -print | LC_ALL=C sort");
-    expect(dockerfile).toContain("/etc /etc/nginx/conf.d /etc/nginx/conf.d/default.conf \\");
+    expect(dockerfile).not.toContain("rm -rf /usr/share/nginx/html");
+    expect(dockerfile).toContain("/usr/share/nginx/studio");
+    expect(nginxConfig).toContain("root /usr/share/nginx/studio;");
+    expect(runtimeConfig).toContain("/usr/share/nginx/studio/config.json");
+    expect(dockerfile).toContain("/etc /etc/nginx /etc/nginx/conf.d /etc/nginx/conf.d/default.conf \\");
     expect(ciWorkflow.match(/docker build --no-cache --provenance=false/g) ?? []).toHaveLength(1);
     expect(ciWorkflow).toContain("for image in honua-studio-ci honua-studio-ci-retry");
     expect(ciWorkflow).toContain("Clean container rebuild changed the occupied-coordinate fingerprint");
