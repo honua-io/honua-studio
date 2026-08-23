@@ -11,8 +11,8 @@
  * exactly — every property here is already camelCase on the wire, so these
  * interfaces are usable directly against a real `ApiResponse<T>.data`
  * payload with zero translation. See `lifecycle-client.ts`'s module doc for
- * why this is a hand-rolled projection rather than an `@honua/sdk-js` import
- * (honua-sdk-js#780 hasn't published the lifecycle client yet).
+ * why the joined enumeration and #3304 status extensions remain a local
+ * projection beside the released SDK lifecycle client.
  *
  * @module
  */
@@ -63,7 +63,7 @@ export type StudioPackageSupportLevel = "unsupported" | "limited" | "supported";
 export type StudioPackagePersistenceMode = "in-memory" | "durable";
 export type StudioPackageValidationStatus = "not-validated" | "valid" | "warning" | "invalid";
 export type StudioPackageDiagnosticSeverity = "info" | "warning" | "error" | "blocker";
-export type StudioPublicationRequestStatus = "accepted" | "pending" | "rejected";
+export type StudioPublicationRequestStatus = "accepted" | "pending" | "approved" | "published" | "rejected";
 export type StudioRollbackPointer = "current" | "published" | "both";
 
 /** Derived lifecycle state for a Studio content item (server: `StudioContentItemState`). Distinct from a joined publication's route `lifecycle`. */
@@ -283,6 +283,22 @@ export interface StudioPublicationRequest {
   readonly warningAcknowledgement?: string;
   readonly requestedBy?: string;
   readonly createdAt: string;
+}
+
+/** Pollable status contract tracked by honua-server#3304. */
+export interface StudioPublicationRequestStatusResult {
+  readonly requestId: string;
+  readonly itemId: string;
+  readonly versionId: string;
+  readonly status: StudioPublicationRequestStatus;
+  readonly decidedAt?: string;
+  readonly decidedBy?: string;
+  readonly publicationId?: string;
+  readonly publicUrl?: string;
+}
+
+export interface StudioPublicationRequestListResponse {
+  readonly requests: readonly StudioPublicationRequestStatusResult[];
 }
 
 export interface StudioRollbackRequestInput {

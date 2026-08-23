@@ -14,36 +14,7 @@
  * @module
  */
 
-export {
-  GESTURE_EVENT_SOURCES,
-  INTERACTION_EVENT_PATH_PREFIX,
-  INTERACTION_FANOUT_CAP,
-  compileStudioInteractions,
-  isInteractionEventPath,
-  parseInteractionRef,
-  readInteractionEventPath,
-  resolveInteractionArgs,
-  validateInteractions,
-} from "./declarative.js";
-export type {
-  CompileStudioInteractionsOptions,
-  CompiledInteractionBinding,
-  ControlChangePayload,
-  InteractionDispatchRecord,
-  InteractionIssue,
-  InteractionIssueCode,
-  InteractionLayerComponent,
-  InteractionMapComponent,
-  InteractionViewport,
-  InteractionWidgetComponent,
-  ParsedInteractionRef,
-  StudioCompiledInteractions,
-  StudioControlChangeEvent,
-  StudioInteractionComponents,
-  StudioInteractionEventSource,
-  StudioInteractionRefKind,
-  UnsupportedInteraction,
-} from "./declarative.js";
+export * from "@honua/sdk-js/interactions/declarative";
 
 export { clauseToMaplibreFilter, clausesToMaplibreFilter } from "./filter-expression.js";
 export type { MaplibreFilter } from "./filter-expression.js";

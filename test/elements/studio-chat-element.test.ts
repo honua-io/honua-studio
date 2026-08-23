@@ -23,6 +23,15 @@ afterEach(() => {
 });
 
 describe("<honua-studio-chat>", () => {
+  it("marks an explicitly assigned fixture transport as host-owned", () => {
+    const el = mountChat();
+    expect(el.hasCustomTransport).toBe(false);
+
+    el.transport = new FixtureChatTransport(composeDistrictsMapConversation);
+
+    expect(el.hasCustomTransport).toBe(true);
+  });
+
   it("still dispatches honua-studio-chat-message with the exact legacy {text} shape on composer submit (honua-studio#5 contract)", async () => {
     const el = mountChat();
     el.transport = new FixtureChatTransport(composeDistrictsMapConversation);
@@ -143,6 +152,64 @@ describe("<honua-studio-chat>", () => {
       "tool_call_completed",
       "assistant_turn_completed",
     ]);
+  });
+
+  it("uses StudioAgentSession to execute a tool, feed its result back, and finish the same visible turn", async () => {
+    const el = mountChat();
+    const requests: StudioAiChatRequest[] = [];
+    let round = 0;
+    const transport: ChatTransport = {
+      async *streamChat(request) {
+        requests.push(request);
+        round += 1;
+        yield { type: "messageStart", model: "fixture-model" };
+        if (round === 1) {
+          yield { type: "toolCallStart", toolCallId: "call-live-1", toolName: "setViewport" };
+          yield { type: "toolCallDelta", toolCallId: "call-live-1", toolArgumentsDelta: '{"zoom":8}' };
+          yield { type: "toolCallStop", toolCallId: "call-live-1", toolArguments: { zoom: 8 } };
+          yield { type: "messageStop", stopReason: "toolCall" };
+          return;
+        }
+        yield { type: "textDelta", text: "The map is now zoomed to 8." };
+        yield { type: "messageStop", stopReason: "endTurn" };
+      },
+    };
+    const execute = vi.fn(async () => ({
+      tool: "setViewport",
+      status: "ok",
+      data: { zoom: 8 },
+      audit: {
+        tool: "setViewport",
+        status: "ok",
+        dryRun: false,
+        action: true,
+        outcome: "allowed",
+        parameters: {},
+        timestamp: "t",
+      },
+    }));
+    el.attachAgentSession({
+      transport: transport as never,
+      tools: [
+        {
+          name: "setViewport",
+          description: "Set the map viewport.",
+          inputSchema: { type: "object", properties: { zoom: { type: "number" } } },
+        },
+      ],
+      execute: execute as never,
+    });
+
+    await el.sendMessage("Zoom to 8");
+
+    expect(execute).toHaveBeenCalledWith({ name: "setViewport", args: { zoom: 8 } });
+    expect(requests).toHaveLength(2);
+    expect(
+      requests[1]?.messages.some((message) => message.role === "tool" && message.toolCallId === "call-live-1"),
+    ).toBe(true);
+    expect(el.messages.at(-1)?.text).toBe("The map is now zoomed to 8.");
+    expect(el.messages.at(-1)?.status).toBe("complete");
+    expect(el.activityLog.entries().map((entry) => entry.type)).toContain("tool_call_completed");
   });
 
   it("cancel() aborts an in-flight turn, marks the message cancelled, and dispatches honua-studio-chat-turn-cancelled", async () => {

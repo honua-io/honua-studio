@@ -40,9 +40,11 @@ import type {
   StudioContentVersion,
   StudioPackageDraft,
   StudioPublicationIntent,
+  StudioPublicationRequestStatusResult,
   StudioRollbackPointer,
   StudioVersionComparison,
 } from "../lifecycle/lifecycle-types.js";
+import { getRuntimeConfig } from "../runtime-config.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, lifecycleStyles } from "./styles.js";
@@ -79,6 +81,8 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
   #versionsLoading = false;
   #error: string | undefined;
   #actionMessage: string | undefined;
+  #publicationRequestId: string | undefined;
+  #approvedPublicUrl: string | undefined;
 
   #compareLeftId: string | undefined;
   #compareRightId: string | undefined;
@@ -111,7 +115,8 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
   }
 
   public get client(): StudioLifecycleClient {
-    if (!this.#client) this.#client = new StudioLifecycleClient({ baseUrl: "/api", auth: this.#auth });
+    if (!this.#client)
+      this.#client = new StudioLifecycleClient({ baseUrl: getRuntimeConfig().serverBaseUrl, auth: this.#auth });
     return this.#client;
   }
 
@@ -163,6 +168,8 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     if (name === "item-id" || name === "draft-id") {
       this.#pendingConfirm = undefined;
       this.#comparison = undefined;
+      this.#publicationRequestId = undefined;
+      this.#approvedPublicUrl = undefined;
       void this.#load();
       return;
     }
@@ -317,6 +324,44 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
   }
 
   /**
+   * Polls the governed request state without approving or publishing it.
+   * The public method lets a host/session keep polling while Studio remains
+   * open; the panel also offers an explicit Refresh button. Until
+   * honua-server#3304 lands, a missing endpoint remains a visible gate.
+   */
+  public async refreshPublicationStatus(requestId = this.#publicationRequestId): Promise<void> {
+    if (!requestId || !this.#itemId) return;
+    try {
+      const status = await this.client.getPublicationRequest(this.#itemId, requestId);
+      this.#publicationRequestId = requestId;
+      this.#applyPublicationStatus(status);
+    } catch (error) {
+      this.#actionMessage = `Publication approval is recorded, but status polling is unavailable (${describeError(error)}; honua-server#3304).`;
+    }
+    this.render();
+  }
+
+  #applyPublicationStatus(status: StudioPublicationRequestStatusResult): void {
+    const approved = status.status === "approved" || status.status === "published";
+    this.#approvedPublicUrl = approved ? status.publicUrl : undefined;
+    this.#activity({
+      kind: "publication-status",
+      itemId: status.itemId,
+      versionId: status.versionId,
+      requestId: status.requestId,
+      ...(approved && status.publicUrl ? { publicUrl: status.publicUrl } : {}),
+      message: status.status,
+    });
+    if (status.publicUrl && approved) {
+      this.#actionMessage = `Human approval complete (${status.status}).`;
+    } else if (status.status === "rejected") {
+      this.#actionMessage = "Publication request rejected.";
+    } else {
+      this.#actionMessage = `Publication request ${status.status}; waiting for human approval.`;
+    }
+  }
+
+  /**
    * THE ONLY call site for `requestPublish`/`requestRollback` in this
    * package (spec REQ-009). Reachable ONLY via `#confirmSubmit`'s `click`
    * listener (`#bindListeners`), itself only enabled once
@@ -333,16 +378,21 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
         const request = await this.client.requestPublish(this.#itemId, pending.versionId, {
           intent: pending.intent,
         });
+        this.#publicationRequestId = request.requestId;
+        this.#approvedPublicUrl = undefined;
         this.#activity({
-          kind: request.status === "accepted" ? "publish-requested" : "publish-rejected",
+          kind: request.status === "rejected" ? "publish-rejected" : "publish-requested",
           itemId: this.#itemId,
           versionId: pending.versionId,
+          requestId: request.requestId,
           message: request.status,
         });
-        this.#actionMessage =
-          request.status === "accepted"
-            ? `Published version ${pending.versionId}.`
-            : `Publish request rejected (${request.status}) — the version's validation status must be valid or warning.`;
+        if (request.status !== "rejected") {
+          this.#actionMessage = `Publication requested for version ${pending.versionId}; waiting for governed status.`;
+          await this.refreshPublicationStatus(request.requestId);
+        } else {
+          this.#actionMessage = `Publish request rejected (${request.status}); the version's validation status must be valid or warning.`;
+        }
       } else {
         const request = await this.client.requestRollback(this.#itemId, {
           targetVersionId: pending.targetVersionId,
@@ -383,6 +433,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
         <h2 class="hn-panel-title">${escapeHtml(label)}</h2>
         ${this.#error ? `<p class="hn-error" data-testid="lifecycle-panel-error">${escapeHtml(this.#error)}</p>` : ""}
         ${this.#actionMessage ? `<p class="hn-muted" data-testid="lifecycle-panel-message">${escapeHtml(this.#actionMessage)}</p>` : ""}
+        ${this.#renderPublicationStatus()}
         ${this.#renderDraftSection()}
         ${this.#renderPendingPublicationBanner()}
         ${this.#renderVersionsSection()}
@@ -391,6 +442,19 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
       </section>
     `);
     this.#bindListeners();
+  }
+
+  #renderPublicationStatus(): string {
+    if (this.#approvedPublicUrl) {
+      return `<p class="lifecycle-banner" data-testid="lifecycle-approved-publication">
+        Approved link: <a data-testid="lifecycle-approved-public-link" href="${escapeHtml(this.#approvedPublicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(this.#approvedPublicUrl)}</a>
+      </p>`;
+    }
+    if (!this.#publicationRequestId) return "";
+    return `<p class="lifecycle-banner" data-testid="lifecycle-publication-pending">
+      Approval pending for request ${escapeHtml(this.#publicationRequestId)}.
+      <button type="button" class="hn-btn hn-btn--sm" data-testid="lifecycle-publication-refresh">Refresh status</button>
+    </p>`;
   }
 
   #renderDraftSection(): string {
@@ -609,6 +673,9 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     root
       .querySelector('[data-testid="lifecycle-compare-button"]')
       ?.addEventListener("click", () => void this.compareSelected(), { signal });
+    root
+      .querySelector('[data-testid="lifecycle-publication-refresh"]')
+      ?.addEventListener("click", () => void this.refreshPublicationStatus(), { signal });
 
     // -- THE HUMAN GATE: the only listeners that can reach #submitConfirm --
     const confirmInput = root.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]');

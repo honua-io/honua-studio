@@ -239,6 +239,15 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
     expect(request.status).toBe("accepted");
     expect(request.intent).toEqual({ route: "/studio/lc-publish", visibility: "organization" });
 
+    const status = await c.getPublicationRequest(created.itemId, request.requestId);
+    expect(status).toMatchObject({
+      requestId: request.requestId,
+      status: "published",
+      publicUrl: "/api/v1/published/studio/lc-publish",
+    });
+    const requests = await c.listPublicationRequests(created.itemId);
+    expect(requests.requests).toEqual([status]);
+
     const items = await c.listContentItems({ q: "lc-publish" });
     expect(items.items[0]?.state).toBe("published");
     expect(items.items[0]?.publishedVersionId).toBe(version.versionId);

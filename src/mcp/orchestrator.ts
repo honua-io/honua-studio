@@ -43,7 +43,8 @@
 import type { ActivityLog } from "../chat/activity-log.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
-import { applyCompositionCommand, isCompositionCommandError } from "../composition/reducer.js";
+import type { CompositionState } from "../composition/model.js";
+import { isCompositionCommandError } from "../composition/reducer.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
 import type { McpClient } from "./client.js";
 import { isMcpGenerationConflict } from "./errors.js";
@@ -132,6 +133,18 @@ export class ToolCallOrchestrator {
     return this.#live !== undefined;
   }
 
+  /** Ensures the live draft exists before a model turn starts. */
+  public ensureLiveDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
+    return this.#ensureDraft();
+  }
+
+  /** Reconciles local state and the concurrency token from an SDK-owned agent tool result. */
+  public acceptServerDraft(draft: StudioMcpDraft): void {
+    this.#draftId = draft.draftId;
+    this.#generation = draft.generation;
+    this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
+  }
+
   /** Attaches (or replaces) the live session. Passing `draftId`/`generation` skips lazy draft creation. */
   public attachLiveSession(options: ToolCallOrchestratorLiveOptions): void {
     this.#live = options;
@@ -190,24 +203,23 @@ export class ToolCallOrchestrator {
     command: CompositionCommand,
     serverToolName: StudioMcpToolName,
   ): Promise<ToolCallOrchestrationResult> {
-    // Pre-flight local validation against this client's cached view — fails
-    // fast (duplicate id, out-of-bounds zoom, pinned target, …) without a
-    // network round trip. Never committed to the controller's history: the
-    // server's response is what actually lands via `replaceState` below, so
-    // this check exists purely to reject obviously-invalid commands early.
-    try {
-      applyCompositionCommand(this.#controller.state, command);
-    } catch (error) {
-      const reason = isCompositionCommandError(error) ? error.message : String(error);
-      return this.#reject(toolName, "reducer-rejected", reason);
-    }
-
+    // Optimistically apply against the cached view so the canvas responds
+    // immediately. The returned server draft then replaces this projection;
+    // a failed call reconciles from the server or rolls back the snapshot.
     let draftId: string;
     let generation: number;
     try {
       ({ draftId, generation } = await this.#ensureDraft());
     } catch (error) {
       return this.#reject(toolName, "server-error", errorMessage(error));
+    }
+
+    const stateBeforeOptimisticApply = this.#controller.state;
+    try {
+      this.#controller.apply(command);
+    } catch (error) {
+      const reason = isCompositionCommandError(error) ? error.message : String(error);
+      return this.#reject(toolName, "reducer-rejected", reason);
     }
 
     const invocation = buildServerToolInvocation(
@@ -224,12 +236,27 @@ export class ToolCallOrchestrator {
     try {
       draft = await this.#callServerTool(invocation);
     } catch (error) {
+      await this.#reconcileAfterFailure(stateBeforeOptimisticApply);
       return this.#reject(toolName, "server-error", errorMessage(error));
     }
 
     this.#generation = draft.generation;
     this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
     return this.#accept(toolName, "server", command, draft);
+  }
+
+  async #reconcileAfterFailure(fallback: CompositionState): Promise<void> {
+    if (this.#draftId && this.#studioTools) {
+      try {
+        const current = await this.#studioTools.getDraft(this.#draftId);
+        this.acceptServerDraft(current);
+        return;
+      } catch {
+        // The original failure remains the useful error; the snapshot is the
+        // safest available rollback when the reconciliation read also fails.
+      }
+    }
+    this.#controller.replaceState(fallback);
   }
 
   /** One generation-conflict reload+retry, per the module doc. */

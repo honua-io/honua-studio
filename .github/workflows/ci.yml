@@ -93,6 +93,52 @@ jobs:
       - name: Build
         run: npm run build
 
+  container-smoke:
+    name: Static container and runtime config smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Build twice from the commit epoch and verify the retry fingerprint
+        run: |
+          set -euo pipefail
+          source_epoch=$(git show -s --format=%ct HEAD)
+          for image in honua-studio-ci honua-studio-ci-retry; do
+            docker build --no-cache --provenance=false \
+              --build-arg "SOURCE_DATE_EPOCH=$source_epoch" \
+              -t "$image" .
+          done
+          fingerprint() {
+            docker image inspect "$1" --format '{{json .RootFS.Layers}} {{json .Config}}' \
+              | sha256sum | cut -d ' ' -f 1
+          }
+          first=$(fingerprint honua-studio-ci)
+          retry=$(fingerprint honua-studio-ci-retry)
+          if [[ "$first" != "$retry" ]]; then
+            echo "first fingerprint: $first" >&2
+            echo "retry fingerprint: $retry" >&2
+            docker image inspect honua-studio-ci honua-studio-ci-retry \
+              --format '{{.RepoTags}} {{json .RootFS.Layers}} {{json .Config}}' >&2
+            echo "Clean container rebuild changed the occupied-coordinate fingerprint" >&2
+            exit 1
+          fi
+
+      - name: Boot as non-root with runtime config
+        run: |
+          docker run --rm -d --name honua-studio-ci -p 18080:8080 \
+            -e HONUA_SERVER_BASE_URL=https://honua.example \
+            -e 'HONUA_OIDC_CLIENT_ID=studio-"quoted"-\tenant' \
+            -e HONUA_MODEL_PROVIDER=fixture-provider \
+            honua-studio-ci
+          trap 'docker stop honua-studio-ci' EXIT
+          for attempt in $(seq 1 20); do
+            curl --fail --silent http://127.0.0.1:18080/ >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18080/config.json > /tmp/honua-studio-config.json
+          node -e 'const c=JSON.parse(require("node:fs").readFileSync("/tmp/honua-studio-config.json","utf8")); if(c.serverBaseUrl!=="https://honua.example"||c.oidc.clientId!==`studio-"quoted"-\\tenant`) process.exit(1)'
+          test "$(docker inspect -f '{{.Config.User}}' honua-studio-ci)" != "root"
+
   browser-smoke:
     name: Browser smoke (mock + live dev modes)
     runs-on: ubuntu-latest

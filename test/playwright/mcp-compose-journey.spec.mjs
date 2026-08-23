@@ -64,6 +64,14 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers.map((l) => l.id)))
         .toEqual(["hi-parcels"]);
 
+      // The canvas applies the command optimistically before the MCP response
+      // advances the authoritative concurrency token. Wait for that response,
+      // too, so the check below proves the server mutation rather than racing
+      // the optimistic paint.
+      await expect
+        .poll(() => page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation))
+        .toBeGreaterThan(1);
+
       // Proves a REAL server draft exists (not just local reducer state):
       // draftId/generation only exist once an actual honua_studio_create_draft
       // + honua_studio_add_layer round trip landed.
