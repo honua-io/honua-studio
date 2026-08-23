@@ -17,6 +17,7 @@ import {
   sha256,
   verifyHandoff,
   verifySourceRevision,
+  verifyTranscriptArtifact,
 } from "../../scripts/lib/real-model-ai-arc.mjs";
 
 const FAMILIES = ["map", "app", "dashboard"];
@@ -417,22 +418,38 @@ function publicFetch(context, overrides = {}) {
 
 async function preparedFixture(target = "aws-ecs") {
   const { context, tools } = fixture(target);
-  const selectTool = vi.fn(async ({ model, tool, expectedArguments }) => ({
-    modelId: model,
-    toolName: tool.name,
-    arguments: expectedArguments,
-    transcriptSha256: sha256(canonicalJson({ tool: tool.name, expectedArguments })),
-  }));
-  const handoff = await prepareArc(context, { mcp: { listTools: async () => tools }, model: { selectTool } });
-  return { context, tools, handoff, selectTool };
+  const selectTool = vi.fn(async ({ model, tool, expectedArguments }) => {
+    const events = [
+      { eventName: "message_start", model },
+      { eventName: "tool_call_start", toolCallId: `call-${tool.name}`, toolName: tool.name },
+      { eventName: "tool_call_stop", toolCallId: `call-${tool.name}`, toolArguments: expectedArguments },
+      { eventName: "message_stop", stopReason: "toolCall" },
+    ];
+    const transcript = canonicalJson(events);
+    const response = canonicalJson({ modelId: model, toolName: tool.name, arguments: expectedArguments });
+    return {
+      modelId: model,
+      toolName: tool.name,
+      arguments: expectedArguments,
+      transcript,
+      transcriptSha256: sha256(transcript),
+      response,
+      responseSha256: sha256(response),
+    };
+  });
+  const prepared = await prepareArc(context, { mcp: { listTools: async () => tools }, model: { selectTool } });
+  return { context, tools, ...prepared, selectTool };
 }
 
-async function finalizeFixture(context, handoff, console, fetchImpl = publicFetch(context)) {
+async function finalizeFixture(context, prepared, console, fetchImpl = publicFetch(context)) {
+  const { handoff, transcriptArtifact, transcriptBytes } = prepared;
   const aggregateBytes = Buffer.from(`${JSON.stringify(console, null, 2)}\n`);
   const consoleEvidence = sidecar(context, handoff, console, aggregateBytes);
   const sidecarBytes = Buffer.from(`${JSON.stringify(consoleEvidence, null, 2)}\n`);
   return finalizeArc(context, handoff, console, "https://evidence.example.test/arc.json", {
     consoleEvidence,
+    transcriptArtifact,
+    transcriptBytes,
     aggregateBytes,
     sidecarBytes,
     consoleOrigin: "https://console.example.test",
@@ -626,22 +643,37 @@ describe("candidate-bound real-model AI arc", () => {
   });
 
   it("requires the distinct digest-bound Console sidecar and credential-free public runtime rereads", async () => {
-    const { context, handoff } = await preparedFixture();
+    const prepared = await preparedFixture();
+    const { context, handoff } = prepared;
     const console = consoleReceipt(context);
-    const result = await finalizeFixture(context, handoff, console);
+    const result = await finalizeFixture(context, prepared, console);
     expect(result.receipt.status).toBe("passed");
     expect(result.evidence.consoleAggregateSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(result.evidence.consoleEvidenceSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.evidence.transcriptArtifactSha256).toBe(sha256(prepared.transcriptBytes));
+
+    const tamperedTranscript = structuredClone(prepared.transcriptArtifact);
+    tamperedTranscript.lanes.admin[0].response = canonicalJson({
+      modelId: handoff.model.modelId,
+      toolName: "forged",
+      arguments: {},
+    });
+    const tamperedBytes = `${JSON.stringify(tamperedTranscript, null, 2)}\n`;
+    const tamperedHandoff = { ...handoff, transcriptArtifactSha256: sha256(tamperedBytes) };
+    expect(() => verifyTranscriptArtifact(tamperedTranscript, tamperedBytes, tamperedHandoff, context)).toThrow(
+      "does not prove its selected response",
+    );
 
     await expect(
-      finalizeFixture(context, handoff, console, publicFetch(context, { serverRevision: "f".repeat(40) })),
+      finalizeFixture(context, prepared, console, publicFetch(context, { serverRevision: "f".repeat(40) })),
     ).rejects.toThrow("public server capabilities do not prove");
   });
 
   it("emits the strict Release-certified local Docker receipt and detailed evidence", async () => {
-    const { context, handoff } = await preparedFixture("local-docker");
+    const prepared = await preparedFixture("local-docker");
+    const { context, handoff } = prepared;
     const console = consoleReceipt(context);
-    const result = await finalizeFixture(context, handoff, console);
+    const result = await finalizeFixture(context, prepared, console);
 
     expect(Object.keys(result.receipt).sort()).toEqual(
       [
@@ -658,6 +690,7 @@ describe("candidate-bound real-model AI arc", () => {
         "promptVersion",
         "evalVersion",
         "transcriptSha256",
+        "transcriptArtifactSha256",
         "deterministic",
         "lanes",
         "joins",
@@ -679,6 +712,7 @@ describe("candidate-bound real-model AI arc", () => {
         promptVersion: LOCAL_PROMPT_VERSION,
         evalVersion: LOCAL_EVAL_VERSION,
         transcriptSha256: handoff.transcriptSha256,
+        transcriptArtifactSha256: handoff.transcriptArtifactSha256,
         lanes: result.evidence.lanes,
         joins: result.evidence.joins,
       }),
@@ -708,6 +742,7 @@ describe("candidate-bound real-model AI arc", () => {
       promptVersion: LOCAL_PROMPT_VERSION,
       evalVersion: LOCAL_EVAL_VERSION,
       transcriptSha256: handoff.transcriptSha256,
+      transcriptArtifactSha256: handoff.transcriptArtifactSha256,
       target: "local-docker",
       checkpointDigest: context.checkpoint.integrity.digest,
       consoleAggregateSha256: result.receipt.deterministic.consoleAggregateSha256,
@@ -725,7 +760,8 @@ describe("candidate-bound real-model AI arc", () => {
   });
 
   it("rejects an SDK projection, tampered sidecar, or insecure public URL", async () => {
-    const { context, handoff } = await preparedFixture();
+    const prepared = await preparedFixture();
+    const { context, handoff } = prepared;
     const console = consoleReceipt(context);
     await expect(
       finalizeArc(
@@ -733,7 +769,7 @@ describe("candidate-bound real-model AI arc", () => {
         handoff,
         { ...console, proposals: undefined, proposal: console.proposals.app },
         "https://evidence.example.test/a",
-        {},
+        { transcriptArtifact: prepared.transcriptArtifact, transcriptBytes: prepared.transcriptBytes },
       ),
     ).rejects.toThrow("Console aggregate receipt");
 
@@ -743,6 +779,8 @@ describe("candidate-bound real-model AI arc", () => {
     const sidecarBytes = Buffer.from(`${JSON.stringify(consoleEvidence, null, 2)}\n`);
     await expect(
       finalizeArc(context, handoff, console, "https://evidence.example.test/a", {
+        transcriptArtifact: prepared.transcriptArtifact,
+        transcriptBytes: prepared.transcriptBytes,
         consoleEvidence,
         aggregateBytes,
         sidecarBytes,
@@ -754,7 +792,7 @@ describe("candidate-bound real-model AI arc", () => {
     const insecure = consoleReceipt(context);
     insecure.publications.app.publicUrl = "http://example.test/app";
     insecure.shareUrl = insecure.publications.app.publicUrl;
-    await expect(finalizeFixture(context, handoff, insecure)).rejects.toThrow(
+    await expect(finalizeFixture(context, prepared, insecure)).rejects.toThrow(
       "Console app publicUrl must be credential-free HTTPS",
     );
   });

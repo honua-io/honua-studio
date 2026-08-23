@@ -29,9 +29,12 @@ SDK-owned `mcp-resource` and `gpserver` action shapes; they do not translate or 
 ## Console boundary
 
 The `prepare` phase writes a sealed, immutable
-`honua.studio.real-model-ai-arc-handoff/v1` document to `HONUA_AI_ARC_REAL_MODEL_HANDOFF`, writes no passed
-evidence or receipt, prints the handoff requirement, and exits 2. Exclusive claims prevent concurrent producers;
-an existing byte-valid handoff is verified without re-running the model.
+`honua.studio.real-model-ai-arc-handoff/v1` document to `HONUA_AI_ARC_REAL_MODEL_HANDOFF` and a separate
+`honua.studio.real-model-ai-arc-transcript/v1` artifact to `HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT`, writes no passed
+evidence or receipt, prints the handoff requirement, and exits 2. The handoff binds the exact transcript artifact
+bytes by SHA-256. Exclusive claims prevent concurrent producers; an existing handoff is accepted only after the
+transcript bytes, prompts, parsed model events, selected response, and per-lane/call digests are revalidated without
+re-running the model.
 Console is the only component allowed to approve the map,
 app, and dashboard proposals and return their publication/audit identities and HTTPS public links.
 
@@ -53,9 +56,11 @@ its own privileged audit revalidation.
   local prompt/eval versions, and deterministic checkpoint/Console aggregate/Console sidecar hashes required by
   honua-release PR #160.
 
-Only response, prompt, transcript, checkpoint, endpoint, and evidence hashes plus scalar identity joins are
-serialized. Raw prompts/model events, tool payloads, credentials, and provider secrets remain in memory. A
-credential-looking evidence key makes the producer refuse the output.
+The transcript artifact serializes the exact generated prompts, canonical parsed model events, and selected
+responses needed to verify every response, prompt, transcript, lane, and aggregate digest. It is a private
+certification artifact written mode 0600, not public release content. The model never receives the Admin credential
+(it is sent only as an HTTP authorization header), resolved SDK secret inputs remain redacted credential references,
+and provider secrets are never serialized. A credential-looking evidence key makes the producer refuse the output.
 
 ## Required environment
 
@@ -71,6 +76,7 @@ credential-looking evidence key makes the producer refuse the output.
 | `HONUA_AI_ARC_SDK_CONSOLE_RECEIPT` | Distinct path containing a byte-identical copy of the strict three-family SDK aggregate for deterministic SDK resume. |
 | `HONUA_AI_ARC_CONSOLE_EVIDENCE` | Console-owned `honua.console.ai-arc-evidence/v1` sidecar, digest-bound to the aggregate and handoff. |
 | `HONUA_AI_ARC_REAL_MODEL_HANDOFF` | Immutable prepare-phase handoff consumed by Console and Studio resume. |
+| `HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT` | Immutable prompt/model-event/selected-response artifact, byte-bound by the handoff and final receipt. |
 | `HONUA_AI_ARC_REAL_MODEL_EVIDENCE` | Final transcript evidence output; never used as the mutable handoff path. |
 | `HONUA_AI_ARC_REAL_MODEL_RECEIPT` | Final passed receipt output; never written before Console. |
 | `HONUA_AI_ARC_EVIDENCE_URL` | Credential-free HTTPS publication location for the final evidence bytes. |

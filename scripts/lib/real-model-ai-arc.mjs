@@ -12,6 +12,7 @@ const AWS_EVIDENCE_SCHEMA = "honua.aws-ecs.real-model-ai-arc-evidence/v1";
 const AWS_RECEIPT_SCHEMA = "honua.aws-ecs.real-model-ai-arc/v1";
 const LOCAL_EVIDENCE_SCHEMA = "honua.local-docker.real-model-ai-arc-evidence/v1";
 const LOCAL_RECEIPT_SCHEMA = "honua.local-docker.real-model-ai-arc/v1";
+export const TRANSCRIPT_SCHEMA = "honua.studio.real-model-ai-arc-transcript/v1";
 const CHECKPOINT_SCHEMA = "honua.zero-to-map.checkpoint/v1";
 const CONSOLE_SCHEMA = "honua.zero-to-map.console-receipt/v1";
 const CONSOLE_EVIDENCE_SCHEMA = "honua.console.ai-arc-evidence/v1";
@@ -990,6 +991,7 @@ export async function prepareArc(context, adapters) {
   joins.candidateId = context.candidateId;
   joins.releaseId = context.releaseId;
   const lanes = { admin: [], esriGp: [], nativeAnalysis: [], studioPublication: [] };
+  const transcriptLanes = { admin: [], esriGp: [], nativeAnalysis: [], studioPublication: [] };
   let actualModel;
   for (const item of operations) {
     const prompt = promptFor(item, context);
@@ -1016,6 +1018,14 @@ export async function prepareArc(context, adapters) {
     if (!SHA256.test(selected.transcriptSha256 ?? "")) {
       throw new ArcRefusal(`real model returned no transcript digest for ${item.action.id}`);
     }
+    if (
+      typeof selected.transcript !== "string" ||
+      selected.transcriptSha256 !== sha256(selected.transcript) ||
+      typeof selected.response !== "string" ||
+      selected.responseSha256 !== sha256(selected.response)
+    ) {
+      throw new ArcRefusal(`real model returned unverifiable transcript bytes for ${item.action.id}`);
+    }
     const actionReceiptSha256 = sha256(canonicalJson(item.receipt));
     lanes[item.lane].push({
       actionId: item.action.id,
@@ -1025,10 +1035,16 @@ export async function prepareArc(context, adapters) {
       kind: item.action.kind,
       name: item.evidenceName,
       status: "passed",
-      responseSha256: sha256(canonicalJson({ modelTranscriptSha256: selected.transcriptSha256, actionReceiptSha256 })),
+      responseSha256: selected.responseSha256,
       result: { status: "reconciled", identities: identitiesFor(item, joins) },
       _promptSha256: sha256(prompt),
       _transcriptSha256: selected.transcriptSha256,
+    });
+    transcriptLanes[item.lane].push({
+      actionId: item.action.id,
+      prompt,
+      transcript: selected.transcript,
+      response: selected.response,
     });
   }
   const finalizedLanes = {};
@@ -1040,6 +1056,21 @@ export async function prepareArc(context, adapters) {
     };
   }
   const transcriptSha256 = sha256(canonicalJson(Object.values(finalizedLanes).map((lane) => lane.transcriptSha256)));
+  const transcriptArtifact = {
+    schemaVersion: TRANSCRIPT_SCHEMA,
+    target: context.target,
+    candidateId: context.candidateId,
+    releaseId: context.releaseId,
+    endpointSha256: context.endpointSha256,
+    source: context.source,
+    components: context.components,
+    model: { provider: context.provider, modelId: actualModel },
+    promptVersion: contract.promptVersion,
+    evalVersion: contract.evalVersion,
+    lanes: transcriptLanes,
+  };
+  assertSecretFree(transcriptArtifact, "real-model transcript artifact");
+  const transcriptBytes = `${JSON.stringify(transcriptArtifact, null, 2)}\n`;
   const handoffPayload = {
     schemaVersion: HANDOFF_SCHEMA,
     status: "paused",
@@ -1053,6 +1084,7 @@ export async function prepareArc(context, adapters) {
     promptVersion: contract.promptVersion,
     evalVersion: contract.evalVersion,
     transcriptSha256,
+    transcriptArtifactSha256: sha256(transcriptBytes),
     deterministic: {
       target: context.target,
       ...(context.provisionReceiptSha256 ? { provisionReceiptSha256: context.provisionReceiptSha256 } : {}),
@@ -1063,7 +1095,12 @@ export async function prepareArc(context, adapters) {
     consoleReceiptRequest: context.checkpoint.consoleReceiptRequest,
   };
   assertSecretFree(handoffPayload, "real-model handoff");
-  return { ...handoffPayload, integrity: { algorithm: "sha256", digest: sha256(canonicalJson(handoffPayload)) } };
+  const handoff = {
+    ...handoffPayload,
+    integrity: { algorithm: "sha256", digest: sha256(canonicalJson(handoffPayload)) },
+  };
+  verifyTranscriptArtifact(transcriptArtifact, transcriptBytes, handoff, context);
+  return { handoff, transcriptArtifact, transcriptBytes };
 }
 
 function scalarJoins(value) {
@@ -1122,6 +1159,7 @@ export function verifyHandoff(handoff, context) {
       "promptVersion",
       "evalVersion",
       "transcriptSha256",
+      "transcriptArtifactSha256",
       "deterministic",
       "lanes",
       "joins",
@@ -1155,6 +1193,7 @@ export function verifyHandoff(handoff, context) {
     throw new ArcRefusal("real-model handoff prompt/eval contract changed");
   }
   sha256Value(value.transcriptSha256, "real-model handoff transcriptSha256");
+  sha256Value(value.transcriptArtifactSha256, "real-model handoff transcriptArtifactSha256");
   const deterministicKeys =
     context.target === "aws-ecs"
       ? ["target", "provisionReceiptSha256", "checkpointDigest"]
@@ -1250,6 +1289,133 @@ export function verifyHandoff(handoff, context) {
   }
   assertSecretFree(value, "real-model handoff");
   return value;
+}
+
+function transcriptResponse(value, label) {
+  let response;
+  try {
+    response = JSON.parse(value);
+  } catch {
+    throw new ArcRefusal(`${label} response is not canonical JSON`);
+  }
+  if (canonicalJson(response) !== value) {
+    throw new ArcRefusal(`${label} response is not canonical JSON`);
+  }
+  exactKeySet(response, ["modelId", "toolName", "arguments"], `${label} response`);
+  return response;
+}
+
+function transcriptEvents(value, label) {
+  let events;
+  try {
+    events = JSON.parse(value);
+  } catch {
+    throw new ArcRefusal(`${label} transcript is not canonical JSON`);
+  }
+  if (!Array.isArray(events) || canonicalJson(events) !== value) {
+    throw new ArcRefusal(`${label} transcript is not canonical JSON`);
+  }
+  return events;
+}
+
+export function verifyTranscriptArtifact(rawArtifact, artifactBytes, handoff, context) {
+  const artifact = object(rawArtifact, "real-model transcript artifact");
+  const bytes = Buffer.isBuffer(artifactBytes) ? artifactBytes.toString("utf8") : String(artifactBytes);
+  if (bytes !== `${JSON.stringify(artifact, null, 2)}\n`) {
+    throw new ArcRefusal("real-model transcript artifact bytes are not canonical");
+  }
+  if (sha256(bytes) !== handoff.transcriptArtifactSha256) {
+    throw new ArcRefusal("real-model transcript artifact bytes do not match the sealed handoff");
+  }
+  exactKeySet(
+    artifact,
+    [
+      "schemaVersion",
+      "target",
+      "candidateId",
+      "releaseId",
+      "endpointSha256",
+      "source",
+      "components",
+      "model",
+      "promptVersion",
+      "evalVersion",
+      "lanes",
+    ],
+    "real-model transcript artifact",
+  );
+  if (
+    artifact.schemaVersion !== TRANSCRIPT_SCHEMA ||
+    artifact.target !== context.target ||
+    artifact.candidateId !== context.candidateId ||
+    artifact.releaseId !== context.releaseId ||
+    artifact.endpointSha256 !== context.endpointSha256 ||
+    canonicalJson(artifact.source) !== canonicalJson(context.source) ||
+    canonicalJson(artifact.components) !== canonicalJson(context.components) ||
+    canonicalJson(artifact.model) !== canonicalJson(handoff.model) ||
+    artifact.promptVersion !== handoff.promptVersion ||
+    artifact.evalVersion !== handoff.evalVersion
+  ) {
+    throw new ArcRefusal("real-model transcript artifact is not bound to this candidate/model");
+  }
+  exactKeySet(artifact.lanes, ["admin", "esriGp", "nativeAnalysis", "studioPublication"], "transcript lanes");
+  const advertised = [...new Set(MODEL_ACTION_SPECS.map((spec) => spec.tool).filter((tool) => tool !== undefined))].map(
+    (name) => ({ name, description: name, inputSchema: { type: "object" } }),
+  );
+  const operations = buildOperations(context.plan, context.checkpoint, advertised);
+  const laneTranscriptDigests = [];
+  for (const laneName of ["admin", "esriGp", "nativeAnalysis", "studioPublication"]) {
+    const transcriptCalls = artifact.lanes[laneName];
+    const receiptLane = object(handoff.lanes[laneName], `real-model lane ${laneName}`);
+    const expectedCalls = operations.filter((item) => item.lane === laneName);
+    if (!Array.isArray(transcriptCalls) || transcriptCalls.length !== expectedCalls.length) {
+      throw new ArcRefusal(`real-model transcript lane ${laneName} has the wrong call multiplicity`);
+    }
+    const promptDigests = [];
+    const transcriptDigests = [];
+    transcriptCalls.forEach((call, index) => {
+      const expected = expectedCalls[index];
+      const receiptCall = receiptLane.calls[index];
+      exactKeySet(call, ["actionId", "prompt", "transcript", "response"], `transcript call ${expected.action.id}`);
+      if (call.actionId !== expected.action.id || call.prompt !== promptFor(expected, context)) {
+        throw new ArcRefusal(`real-model transcript call ${expected.action.id} is not canonical`);
+      }
+      const events = transcriptEvents(call.transcript, `real-model transcript call ${expected.action.id}`);
+      const response = transcriptResponse(call.response, `real-model transcript call ${expected.action.id}`);
+      const starts = events.filter((event) => event.eventName === "tool_call_start");
+      const stops = events.filter((event) => event.eventName === "tool_call_stop");
+      const modelId = events.find((event) => event.eventName === "message_start")?.model;
+      if (
+        starts.length !== 1 ||
+        stops.length !== 1 ||
+        starts[0].toolCallId !== stops[0].toolCallId ||
+        response.modelId !== modelId ||
+        response.modelId !== handoff.model.modelId ||
+        response.toolName !== starts[0].toolName ||
+        response.toolName !== expected.modelTool ||
+        canonicalJson(response.arguments) !== canonicalJson(stops[0].toolArguments) ||
+        canonicalJson(response.arguments) !== canonicalJson(expected.expected)
+      ) {
+        throw new ArcRefusal(`real-model transcript call ${expected.action.id} does not prove its selected response`);
+      }
+      if (receiptCall.responseSha256 !== sha256(call.response)) {
+        throw new ArcRefusal(`real-model transcript call ${expected.action.id} response digest changed`);
+      }
+      promptDigests.push(sha256(call.prompt));
+      transcriptDigests.push(sha256(call.transcript));
+    });
+    const promptDigest = sha256(canonicalJson(promptDigests));
+    const transcriptDigest = sha256(canonicalJson(transcriptDigests));
+    if (receiptLane.promptSha256 !== promptDigest || receiptLane.transcriptSha256 !== transcriptDigest) {
+      throw new ArcRefusal(`real-model transcript lane ${laneName} digests do not match its bytes`);
+    }
+    laneTranscriptDigests.push(transcriptDigest);
+  }
+  if (handoff.transcriptSha256 !== sha256(canonicalJson(laneTranscriptDigests))) {
+    throw new ArcRefusal("real-model transcript digest does not match its content-addressed calls");
+  }
+  assertSecretFree(artifact, "real-model transcript artifact");
+  return artifact;
 }
 
 export function verifyConsole(console, checkpoint, context) {
@@ -1643,6 +1809,10 @@ function requireJoinCoverage(lanes, joins) {
 export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, options = {}) {
   const contract = modelContract(context.target);
   const handoff = verifyHandoff(rawHandoff, context);
+  if (!options.transcriptArtifact || !options.transcriptBytes) {
+    throw new ArcRefusal("resume requires the content-addressed real-model transcript artifact");
+  }
+  verifyTranscriptArtifact(options.transcriptArtifact, options.transcriptBytes, handoff, context);
   const console = verifyConsole(rawConsole, context.checkpoint, context);
   if (!options.consoleEvidence || !options.aggregateBytes || !options.sidecarBytes) {
     throw new ArcRefusal("resume requires the Console aggregate bytes and HONUA_AI_ARC_CONSOLE_EVIDENCE sidecar");
@@ -1673,6 +1843,7 @@ export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, 
     promptVersion: contract.promptVersion,
     evalVersion: contract.evalVersion,
     transcriptSha256: handoff.transcriptSha256,
+    transcriptArtifactSha256: handoff.transcriptArtifactSha256,
     target: context.target,
     ...(context.provisionReceiptSha256 ? { provisionReceiptSha256: context.provisionReceiptSha256 } : {}),
     checkpointDigest: context.checkpoint.integrity.digest,
@@ -1718,6 +1889,7 @@ export async function finalizeArc(context, rawHandoff, rawConsole, evidenceUrl, 
     promptVersion: contract.promptVersion,
     evalVersion: contract.evalVersion,
     transcriptSha256: handoff.transcriptSha256,
+    transcriptArtifactSha256: handoff.transcriptArtifactSha256,
     deterministic,
     lanes,
     joins,
@@ -1840,11 +2012,20 @@ export class LiveModelAdapter {
     const stop = events.find((event) => event.eventName === "message_stop");
     if (stop?.stopReason !== "toolCall") throw new ArcRefusal("real model did not stop for the governed tool call");
     const modelId = events.find((event) => event.eventName === "message_start")?.model;
+    const transcript = canonicalJson(events);
+    const selectedResponse = canonicalJson({
+      modelId,
+      toolName: starts[0].toolName,
+      arguments: stops[0].toolArguments,
+    });
     return {
       modelId,
       toolName: starts[0].toolName,
       arguments: stops[0].toolArguments,
-      transcriptSha256: sha256(canonicalJson(events)),
+      transcript,
+      transcriptSha256: sha256(transcript),
+      response: selectedResponse,
+      responseSha256: sha256(selectedResponse),
     };
   }
 }

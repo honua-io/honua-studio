@@ -11,6 +11,7 @@ import {
   loadArcContext,
   prepareArc,
   verifyHandoff,
+  verifyTranscriptArtifact,
 } from "./lib/real-model-ai-arc.mjs";
 
 const CLAIM_SCHEMA = "honua.studio.real-model-ai-arc-claim/v1";
@@ -155,6 +156,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const planPath = required(env, "HONUA_AI_ARC_SDK_PLAN");
   const manifestPath = required(env, "HONUA_PLATFORM_MANIFEST");
   const handoffPath = required(env, "HONUA_AI_ARC_REAL_MODEL_HANDOFF");
+  const transcriptPath = required(env, "HONUA_AI_ARC_REAL_MODEL_TRANSCRIPT");
   const evidencePath = required(env, "HONUA_AI_ARC_REAL_MODEL_EVIDENCE");
   const receiptPath = required(env, "HONUA_AI_ARC_REAL_MODEL_RECEIPT");
   const endpoint = required(env, "HONUA_AI_ARC_ENDPOINT");
@@ -179,8 +181,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     }
     const existingHandoff = await readMaybe(handoffPath);
     if (existingHandoff) {
-      verifyHandoff(JSON.parse(existingHandoff.toString("utf8")), context);
-      process.stdout.write("paused: existing immutable Studio handoff verified\n");
+      const existingTranscript = await readMaybe(transcriptPath);
+      if (!existingTranscript) {
+        throw new ArcRefusal("existing Studio handoff has no content-addressed transcript artifact");
+      }
+      const handoff = verifyHandoff(JSON.parse(existingHandoff.toString("utf8")), context);
+      verifyTranscriptArtifact(JSON.parse(existingTranscript.toString("utf8")), existingTranscript, handoff, context);
+      process.stdout.write("paused: existing immutable Studio handoff and transcript verified\n");
       return 2;
     }
     const releaseClaim = await acquireClaim(`${handoffPath}.claim`, context.checkpoint.integrity.digest);
@@ -189,8 +196,9 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
         mcp: new LiveMcpCatalogAdapter({ endpoint: context.endpoint, credential }),
         model: new LiveModelAdapter({ endpoint: context.endpoint, credential }),
       };
-      const handoff = await prepareArc(context, adapters);
-      await writeExclusiveAtomic(handoffPath, jsonBytes(handoff));
+      const prepared = await prepareArc(context, adapters);
+      await writeExclusiveAtomic(transcriptPath, Buffer.from(prepared.transcriptBytes, "utf8"));
+      await writeExclusiveAtomic(handoffPath, jsonBytes(prepared.handoff));
     } finally {
       await releaseClaim();
     }
@@ -201,12 +209,14 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   rejectCredentialEnvironment(env, phase);
   const consolePath = required(env, "HONUA_AI_ARC_CONSOLE_RECEIPT");
   const consoleEvidencePath = required(env, "HONUA_AI_ARC_CONSOLE_EVIDENCE");
-  const [handoffBytes, aggregateBytes, sidecarBytes] = await Promise.all([
+  const [handoffBytes, transcriptBytes, aggregateBytes, sidecarBytes] = await Promise.all([
     readMaybe(handoffPath),
+    readMaybe(transcriptPath),
     readMaybe(consolePath),
     readMaybe(consoleEvidencePath),
   ]);
   if (!handoffBytes) throw new ArcRefusal("resume requires the immutable Studio prepare handoff");
+  if (!transcriptBytes) throw new ArcRefusal("resume requires the content-addressed real-model transcript artifact");
   if (!aggregateBytes) throw new ArcRefusal("resume requires the strict three-family Console aggregate");
   if (!sidecarBytes) throw new ArcRefusal("resume requires HONUA_AI_ARC_CONSOLE_EVIDENCE");
   const handoff = JSON.parse(handoffBytes.toString("utf8"));
@@ -218,6 +228,8 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     const consoleEvidence = JSON.parse(sidecarBytes.toString("utf8"));
     const finalized = await finalizeArc(context, handoff, console, required(env, "HONUA_AI_ARC_EVIDENCE_URL"), {
       consoleEvidence,
+      transcriptArtifact: JSON.parse(transcriptBytes.toString("utf8")),
+      transcriptBytes,
       aggregateBytes,
       sidecarBytes,
       consoleOrigin: required(env, "HONUA_AI_ARC_CONSOLE_ORIGIN"),
