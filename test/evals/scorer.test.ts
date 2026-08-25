@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { FixtureTurnDriver } from "../../src/evals/driver.js";
+import type { StudioAiChatEvent } from "../../src/chat/ai-contract.js";
+import { evalTaskById } from "../../src/evals/corpus.js";
+import type { EvalTurnContext, EvalTurnDriver } from "../../src/evals/driver.js";
+import { FixtureTurnDriver, scriptedTurnEvents } from "../../src/evals/driver.js";
 import { runEvalTask } from "../../src/evals/runner.js";
 import { formatEvalScore, scoreEvalRun } from "../../src/evals/scorer.js";
 import type { EvalCheck, EvalExpectation, EvalScore, EvalTask, FixtureAssistantScript } from "../../src/evals/types.js";
@@ -232,5 +235,74 @@ describe("evals/scorer — what it deliberately does not score", () => {
     const result = await score(task(addParcels, {}));
     expect(result.passed).toBe(false);
     expect(at(result, "expected").message).toContain("declares no typed expectations");
+  });
+});
+
+describe("evals/scorer — turn completion is scored unconditionally", () => {
+  /**
+   * The composition-perfect failure: the turn applies exactly the tool calls
+   * the task expects and then the stream dies — a provider error, a truncated
+   * response. A state-only expectation would be satisfied; the turn was not.
+   */
+  class TrailingErrorDriver implements EvalTurnDriver {
+    public readonly id = "fixture+error";
+    public readonly kind = "fixture" as const;
+    constructor(private readonly mode: "error" | "silence") {}
+
+    public async *runTurn(context: EvalTurnContext): AsyncGenerator<StudioAiChatEvent> {
+      const turn = context.task.turns[context.turnIndex];
+      const script = turn.kind === "instruction" ? turn.assistant : undefined;
+      if (!script) throw new Error("scripted turn expected");
+      for (const event of scriptedTurnEvents(script, context.instructionIndex + 1)) {
+        if (event.type === "messageStop") continue;
+        yield event;
+      }
+      if (this.mode === "error") yield { type: "error", errorMessage: "upstream provider timed out" };
+    }
+  }
+
+  const zoomTask = (): EvalTask => {
+    const found = evalTaskById("zoom-to-honolulu");
+    if (!found) throw new Error("task missing from the corpus");
+    return found;
+  };
+
+  it("a run whose composition is perfect but whose turn ended in an error still fails", async () => {
+    const run = await runEvalTask(zoomTask(), { driver: new TrailingErrorDriver("error") });
+    const result = scoreEvalRun(run);
+
+    expect(result.passed).toBe(false);
+    // Every declared expectation still passed: the terminal event is the only failure.
+    expect(result.failures.map((check) => check.path)).toEqual(["turns[0].completed"]);
+    expect(at(result, "turns[0].completed").message).toBe(
+      "the assistant turn ended in an error event: upstream provider timed out",
+    );
+  });
+
+  it("a stream that stops yielding without messageStop fails the same way", async () => {
+    const run = await runEvalTask(zoomTask(), { driver: new TrailingErrorDriver("silence") });
+    const result = scoreEvalRun(run);
+
+    expect(result.passed).toBe(false);
+    expect(at(result, "turns[0].completed").message).toContain("never reached messageStop");
+  });
+
+  it("a healthy turn contributes a passing completion check, with its stop reason", async () => {
+    const run = await runEvalTask(zoomTask(), { driver: new FixtureTurnDriver() });
+    const result = scoreEvalRun(run);
+
+    expect(result.passed, formatEvalScore(result)).toBe(true);
+    expect(at(result, "turns[0].completed").message).toBe("assistant turn completed (stopReason: toolCall)");
+  });
+
+  it("scores one completion check per instruction turn, and none for a user action", async () => {
+    const undoTask = evalTaskById("undo-restores-previous-state");
+    if (!undoTask) throw new Error("task missing from the corpus");
+    const run = await runEvalTask(undoTask, { driver: new FixtureTurnDriver() });
+    const result = scoreEvalRun(run);
+
+    expect(result.checks.filter((check) => check.id === "turn.completed").map((check) => check.path)).toEqual([
+      "turns[0].completed",
+    ]);
   });
 });

@@ -21,11 +21,24 @@
  * (honua-studio#40, out of scope) attaches a session via
  * `ToolCallOrchestrator.attachLiveSession` — see {@link EvalRunOptions.live}.
  *
+ * Two properties of the recorded run matter to a live lane in particular:
+ *
+ *  - **Turn health is recorded, not inferred.** Each instruction turn carries
+ *    {@link EvalTurnRecord.completed} — did the stream reach `messageStop`
+ *    with no `error` event? `scorer.ts` fails a run with an incomplete turn
+ *    unconditionally, so a provider error after the right tool calls can never
+ *    score as a pass.
+ *  - **The transcript is causally ordered.** A turn's assistant message is
+ *    appended to `history` BEFORE the `{ role: "tool" }` results it produced,
+ *    so a later turn is generated from a history a provider will accept
+ *    (`user -> assistant -> tool -> …`), not from one where results precede
+ *    the turn that asked for them.
+ *
  * @module
  */
 
 import { type ActivityLog, type ActivityLogEntry, createActivityLog } from "../chat/activity-log.js";
-import type { StudioAiChatMessage } from "../chat/ai-contract.js";
+import type { StudioAiChatMessage, StudioAiStopReason } from "../chat/ai-contract.js";
 import { CompositionController } from "../composition/controller.js";
 import { type CompositionState, createEmptyCompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
@@ -55,6 +68,17 @@ export interface EvalTurnRecord {
   readonly assistantText?: string;
   /** For a user-action turn: whether the history had anything to undo/redo. */
   readonly applied?: boolean;
+  /**
+   * For an instruction turn: did the turn reach a successful terminal event
+   * (`messageStop`, with no `error` event anywhere in the stream)? A turn that
+   * errored or simply stopped yielding is NOT a completed turn, however good
+   * the composition it left behind looks — `scorer.ts` fails such a run
+   * unconditionally.
+   */
+  readonly completed?: boolean;
+  readonly stopReason?: StudioAiStopReason;
+  /** The `error` event's message, when the turn produced one. */
+  readonly errorMessage?: string;
 }
 
 export interface EvalRunResult {
@@ -147,7 +171,7 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
       const assistantMessageId = `m${messageCounter}`;
       activityLog.append("assistant_turn_started", { messageId: assistantMessageId });
 
-      const assistantText = await runAssistantTurn({
+      const outcome = await runAssistantTurn({
         task,
         turnIndex,
         instructionIndex,
@@ -161,8 +185,15 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
         toolCalls,
       });
 
-      history.push({ role: "assistant", content: assistantText });
-      turns.push({ turnIndex, kind: turn.kind, instruction: turn.instruction, assistantText });
+      turns.push({
+        turnIndex,
+        kind: turn.kind,
+        instruction: turn.instruction,
+        assistantText: outcome.text,
+        completed: outcome.completed,
+        ...(outcome.stopReason !== undefined ? { stopReason: outcome.stopReason } : {}),
+        ...(outcome.errorMessage !== undefined ? { errorMessage: outcome.errorMessage } : {}),
+      });
       instructionIndex += 1;
     }
   } finally {
@@ -194,11 +225,37 @@ interface AssistantTurnArgs {
   readonly toolCalls: ObservedToolCall[];
 }
 
+interface AssistantTurnOutcome {
+  readonly text: string;
+  /** `messageStop` reached and no `error` event seen — see {@link EvalTurnRecord.completed}. */
+  readonly completed: boolean;
+  readonly stopReason?: StudioAiStopReason;
+  readonly errorMessage?: string;
+}
+
 /** One assistant turn, mirroring `<honua-studio-chat>`'s own event loop (see this module's doc). */
-async function runAssistantTurn(args: AssistantTurnArgs): Promise<string> {
+async function runAssistantTurn(args: AssistantTurnArgs): Promise<AssistantTurnOutcome> {
   const { activityLog, assistantMessageId, controller, driver, orchestrator, toolCalls } = args;
   const pendingToolNames = new Map<string, string>();
   let text = "";
+  let recordedTextLength = 0;
+  let assistantRecorded = false;
+  let stopReason: StudioAiStopReason | undefined;
+  let errorMessage: string | undefined;
+  let sawMessageStop = false;
+
+  /**
+   * Appends this turn's assistant message BEFORE any of its tool results, so
+   * the transcript reads `user -> assistant (the turn that called the tools)
+   * -> tool …` — the causal order every provider requires of the history a
+   * later turn is generated from. Idempotent within a turn.
+   */
+  const recordAssistantMessage = (): void => {
+    if (assistantRecorded) return;
+    args.history.push({ role: "assistant", content: text });
+    recordedTextLength = text.length;
+    assistantRecorded = true;
+  };
 
   const stream = driver.runTurn({
     task: args.task,
@@ -244,6 +301,7 @@ async function runAssistantTurn(args: AssistantTurnArgs): Promise<string> {
         ok: outcome.ok,
         detail: outcome.ok ? `applied ${outcome.command.name} (${outcome.mode})` : `${outcome.code}: ${outcome.reason}`,
       };
+      recordAssistantMessage();
       args.history.push({
         role: "tool",
         content: result.detail,
@@ -252,6 +310,8 @@ async function runAssistantTurn(args: AssistantTurnArgs): Promise<string> {
       });
       await driver.reportToolResult?.(result);
     } else if (event.type === "messageStop") {
+      sawMessageStop = true;
+      stopReason = event.stopReason;
       activityLog.append("assistant_turn_completed", {
         messageId: assistantMessageId,
         stopReason: event.stopReason,
@@ -260,14 +320,25 @@ async function runAssistantTurn(args: AssistantTurnArgs): Promise<string> {
         latencyMs: event.latencyMs,
       });
     } else if (event.type === "error") {
-      activityLog.append("assistant_turn_error", {
-        messageId: assistantMessageId,
-        errorMessage: event.errorMessage ?? "The Studio AI proxy reported an error.",
-      });
+      errorMessage = event.errorMessage ?? "The Studio AI proxy reported an error.";
+      activityLog.append("assistant_turn_error", { messageId: assistantMessageId, errorMessage });
     }
   }
 
-  return text;
+  if (!assistantRecorded) {
+    recordAssistantMessage();
+  } else if (text.length > recordedTextLength) {
+    // Text the model produced AFTER its tool results is a separate assistant
+    // message, not a rewrite of the one the tool results answer.
+    args.history.push({ role: "assistant", content: text.slice(recordedTextLength) });
+  }
+
+  return {
+    text,
+    completed: sawMessageStop && errorMessage === undefined,
+    ...(stopReason !== undefined ? { stopReason } : {}),
+    ...(errorMessage !== undefined ? { errorMessage } : {}),
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

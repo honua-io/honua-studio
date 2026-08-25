@@ -103,6 +103,23 @@ failure of the composition loop or of the model turn — never of a parallel
 implementation written for the harness. It is pure Node, so the corpus runs in
 the default Vitest suite with no browser.
 
+### The one check a task cannot opt out of
+
+Every instruction turn must reach a successful terminal event — a
+`messageStop`, with no `error` event anywhere in the stream — and
+`scoreEvalRun` scores that unconditionally, at `turns[<n>].completed`,
+whatever the task declared. A live turn can apply exactly the right tool
+calls and then die on a provider error or a truncated stream; the composition
+left behind would satisfy a state-only expectation while the user is looking
+at a broken turn. Scoring that as a pass would overstate model quality in
+precisely the case the corpus exists to catch.
+
+The runner also keeps the conversation transcript causally ordered: a turn's
+assistant message is appended to `history` *before* the `{ role: "tool" }`
+results it produced (`user -> assistant -> tool -> …`), and text the model
+emits after its tool results becomes a second assistant message. A later turn
+is therefore generated from a history a live provider will accept.
+
 ## Adding a task
 
 1. Add an `EvalTask` to `src/evals/corpus.ts` and list it in `EVAL_CORPUS`.

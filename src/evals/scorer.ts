@@ -24,6 +24,11 @@
  * stays open, which is what keeps the same corpus usable against a live model
  * after honua-studio#40.
  *
+ * The one exception is {@link scoreTurnCompletion}: every instruction turn
+ * must reach a successful terminal event, scored unconditionally, because a
+ * turn that errored mid-stream is a failed turn no matter how good the
+ * composition it left behind looks.
+ *
  * @module
  */
 
@@ -59,9 +64,14 @@ export function scoreEvalRun(run: EvalRunResult): EvalScore {
   const checks: EvalCheck[] = [];
   const { expected } = run.task;
 
+  // Unconditional, whatever the task declares: a turn that errored or stopped
+  // yielding did not answer the instruction, however good the composition it
+  // happened to leave behind looks.
+  scoreTurnCompletion(run, checks);
+
   if (expected.state) scoreCompositionState(run.state, expected.state, checks);
   if (expected.activityLog) scoreActivityLog(run.entries, expected.activityLog, checks);
-  if (checks.length === 0) {
+  if (!expected.state && !expected.activityLog) {
     // An unscoreable task is an authoring bug, not a passing run.
     checks.push({
       id: "expectation.declared",
@@ -96,6 +106,51 @@ export function formatEvalScore(score: EvalScore): string {
 /** Every failing check's path — the shape {@link EvalKnownBadVariant.expectFailingPaths} is compared against. */
 export function failingPaths(score: EvalScore): readonly string[] {
   return score.failures.map((check) => check.path);
+}
+
+// ---------------------------------------------------------------------------
+// Turn completion — always scored
+// ---------------------------------------------------------------------------
+
+/**
+ * Every instruction turn must reach a successful terminal event: a
+ * `messageStop`, with no `error` event anywhere in the stream.
+ *
+ * This check is deliberately NOT expressible as a task expectation and not
+ * skippable by one. A live turn can apply exactly the right tool calls and
+ * then fail — a provider error, a truncated stream, a cancelled request — and
+ * the composition left behind would satisfy a state-only expectation while the
+ * user is looking at a broken turn. Scoring that as a pass would overstate
+ * model quality in precisely the case the corpus exists to catch.
+ */
+function scoreTurnCompletion(run: EvalRunResult, checks: EvalCheck[]): void {
+  for (const turn of run.turns) {
+    if (turn.kind !== "instruction") continue;
+    const path = `turns[${turn.turnIndex}].completed`;
+    if (turn.completed) {
+      checks.push({
+        id: "turn.completed",
+        path,
+        status: "pass",
+        expected: true,
+        actual: true,
+        message: `assistant turn completed (stopReason: ${turn.stopReason ?? "unset"})`,
+      });
+      continue;
+    }
+    const actual = turn.errorMessage !== undefined ? `error: ${turn.errorMessage}` : "no terminal event";
+    checks.push({
+      id: "turn.completed",
+      path,
+      status: "fail",
+      expected: "assistant turn completed (messageStop, no error)",
+      actual,
+      message:
+        turn.errorMessage !== undefined
+          ? `the assistant turn ended in an error event: ${turn.errorMessage}`
+          : "the assistant turn never reached messageStop — the stream ended without a terminal event",
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

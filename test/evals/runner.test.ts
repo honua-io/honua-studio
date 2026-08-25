@@ -76,6 +76,28 @@ describe("evals/runner — activity log", () => {
     expect(run.entries.filter((entry) => entry.type === "composition_command_applied")).toHaveLength(1);
   });
 
+  it("records how each instruction turn terminated, so scoring can fail an errored turn", async () => {
+    const healthy = await runEvalTask(instructionTask(), { driver: new FixtureTurnDriver() });
+    expect(healthy.turns[0]).toMatchObject({ completed: true, stopReason: "toolCall" });
+    expect(healthy.turns[0].errorMessage).toBeUndefined();
+
+    const erroring: EvalTurnDriver = {
+      id: "erroring",
+      kind: "live",
+      async *runTurn(): AsyncGenerator<StudioAiChatEvent> {
+        yield { type: "toolCallStart", toolCallId: "c1", toolName: "add_layer" };
+        yield { type: "toolCallStop", toolCallId: "c1", toolArguments: { datasetId: "hi-parcels" } };
+        yield { type: "error", errorMessage: "upstream provider timed out" };
+      },
+    };
+    const failed = await runEvalTask(instructionTask(), { driver: erroring });
+
+    // The composition landed; the turn still did not complete.
+    expect(failed.state.layers.map((layer) => layer.id)).toEqual(["hi-parcels"]);
+    expect(failed.turns[0]).toMatchObject({ completed: false, errorMessage: "upstream provider timed out" });
+    expect(failed.entries.map((entry) => entry.type)).toContain("assistant_turn_error");
+  });
+
   it("an unrecognized tool is a logged, typed rejection — the run continues rather than throwing", async () => {
     const run = await runEvalTask(
       instructionTask({
@@ -250,13 +272,14 @@ describe("evals/driver — the seam a live lane plugs into (honua-studio#40)", (
     expect(run.state.widgets.map((widget) => widget.id)).toEqual(["toc"]);
   });
 
-  it("carries each executed tool call into the transcript as a `tool` message the next turn can see", async () => {
+  it("orders the transcript causally: the assistant turn is recorded before the tool results it produced", async () => {
     const seen: StudioAiChatMessage[][] = [];
     const driver: EvalTurnDriver = {
       id: "recorder",
       kind: "live",
       async *runTurn(context: EvalTurnContext): AsyncGenerator<StudioAiChatEvent> {
         seen.push([...context.history]);
+        yield { type: "textDelta", text: `thinking about ${context.instruction}` };
         yield { type: "toolCallStart", toolCallId: `c${context.turnIndex}`, toolName: "add_layer" };
         yield {
           type: "toolCallStop",
@@ -278,8 +301,49 @@ describe("evals/driver — the seam a live lane plugs into (honua-studio#40)", (
     );
 
     expect(seen[0].map((message) => message.role)).toEqual(["user"]);
-    expect(seen[1].map((message) => message.role)).toEqual(["user", "tool", "assistant", "user"]);
-    expect(seen[1][1]).toMatchObject({ toolName: "add_layer", content: "applied addLayer (local)" });
+    // A provider reading this history must see the assistant turn that called
+    // the tool before the tool's result, never after it.
+    expect(seen[1].map((message) => message.role)).toEqual(["user", "assistant", "tool", "user"]);
+    expect(seen[1][1]).toMatchObject({ role: "assistant", content: "thinking about one" });
+    expect(seen[1][2]).toMatchObject({
+      role: "tool",
+      toolName: "add_layer",
+      content: "applied addLayer (local)",
+    });
+  });
+
+  it("text the model produces after its tool results becomes a second assistant message", async () => {
+    const seen: StudioAiChatMessage[][] = [];
+    const driver: EvalTurnDriver = {
+      id: "recorder",
+      kind: "live",
+      async *runTurn(context: EvalTurnContext): AsyncGenerator<StudioAiChatEvent> {
+        seen.push([...context.history]);
+        yield { type: "textDelta", text: "adding it" };
+        yield { type: "toolCallStart", toolCallId: "c1", toolName: "add_layer" };
+        yield { type: "toolCallStop", toolCallId: "c1", toolArguments: { datasetId: "hi-parcels" } };
+        yield { type: "textDelta", text: " — done" };
+        yield { type: "messageStop", stopReason: "endTurn" };
+      },
+    };
+
+    await runEvalTask(
+      instructionTask({
+        turns: [
+          { kind: "instruction", instruction: "one" },
+          { kind: "instruction", instruction: "two" },
+        ],
+      }),
+      { driver },
+    );
+
+    expect(seen[1].map((message) => `${message.role}:${message.content}`)).toEqual([
+      "user:one",
+      "assistant:adding it",
+      "tool:applied addLayer (local)",
+      "assistant: — done",
+      "user:two",
+    ]);
   });
 
   it("brackets a task with beginTask/endTask — where the live lane creates and deletes its disposable draft", async () => {
