@@ -6,11 +6,15 @@
  * the client's PROJECTION of a Studio package lifecycle draft, never the
  * source of truth. The reducer (`reducer.ts`) is a pure merge engine; the
  * server draft (`history.ts`'s `DraftSync` / `CompositionDraftStore` seam)
- * owns persistence, and undo/redo (`history.ts`) is designed to map to draft
- * revisions once `DraftSync` is wired to the real Studio lifecycle client
- * (`@honua/sdk-js`'s `src/studio/lifecycle-client.ts`, merged to trunk in
- * sdk-js#783 but not yet in the published `0.1.2-beta.0` this app depends
- * on — see `history.ts`'s module doc for the seam).
+ * owns persistence, and undo/redo (`history.ts`) maps to draft revisions
+ * through `DraftSync` — over `FixtureDraftStore` in fixture mode, or over
+ * `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient.drafts` through
+ * `../lifecycle/composition-draft-store.ts` against a real server.
+ *
+ * These types are **not** the SDK's `StudioPackageEnvelope` body types and
+ * are not meant to become them: this is the renderer's projection — the
+ * shape the reducer, the map view, and the widget deck all read — while the
+ * envelope is the wire shape. The one place they meet is that adapter.
  *
  * Every field here is plain, JSON-serializable data — no class instances, no
  * DOM references, no functions — so it round-trips unchanged through
