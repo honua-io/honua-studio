@@ -11,10 +11,15 @@
  * `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient.drafts` through
  * `../lifecycle/composition-draft-store.ts` against a real server.
  *
- * These types are **not** the SDK's `StudioPackageEnvelope` body types and
- * are not meant to become them: this is the renderer's projection — the
- * shape the reducer, the map view, and the widget deck all read — while the
- * envelope is the wire shape. The one place they meet is that adapter.
+ * These types are **not** the durable wire shape and are not meant to become
+ * it: this is the renderer's projection — what the reducer, the map view and
+ * the widget deck all read — while honua-server stores a
+ * `StudioCompositionBody` (`../mcp/tool-bridge.ts`'s
+ * `toStudioCompositionBody`/`applyStudioDraftBody` pair). {@link CompositionState.pins}
+ * and {@link CompositionState.annotations} are app-only and deliberately
+ * outside that envelope. The two meet in exactly two places, both using that
+ * same pair: `../mcp/orchestrator.ts` for a tool call, and
+ * `../lifecycle/composition-draft-store.ts` for a `DraftSync` write.
  *
  * Every field here is plain, JSON-serializable data — no class instances, no
  * DOM references, no functions — so it round-trips unchanged through
