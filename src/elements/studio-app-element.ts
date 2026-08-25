@@ -38,6 +38,7 @@ import type { HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
+import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
@@ -57,6 +58,7 @@ import type { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
+  HonuaStudioCommandOutcome,
   HonuaStudioCompositionModeChangeDetail,
   HonuaStudioGpActivityDetail,
   HonuaStudioGpAddOutputDetail,
@@ -630,6 +632,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // privileged internal APIs" boundary `main.ts`'s doc calls out).
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas && !canvas.composition) canvas.composition = this.composition;
+    // honua-studio#31: a widget's intrinsic mutation is a composition command
+    // like any other, so it goes through the SAME orchestrator a chat tool
+    // call goes through — which is what routes `setVisibility` to
+    // `honua_studio_set_layer_visibility` in live mode. Assigned only when
+    // the canvas has not been given one by its host.
+    if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#dispatchCommands(commands);
     // honua-studio#23: the canvas needs the catalog to turn a composition
     // layer's bare `sourceId` into something MapLibre can draw. Assign what
     // we already have synchronously; otherwise fetch it in the background so
@@ -685,6 +693,29 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
 
     void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.
+  }
+
+  /**
+   * Runs a widget's intrinsic mutation through `.toolCallOrchestrator` — the
+   * one composition write path (honua-studio#31). The orchestrator decides
+   * local vs. server per command from the tool bridge's `serverToolName`, so
+   * a TOC toggle reaches `honua_studio_set_layer_visibility` in live mode and
+   * the reducer in fixture mode, with the generation threading and the
+   * activity-log entry an agent's command already gets.
+   *
+   * Commands run in order and the batch stops at the first failure: a compare
+   * switch's two toggles are one user gesture, and half of it landing is
+   * worse than none of it.
+   */
+  async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+    for (const command of commands) {
+      const result = await this.toolCallOrchestrator.handleToolCall({
+        toolName: command.name,
+        arguments: { ...command } as Record<string, unknown>,
+      });
+      if (!result.ok) return { ok: false, reason: result.reason };
+    }
+    return { ok: true };
   }
 
   /** Resolves one chat-emitted tool-call intent through `.toolCallOrchestrator` (honua-studio#7). Never throws — every outcome is recorded on the orchestrator's activity log; see `../mcp/orchestrator.js`'s module doc. */

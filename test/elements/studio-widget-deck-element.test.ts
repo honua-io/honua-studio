@@ -125,6 +125,65 @@ describe("<honua-studio-widget-deck> — layer list (REQ-002/REQ-003)", () => {
     expect(query<HTMLInputElement>(el, '[data-testid="studio-widget-toc-toggle"]')?.checked).toBe(true);
   });
 
+  it("routes the toggle to commandDispatch when the host wires one (honua-studio#31)", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    const el = mount(controller);
+    const dispatched: unknown[][] = [];
+    el.commandDispatch = async (commands) => {
+      dispatched.push([...commands]);
+      return { ok: true };
+    };
+    controller.apply({ name: "addWidget", widget: { id: "layers", kind: "toc" } });
+
+    const toggle = query<HTMLInputElement>(el, '[data-testid="studio-widget-toc-toggle"]');
+    toggle!.checked = false;
+    toggle!.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    await settle();
+
+    // The command left through the host's dispatcher — the route that reaches
+    // `honua_studio_set_layer_visibility` in live mode…
+    expect(dispatched).toEqual([[{ name: "setVisibility", target: { kind: "layer", id: "parcels" }, visible: false }]]);
+    // …and the deck did NOT also write it locally. Local state follows the
+    // draft the dispatcher comes back with, not the gesture.
+    expect(controller.state.layers[0]?.visible).toBe(true);
+  });
+
+  it("snaps a refused toggle back and puts the reason on the card", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    const el = mount(controller);
+    el.commandDispatch = async () => ({ ok: false, reason: "Stale draft generation; refresh and retry." });
+    controller.apply({ name: "addWidget", widget: { id: "layers", kind: "toc" } });
+
+    const toggle = query<HTMLInputElement>(el, '[data-testid="studio-widget-toc-toggle"]');
+    toggle!.checked = false;
+    toggle!.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    await settle();
+
+    // A native checkbox flips itself on the gesture; only a repaint from real
+    // state can put it back, and the reason has to be visible, not swallowed.
+    expect(query<HTMLInputElement>(el, '[data-testid="studio-widget-toc-toggle"]')?.checked).toBe(true);
+    expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toContain("Stale draft generation");
+  });
+
+  it("surfaces a rejected dispatch promise instead of leaving an unhandled rejection", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    const el = mount(controller);
+    el.commandDispatch = async () => {
+      throw new Error("the tool plane is unreachable");
+    };
+    controller.apply({ name: "addWidget", widget: { id: "layers", kind: "toc" } });
+
+    const toggle = query<HTMLInputElement>(el, '[data-testid="studio-widget-toc-toggle"]');
+    toggle!.checked = false;
+    toggle!.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    await settle();
+
+    expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toContain("tool plane is unreachable");
+  });
+
   it("disables the toggle for a pinned layer and explains why", () => {
     const controller = new CompositionController(createEmptyCompositionState());
     controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });

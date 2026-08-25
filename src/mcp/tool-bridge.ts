@@ -152,16 +152,21 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   addLayer: compositionPassthroughEntry("addLayer", "honua_studio_add_layer"),
   removeLayer: compositionPassthroughEntry("removeLayer", "honua_studio_remove_layer"),
   setLayerStyleRef: compositionPassthroughEntry("setLayerStyleRef", "honua_studio_set_layer_style"),
-  // honua-studio#24's TOC/compare/time toggles and any agent-authored
-  // "hide the parcels" both land here. Deliberately carries NO
-  // `serverToolName`: honua-server#3002's tool set has no
-  // `honua_studio_set_layer_visibility`, so in live mode this applies
-  // locally (the same route `pin`/`unpin`/annotations already take) and the
-  // next server draft sync is authoritative. Unlike pins, `visible` *is* part
-  // of the server's wire shape (`toStudioCompositionBody` sends it), so this
-  // is a real gap rather than a deliberate client-only concept — it is the
-  // headline item in #24 REQ-006's upstream contribution list.
-  setVisibility: compositionPassthroughEntry("setVisibility"),
+  /**
+   * honua-studio#24's TOC/compare/time toggles and any agent-authored "hide
+   * the parcels" both land here, and both now delegate (honua-studio#31).
+   *
+   * This entry carried no `serverToolName` while honua-server had no tool for
+   * it, which made a toggle sync-fragile in a way pins are not: `visible`
+   * **is** part of the server's `StudioCompositionLayer` wire shape
+   * (`toStudioCompositionBody` sends it), so a live draft sync overwrote a
+   * client-side toggle with the stored value — uncheck a layer, let an
+   * unrelated mutation sync, watch it come back. `honua_studio_set_layer_visibility`
+   * (honua-server#3199, landed in honua-server PR #3207) closes that: the
+   * toggle advances the server draft's generation like every other composition
+   * mutation, and the returned draft is what the client re-reads.
+   */
+  setVisibility: compositionPassthroughEntry("setVisibility", "honua_studio_set_layer_visibility"),
   setView: compositionPassthroughEntry("setView", "honua_studio_set_view"),
   addWidget: compositionPassthroughEntry("addWidget", "honua_studio_add_widget"),
   removeWidget: compositionPassthroughEntry("removeWidget", "honua_studio_remove_widget"),
@@ -445,6 +450,17 @@ export function buildServerToolInvocation(
       return {
         name: "honua_studio_set_layer_style",
         arguments: { ...base, layerId: targetId(command.target), styleRef: command.styleRef?.styleId ?? null },
+      };
+    case "setVisibility":
+      // Layer-only by construction: the reducer resolves this command's
+      // target as a layer (`requireResolved(..., "layer", ...)`) and the
+      // orchestrator pre-flights it before ever getting here, so a
+      // widget/feature target never reaches the wire. The guard keeps this
+      // function total rather than asserting.
+      if (command.target.kind !== "layer") return undefined;
+      return {
+        name: "honua_studio_set_layer_visibility",
+        arguments: { ...base, layerId: command.target.id, visible: command.visible },
       };
     case "setView":
       return { name: "honua_studio_set_view", arguments: { ...base, view: { ...command.view } } };

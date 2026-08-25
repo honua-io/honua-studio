@@ -169,6 +169,7 @@ honua-studio#8 structured readout kept alongside it.
 | — | `mapFactory` | `CompositionMapFactory \| undefined` | the `maplibre-gl` import | Test seam only. |
 | — | `mapView` | `CompositionMapView \| undefined` (read-only) | — | The live binding: `.status`, `.statusDetail`, `.projection` (the `HonuaMapPackage` and any unrenderable layers), `.map`. |
 | — | `widgetDataLoader` | `WidgetDataLoader \| undefined` | the catalog-backed loader | Test seam only — the grid/chart analogue of `mapFactory`. |
+| — | `commandDispatch` | `(commands) => Promise<{ ok, reason? }> \| undefined` | unset | Where the composed widgets' intrinsic mutations go. `<honua-studio-app>` points this at its one `ToolCallOrchestrator`, so a TOC toggle takes the tool-bridge route and, in live mode, round-trips through `honua_studio_set_layer_visibility` (honua-studio#31). Unset, each widget applies through `composition` directly. |
 | — | `widgetDeck` | `HonuaStudioWidgetDeckElement \| undefined` (read-only) | — | The composed `<honua-studio-widget-deck>` (honua-studio#24), built once with the shell and fed catalog/base-url/loader. |
 | — | `controlBar` | `HonuaStudioControlBarElement \| undefined` (read-only) | — | The composed `<honua-studio-control-bar>` (honua-studio#25), built once with the shell above the map. |
 | — | `interactions` | `StudioInteractionRuntime \| undefined` (read-only) | — | The ADR-0030 interaction runtime, created lazily the first time the composition declares a control or a binding. `.compiled` carries the compiler's `issues`/`unsupported`/`bindings`; `.appearance` is the per-layer filter/opacity the map projects. |
@@ -296,6 +297,7 @@ the composition holds none.
 | — | `dataLoader` | `WidgetDataLoader \| undefined` | catalog-backed | Injection seam (`src/widgets/widget-data.ts`), the grid/chart analogue of `mapFactory`. |
 | — | `unrenderableLayers` | `{ layerId, reason }[]` | `[]` | Layers the map could not draw; the TOC flags them "not on map" rather than implying they are drawn. |
 | — | `onSelection` | `(targets) => void \| undefined` | unset | Where a selection goes. The canvas points this at its own dispatcher so the composed app has exactly one selection path; unset, the deck selects and dispatches `honua-studio-selection-change` itself. |
+| — | `commandDispatch` | `(commands) => Promise<{ ok, reason? }> \| undefined` | unset | Where an intrinsic mutation goes — see below. The canvas points this at the app's `ToolCallOrchestrator`; unset, the deck applies through `composition`. |
 
 **Kinds.** `toc` (layer list), `legend`, `table` (data grid), `chart`,
 `compare`, `time` — the bounded `COMPOSITION_WIDGET_KINDS` vocabulary. A
@@ -306,11 +308,23 @@ widget that cannot be rendered as authored (a `compare` naming one layer, a
 **Intrinsic interactions, not authored ones.** A TOC's visibility
 checkboxes, the compare switch, and the time stepper come with the kind — an
 agent writes `addWidget({ kind: "toc" })` and gets working toggles, never
-chrome boilerplate. They are not a side door: each applies a `setVisibility`
-**command** through `controller.apply(...)`, so they share the reducer's
-validation, pin enforcement, history, and draft sync with any agent-authored
-`setVisibility`. A pinned layer's toggle is disabled rather than allowed to
-fail.
+chrome boilerplate. They are not a side door: each is a `setVisibility`
+**command**, and it travels the route `commandDispatch` gives it — in the
+composed app, the same `ToolCallOrchestrator` an agent's tool call goes
+through, so they share the tool bridge, the validation, the pin enforcement,
+the generation threading, and the activity-log entry.
+
+In live mode that means the toggle calls
+`honua_studio_set_layer_visibility` and the client re-reads the returned
+draft (honua-studio#31). That is not tidiness: `visible` **is** part of the
+server's `StudioCompositionLayer` wire shape — unlike pins, which are
+deliberately client-local — so a toggle that only mutated client state was
+overwritten by the next draft sync. The round trip is asynchronous, so a
+toggle that the server (or the reducer) refuses snaps back on the next
+repaint and puts the reason in `[data-testid="studio-widget-status"]`. A
+pinned layer's toggle is disabled rather than allowed to fail. Unset — a
+standalone deck, or fixture/offline mode — the command applies through the
+deck's own controller, the same reducer one hop earlier.
 
 **Selection.** A grid row resolves to `{ kind: "feature", sourceId,
 featureId }` — the same deictic target a map click produces — and travels

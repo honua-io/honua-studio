@@ -23,6 +23,16 @@ describe("mcp/tool-bridge resolveToolCall", () => {
       expect(resolution.serverToolName).toBe("honua_studio_add_layer");
     });
 
+    it("setVisibility delegates to honua_studio_set_layer_visibility (honua-studio#31)", () => {
+      const resolution = resolveToolCall({
+        toolName: "setVisibility",
+        arguments: { target: { kind: "layer", id: "parcels" }, visible: false },
+      });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.serverToolName).toBe("honua_studio_set_layer_visibility");
+    });
+
     it("pin/unpin have no server tool counterpart", () => {
       const resolution = resolveToolCall({ toolName: "pin", arguments: { target: { kind: "layer", id: "roads" } } });
       expect(resolution.ok).toBe(true);
@@ -201,6 +211,43 @@ describe("mcp/tool-bridge buildServerToolInvocation", () => {
       name: "honua_studio_add_layer",
       arguments: { draftId: "d1", generation: 3, layer: { id: "roads", sourceId: "s", styleRef: "sty-1" } },
     });
+  });
+
+  it("builds honua_studio_set_layer_visibility arguments — all four fields, nothing else", () => {
+    const resolution = resolveToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "layer", id: "parcels" }, visible: false },
+    });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    const invocation = buildServerToolInvocation(resolution, { draftId: "d1", generation: 7 });
+    // The tool's schema is `additionalProperties: false` with all four
+    // required, so this has to be exact rather than a superset.
+    expect(invocation).toEqual({
+      name: "honua_studio_set_layer_visibility",
+      arguments: { draftId: "d1", generation: 7, layerId: "parcels", visible: false },
+    });
+  });
+
+  it("threads the caller's current generation, not a remembered one", () => {
+    const resolution = resolveToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "layer", id: "parcels" }, visible: true },
+    });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 1 })?.arguments.generation).toBe(1);
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 9 })?.arguments.generation).toBe(9);
+  });
+
+  it("returns undefined for a non-layer setVisibility target rather than inventing a layerId", () => {
+    const resolution = resolveToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "component", id: "toc-1" }, visible: false },
+    });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 1 })).toBeUndefined();
   });
 
   it("returns undefined for commands with no server tool (pin)", () => {

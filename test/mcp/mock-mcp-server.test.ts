@@ -40,7 +40,7 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     expect(body.result.protocolVersion).toBe("2025-03-26");
   });
 
-  it("tools/list is open and advertises all 12 honua_studio_* tool names", async () => {
+  it("tools/list is open and advertises all 13 honua_studio_* tool names", async () => {
     server = await startMockServer();
     const { body } = await rpc(server.url, "tools/list", {});
     const names = body.result.tools.map((t: { name: string }) => t.name);
@@ -53,6 +53,7 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       "honua_studio_add_layer",
       "honua_studio_remove_layer",
       "honua_studio_set_layer_style",
+      "honua_studio_set_layer_visibility",
       "honua_studio_set_view",
       "honua_studio_add_widget",
       "honua_studio_remove_widget",

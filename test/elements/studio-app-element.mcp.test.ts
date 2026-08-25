@@ -43,6 +43,53 @@ describe("elements/studio-app-element MCP tool-call orchestration wiring (honua-
     expect(canvas?.composition).toBe(app.composition);
   });
 
+  it("wires the canvas's commandDispatch to the one orchestrator, so a widget toggle takes the tool-bridge route", async () => {
+    const app = mount();
+    const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    expect(canvas?.commandDispatch).toBeTypeOf("function");
+
+    app.composition.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    const outcome = await canvas!.commandDispatch!([
+      { name: "setVisibility", target: { kind: "layer", id: "parcels" }, visible: false },
+    ]);
+
+    // No live session here, so the orchestrator applies through the reducer —
+    // the same decision it makes per command from the bridge's serverToolName.
+    expect(outcome).toEqual({ ok: true });
+    expect(app.composition.state.layers[0]?.visible).toBe(false);
+  });
+
+  it("reports a refused command back to the widget rather than throwing into its event handler", async () => {
+    const app = mount();
+    const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    app.composition.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    app.composition.apply({ name: "pin", target: { kind: "layer", id: "parcels" } });
+
+    const outcome = await canvas!.commandDispatch!([
+      { name: "setVisibility", target: { kind: "layer", id: "parcels" }, visible: false },
+    ]);
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toContain("pinned");
+    expect(app.composition.state.layers[0]?.visible).toBe(true);
+  });
+
+  it("a batch stops at the first refusal — half a compare switch is worse than none of it", async () => {
+    const app = mount();
+    const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    app.composition.apply({ name: "addLayer", layer: { id: "left", sourceId: "s-left" } });
+    app.composition.apply({ name: "addLayer", layer: { id: "right", sourceId: "s-right" } });
+    app.composition.apply({ name: "pin", target: { kind: "layer", id: "left" } });
+
+    const outcome = await canvas!.commandDispatch!([
+      { name: "setVisibility", target: { kind: "layer", id: "left" }, visible: false },
+      { name: "setVisibility", target: { kind: "layer", id: "right" }, visible: true },
+    ]);
+
+    expect(outcome.ok).toBe(false);
+    expect(app.composition.state.layers.map((layer) => layer.visible)).toEqual([true, true]);
+  });
+
   it("a chat-fixture-vocabulary tool-call-result event mutates composition state and re-renders the canvas", async () => {
     const app = mount();
     const chat = app.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
