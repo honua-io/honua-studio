@@ -67,7 +67,7 @@
  *
  * `/mcp` (honua-studio#7): a minimal JSON-RPC 2.0 dispatcher over the SAME
  * `initialize` / `tools/list` / `tools/call` methods `src/mcp/client.ts`
- * speaks, exposing the 12 `honua_studio_*` tool names honua-server#3002
+ * speaks, exposing the 13 `honua_studio_*` tool names honua-server#3002
  * documents (`STUDIO_MCP_TOOL_NAMES` in `src/mcp/studio-tools.ts` — kept a
  * deliberately duplicated literal list here, same reason as
  * `CHAT_EVENT_TYPE_TO_SSE_NAME` above: this file runs under plain `node`,
@@ -77,7 +77,8 @@
  * create, increments by exactly `1` on every successful mutation, and a
  * stale `generation` on a mutating call returns a `failed_precondition`
  * tool error rather than silently clobbering a concurrent edit. Composition
- * mutation tools (add/remove layer, set style, set view, add/remove widget)
+ * mutation tools (add/remove layer, set style, set layer visibility, set
+ * view, add/remove widget)
  * mirror honua-server's `StudioCompositionBodyEditor` semantics: duplicate
  * ids on add are `invalid_argument`, missing ids on remove/set are
  * `not_found`, and only `map`/`app`-family drafts accept them
@@ -170,6 +171,7 @@ const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_add_layer",
   "honua_studio_remove_layer",
   "honua_studio_set_layer_style",
+  "honua_studio_set_layer_visibility",
   "honua_studio_set_view",
   "honua_studio_add_widget",
   "honua_studio_remove_widget",
@@ -531,6 +533,25 @@ function createMcpDispatcher(store) {
         }
         const layers = [...body.layers];
         layers[index] = { ...layers[index], styleRef: args.styleRef ?? undefined };
+        return { body: { ...body, layers } };
+      });
+    },
+
+    /** honua-server#3199 (landed in honua-server PR #3207): `{ draftId, generation, layerId, visible }`, all four required, `additionalProperties: false`. */
+    honua_studio_set_layer_visibility(args) {
+      if (typeof args?.layerId !== "string" || !args.layerId) {
+        return toolError("invalid_argument", "'layerId' is required.");
+      }
+      if (typeof args?.visible !== "boolean") {
+        return toolError("invalid_argument", "'visible' is required and must be a boolean.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const index = body.layers.findIndex((existing) => existing.id === args.layerId);
+        if (index < 0) {
+          return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
+        }
+        const layers = [...body.layers];
+        layers[index] = { ...layers[index], visible: args.visible };
         return { body: { ...body, layers } };
       });
     },

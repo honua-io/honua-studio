@@ -81,7 +81,12 @@ import type { ControlBarMapBridge, HonuaStudioControlBarElement } from "./studio
 // copy — so the wiring below upgrades the node and assigns properties instead.
 import type { HonuaStudioWidgetDeckElement } from "./studio-widget-deck-element.js";
 import { baseElementStyles, canvasStyles } from "./styles.js";
-import type { AuthSession, HonuaStudioCanvasResizeDetail, HonuaStudioSelectionChangeDetail } from "./types.js";
+import type {
+  AuthSession,
+  HonuaStudioCanvasResizeDetail,
+  HonuaStudioCommandDispatch,
+  HonuaStudioSelectionChangeDetail,
+} from "./types.js";
 
 /** Which surface the canvas is showing. The readout stays in the DOM in both — see the class doc. */
 export type HonuaStudioCanvasSurface = "map" | "details";
@@ -100,6 +105,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   #auth: AuthSession | undefined;
   #resizeObserver: ResizeObserver | undefined;
   #composition: CompositionController | undefined;
+  #commandDispatch: HonuaStudioCommandDispatch | undefined;
   #compositionUnsubscribe: (() => void) | undefined;
   #sourceCatalog: readonly CompositionSourceDescriptor[] | undefined;
   #basemapStyle: BasemapStyle | undefined;
@@ -150,6 +156,27 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       this.#compositionUnsubscribe = composition.subscribe(() => this.#syncComposition());
     }
     this.render();
+  }
+
+  /**
+   * Where the composed widgets' **intrinsic** mutations go — a TOC checkbox,
+   * a compare switch, a time stepper (honua-studio#24 REQ-003). `<honua-studio-app>`
+   * points this at its one `ToolCallOrchestrator`, so a toggle takes the same
+   * route an agent's `setVisibility` takes and, in live mode, round-trips
+   * through `honua_studio_set_layer_visibility` instead of mutating state the
+   * next draft sync overwrites (honua-studio#31).
+   *
+   * Unset, each widget applies through `.composition` directly — which is
+   * what fixture/offline mode does regardless, one hop earlier.
+   */
+  public get commandDispatch(): HonuaStudioCommandDispatch | undefined {
+    return this.#commandDispatch;
+  }
+
+  public set commandDispatch(dispatch: HonuaStudioCommandDispatch | undefined) {
+    if (this.#commandDispatch === dispatch) return;
+    this.#commandDispatch = dispatch;
+    this.#syncWidgetDeck();
   }
 
   /**
@@ -409,6 +436,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     deck.sourceCatalog = this.#sourceCatalog;
     deck.dataLoader = this.#widgetDataLoader;
     deck.onSelection = (targets) => this.#applySelection(targets);
+    deck.commandDispatch = this.#commandDispatch;
     deck.composition = this.#composition;
     deck.unrenderableLayers = (this.#mapView?.projection?.unresolved ?? []).map((entry) => ({
       layerId: entry.layerId,

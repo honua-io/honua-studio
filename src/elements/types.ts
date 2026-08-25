@@ -32,6 +32,7 @@ import type { AuthSession, AuthState, AuthStatus, SessionAdapter } from "../auth
 import type { ActivityLogEntry } from "../chat/activity-log.js";
 import type { StudioAiStopReason } from "../chat/ai-contract.js";
 import type { AnnotationRef } from "../chat/annotation.js";
+import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionTarget } from "../composition/model.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 
@@ -190,6 +191,40 @@ export interface HonuaStudioCanvasResizeDetail {
 export interface HonuaStudioSelectionChangeDetail {
   readonly targets: readonly CompositionTarget[];
 }
+
+/**
+ * The outcome of a dispatched intrinsic mutation
+ * ({@link HonuaStudioCommandDispatch}). A widget re-renders from real
+ * composition state either way; `reason` is what it puts on the card when a
+ * mutation did not land.
+ */
+export interface HonuaStudioCommandOutcome {
+  readonly ok: boolean;
+  /** Present only when `ok` is false — the reducer's or the server's own message, never a paraphrase. */
+  readonly reason?: string;
+}
+
+/**
+ * Where a widget's **intrinsic** mutation goes (honua-studio#24 REQ-003, made
+ * durable by honua-studio#31): a TOC checkbox, a compare switch, a time
+ * stepper. Each is a real composition command, and each has to travel the
+ * same route an agent's command travels — through the tool bridge, so that in
+ * live mode it reaches its `honua_studio_*` server tool and advances the
+ * draft's generation instead of mutating client-local state a later sync
+ * would overwrite.
+ *
+ * `<honua-studio-canvas>` sets this on its composed deck and control bar;
+ * `<honua-studio-app>` sets the canvas's, pointing it at the one
+ * `ToolCallOrchestrator`. Left unset — a widget used standalone — the widget
+ * applies through its own `CompositionController`, which is exactly what
+ * fixture/offline mode does anyway.
+ *
+ * Commands in one call are ordered and applied in order (a compare switch
+ * hides one layer and shows another); the outcome describes the batch.
+ */
+export type HonuaStudioCommandDispatch = (
+  commands: readonly CompositionCommand[],
+) => Promise<HonuaStudioCommandOutcome>;
 
 /**
  * `honua-studio-control-change` — dispatched by

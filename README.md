@@ -37,8 +37,8 @@ to end.
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
-Fourteen pull requests are merged; `src/` holds 104 files and `test/` 88, with
-662 unit tests across 72 files and 24 Playwright browser journeys, all green.
+Fourteen pull requests are merged; `src/` holds 104 files and `test/` 89, with
+678 unit tests across 73 files and 25 Playwright browser journeys, all green.
 What that preview is *not*: there is no released build, no container or static
 bundle, and no hosted instance you can click into — running from source against
 your own honua-server is the only way to run Studio today
@@ -62,7 +62,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Chat console, activity log, deterministic fixture-conversation mode | `src/chat/`, `src/composition/fixture-conversation.ts` | #14 |
 | SSE client for honua-server's `POST /v1/studio/ai/chat` proxy — streams text and tool-call events from a real model (streaming only; the loop does not close yet, see #40) | `src/chat/sse-transport.ts` | #14 |
 | Composition engine — intent reducer, preview, undo/redo, pinning | `src/composition/` | #15 |
-| MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 17 `honua_studio_*` tools; this client has typed wrappers for the 12 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16 |
+| MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 17 `honua_studio_*` tools; this client has typed wrappers for the 13 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16, #31 |
 | MapLibre canvas that mutates as tool calls stream | `src/map/composition-map-view.ts` | #27 |
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
@@ -101,15 +101,15 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
   header — enumeration endpoints and server DTO fields the SDK's projection
   does not carry yet.
-- **Five commands still apply locally instead of calling their server tool.**
-  Visibility toggles ([#31](https://github.com/honua-io/honua-studio/issues/31))
-  and the control/interaction commands
+- **Four commands still apply locally instead of calling their server tool.**
+  The control and interaction commands
   ([#43](https://github.com/honua-io/honua-studio/issues/43)) mutate local state
   and reach the draft through the body of the next `honua_studio_update_draft`,
-  even though honua-server now publishes
-  `honua_studio_set_layer_visibility`, `honua_studio_add_control` /
+  even though honua-server now publishes `honua_studio_add_control` /
   `..._remove_control` (honua-server#3196) and `honua_studio_bind_interaction` /
-  `..._remove_interaction` (honua-server#3175).
+  `..._remove_interaction` (honua-server#3175). Visibility toggles no longer
+  do: they delegate to `honua_studio_set_layer_visibility`
+  ([#31](https://github.com/honua-io/honua-studio/issues/31)).
 
 ### Not started
 
@@ -212,9 +212,9 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 662 tests across 72 files |
+| `npm test` | Unit tests (Vitest) — 678 tests across 73 files |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
-| `npm run test:browser` | Builds, then runs the 24 Playwright boot/harness/journey specs (chromium) |
+| `npm run test:browser` | Builds, then runs the 25 Playwright boot/harness/journey specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 | `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
 

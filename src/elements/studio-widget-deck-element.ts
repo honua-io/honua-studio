@@ -24,12 +24,21 @@
  * **intrinsic to the widget kind**. An agent writes
  * `addWidget({ kind: "toc" })` and gets working toggles; it never writes
  * chrome boilerplate wiring a checkbox to a layer. They are not, however, a
- * side door: every one of them applies a `setVisibility` **command** through
- * `controller.apply(...)`, so an intrinsic toggle and an agent's authored
- * `setVisibility` are the same write path, with the same validation, the same
- * pin enforcement, the same history, and the same draft sync. A pinned layer's
- * toggle is disabled rather than allowed to fail (#1 REQ-003: pinned elements
- * the agent must not alter).
+ * side door: every one of them is a `setVisibility` **command**, and it
+ * travels the route the host gives it through {@link commandDispatch} — in
+ * the composed app, the same `ToolCallOrchestrator` an agent's tool call
+ * goes through, which in live mode calls `honua_studio_set_layer_visibility`
+ * and re-reads the returned draft (honua-studio#31). So an intrinsic toggle
+ * and an agent's authored `setVisibility` are the same write path, with the
+ * same validation, the same pin enforcement, the same generation threading,
+ * and the same activity-log entry. That is not a tidiness argument: `visible`
+ * IS part of the server's `StudioCompositionLayer`, so a toggle that only
+ * mutated client state was silently reverted by the next draft sync.
+ *
+ * Unset (a standalone deck, or fixture/offline mode) the command applies
+ * through this deck's own controller — the same reducer, one hop earlier.
+ * A pinned layer's toggle is disabled rather than allowed to fail
+ * (#1 REQ-003: pinned elements the agent must not alter).
  *
  * ## Selection (REQ-005)
  *
@@ -55,6 +64,7 @@
  * seam, so the whole pipeline is exercised in `environment: "node"` against a
  * fake loader, exactly like `mapFactory` does for the map.
  */
+import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
 import { compositionLayerColor } from "../composition/palette.js";
@@ -81,7 +91,7 @@ import {
 } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { baseElementStyles, widgetDeckStyles } from "./styles.js";
-import type { HonuaStudioSelectionChangeDetail } from "./types.js";
+import type { HonuaStudioCommandDispatch, HonuaStudioSelectionChangeDetail } from "./types.js";
 
 /** One layer the map could not draw, as `<honua-studio-canvas>` reports it. Shown as a TOC flag so the list never claims a layer is on the map when it is not. */
 export interface UnrenderableLayerNote {
@@ -132,6 +142,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #dataLoader: WidgetDataLoader | undefined;
   #defaultLoader: WidgetDataLoader | undefined;
   #onSelection: ((targets: readonly CompositionTarget[]) => void) | undefined;
+  #commandDispatch: HonuaStudioCommandDispatch | undefined;
   #unrenderable: readonly UnrenderableLayerNote[] = [];
   #data = new Map<string, DeckDataState>();
   #page = new Map<string, number>();
@@ -216,6 +227,22 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   public set onSelection(handler: ((targets: readonly CompositionTarget[]) => void) | undefined) {
     this.#onSelection = handler;
+  }
+
+  /**
+   * Where an intrinsic mutation goes — see {@link HonuaStudioCommandDispatch}.
+   * `<honua-studio-canvas>` sets this so a TOC toggle travels the same route
+   * an agent's `setVisibility` travels and reaches
+   * `honua_studio_set_layer_visibility` in live mode (honua-studio#31). Left
+   * unset (a standalone deck), the element applies through its own
+   * controller.
+   */
+  public get commandDispatch(): HonuaStudioCommandDispatch | undefined {
+    return this.#commandDispatch;
+  }
+
+  public set commandDispatch(dispatch: HonuaStudioCommandDispatch | undefined) {
+    this.#commandDispatch = dispatch;
   }
 
   public attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -757,18 +784,47 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Runs an intrinsic mutation through the reducer. Every rejection — a pin
-   * violation above all — becomes a message on the card instead of an
-   * unhandled rejection, and the deck re-renders from whatever state the
-   * reducer actually settled on (so a refused toggle snaps back rather than
-   * leaving the checkbox lying).
+   * Runs an intrinsic mutation. When a {@link commandDispatch} is wired the
+   * command goes there — the same route an agent's command takes, so in live
+   * mode it round-trips through `honua_studio_set_layer_visibility` rather
+   * than mutating state the next draft sync would overwrite
+   * (honua-studio#31). Without one, it applies through this deck's own
+   * controller, which is what fixture/offline mode does anyway.
+   *
+   * Either way the deck re-renders from whatever state the write actually
+   * settled on, so a refused toggle snaps back rather than leaving the
+   * checkbox lying — a native checkbox flips itself on the gesture, and only
+   * a repaint from real state can put it back. Every rejection — a pin
+   * violation above all, or a server `failed_precondition` the orchestrator
+   * could not recover from — becomes a message on the card instead of an
+   * unhandled rejection.
    */
-  #applyIntrinsic(...commands: readonly Parameters<CompositionController["apply"]>[0][]): void {
+  #applyIntrinsic(...commands: readonly CompositionCommand[]): void {
     const controller = this.#composition;
-    if (!controller) return;
+    const dispatch = this.#commandDispatch;
+    if (!controller && !dispatch) return;
     this.#commandError = undefined;
+
+    if (dispatch) {
+      // The round trip is asynchronous, so the repaint has to be too: the
+      // checkbox is already showing the user's intent, and composition state
+      // does not carry it until the server (or the reducer) says so.
+      void dispatch(commands).then(
+        (outcome) => {
+          if (outcome.ok) return;
+          this.#commandError = outcome.reason ?? "The composition refused that change.";
+          this.render();
+        },
+        (error: unknown) => {
+          this.#commandError = error instanceof Error ? error.message : String(error);
+          this.render();
+        },
+      );
+      return;
+    }
+
     try {
-      for (const command of commands) controller.apply(command);
+      for (const command of commands) (controller as CompositionController).apply(command);
     } catch (error) {
       this.#commandError = error instanceof Error ? error.message : String(error);
       this.render();

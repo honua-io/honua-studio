@@ -100,4 +100,97 @@ test.describe("compose fixture journey through the real MCP client (standalone s
       await mock.close();
     }
   });
+
+  test("a TOC visibility toggle round-trips through honua_studio_set_layer_visibility and survives a draft sync", async ({
+    page,
+  }) => {
+    const mock = await startMockServer();
+    const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
+    try {
+      const token = mintFixtureAccessToken();
+      await page.addInitScript(
+        ({ token, conversationId }) => {
+          window.__honuaStudioFixtureToken = token;
+          window.__honuaStudioChatFixtureConversationId = conversationId;
+        },
+        { token, conversationId: "compose-districts-map" },
+      );
+      await page.goto(preview.url);
+      await expect(page.getByTestId("studio-chat")).toBeVisible();
+
+      await page.evaluate((token) => {
+        window.__honuaStudioApp.session = { getToken: async () => token, onExpired: () => () => {} };
+        window.__honuaStudioApp.enableLiveComposition({
+          baseUrl: "/api",
+          packageKey: "pkg-mcp-visibility-journey",
+          family: "map",
+          schemaVersion: "1",
+        });
+      }, token);
+
+      await page.evaluate(() =>
+        window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district."),
+      );
+      await expect
+        .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers.map((l) => l.id)))
+        .toEqual(["hi-parcels"]);
+
+      // A TOC, then the real checkbox — no test-only command path.
+      await page.evaluate(() =>
+        window.__honuaStudioApp.toolCallOrchestrator.handleToolCall({
+          toolName: "addWidget",
+          arguments: { widget: { id: "layers", kind: "toc", title: "Layers" } },
+        }),
+      );
+      await expect(page.getByTestId("studio-widget-toc-row")).toHaveCount(1);
+
+      const beforeToggle = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation);
+      await page.getByTestId("studio-widget-toc-toggle").first().uncheck();
+
+      // The toggle is a server round trip now: the draft's generation moves,
+      // which a client-local mutation could never do.
+      await expect
+        .poll(() => page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation), { timeout: 20_000 })
+        .toBeGreaterThan(beforeToggle);
+      await expect
+        .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers[0]?.visible))
+        .toBe(false);
+
+      // An unrelated composition mutation syncs the draft — the exact
+      // sequence that used to bring a hidden layer back (honua-studio#31).
+      await page.evaluate(() =>
+        window.__honuaStudioApp.toolCallOrchestrator.handleToolCall({
+          toolName: "setView",
+          arguments: { view: { zoom: 9 } },
+        }),
+      );
+      await expect.poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.view.zoom)).toBe(9);
+      expect(await page.evaluate(() => window.__honuaStudioApp.composition.state.layers[0]?.visible)).toBe(false);
+
+      // …and the SERVER is what says so. Read the draft straight off the
+      // fixture's REST surface — the same store `/mcp` writes through.
+      const draftId = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.draftId);
+      const response = await fetch(`${mock.url}/v1/studio/package-drafts/${draftId}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const stored = await response.json();
+      expect(stored.data.envelope.body.layers).toEqual([expect.objectContaining({ id: "hi-parcels", visible: false })]);
+
+      // Re-showing it round-trips too, and the map follows.
+      await page.getByTestId("studio-widget-toc-toggle").first().check();
+      await expect
+        .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers[0]?.visible), {
+          timeout: 20_000,
+        })
+        .toBe(true);
+
+      const rejected = await page.evaluate(() =>
+        window.__honuaStudioChat.activityLog.entries().filter((entry) => entry.type === "composition_command_rejected"),
+      );
+      expect(rejected).toEqual([]);
+    } finally {
+      await preview.close();
+      await mock.close();
+    }
+  });
 });
