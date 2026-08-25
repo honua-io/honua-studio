@@ -6,16 +6,11 @@ adapters"). This document records the exact wire shapes as verified against
 that PR's diff (not guessed from the prose guide alone) — `src/chat/ai-contract.ts`
 is the TypeScript source of truth; this is the prose cross-reference.
 
-> **The SDK now carries these shapes too.** `@honua/sdk-js/studio-agent`
-> exports `StudioAiChatEvent`, `StudioAiChatRequest`,
-> `SSE_EVENT_NAME_TO_TYPE`, `SseFrameParser`, `SseChatTransport`, and
-> `fetchStudioAiCapabilities` — its own module docs record them as verbatim
-> ports of the `src/chat/*` modules this document describes. They are not
-> imported yet: the transport and the contract retire together with the turn
-> loop that uses them, when `StudioAgentSession` lands
-> ([#40](https://github.com/honua-io/honua-studio/issues/40)). Until then the
-> local modules remain the source of truth, and the two are identical by
-> construction rather than by coincidence.
+> **The live loop is SDK-owned.** `<honua-studio-app>` installs
+> `@honua/sdk-js/studio-agent`'s `StudioAgentSession`, which declares the
+> SDK kit's tools to the proxy, executes model-selected calls, returns a
+> `role: "tool"` result, and continues until the model ends the turn. The
+> local wire modules remain for deterministic fixture replay and its tests.
 
 ## Endpoints
 
@@ -119,12 +114,12 @@ stops the upstream call. `SseChatTransport.streamChat()` passes its
 — matching `ChatTransport`'s contract that cancellation is a normal outcome,
 not a transport failure.
 
-## What this client does NOT implement yet
+## Tool-loop ownership
 
-- `tools`/`toolChoice` on the outgoing request — `<honua-studio-chat>`
-  sends plain `{ role, content }` history only; the tool-call events it
-  RECEIVES and renders don't require the client to have declared any tools
-  (a future composition engine, honua-studio#8, is expected to own tool
-  declarations once it exists).
-- The `/capabilities` endpoint isn't consulted by the chat console's render
-  path (see above) — `fetchStudioAiCapabilities()` exists but is unwired.
+The app supplies the current `HonuaAiMapKit` definitions to
+`StudioAgentSession`; its system prompt is rebuilt from the current catalog
+and composition before each user turn. `agentToolDefinitions` is an explicit
+provider seam: today it returns the published SDK's static schemas, and can
+switch to sdk-js#1397 discovery without changing the chat loop. Assigning an
+explicit `ChatTransport` detaches the live session, keeping fixture playback
+network- and model-free.

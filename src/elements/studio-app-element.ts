@@ -34,9 +34,12 @@
  * own wiring — this element never reaches into a host-supplied child beyond
  * the same public properties/events any embedder could use.
  */
-import type { HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
+import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
+import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
+import { STATIC_STUDIO_AGENT_TOOLS } from "../chat/studio-agent-tools.js";
+import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
@@ -44,7 +47,7 @@ import { createEmptyCompositionState } from "../composition/model.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
-import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
+import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
 import { renderContent } from "../pages/content.js";
 import { renderHome } from "../pages/home.js";
@@ -73,6 +76,30 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+function orchestrationAgentResult(
+  call: { readonly name: string; readonly args?: Readonly<Record<string, unknown>> },
+  result: Awaited<ReturnType<ToolCallOrchestrator["handleToolCall"]>>,
+): HonuaAgentToolResult {
+  const status = result.ok ? "ok" : "error";
+  const message = result.ok ? undefined : result.reason;
+  return {
+    tool: call.name,
+    status,
+    ...(result.ok && result.draft ? { data: result.draft } : {}),
+    ...(message ? { deniedReason: message } : {}),
+    audit: {
+      tool: call.name,
+      status,
+      dryRun: false,
+      action: true,
+      outcome: result.ok ? "allowed" : "error",
+      parameters: call.args ?? {},
+      ...(message ? { message } : {}),
+      timestamp: new Date().toISOString(),
+    },
+  } as unknown as HonuaAgentToolResult;
 }
 
 interface StudioRoute {
@@ -158,6 +185,29 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #catalogRequested = false;
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
+  #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
+  #agentSetupGeneration = 0;
+  #liveAgentBaseUrl = "/api";
+
+  /**
+   * Tool-schema seam for sdk-js#1397. Today the published SDK kit is the
+   * static source of truth; hosts/tests may replace this provider without
+   * changing chat or composition wiring.
+   */
+  public get agentToolDefinitions(): (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike> {
+    return (
+      this.#agentToolDefinitions ??
+      ((kit) => [
+        ...kit.tools.filter((tool) => tool.mode === "read" || tool.name === "selectFeature"),
+        ...STATIC_STUDIO_AGENT_TOOLS,
+      ])
+    );
+  }
+
+  public set agentToolDefinitions(provider: (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) {
+    this.#agentToolDefinitions = provider;
+    if (this.toolCallOrchestrator.isLive) this.#scheduleLiveAgentSession();
+  }
 
   /**
    * Host-injected session adapter — the primary embed injection path
@@ -280,6 +330,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#aiMapKit = undefined;
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas) canvas.sourceCatalog = catalog;
+    if (this.isConnected && this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
   /**
@@ -379,7 +430,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     readonly family?: StudioPackageFamilyWire;
     readonly schemaVersion?: string;
   }): void {
-    const client = new McpClient({ baseUrl: options.baseUrl ?? "/api", auth: this.auth });
+    this.#liveAgentBaseUrl = options.baseUrl ?? "/api";
+    const client = new McpClient({ baseUrl: this.#liveAgentBaseUrl, auth: this.auth });
     this.toolCallOrchestrator.attachLiveSession({
       client,
       packageKey: options.packageKey,
@@ -392,6 +444,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       packageKey: options.packageKey,
       ...(options.family !== undefined ? { family: options.family } : {}),
     });
+    this.#scheduleLiveAgentSession();
+  }
+
+  #scheduleLiveAgentSession(): void {
+    void this.#attachLiveAgentSession(this.#liveAgentBaseUrl).catch((error) => {
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      chat?.activityLog.append("assistant_turn_error", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        phase: "agent-session-setup",
+      });
+    });
   }
 
   /**
@@ -403,6 +466,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public disableLiveComposition(): void {
     if (!this.toolCallOrchestrator.isLive) return;
     this.toolCallOrchestrator.detachLiveSession();
+    this.#agentSetupGeneration += 1;
+    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     this.#liveCompositionPackageKey = undefined;
     this.#announceCompositionMode({ mode: "fixture" });
   }
@@ -695,6 +760,59 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.
   }
 
+  async #attachLiveAgentSession(baseUrl: string): Promise<void> {
+    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    if (!chat || chat.hasCustomTransport || !this.toolCallOrchestrator.isLive) return;
+    const setupGeneration = ++this.#agentSetupGeneration;
+    const draft = await this.toolCallOrchestrator.ensureLiveDraft();
+    if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
+    const kit = this.aiMapKit;
+    const sessionRef: { current?: StudioAgentSession } = {};
+    sessionRef.current = chat.attachAgentSession({
+      baseUrl,
+      auth: this.auth,
+      tools: [...this.agentToolDefinitions(kit)],
+      execute: async (call) => {
+        // The pinned SDK predates the already-landed visibility tool in its
+        // composition allow-list. Forward only this newer server mutation
+        // through Studio's generation-safe orchestrator until sdk-js#1397
+        // supplies the discovered dispatcher; all older honua_studio_* names
+        // remain SDK-owned.
+        const forwardedCall = call as unknown as {
+          readonly name: string;
+          readonly args?: Readonly<Record<string, unknown>>;
+        };
+        if (forwardedCall.name === "honua_studio_set_layer_visibility") {
+          const result = await this.toolCallOrchestrator.handleToolCall({
+            toolName: forwardedCall.name,
+            arguments: forwardedCall.args ?? {},
+          });
+          if (result.ok && this.toolCallOrchestrator.draftId && this.toolCallOrchestrator.generation !== undefined) {
+            sessionRef.current?.attachDraft({
+              draftId: this.toolCallOrchestrator.draftId,
+              generation: this.toolCallOrchestrator.generation,
+            });
+          }
+          return orchestrationAgentResult(forwardedCall, result);
+        }
+        return kit.execute(call);
+      },
+      draft,
+      system: () =>
+        buildStudioSystemPrompt({
+          draftId: this.toolCallOrchestrator.draftId,
+          generation: this.toolCallOrchestrator.generation,
+          catalog: this.#sourceCatalog,
+          composition: this.composition.state,
+        }),
+      onEvent: (event) => {
+        if (event.type === "toolResult" && event.result.draft) {
+          this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
+        }
+      },
+    });
+  }
+
   /**
    * Runs a widget's intrinsic mutation through `.toolCallOrchestrator` — the
    * one composition write path (honua-studio#31). The orchestrator decides
@@ -726,6 +844,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   protected onDisconnect(): void {
+    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    this.#agentSetupGeneration += 1;
     this.#hashRouter?.stop();
     this.#hashRouter = undefined;
     this.#authUnsubscribe?.();

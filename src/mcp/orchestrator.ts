@@ -138,6 +138,8 @@ export class ToolCallOrchestrator {
   #studioTools: StudioMcpToolClient | undefined;
   #draftId: string | undefined;
   #generation: number | undefined;
+  #draftSetupGeneration = 0;
+  #draftSetup: Promise<{ readonly draftId: string; readonly generation: number }> | undefined;
   /** Serializes server-bound calls so two rapid tool-call events never race the same draft's generation against each other. */
   #serverQueue: Promise<unknown> = Promise.resolve();
 
@@ -160,8 +162,24 @@ export class ToolCallOrchestrator {
     return this.#live !== undefined;
   }
 
+  /** Creates or resolves the authoritative draft before a model turn begins. */
+  public async ensureLiveDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
+    if (!this.#live) throw new Error("No live Studio composition session is attached.");
+    return this.#ensureDraft();
+  }
+
+  /** Refreshes local composition from a draft returned by StudioAgentSession. */
+  public acceptServerDraft(draft: StudioMcpDraft): void {
+    if (!this.#live) return;
+    this.#draftId = draft.draftId;
+    this.#generation = draft.generation;
+    this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
+  }
+
   /** Attaches (or replaces) the live session. Passing `draftId`/`generation` skips lazy draft creation. */
   public attachLiveSession(options: ToolCallOrchestratorLiveOptions): void {
+    this.#draftSetupGeneration += 1;
+    this.#draftSetup = undefined;
     this.#live = options;
     this.#studioTools = new StudioMcpToolClient(options.client);
     this.#draftId = options.draftId;
@@ -170,6 +188,8 @@ export class ToolCallOrchestrator {
 
   /** Reverts to fixture/offline mode — every subsequent command applies through the local reducer only. Does not clear local composition state. */
   public detachLiveSession(): void {
+    this.#draftSetupGeneration += 1;
+    this.#draftSetup = undefined;
     this.#live = undefined;
     this.#studioTools = undefined;
     this.#draftId = undefined;
@@ -291,16 +311,29 @@ export class ToolCallOrchestrator {
     const live = this.#live;
     const tools = this.#studioTools;
     if (!live || !tools) throw new Error("ToolCallOrchestrator: no live session attached.");
-    const draft = await tools.createDraft({
-      packageKey: live.packageKey,
-      family: live.family ?? "map",
-      schemaVersion: live.schemaVersion ?? "1",
-      body: toStudioCompositionBody(this.#controller.state),
-    });
-    this.#draftId = draft.draftId;
-    this.#generation = draft.generation;
-    this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
-    return { draftId: draft.draftId, generation: draft.generation };
+    if (!this.#draftSetup) {
+      const setupGeneration = this.#draftSetupGeneration;
+      this.#draftSetup = tools
+        .createDraft({
+          packageKey: live.packageKey,
+          family: live.family ?? "map",
+          schemaVersion: live.schemaVersion ?? "1",
+          body: toStudioCompositionBody(this.#controller.state),
+        })
+        .then((draft) => {
+          if (setupGeneration !== this.#draftSetupGeneration || this.#live !== live) {
+            throw new Error("Live Studio composition session changed while its draft was being created.");
+          }
+          this.#draftId = draft.draftId;
+          this.#generation = draft.generation;
+          this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
+          return { draftId: draft.draftId, generation: draft.generation };
+        })
+        .finally(() => {
+          if (setupGeneration === this.#draftSetupGeneration) this.#draftSetup = undefined;
+        });
+    }
+    return this.#draftSetup;
   }
 
   #accept(

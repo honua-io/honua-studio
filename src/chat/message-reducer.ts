@@ -11,7 +11,7 @@ import type { AnnotationRef } from "./annotation.js";
 
 export type ChatRole = "user" | "assistant";
 export type ChatMessageStatus = "streaming" | "complete" | "cancelled" | "error";
-export type ChatToolCallStatus = "pending" | "complete";
+export type ChatToolCallStatus = "pending" | "complete" | "error";
 
 export interface ChatToolCall {
   readonly id: string;
@@ -21,6 +21,7 @@ export interface ChatToolCall {
   /** Parsed arguments, once `toolCallStop` is received. */
   readonly args?: unknown;
   readonly status: ChatToolCallStatus;
+  readonly errorMessage?: string;
 }
 
 export interface ChatMessage {
@@ -54,6 +55,13 @@ export type ChatAction =
     }
   | { readonly type: "assistant-turn-started"; readonly id: string }
   | { readonly type: "ai-event"; readonly id: string; readonly event: StudioAiChatEvent }
+  | {
+      readonly type: "tool-result";
+      readonly id: string;
+      readonly toolCallId: string;
+      readonly ok: boolean;
+      readonly errorMessage?: string;
+    }
   | { readonly type: "turn-cancelled"; readonly id: string }
   | { readonly type: "annotation-added"; readonly annotation: AnnotationRef }
   | { readonly type: "annotation-removed"; readonly id: string }
@@ -149,6 +157,17 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const messages = updateMessage(state.messages, action.id, (message) => applyAiEvent(message, action.event));
       const stillStreaming = action.event.type !== "messageStop" && action.event.type !== "error";
       return { ...state, messages, streaming: stillStreaming && state.streaming };
+    }
+    case "tool-result": {
+      const messages = updateMessage(state.messages, action.id, (message) => ({
+        ...message,
+        toolCalls: updateToolCall(message.toolCalls, action.toolCallId, (toolCall) => ({
+          ...toolCall,
+          status: action.ok ? "complete" : "error",
+          ...(action.errorMessage ? { errorMessage: action.errorMessage } : {}),
+        })),
+      }));
+      return { ...state, messages };
     }
     case "turn-cancelled": {
       const messages = updateMessage(state.messages, action.id, (message) =>

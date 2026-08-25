@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+
+import { McpClient as SdkMcpClient } from "@honua/sdk-js/studio-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createActivityLog } from "../../src/chat/activity-log.js";
@@ -6,9 +8,13 @@ import type { StudioAiChatEvent, StudioAiChatRequest } from "../../src/chat/ai-c
 import { playFixtureConversation } from "../../src/chat/fixture-player.js";
 import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
 import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
+import { STATIC_STUDIO_AGENT_TOOLS } from "../../src/chat/studio-agent-tools.js";
 import type { ChatTransport } from "../../src/chat/transport.js";
+import { CompositionController } from "../../src/composition/controller.js";
+import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
+import { applyStudioDraft } from "../../src/mcp/tool-bridge.js";
 
 registerAllStudioElements();
 
@@ -23,6 +29,209 @@ afterEach(() => {
 });
 
 describe("<honua-studio-chat>", () => {
+  it("runs a model-selected server tool, feeds its result back, and refreshes the real canvas controller", async () => {
+    const el = mountChat();
+    const controller = new CompositionController(createEmptyCompositionState());
+    const requests: StudioAiChatRequest[] = [];
+    const mcpCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    let round = 0;
+    const model: ChatTransport = {
+      async *streamChat(request) {
+        requests.push(request);
+        round += 1;
+        if (round === 1) {
+          yield { type: "toolCallStart", toolCallId: "call-1", toolName: "honua_studio_set_view" };
+          yield { type: "toolCallDelta", toolCallId: "call-1", toolArgumentsDelta: '{"view":{"zoom":9}}' };
+          yield { type: "toolCallStop", toolCallId: "call-1", toolArguments: { view: { zoom: 9 } } };
+          yield { type: "messageStop", stopReason: "toolCall" };
+          return;
+        }
+        yield { type: "textDelta", text: "Zoomed the map." };
+        yield { type: "messageStop", stopReason: "endTurn" };
+      },
+    };
+    const draft = {
+      draftId: "draft-1",
+      packageKey: "map-1",
+      generation: 2,
+      envelope: { family: "map" as const, schemaVersion: "1.0", body: { layers: [], view: { zoom: 9 }, widgets: [] } },
+    };
+    const mcpClient = new SdkMcpClient({
+      fetchImpl: vi.fn(async (_url, init) => {
+        const request = JSON.parse(String(init?.body)) as {
+          method: string;
+          params?: { name: string; arguments: Record<string, unknown> };
+          id: string;
+        };
+        if (request.method === "initialize") {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2025-03-26" } }),
+            { headers: { "content-type": "application/json", "mcp-session-id": "session-1" } },
+          );
+        }
+        if (request.params) mcpCalls.push(request.params);
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { structuredContent: draft } }), {
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    });
+    const setViewTool = STATIC_STUDIO_AGENT_TOOLS.filter((tool) => tool.name === "honua_studio_set_view");
+
+    el.attachAgentSession({
+      tools: setViewTool,
+      transport: model,
+      mcpClient,
+      draft: { draftId: "draft-1", generation: 1 },
+      system: "grounded system prompt",
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+      onEvent: (event) => {
+        if (event.type === "toolResult" && event.result.draft) {
+          controller.replaceState(applyStudioDraft(event.result.draft as never, controller.state));
+        }
+      },
+    });
+    await el.sendMessage("Zoom in");
+
+    expect(controller.state.view.zoom).toBe(9);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.system).toBe("grounded system prompt");
+    expect(requests[0]?.tools?.map((tool) => tool.name)).toEqual(["honua_studio_set_view"]);
+    expect(mcpCalls).toEqual([
+      { name: "honua_studio_set_view", arguments: { view: { zoom: 9 }, draftId: "draft-1", generation: 1 } },
+    ]);
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolCallId: "call-1",
+      toolName: "honua_studio_set_view",
+    });
+    expect(requests[1]?.messages.at(-1)?.content).toContain('"status":"ok"');
+    expect(el.messages.at(-1)?.text).toBe("Zoomed the map.");
+    expect(el.messages.at(-1)?.status).toBe("complete");
+    expect(el.activityLog.entries().map((entry) => entry.type)).toContain("tool_call_completed");
+  });
+
+  it("keeps explicit fixture transport authoritative over an attached live agent session", async () => {
+    const el = mountChat();
+    const liveTransport: ChatTransport = {
+      // biome-ignore lint/correctness/useYield: a call proves the fixture override failed
+      async *streamChat() {
+        throw new Error("live session must have been detached");
+      },
+    };
+    el.attachAgentSession({ transport: liveTransport });
+    el.transport = new FixtureChatTransport(composeDistrictsMapConversation);
+
+    await el.sendMessage("Add parcels");
+
+    expect(el.messages.at(-1)?.status).toBe("complete");
+    expect(el.messages.at(-1)?.toolCalls[0]?.name).toBe("add_layer");
+  });
+
+  it("rejects an overlapping public send while an SDK session turn is active", async () => {
+    const el = mountChat();
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    el.attachAgentSession({
+      transport: {
+        async *streamChat() {
+          yield { type: "textDelta", text: "first" };
+          await gate;
+          yield { type: "messageStop", stopReason: "endTurn" };
+        },
+      },
+    });
+
+    const first = el.sendMessage("one");
+    await vi.waitFor(() => expect(el.streaming).toBe(true));
+    await el.sendMessage("two");
+    expect(el.messages.filter((message) => message.role === "user").map((message) => message.text)).toEqual(["one"]);
+    release?.();
+    await first;
+  });
+
+  it("aborts an in-flight SDK turn when the live session is detached", async () => {
+    const el = mountChat();
+    el.attachAgentSession({
+      transport: {
+        async *streamChat(_request, signal) {
+          yield { type: "messageStart", model: "fixture" };
+          if (signal.aborted) return;
+          await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+        },
+      },
+    });
+
+    const turn = el.sendMessage("one");
+    await vi.waitFor(() => expect(el.streaming).toBe(true));
+    el.detachAgentSession();
+    await turn;
+
+    expect(el.messages.at(-1)?.status).toBe("cancelled");
+    expect(el.streaming).toBe(false);
+  });
+
+  it("renders and announces a failed SDK tool execution as failed, not complete", async () => {
+    const el = mountChat();
+    let round = 0;
+    const execution = vi.fn();
+    el.addEventListener("honua-studio-chat-tool-execution", execution);
+    el.attachAgentSession({
+      tools: [
+        {
+          name: "failingProbe",
+          description: "Always fails.",
+          mode: "action",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+      ],
+      execute: async () =>
+        ({
+          tool: "inspectMap",
+          status: "error",
+          deniedReason: "server rejected the mutation",
+          audit: {
+            tool: "inspectMap",
+            status: "error",
+            dryRun: false,
+            action: true,
+            outcome: "error",
+            parameters: {},
+            timestamp: "FIXED",
+          },
+        }) as never,
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+      transport: {
+        async *streamChat() {
+          round += 1;
+          if (round === 1) {
+            yield { type: "toolCallStart", toolCallId: "failed-1", toolName: "failingProbe" };
+            yield { type: "toolCallStop", toolCallId: "failed-1", toolArguments: {} };
+            yield { type: "messageStop", stopReason: "toolCall" };
+            return;
+          }
+          yield { type: "messageStop", stopReason: "endTurn" };
+        },
+      },
+    });
+
+    await el.sendMessage("fail");
+
+    expect(el.messages.at(-1)?.toolCalls[0]).toMatchObject({
+      id: "failed-1",
+      status: "error",
+      errorMessage: "server rejected the mutation",
+    });
+    expect(el.shadowRoot?.querySelector('[data-testid="studio-chat-tool-call"]')?.textContent).toContain("Failed");
+    expect(execution).toHaveBeenCalledTimes(1);
+    expect((execution.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
+      toolCallId: "failed-1",
+      ok: false,
+      errorMessage: "server rejected the mutation",
+    });
+  });
+
   it("still dispatches honua-studio-chat-message with the exact legacy {text} shape on composer submit (honua-studio#5 contract)", async () => {
     const el = mountChat();
     el.transport = new FixtureChatTransport(composeDistrictsMapConversation);
