@@ -7,6 +7,23 @@
  * (`https://honua.io/problems/studio`) documented in
  * `docs/internal/admin-api/studio-package-lifecycle.md` (honua-server).
  *
+ * ## Why not `@honua/sdk-js/studio`'s `HonuaStudioError`
+ *
+ * Because this taxonomy covers two failure modes the SDK's does not, and
+ * both are ones {@link StudioLifecycleClient}'s callers branch on:
+ * {@link StudioLifecycleSessionExpiredError} (a `401` that survived the
+ * forced-refresh retry — "sign in again", not "the server is down") and
+ * {@link StudioLifecycleTransportError} (the request never got a response to
+ * classify at all). `HonuaStudioProblemKind` has no discriminant for either;
+ * it classifies HTTP statuses, and neither of these has one.
+ *
+ * The overlapping half is deliberately the SDK's spelling — `.code` carries
+ * the same `generation-conflict` / `not-found` / `validation` / `internal`
+ * discriminants, so `isStudioLifecycleGenerationConflict` and
+ * `isHonuaStudioGenerationConflict` mean the same thing and
+ * `./composition-draft-store.ts` can translate one into the other without a
+ * lookup table.
+ *
  * @module
  */
 import type { StudioProblemDetails } from "./lifecycle-types.js";

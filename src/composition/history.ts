@@ -14,33 +14,29 @@
  * state, so the draft's own `generation` history becomes, in effect, the
  * durable half of the undo stack.
  *
- * ## The lifecycle-client seam
+ * ## Why {@link CompositionDraftStore} is an interface, not an SDK import
  *
- * `@honua/sdk-js`'s Studio lifecycle client
- * (`src/studio/lifecycle-client.ts`, `HonuaStudioLifecycleClient`) merged to
- * `honua-sdk-js` trunk in sdk-js#783 and is the real implementation of the
- * draft surface this module targets: `drafts.create(...)`,
- * `drafts.get(draftId)`, `drafts.replace(draftId, { envelope, generation })`
- * throwing on a `409` with `code: "generation-conflict"`
- * (`isHonuaStudioGenerationConflict`). **This app's `package.json` still
- * pins `@honua/sdk-js@0.1.2-beta.0`, published before #783 landed — that
- * version does not export the lifecycle client at all.** Rather than block
- * on a republish, this module defines a local structural interface,
- * {@link CompositionDraftStore}, matching the shape of
- * `HonuaStudioLifecycleClient.drafts` exactly (`draftId`/`generation`/
- * `envelope.body` field names, `create`/`get`/`replace` method names,
- * `generation`-conflict as a distinguishable error), plus
- * {@link FixtureDraftStore}, a pure in-memory implementation for tests and
- * fixture-conversation mode (NFR-001: deterministic, model- and
- * network-free CI).
+ * The real implementation is `@honua/sdk-js/studio`'s
+ * `HonuaStudioLifecycleClient.drafts`, and the adapter onto it now exists
+ * and is compiler-checked: `../lifecycle/composition-draft-store.ts`. This
+ * module still declares the seam as a structural interface for a reason
+ * that has nothing to do with the SDK's release history:
  *
- * When the SDK republishes with the lifecycle client, a thin adapter —
- * `{ create: (r) => lifecycleClient.drafts.create({ packageKey: r.packageKey, itemId: r.itemId, envelope: r.envelope }), get: (id) => lifecycleClient.drafts.get(id), replace: (id, r) => lifecycleClient.drafts.replace(id, r) }`
- * — satisfies {@link CompositionDraftStore} with zero changes to this
- * module, `DraftSync`, or any test written against the structural
- * interface. That adapter is intentionally NOT written here yet: writing it
- * against a dependency this app cannot `npm install` would mean the compiler
- * could never actually check it.
+ *  - **{@link FixtureDraftStore} is the other implementation.** NFR-001
+ *    requires a deterministic, model- and network-free fixture mode, and
+ *    that mode has no HTTP client to hand `DraftSync`. Two implementations
+ *    means an interface.
+ *  - **This module must not import the SDK's lifecycle client.** Everything
+ *    under `src/composition/**` is agent-reachable, and the human gate
+ *    (spec REQ-009, `test/lifecycle/human-gate.test.ts`) is enforced partly
+ *    by the fact that no file here can reach a client with
+ *    publish/rollback methods on it. Depending on a narrow three-method
+ *    interface is what keeps that provable by inspection.
+ *
+ * The seam's field and method names are still the SDK's
+ * (`draftId`/`generation`/`envelope.body`, `create`/`get`/`replace`,
+ * `generation`-conflict as a distinguishable error), so the adapter is a
+ * projection, not a translation layer.
  *
  * @module
  */

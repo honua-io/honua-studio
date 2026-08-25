@@ -191,11 +191,14 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
         .poll(() => page.evaluate(readLayerFilter, "hi-parcels"), { timeout: 10_000 })
         .toEqual(["==", ["get", "zoning_code"], "R-5"]);
 
-      // No cascade: exactly one action ran for that one gesture.
-      const dispatchCount = await page.evaluate(
-        () => document.querySelector("honua-studio-canvas")?.interactions?.compiled?.refused?.length ?? 0,
-      );
-      expect(dispatchCount).toBe(0);
+      // No cascade: the one binding compiled, and nothing else did. A verb's
+      // own write is invisible to the compiler that made it, so a cascade
+      // would have shown up above as a filter the control never asked for.
+      const compiled = await page.evaluate(() => {
+        const result = document.querySelector("honua-studio-canvas")?.interactions?.compiled;
+        return { ok: result?.ok ?? null, pairs: (result?.bindings ?? []).map((entry) => entry.pair) };
+      });
+      expect(compiled).toEqual({ ok: true, pairs: ["change -> setFilter"] });
 
       // Clearing the control clears the map filter.
       await page.getByTestId("studio-control-filter-select").selectOption("");

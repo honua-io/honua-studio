@@ -258,18 +258,25 @@ canvas readout carries a matching "not rendered" flag.
 **How `change` reaches an interaction.** One transport, and it is the SDK's:
 a control publishes a `FilterClause` keyed by its own id through
 `bindFilterControlsToExploration` (`@honua/sdk-js/interactions`) on a shared
-`ExplorationContext`. `src/interactions/declarative.ts` — the local stand-in
-for `@honua/sdk-js/interactions/declarative` (sdk-js#1259), which is not in
-the published `0.1.2-beta.0` — subscribes to that same slice on a *separate*
-exploration view and runs the bound verb. `honua-studio-control-change` is a
-DOM **notification** of the same gesture for hosts, never the transport.
+`ExplorationContext`. The compiler — `compileHonuaInteractions` from
+`@honua/sdk-js/interactions/declarative` — subscribes to that same slice on a
+*separate* exploration view and runs the bound verb;
+`src/interactions/studio-interactions.ts` supplies the component registry the
+verbs land in. `honua-studio-control-change` is a DOM **notification** of the
+same gesture for hosts, never the transport.
 
-**Actions never emit events** (ADR-0030) is enforced three ways: the
-compiler's exploration view is separate from the controls' one (bound views
-ignore their own notifications); every event carries the `source`
-discriminator `HonuaController` uses and only `adapter`/`exploration`
-gestures dispatch; and a re-entrancy guard drops anything raised while a verb
-is running.
+**Actions never emit events** (ADR-0030) is enforced two ways: the compiler's
+exploration view is separate from the controls' one (bound views ignore their
+own notifications, so a clause a verb writes is structurally invisible to the
+compiler that wrote it), and a re-entrancy guard drops any event raised while
+a verb is running.
+
+**Verb arguments are the standard's, spelled flat.** `setViewport` reads
+`bbox` / `center` / `zoom` / `pitch` / `bearing` directly off `do.args`;
+`setFilter` reads `field` / `operator` / `value` (or a whole `clause`), and a
+binding that wants the control's own clause passes it through explicitly with
+`args: { clause: "$event.clause" }`. A `$event.*` path that resolves to
+nothing clears the filter rather than installing a valueless clause.
 
 ### `<honua-studio-widget-deck>` — the composed chrome
 

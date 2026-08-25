@@ -1,8 +1,12 @@
 /**
- * `src/interactions/` — the ADR-0030 half of honua-studio#25: the declarative
- * compiler, the exploration transport a control's `change` travels on, and
- * the `FilterClause` -> MapLibre translation that makes a moved control move
- * the map.
+ * `src/interactions/` — the ADR-0030 half of honua-studio#25: the exploration
+ * transport a control's `change` travels on, and the `FilterClause` ->
+ * MapLibre translation that makes a moved control move the map.
+ *
+ * The declarative compiler itself is **not here**. It is
+ * `compileHonuaInteractions` from `@honua/sdk-js/interactions/declarative`;
+ * import it from the SDK rather than from this barrel, so there is exactly
+ * one compiler in the process.
  *
  * A barrel for hosts and tests. **Element modules import the concrete files
  * instead** — honua-studio#23's lazy-chunk rule: a dynamically imported
@@ -13,37 +17,6 @@
  *
  * @module
  */
-
-export {
-  GESTURE_EVENT_SOURCES,
-  INTERACTION_EVENT_PATH_PREFIX,
-  INTERACTION_FANOUT_CAP,
-  compileStudioInteractions,
-  isInteractionEventPath,
-  parseInteractionRef,
-  readInteractionEventPath,
-  resolveInteractionArgs,
-  validateInteractions,
-} from "./declarative.js";
-export type {
-  CompileStudioInteractionsOptions,
-  CompiledInteractionBinding,
-  ControlChangePayload,
-  InteractionDispatchRecord,
-  InteractionIssue,
-  InteractionIssueCode,
-  InteractionLayerComponent,
-  InteractionMapComponent,
-  InteractionViewport,
-  InteractionWidgetComponent,
-  ParsedInteractionRef,
-  StudioCompiledInteractions,
-  StudioControlChangeEvent,
-  StudioInteractionComponents,
-  StudioInteractionEventSource,
-  StudioInteractionRefKind,
-  UnsupportedInteraction,
-} from "./declarative.js";
 
 export { clauseToMaplibreFilter, clausesToMaplibreFilter } from "./filter-expression.js";
 export type { MaplibreFilter } from "./filter-expression.js";

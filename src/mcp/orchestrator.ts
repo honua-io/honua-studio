@@ -38,6 +38,34 @@
  * a host never has to wrap this call in its own try/catch to keep the UI
  * responsive.
  *
+ * ## What `StudioAgentSession` supersedes here (honua-studio#40)
+ *
+ * `@honua/sdk-js/studio-agent` now ships `createStudioAgentSession`, and the
+ * pin carries it (honua-studio#30). It is the retirement target for this
+ * module and for `elements/studio-chat-element.ts`'s turn loop, but it is
+ * #40's work, not #30's — wiring it changes behavior (it is what finally
+ * CLOSES the model turn: declaring tool definitions to the proxy and feeding
+ * tool results back), and #30 deletes mirrors without changing behavior.
+ * Concretely, when #40 lands:
+ *
+ *  - **Superseded.** The turn loop itself — streaming a turn, routing each
+ *    tool call to the tool plane, feeding the result back, and deciding when
+ *    the turn is done. `StudioAgentSession` owns that, with the same
+ *    `failed_precondition` reload-and-retry-once semantics this module
+ *    implements below (`parseStudioDraftResult` is the SDK's counterpart to
+ *    `studio-tools.ts`'s draft parsing).
+ *  - **Not superseded.** Everything that makes a tool call land in *this*
+ *    app: `tool-bridge.ts`'s command→tool translation and its
+ *    client-local-only commands (pin/annotate), the reducer application,
+ *    `CompositionController` refresh from the returned draft, and the
+ *    `ActivityLog` entries. `StudioAgentSession` takes a tool plane; it does
+ *    not take a composition engine.
+ *  - **Also ported, also #40's call.** The SDK's `studio-agent` entrypoint
+ *    carries verbatim ports of `./client.ts`, `./protocol.ts`, `./errors.ts`
+ *    and `../chat/{ai-contract,sse-parser,sse-transport,transport,capabilities-client}.ts`
+ *    (its own module docs say so). Those are mirrors and should go, but they
+ *    go with the session that replaces their caller, not before it.
+ *
  * @module
  */
 import type { ActivityLog } from "../chat/activity-log.js";

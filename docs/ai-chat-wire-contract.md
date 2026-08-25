@@ -6,6 +6,17 @@ adapters"). This document records the exact wire shapes as verified against
 that PR's diff (not guessed from the prose guide alone) — `src/chat/ai-contract.ts`
 is the TypeScript source of truth; this is the prose cross-reference.
 
+> **The SDK now carries these shapes too.** `@honua/sdk-js/studio-agent`
+> exports `StudioAiChatEvent`, `StudioAiChatRequest`,
+> `SSE_EVENT_NAME_TO_TYPE`, `SseFrameParser`, `SseChatTransport`, and
+> `fetchStudioAiCapabilities` — its own module docs record them as verbatim
+> ports of the `src/chat/*` modules this document describes. They are not
+> imported yet: the transport and the contract retire together with the turn
+> loop that uses them, when `StudioAgentSession` lands
+> ([#40](https://github.com/honua-io/honua-studio/issues/40)). Until then the
+> local modules remain the source of truth, and the two are identical by
+> construction rather than by coincidence.
+
 ## Endpoints
 
 - `GET /api/v{version}/studio/ai/capabilities` — admin-authorized, returns
