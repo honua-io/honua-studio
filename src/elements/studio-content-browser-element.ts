@@ -22,6 +22,7 @@ import type {
   StudioPackageFamily,
 } from "../lifecycle/lifecycle-types.js";
 import { STUDIO_PACKAGE_FAMILIES } from "../lifecycle/lifecycle-types.js";
+import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, lifecycleStyles } from "./styles.js";
@@ -76,7 +77,7 @@ export class HonuaStudioContentBrowserElement extends HonuaStudioElementBase {
 
   /** The lifecycle REST client this browser reads from. Defaults to a fresh `StudioLifecycleClient` reading `/api`, bearer-attached via `.auth`. Override for fixtures/tests. */
   public get client(): StudioLifecycleClient {
-    if (!this.#client) this.#client = new StudioLifecycleClient({ baseUrl: "/api", auth: this.#auth });
+    if (!this.#client) this.#client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.#auth });
     return this.#client;
   }
 

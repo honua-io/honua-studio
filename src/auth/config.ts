@@ -21,6 +21,8 @@ export interface OidcEnvConfig {
   scopes: string[];
 }
 
+import { runtimeConfig } from "../runtime-config.js";
+
 const DEV_DEFAULT_ISSUER_PATH = "/oidc";
 const DEV_DEFAULT_CLIENT_ID = "honua-studio-dev";
 const DEV_DEFAULT_SCOPES = "openid profile honua.read honua.write";
@@ -35,10 +37,12 @@ export function resolveOidcConfig(
   env: ImportMetaEnv = import.meta.env,
   origin: string = defaultOrigin(),
 ): OidcEnvConfig {
-  const issuer = readEnv(env, "HONUA_OIDC_ISSUER") || `${origin}${DEV_DEFAULT_ISSUER_PATH}`;
-  const clientId = readEnv(env, "HONUA_OIDC_CLIENT_ID") || DEV_DEFAULT_CLIENT_ID;
+  const runtime = runtimeConfig();
+  const runtimeIssuer = runtime.oidc.issuer.startsWith("/") ? `${origin}${runtime.oidc.issuer}` : runtime.oidc.issuer;
+  const issuer = readEnv(env, "HONUA_OIDC_ISSUER") || runtimeIssuer || `${origin}${DEV_DEFAULT_ISSUER_PATH}`;
+  const clientId = readEnv(env, "HONUA_OIDC_CLIENT_ID") || runtime.oidc.clientId || DEV_DEFAULT_CLIENT_ID;
   const redirectUri = readEnv(env, "HONUA_OIDC_REDIRECT_URI") || `${origin}/`;
-  const scopesRaw = readEnv(env, "HONUA_OIDC_SCOPES") || DEV_DEFAULT_SCOPES;
+  const scopesRaw = readEnv(env, "HONUA_OIDC_SCOPES") || runtime.oidc.scopes.join(" ") || DEV_DEFAULT_SCOPES;
   const scopes = scopesRaw.split(/\s+/).filter((scope) => scope.length > 0);
   return { issuer, clientId, redirectUri, scopes };
 }

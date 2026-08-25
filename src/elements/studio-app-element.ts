@@ -49,6 +49,7 @@ import { renderAbout } from "../pages/about.js";
 import { renderContent } from "../pages/content.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
+import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
@@ -218,7 +219,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** The `StudioClient` powering the catalog/packages view — bearer-attached via `.auth`. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
   public get studioClient(): StudioClient {
-    if (!this.#studioClient) this.#studioClient = new StudioClient("/api", this.auth);
+    if (!this.#studioClient) this.#studioClient = new StudioClient(runtimeServerBaseUrl(), this.auth);
     return this.#studioClient;
   }
 
@@ -379,7 +380,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     readonly family?: StudioPackageFamilyWire;
     readonly schemaVersion?: string;
   }): void {
-    const client = new McpClient({ baseUrl: options.baseUrl ?? "/api", auth: this.auth });
+    const client = new McpClient({ baseUrl: options.baseUrl ?? runtimeServerBaseUrl(), auth: this.auth });
     this.toolCallOrchestrator.attachLiveSession({
       client,
       packageKey: options.packageKey,

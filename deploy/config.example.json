@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "honua.studio.runtime-config.v1",
+  "serverBaseUrl": "https://honua.example.com",
+  "oidc": {
+    "issuer": "https://identity.example.com",
+    "clientId": "honua-studio",
+    "audience": "honua-api",
+    "scopes": ["openid", "profile", "honua.read", "honua.write"]
+  },
+  "model": {
+    "mode": "server-proxy",
+    "provider": "operator-configured"
+  }
+}

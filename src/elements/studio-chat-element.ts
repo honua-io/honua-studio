@@ -28,6 +28,7 @@ import {
   createAnnotationRef,
   initialChatState,
 } from "../chat/index.js";
+import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
@@ -89,7 +90,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
    * `studio-app-element.ts`'s `.studioClient`.
    */
   public get transport(): ChatTransport {
-    if (!this.#transport) this.#transport = new SseChatTransport({ baseUrl: "/api", auth: this.#auth });
+    if (!this.#transport) this.#transport = new SseChatTransport({ baseUrl: runtimeServerBaseUrl(), auth: this.#auth });
     return this.#transport;
   }
 
