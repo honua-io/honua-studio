@@ -198,7 +198,8 @@ export interface HonuaStudioSelectionChangeDetail {
  * **This is a notification, not the transport.** ADR-0030 bindings are driven
  * by the SDK's exploration context (a `FilterClause` published under the
  * control's id through `bindFilterControlsToExploration`), which is what
- * `src/interactions/declarative.ts` observes; this event exists so a host can
+ * `@honua/sdk-js/interactions/declarative`'s compiler observes; this event
+ * exists so a host can
  * watch controls without reaching into that context, and nothing downstream
  * of the control depends on anyone listening to it. Two event paths would be
  * two sources of truth — there is one, and this is not it.

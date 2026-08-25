@@ -1,44 +1,74 @@
 /**
- * The ADR-0030 compiler (honua-studio#25 REQ-002), and above all the rule the
- * whole design hangs on: **actions never emit events**.
+ * The ADR-0030 compiler (honua-studio#25 REQ-002) as Studio now consumes it:
+ * `compileHonuaInteractions` from `@honua/sdk-js/interactions/declarative`,
+ * driven through the component registry shape
+ * `../../src/interactions/studio-interactions.ts` hands it.
  *
- * Three independent mechanisms are asserted separately, because each is a
- * different way the cycle could come back: the source discriminator, the
- * re-entrancy guard, and — in `studio-interactions.test.ts` — the structural
- * separation of the compiler's exploration view from the controls' one.
+ * This suite is not a re-test of the SDK's own unit suite. It pins the four
+ * properties Studio depends on and would regress silently without:
+ *
+ *  1. a malformed or over-cap block binds **nothing**;
+ *  2. a real control gesture runs the bound verb through Studio's adapters,
+ *     with `$event.*` substitution and the binding's field rewrite;
+ *  3. **actions never emit events** — a verb's own write does not re-enter
+ *     the compiler, which is why the compiler gets a view of its own;
+ *  4. a binding the runtime cannot honor is *named* in `unsupported`, never
+ *     quietly inert.
+ *
+ * Every gesture here travels the same way it does in the app: one
+ * `FilterClause` published on a *different* exploration view of the same
+ * context. There is no synchronous back door into the compiler, because the
+ * SDK does not offer one and the app does not need one.
  */
 import { createExplorationContext } from "@honua/sdk-js/exploration";
-import type { ExplorationContext, ExplorationViewController } from "@honua/sdk-js/exploration";
+import type { ExplorationContext, ExplorationViewController, FilterClause } from "@honua/sdk-js/exploration";
+import { bindFilterControlsToExploration } from "@honua/sdk-js/interactions";
+import {
+  HONUA_INTERACTION_FANOUT_CAP,
+  type HonuaInteractionComponents,
+  compileHonuaInteractions,
+  parseHonuaInteractionRef,
+  resolveHonuaInteractionArgs,
+  validateHonuaInteractions,
+} from "@honua/sdk-js/interactions/declarative";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CompositionInteraction } from "../../src/composition/model.js";
-import {
-  INTERACTION_FANOUT_CAP,
-  type StudioControlChangeEvent,
-  type StudioInteractionComponents,
-  compileStudioInteractions,
-  parseInteractionRef,
-  resolveInteractionArgs,
-  validateInteractions,
-} from "../../src/interactions/declarative.js";
 
 let context: ExplorationContext | undefined;
+let controls: ExplorationViewController | undefined;
 
-function view(): ExplorationViewController {
+/** The compiler's own view. Gestures are published on a separate one, exactly as `StudioInteractionRuntime` arranges it. */
+function compilerView(): ExplorationViewController {
   context = createExplorationContext({ datasetId: "test", sourceIds: ["src-parcels"] });
+  controls = context.connectView({ id: "controls", role: "filter" });
   return context.connectView({ id: "interactions", role: "custom" });
+}
+
+/** One control gesture: a clause published under the control's own id. */
+function gesture(controlId: string, clause: FilterClause | undefined): void {
+  const channel = bindFilterControlsToExploration(controls as ExplorationViewController);
+  if (clause === undefined) channel.clearFilter(controlId);
+  else channel.setFilter(controlId, clause);
+}
+
+/** Exploration listeners fire on a microtask so a burst of intents coalesces — let them land. */
+async function flush(): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 afterEach(() => {
   context?.dispose();
   context = undefined;
+  controls = undefined;
 });
 
 const setFilter = vi.fn();
 const setVisibility = vi.fn();
 const setViewport = vi.fn();
 
-function components(): StudioInteractionComponents {
+function components(): HonuaInteractionComponents {
   return {
     map: { setViewport },
     layers: { parcels: { sourceId: "src-parcels", setFilter, setVisibility } },
@@ -56,27 +86,7 @@ function binding(overrides: Partial<CompositionInteraction> = {}): CompositionIn
   } as CompositionInteraction;
 }
 
-function gesture(
-  ref: string,
-  value: unknown,
-  source: StudioControlChangeEvent["source"] = "adapter",
-): StudioControlChangeEvent {
-  return {
-    type: "change",
-    ref,
-    source,
-    payload: {
-      id: ref.slice("control:".length),
-      field: "district",
-      operator: "=",
-      value,
-      clause: { field: "district", operator: "=", value },
-      filters: {},
-    },
-  };
-}
-
-describe("interactions/declarative", () => {
+describe("interactions/declarative (@honua/sdk-js)", () => {
   afterEach(() => {
     setFilter.mockReset();
     setVisibility.mockReset();
@@ -85,12 +95,12 @@ describe("interactions/declarative", () => {
 
   describe("ref grammar", () => {
     it("parses the four ADR-0030 reference shapes and rejects everything else", () => {
-      expect(parseInteractionRef("map")).toEqual({ kind: "map" });
-      expect(parseInteractionRef("control:year-built")).toEqual({ kind: "control", id: "year-built" });
-      expect(parseInteractionRef("layer:a:b")).toEqual({ kind: "layer", id: "a:b" });
-      expect(parseInteractionRef("source:x")).toBeUndefined();
-      expect(parseInteractionRef("control:")).toBeUndefined();
-      expect(parseInteractionRef("")).toBeUndefined();
+      expect(parseHonuaInteractionRef("map")).toEqual({ kind: "map" });
+      expect(parseHonuaInteractionRef("control:year-built")).toEqual({ kind: "control", id: "year-built" });
+      expect(parseHonuaInteractionRef("layer:a:b")).toEqual({ kind: "layer", id: "a:b" });
+      expect(parseHonuaInteractionRef("source:x")).toBeUndefined();
+      expect(parseHonuaInteractionRef("control:")).toBeUndefined();
+      expect(parseHonuaInteractionRef("")).toBeUndefined();
     });
   });
 
@@ -98,7 +108,7 @@ describe("interactions/declarative", () => {
     it("is static JSON plus path reads — and nothing that resembles an expression language", () => {
       const payload = { value: "R-5", clause: { field: "zoning" } };
       expect(
-        resolveInteractionArgs(
+        resolveHonuaInteractionArgs(
           { field: "zoning", value: "$event.value", nested: { f: "$event.clause.field" } },
           payload,
         ),
@@ -106,40 +116,22 @@ describe("interactions/declarative", () => {
     });
 
     it("resolves an unreachable path to undefined rather than throwing", () => {
-      expect(resolveInteractionArgs({ v: "$event.a.b.c" }, {})).toEqual({ v: undefined });
+      expect(resolveHonuaInteractionArgs({ v: "$event.a.b.c" }, {})).toEqual({ v: undefined });
     });
   });
 
   describe("validation", () => {
     it("accepts a well-formed control binding", () => {
-      expect(validateInteractions([binding()], { components: components() })).toEqual([]);
-    });
-
-    it("rejects a change event on a non-control source — only controls emit change", () => {
-      const issues = validateInteractions([binding({ on: { ref: "layer:parcels", event: "change" } })], {
-        components: components(),
-      });
-      expect(issues.map((issue) => issue.code)).toContain("invalid-ref");
-      expect(issues[0]?.message).toContain("control source");
-    });
-
-    it("rejects a ref that resolves to no declared component", () => {
-      const issues = validateInteractions([binding({ on: { ref: "control:missing", event: "change" } })], {
-        components: components(),
-      });
-      expect(issues[0]?.message).toContain("does not resolve");
+      expect(validateHonuaInteractions([binding()])).toEqual({ ok: true, issues: [] });
     });
 
     it("rejects duplicate ids and out-of-vocabulary events/verbs", () => {
-      const issues = validateInteractions(
-        [
-          binding(),
-          binding(),
-          binding({ id: "c", on: { ref: "control:district", event: "hover" } } as never),
-          binding({ id: "d", do: { ref: "layer:parcels", verb: "deleteFeature" } } as never),
-        ],
-        { components: components() },
-      );
+      const { issues } = validateHonuaInteractions([
+        binding(),
+        binding(),
+        binding({ id: "c", on: { ref: "control:district", event: "hover" } } as never),
+        binding({ id: "d", do: { ref: "layer:parcels", verb: "deleteFeature" } } as never),
+      ]);
       const codes = issues.map((issue) => issue.code);
       expect(codes).toContain("duplicate-id");
       expect(codes).toContain("unknown-event");
@@ -147,129 +139,144 @@ describe("interactions/declarative", () => {
     });
 
     it("rejects a document over the fan-out cap rather than truncating it", () => {
-      const many = Array.from({ length: INTERACTION_FANOUT_CAP + 1 }, (_, index) => binding({ id: `b${index}` }));
-      const issues = validateInteractions(many, { components: components() });
-      expect(issues.map((issue) => issue.code)).toContain("fan-out-exceeded");
+      const many = Array.from({ length: HONUA_INTERACTION_FANOUT_CAP + 1 }, (_, index) => binding({ id: `b${index}` }));
+      expect(validateHonuaInteractions(many).issues.map((issue) => issue.code)).toContain("fan-out-exceeded");
     });
 
     it("does not count a disabled binding against the cap", () => {
       const many = [
-        ...Array.from({ length: INTERACTION_FANOUT_CAP }, (_, index) => binding({ id: `b${index}` })),
+        ...Array.from({ length: HONUA_INTERACTION_FANOUT_CAP }, (_, index) => binding({ id: `b${index}` })),
         binding({ id: "off", disabled: true }),
       ];
-      expect(validateInteractions(many, { components: components() })).toEqual([]);
+      expect(validateHonuaInteractions(many)).toEqual({ ok: true, issues: [] });
     });
   });
 
   describe("compile", () => {
-    it("binds nothing at all when the document has an issue — a broken block is never half-applied", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [binding({ on: { ref: "control:missing", event: "change" } })],
-        view: view(),
+    it("binds nothing at all when a ref resolves to no declared component", async () => {
+      const compiled = compileHonuaInteractions([binding({ on: { ref: "control:missing", event: "change" } })], {
+        view: compilerView(),
         components: components(),
       });
       expect(compiled.ok).toBe(false);
+      expect(compiled.issues.map((issue) => issue.code)).toContain("invalid-ref");
       expect(compiled.bindings).toEqual([]);
-      expect(compiled.dispatch(gesture("control:missing", "x"))).toEqual([]);
+
+      gesture("missing", { field: "d", operator: "=", value: "x" });
+      await flush();
+      expect(setFilter).not.toHaveBeenCalled();
+      compiled.dispose();
     });
 
-    it("runs the bound verb on a gesture and rewrites the field the binding names", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [binding()],
-        view: view(),
-        components: components(),
-      });
+    it("runs the bound verb on a real gesture and rewrites the field the binding names", async () => {
+      const compiled = compileHonuaInteractions([binding()], { view: compilerView(), components: components() });
       expect(compiled.ok).toBe(true);
-      const records = compiled.dispatch(gesture("control:district", "HON"));
-      expect(records.map((record) => record.verb)).toEqual(["setFilter"]);
+      expect(compiled.bindings.map((entry) => entry.pair)).toEqual(["change -> setFilter"]);
+
+      gesture("district", { field: "district", operator: "=", value: "HON" });
+      await flush();
+
       expect(setFilter).toHaveBeenCalledWith({ field: "district_id", operator: "=", value: "HON" });
       compiled.dispose();
     });
 
-    it("passes the control's own clause through when the binding overrides nothing", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [binding({ do: { ref: "layer:parcels", verb: "setFilter" } })],
-        view: view(),
-        components: components(),
-      });
-      compiled.dispatch(gesture("control:district", "HON"));
-      expect(setFilter).toHaveBeenCalledWith({ field: "district", operator: "=", value: "HON" });
+    it("clears the target's filter when the control clears", async () => {
+      const compiled = compileHonuaInteractions([binding()], { view: compilerView(), components: components() });
+      gesture("district", { field: "district", operator: "=", value: "HON" });
+      await flush();
+      setFilter.mockReset();
+
+      gesture("district", undefined);
+      await flush();
+
+      expect(setFilter).toHaveBeenCalledWith(undefined);
       compiled.dispose();
     });
 
-    it("ignores a gesture from a control it does not bind", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [binding()],
-        view: view(),
-        components: components(),
-      });
-      expect(compiled.dispatch(gesture("control:zoning", "R-5"))).toEqual([]);
+    it("ignores a gesture from a control it does not bind", async () => {
+      const compiled = compileHonuaInteractions([binding()], { view: compilerView(), components: components() });
+      gesture("zoning", { field: "zoning_code", operator: "=", value: "R-5" });
+      await flush();
       expect(setFilter).not.toHaveBeenCalled();
       compiled.dispose();
     });
 
     it("reports an uncompilable-but-valid binding instead of leaving it quietly inert", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [
+      const compiled = compileHonuaInteractions(
+        [
           binding({ id: "q", do: { ref: "widget:grid", verb: "runWidgetQuery" } }),
-          binding({ id: "v", on: { ref: "map", event: "viewportChange" }, do: { ref: "map", verb: "setViewport" } }),
+          binding({ id: "s", on: { ref: "layer:parcels", event: "featureSelect" } }),
         ],
-        view: view(),
-        components: components(),
-      });
+        { view: compilerView(), components: components() },
+      );
       expect(compiled.ok).toBe(false);
-      expect(compiled.bindings).toEqual([]);
-      expect(compiled.unsupported.map((entry) => entry.interactionId).sort()).toEqual(["q", "v"]);
+      expect(compiled.unsupported.map((entry) => entry.interactionId).sort()).toEqual(["q", "s"]);
       // Each reason names the missing capability, not just "unsupported".
-      expect(compiled.unsupported.find((entry) => entry.interactionId === "q")?.reason).toContain("no query verb");
+      expect(compiled.unsupported.find((entry) => entry.interactionId === "q")?.reason).toContain("runQuery");
+      // Studio declares no `map` on a layer component, so the map-gesture half
+      // of ADR-0030 is reported, not bound (honua-studio#43).
+      expect(compiled.unsupported.find((entry) => entry.interactionId === "s")?.reason).toContain("map");
       compiled.dispose();
     });
 
-    it("lists a disabled binding rather than pretending it does not exist", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [binding({ disabled: true })],
-        view: view(),
+    it("lists a disabled binding rather than pretending it does not exist", async () => {
+      const compiled = compileHonuaInteractions([binding({ disabled: true })], {
+        view: compilerView(),
         components: components(),
       });
       expect(compiled.disabled).toEqual(["district-filters-parcels"]);
-      expect(compiled.dispatch(gesture("control:district", "HON"))).toEqual([]);
+
+      gesture("district", { field: "district", operator: "=", value: "HON" });
+      await flush();
+      expect(setFilter).not.toHaveBeenCalled();
       compiled.dispose();
+    });
+
+    it("stops dispatching once disposed", async () => {
+      const compiled = compileHonuaInteractions([binding()], { view: compilerView(), components: components() });
+      compiled.dispose();
+
+      gesture("district", { field: "district", operator: "=", value: "HON" });
+      await flush();
+      expect(setFilter).not.toHaveBeenCalled();
     });
   });
 
   describe("actions never emit events", () => {
-    it("refuses an event tagged as action-driven (`controller`) — the source discriminator IS the rule", () => {
-      const compiled = compileStudioInteractions({
-        interactions: [binding()],
-        view: view(),
-        components: components(),
-      });
-      expect(compiled.dispatch(gesture("control:district", "HON", "controller"))).toEqual([]);
-      expect(setFilter).not.toHaveBeenCalled();
-      expect(compiled.refused[0]).toContain("actions never emit events");
-      // …and the same gesture, correctly tagged, does run.
-      expect(compiled.dispatch(gesture("control:district", "HON", "adapter"))).toHaveLength(1);
-      compiled.dispose();
-    });
-
-    it("refuses a re-entrant event raised by a verb while that verb is running", () => {
-      let compiled = undefined as ReturnType<typeof compileStudioInteractions> | undefined;
-      const reentrant: StudioInteractionComponents = {
+    it("does not re-enter the compiler when a verb writes back into the compiler's own view", async () => {
+      const view = compilerView();
+      const dispatches: string[] = [];
+      // The action feeds a clause straight back onto the slice the compiler
+      // subscribes to. `includeSelf` is false by default, so the write is
+      // structurally invisible to the compiler that made it.
+      const reentrant: HonuaInteractionComponents = {
         ...components(),
         layers: {
           parcels: {
             sourceId: "src-parcels",
             setFilter: () => {
-              // The action tries to feed a gesture straight back in.
-              compiled?.dispatch(gesture("control:district", "LOOP"));
+              bindFilterControlsToExploration(view).setFilter("district", {
+                field: "district",
+                operator: "=",
+                value: "LOOP",
+              });
             },
           },
         },
       };
-      compiled = compileStudioInteractions({ interactions: [binding()], view: view(), components: reentrant });
-      const records = compiled.dispatch(gesture("control:district", "HON"));
-      expect(records).toHaveLength(1);
-      expect(compiled.refused.some((entry) => entry.includes("re-entrant"))).toBe(true);
+      const compiled = compileHonuaInteractions([binding()], {
+        view,
+        components: reentrant,
+        onDispatch: (dispatch) => dispatches.push(dispatch.interactionId),
+      });
+
+      gesture("district", { field: "district", operator: "=", value: "HON" });
+      await flush();
+      await flush();
+
+      // Exactly one action ran. A cascade would show up here as two, or as an
+      // unbounded loop that never lets `flush` return.
+      expect(dispatches).toEqual(["district-filters-parcels"]);
       compiled.dispose();
     });
   });
