@@ -131,6 +131,29 @@ describe("CompositionMapView (honua-studio#23)", () => {
     expect(map.latestStyle?.sources["hi-parcels"]).toBeDefined();
   });
 
+  it("hands MapLibre a style with no present-but-undefined properties", async () => {
+    // `{ layout: undefined }` and "no `layout` key" are the same to
+    // `JSON.stringify` but not to MapLibre's validator, which rejects the
+    // former and leaves the previous style in place — the map silently stops
+    // updating while composition state stays correct. `composeStyle` prunes
+    // them (sdk-js#1270); this is the assertion that catches it if it stops.
+    const { controller, map, view } = await startView();
+    controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+    controller.apply({ name: "addLayer", layer: { id: "hi-roads", sourceId: "hi-roads" } });
+    await view.settled();
+
+    const style = map.latestStyle as unknown as Record<string, unknown> | undefined;
+    expect(style).toBeDefined();
+    const undefinedKeys: string[] = [];
+    for (const [key, value] of Object.entries(style ?? {})) if (value === undefined) undefinedKeys.push(key);
+    for (const layer of map.latestStyle?.layers ?? []) {
+      for (const [key, value] of Object.entries(layer as unknown as Record<string, unknown>)) {
+        if (value === undefined) undefinedKeys.push(`${layer.id}.${key}`);
+      }
+    }
+    expect(undefinedKeys).toEqual([]);
+  });
+
   it("restyles the layer in place when setLayerStyleRef lands — the style ref is not a no-op", async () => {
     const { controller, map, view } = await startView();
     controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });

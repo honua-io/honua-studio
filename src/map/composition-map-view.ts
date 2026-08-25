@@ -377,15 +377,23 @@ export class CompositionMapView {
    * Runs the SDK's style composition (style-ref overrides + theme tokens
    * merged onto `mapSpec`). On failure the un-composed `mapSpec` is used:
    * a bad style ref should cost the map its styling, not its layers.
+   *
+   * The result goes to MapLibre's differ untouched. `composeStyle` prunes
+   * present-but-`undefined` `paint`/`layout`/`metadata` properties itself
+   * (sdk-js#1270); before that fix Studio pruned them here, because
+   * `{ layout: undefined }` fails MapLibre's validator and a rejected diff
+   * leaves the previous style in place — a map that silently stops changing
+   * while composition state stays correct. Do not reintroduce a local pass:
+   * if that symptom returns, it is an SDK regression.
    */
   async #composeSafely(mapPackage: HonuaMapPackage): Promise<HonuaStyleSpecification> {
     try {
-      return pruneUndefinedStyleProperties(await composeStyle(mapPackage, mapPackage.mapSpec, {}));
+      return await composeStyle(mapPackage, mapPackage.mapSpec, {});
     } catch (error) {
       this.#statusDetail = `Style composition fell back to the base style: ${
         error instanceof Error ? error.message : String(error)
       }`;
-      return pruneUndefinedStyleProperties(mapPackage.mapSpec);
+      return mapPackage.mapSpec;
     }
   }
 
@@ -476,39 +484,6 @@ export class CompositionMapView {
   #notify(): void {
     this.#options.onChange?.(this);
   }
-}
-
-function withoutUndefinedValues<T extends Record<string, unknown>>(value: T): T {
-  const pruned: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) if (entry !== undefined) pruned[key] = entry;
-  return pruned as T;
-}
-
-/**
- * Strips explicitly-`undefined` properties out of a composed style before it
- * reaches MapLibre.
- *
- * This is not defensive tidying — without it the map does not update at all.
- * The SDK's `composeStyle` clones every layer through a helper that writes
- * `paint: undefined` / `layout: undefined` / `metadata: undefined` onto
- * layers that simply did not have them. `{ layout: undefined }` and "no
- * `layout` key" are the same thing to `JSON.stringify` but *not* to
- * MapLibre's style validator, which rejects the former outright
- * (`layers[n].layout: object expected, undefined found`). A rejected diff
- * leaves the previous style in place, so the symptom is the worst kind:
- * composition state is correct, the readout is correct, no exception is
- * thrown, and the map silently stops changing.
- *
- * Normalizing at this boundary is deliberate — it keeps Studio on the
- * published SDK rather than forking style composition. Worth fixing in
- * `@honua/sdk-js`'s `cloneLayer` so every SDK consumer gets it; until then,
- * one pass here.
- */
-export function pruneUndefinedStyleProperties(style: HonuaStyleSpecification): HonuaStyleSpecification {
-  return {
-    ...withoutUndefinedValues(style as unknown as Record<string, unknown>),
-    layers: style.layers.map((layer) => withoutUndefinedValues(layer as unknown as Record<string, unknown>)),
-  } as unknown as HonuaStyleSpecification;
 }
 
 /**
