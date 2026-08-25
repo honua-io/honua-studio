@@ -40,7 +40,7 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     expect(body.result.protocolVersion).toBe("2025-03-26");
   });
 
-  it("tools/list is open and advertises all 13 honua_studio_* tool names", async () => {
+  it("tools/list is open and advertises all 17 honua_studio_* tool names", async () => {
     server = await startMockServer();
     const { body } = await rpc(server.url, "tools/list", {});
     const names = body.result.tools.map((t: { name: string }) => t.name);
@@ -57,8 +57,54 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       "honua_studio_set_view",
       "honua_studio_add_widget",
       "honua_studio_remove_widget",
+      "honua_studio_add_control",
+      "honua_studio_remove_control",
+      "honua_studio_bind_interaction",
+      "honua_studio_remove_interaction",
       "honua_studio_propose_publication",
     ]);
+  });
+
+  it("control and interaction tools mutate the authoritative draft and advance its generation", async () => {
+    server = await startMockServer();
+    const token = mintFixtureAccessToken();
+    const create = await rpc(
+      server.url,
+      "tools/call",
+      {
+        name: "honua_studio_create_draft",
+        arguments: { packageKey: "pkg-controls", family: "map", schemaVersion: "1" },
+      },
+      token,
+    );
+    let draft = create.body.result.structuredContent;
+
+    for (const [name, args] of [
+      ["honua_studio_add_control", { control: { id: "year", kind: "filterSlider" } }],
+      [
+        "honua_studio_bind_interaction",
+        {
+          interaction: {
+            id: "year-filter",
+            on: { ref: "control:year", event: "change" },
+            do: { ref: "layer:parcels", verb: "setFilter" },
+          },
+        },
+      ],
+      ["honua_studio_remove_control", { controlId: "year", cascadeInteractions: true }],
+    ] as const) {
+      const call = await rpc(
+        server.url,
+        "tools/call",
+        { name, arguments: { draftId: draft.draftId, generation: draft.generation, ...args } },
+        token,
+      );
+      draft = call.body.result.structuredContent;
+    }
+
+    expect(draft.generation).toBe(4);
+    expect(draft.envelope.body.controls).toEqual([]);
+    expect(draft.envelope.body.interactions).toEqual([]);
   });
 
   it("tools/call without a bearer token is unauthenticated (401), matching every other protected route", async () => {

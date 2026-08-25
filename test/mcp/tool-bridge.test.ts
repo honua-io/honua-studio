@@ -33,6 +33,32 @@ describe("mcp/tool-bridge resolveToolCall", () => {
       expect(resolution.serverToolName).toBe("honua_studio_set_layer_visibility");
     });
 
+    it.each([
+      ["addControl", { control: { id: "year", kind: "filterSlider" } }, "honua_studio_add_control"],
+      [
+        "removeControl",
+        { target: { kind: "control", id: "year" }, cascadeInteractions: true },
+        "honua_studio_remove_control",
+      ],
+      [
+        "bindInteraction",
+        {
+          interaction: {
+            id: "filter",
+            on: { ref: "control:year", event: "change" },
+            do: { ref: "layer:parcels", verb: "setFilter" },
+          },
+        },
+        "honua_studio_bind_interaction",
+      ],
+      ["removeInteraction", { interactionId: "filter" }, "honua_studio_remove_interaction"],
+    ] as const)("%s delegates through its static discovery seam", (toolName, args, expected) => {
+      const resolution = resolveToolCall({ toolName, arguments: args });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.serverToolName).toBe(expected);
+    });
+
     it("pin/unpin have no server tool counterpart", () => {
       const resolution = resolveToolCall({ toolName: "pin", arguments: { target: { kind: "layer", id: "roads" } } });
       expect(resolution.ok).toBe(true);
@@ -255,6 +281,57 @@ describe("mcp/tool-bridge buildServerToolInvocation", () => {
     expect(resolution.ok).toBe(true);
     if (!resolution.ok) return;
     expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 1 })).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "addControl",
+      { control: { id: "year", kind: "filterSlider" } },
+      {
+        name: "honua_studio_add_control",
+        arguments: { draftId: "d1", generation: 4, control: { id: "year", kind: "filterSlider" } },
+      },
+    ],
+    [
+      "removeControl",
+      { target: { kind: "control", id: "year" }, cascadeInteractions: true },
+      {
+        name: "honua_studio_remove_control",
+        arguments: { draftId: "d1", generation: 4, controlId: "year", cascadeInteractions: true },
+      },
+    ],
+    [
+      "bindInteraction",
+      {
+        interaction: {
+          id: "filter",
+          on: { ref: "control:year", event: "change" },
+          do: { ref: "layer:parcels", verb: "setFilter" },
+        },
+      },
+      {
+        name: "honua_studio_bind_interaction",
+        arguments: {
+          draftId: "d1",
+          generation: 4,
+          interaction: {
+            id: "filter",
+            on: { ref: "control:year", event: "change" },
+            do: { ref: "layer:parcels", verb: "setFilter" },
+          },
+        },
+      },
+    ],
+    [
+      "removeInteraction",
+      { interactionId: "filter" },
+      { name: "honua_studio_remove_interaction", arguments: { draftId: "d1", generation: 4, interactionId: "filter" } },
+    ],
+  ] as const)("builds the exact %s server invocation", (toolName, args, expected) => {
+    const resolution = resolveToolCall({ toolName, arguments: args });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 4 })).toEqual(expected);
   });
 });
 

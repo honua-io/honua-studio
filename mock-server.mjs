@@ -175,6 +175,10 @@ const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_set_view",
   "honua_studio_add_widget",
   "honua_studio_remove_widget",
+  "honua_studio_add_control",
+  "honua_studio_remove_control",
+  "honua_studio_bind_interaction",
+  "honua_studio_remove_interaction",
   "honua_studio_propose_publication",
 ];
 
@@ -595,6 +599,88 @@ function createMcpDispatcher(store) {
           return { error: toolError("not_found", `No widget with id '${args.widgetId}' exists in the composition.`) };
         }
         return { body: { ...body, widgets: body.widgets.filter((existing) => existing.id !== args.widgetId) } };
+      });
+    },
+
+    honua_studio_add_control(args) {
+      if (
+        !args?.control ||
+        typeof args.control.id !== "string" ||
+        !args.control.id ||
+        typeof args.control.kind !== "string" ||
+        !args.control.kind
+      ) {
+        return toolError("invalid_argument", "'control.id' and 'control.kind' are required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const controls = body.controls ?? [];
+        if (controls.some((existing) => existing.id === args.control.id)) {
+          return { error: toolError("invalid_argument", `A control with id '${args.control.id}' already exists.`) };
+        }
+        return { body: { ...body, controls: [...controls, args.control] } };
+      });
+    },
+
+    honua_studio_remove_control(args) {
+      if (typeof args?.controlId !== "string" || !args.controlId) {
+        return toolError("invalid_argument", "'controlId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const controls = body.controls ?? [];
+        if (!controls.some((existing) => existing.id === args.controlId)) {
+          return { error: toolError("not_found", `No control with id '${args.controlId}' exists.`) };
+        }
+        const referenced = (body.interactions ?? []).filter(
+          (interaction) =>
+            interaction.on?.ref === `control:${args.controlId}` || interaction.do?.ref === `control:${args.controlId}`,
+        );
+        if (referenced.length > 0 && args.cascadeInteractions !== true) {
+          return {
+            error: toolError(
+              "failed_precondition",
+              `Control '${args.controlId}' is referenced by ${referenced.length} interaction(s); set cascadeInteractions=true.`,
+            ),
+          };
+        }
+        return {
+          body: {
+            ...body,
+            controls: controls.filter((existing) => existing.id !== args.controlId),
+            ...(args.cascadeInteractions === true
+              ? { interactions: (body.interactions ?? []).filter((interaction) => !referenced.includes(interaction)) }
+              : {}),
+          },
+        };
+      });
+    },
+
+    honua_studio_bind_interaction(args) {
+      if (!args?.interaction || typeof args.interaction.id !== "string" || !args.interaction.id) {
+        return toolError("invalid_argument", "'interaction.id' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const interactions = body.interactions ?? [];
+        if (interactions.some((existing) => existing.id === args.interaction.id)) {
+          return {
+            error: toolError("invalid_argument", `An interaction with id '${args.interaction.id}' already exists.`),
+          };
+        }
+        return { body: { ...body, interactions: [...interactions, args.interaction] } };
+      });
+    },
+
+    honua_studio_remove_interaction(args) {
+      if (typeof args?.interactionId !== "string" || !args.interactionId) {
+        return toolError("invalid_argument", "'interactionId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const interactions = body.interactions ?? [];
+        if (!interactions.some((existing) => existing.id === args.interactionId)) {
+          return { error: toolError("not_found", `No interaction with id '${args.interactionId}' exists.`) };
+        }
+        return {
+          body: { ...body, interactions: interactions.filter((existing) => existing.id !== args.interactionId) },
+        };
       });
     },
 

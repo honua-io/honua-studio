@@ -105,15 +105,11 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
   header — enumeration endpoints and server DTO fields the SDK's projection
   does not carry yet.
-- **Four commands still apply locally instead of calling their server tool.**
-  The control and interaction commands
-  ([#43](https://github.com/honua-io/honua-studio/issues/43)) mutate local state
-  and reach the draft through the body of the next `honua_studio_update_draft`,
-  even though honua-server now publishes `honua_studio_add_control` /
-  `..._remove_control` (honua-server#3196) and `honua_studio_bind_interaction` /
-  `..._remove_interaction` (honua-server#3175). Visibility toggles no longer
-  do: they delegate to `honua_studio_set_layer_visibility`
-  ([#31](https://github.com/honua-io/honua-studio/issues/31)).
+- **Live composition mutations delegate to the server.** Control and
+  interaction commands ([#43](https://github.com/honua-io/honua-studio/issues/43))
+  use the landed `honua_studio_*` tools, following visibility delegation in
+  [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
+  static `serverToolName` table until sdk-js#1397 supplies discovery.
 
 ### Not started
 

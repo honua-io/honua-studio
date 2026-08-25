@@ -170,21 +170,11 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   setView: compositionPassthroughEntry("setView", "honua_studio_set_view"),
   addWidget: compositionPassthroughEntry("addWidget", "honua_studio_add_widget"),
   removeWidget: compositionPassthroughEntry("removeWidget", "honua_studio_remove_widget"),
-  /**
-   * honua-studio#25's controls. Deliberately carry NO `serverToolName`, the
-   * same way `setVisibility` does and for a comparable reason:
-   * `honua_studio_add_control` / `honua_studio_remove_control` are
-   * honua-server#3196, which is OPEN at the time of writing. Until it lands,
-   * a control applies locally and reaches the draft through the body of the
-   * next `honua_studio_update_draft` — `toStudioCompositionBody` sends the
-   * `controls` block, and the server's editor overlay preserves body keys it
-   * does not yet model. Point these at the real tools once #3196 merges.
-   */
-  addControl: compositionPassthroughEntry("addControl"),
-  removeControl: compositionPassthroughEntry("removeControl"),
-  /** ADR-0030 bindings. Same treatment: honua-server#3175 landed the tools, but this client syncs the block through the draft body rather than pinning to a tool signature it has not exercised. */
-  bindInteraction: compositionPassthroughEntry("bindInteraction"),
-  removeInteraction: compositionPassthroughEntry("removeInteraction"),
+  // Static routing is intentional until sdk-js#1397 supplies discovery.
+  addControl: compositionPassthroughEntry("addControl", "honua_studio_add_control"),
+  removeControl: compositionPassthroughEntry("removeControl", "honua_studio_remove_control"),
+  bindInteraction: compositionPassthroughEntry("bindInteraction", "honua_studio_bind_interaction"),
+  removeInteraction: compositionPassthroughEntry("removeInteraction", "honua_studio_remove_interaction"),
   addAnnotation: compositionPassthroughEntry("addAnnotation"),
   removeAnnotation: compositionPassthroughEntry("removeAnnotation"),
   pin: compositionPassthroughEntry("pin"),
@@ -327,6 +317,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   // would be the wrong kind of strict.
   honua_studio_add_control: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_add_control",
     build: (args) => {
       const controlInput = args.control;
       if (!isPlainObject(controlInput) || !isNonEmptyString(controlInput.id) || !isNonEmptyString(controlInput.kind)) {
@@ -337,6 +328,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
   honua_studio_remove_control: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_remove_control",
     build: (args) => {
       if (!isNonEmptyString(args.controlId)) {
         return { ok: false, reason: 'honua_studio_remove_control requires a non-empty string "controlId".' };
@@ -349,6 +341,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
   honua_studio_bind_interaction: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_bind_interaction",
     build: (args) => {
       const interaction = args.interaction;
       if (!isPlainObject(interaction)) {
@@ -359,6 +352,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
   honua_studio_remove_interaction: {
     vocabulary: "server-mcp",
+    serverToolName: "honua_studio_remove_interaction",
     build: (args) => {
       if (!isNonEmptyString(args.interactionId)) {
         return { ok: false, reason: 'honua_studio_remove_interaction requires a non-empty string "interactionId".' };
@@ -468,6 +462,22 @@ export function buildServerToolInvocation(
       return { name: "honua_studio_add_widget", arguments: { ...base, widget: { ...command.widget } } };
     case "removeWidget":
       return { name: "honua_studio_remove_widget", arguments: { ...base, widgetId: targetId(command.target) } };
+    case "addControl":
+      return { name: "honua_studio_add_control", arguments: { ...base, control: { ...command.control } } };
+    case "removeControl":
+      if (command.target.kind !== "control") return undefined;
+      return {
+        name: "honua_studio_remove_control",
+        arguments: {
+          ...base,
+          controlId: command.target.id,
+          ...(command.cascadeInteractions !== undefined ? { cascadeInteractions: command.cascadeInteractions } : {}),
+        },
+      };
+    case "bindInteraction":
+      return { name: "honua_studio_bind_interaction", arguments: { ...base, interaction: { ...command.interaction } } };
+    case "removeInteraction":
+      return { name: "honua_studio_remove_interaction", arguments: { ...base, interactionId: command.interactionId } };
     default:
       return undefined;
   }
