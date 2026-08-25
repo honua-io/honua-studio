@@ -9,6 +9,7 @@
  *
  * ## The seam (read before wiring this to a real honua-server)
  *
+ * The reason this is not an SDK client is upstream of the SDK:
  * honua-server does not yet expose a real GP batch-execution job endpoint —
  * REQ-003 asks for "the server's async job surface (OGC API
  * Processes-compatible)", and `gp-types.ts`'s module doc explains why this

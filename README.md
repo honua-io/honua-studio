@@ -37,8 +37,8 @@ to end.
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
-Fourteen pull requests are merged; `src/` holds 104 files and `test/` 87, with
-655 unit tests across 71 files and 24 Playwright browser journeys, all green.
+Fourteen pull requests are merged; `src/` holds 104 files and `test/` 88, with
+660 unit tests across 72 files and 24 Playwright browser journeys, all green.
 What that preview is *not*: there is no released build, no container or static
 bundle, and no hosted instance you can click into — running from source against
 your own honua-server is the only way to run Studio today
@@ -89,12 +89,18 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   posts to `mock-server.mjs`'s job store, shaped to match `@honua/sdk-js`'s
   `IJobRun`/`JobStatus` so the swap to real OGC API Processes is a client
   substitution, not a rewrite.
-- **Every server client here is hand-rolled**
-  ([#30](https://github.com/honua-io/honua-studio/issues/30)). The
-  `@honua/sdk-js` pin (`0.1.2-beta.0`) predates the SDK's Studio lifecycle and
-  agent clients, so this repo uses the SDK for *types* (package, style, chart,
-  generated-app) and implements auth, MCP, chat, lifecycle, and GP clients
-  itself. Bumping the pin retires them.
+- **The chat and MCP clients are still hand-rolled**
+  ([#40](https://github.com/honua-io/honua-studio/issues/40)). The
+  `@honua/sdk-js` pin is `0.1.7-beta.0`
+  ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
+  the SDK's declarative interaction compiler and Studio lifecycle client —
+  both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
+  `@honua/sdk-js/studio-agent` also ships verbatim ports of `src/mcp/{client,protocol,errors}.ts`
+  and `src/chat/{ai-contract,sse-parser,sse-transport,transport,capabilities-client}.ts`;
+  those retire with the turn loop that calls them, in #40. The console's
+  lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
+  header — enumeration endpoints and server DTO fields the SDK's projection
+  does not carry yet.
 - **Five commands still apply locally instead of calling their server tool.**
   Visibility toggles ([#31](https://github.com/honua-io/honua-studio/issues/31))
   and the control/interaction commands
@@ -206,7 +212,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 655 tests across 71 files |
+| `npm test` | Unit tests (Vitest) — 660 tests across 72 files |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 24 Playwright boot/harness/journey specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
