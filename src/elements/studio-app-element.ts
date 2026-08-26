@@ -109,6 +109,13 @@ interface StudioRoute {
   render: (root: HTMLElement, client: StudioClient, auth: AuthSession) => void;
 }
 
+interface LiveCompositionOptions {
+  readonly baseUrl: string;
+  readonly packageKey: string;
+  readonly family?: StudioPackageFamilyWire;
+  readonly schemaVersion?: string;
+}
+
 const ROUTES: readonly StudioRoute[] = [
   {
     path: "/",
@@ -188,6 +195,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
   #agentSetupGeneration = 0;
   #liveAgentBaseUrl = "/api";
+  #liveCompositionOptions: LiveCompositionOptions | undefined;
 
   /**
    * Tool-schema seam for sdk-js#1397. Today the published SDK kit is the
@@ -206,7 +214,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public set agentToolDefinitions(provider: (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) {
     this.#agentToolDefinitions = provider;
-    if (this.toolCallOrchestrator.isLive) this.#scheduleLiveAgentSession();
+    if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
   /**
@@ -227,6 +235,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#session = session;
     if (!this.isConnected) return;
     this.resetAuth();
+    // Both live clients capture the AuthSession supplied at construction.
+    // Replace them explicitly when an embedding host swaps credentials;
+    // a host-owned catalog intentionally does not refresh and therefore
+    // cannot be relied on to incidentally rebuild the agent session.
+    if (this.#orchestrator?.isLive && this.#liveCompositionOptions) {
+      this.#replaceLiveCompositionSession(this.#liveCompositionOptions);
+    }
     // auth.mode may have just changed (standalone <-> host-adapter), and
     // the chrome's sign-in/out button markup depends on that — a
     // paintAuthControls()-only refresh (what auth.subscribe's listener
@@ -430,19 +445,31 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     readonly family?: StudioPackageFamilyWire;
     readonly schemaVersion?: string;
   }): void {
-    this.#liveAgentBaseUrl = options.baseUrl ?? "/api";
-    const client = new McpClient({ baseUrl: this.#liveAgentBaseUrl, auth: this.auth });
-    this.toolCallOrchestrator.attachLiveSession({
-      client,
+    const liveOptions: LiveCompositionOptions = {
+      baseUrl: options.baseUrl ?? "/api",
       packageKey: options.packageKey,
       ...(options.family !== undefined ? { family: options.family } : {}),
       ...(options.schemaVersion !== undefined ? { schemaVersion: options.schemaVersion } : {}),
-    });
+    };
+    this.#liveCompositionOptions = liveOptions;
+    this.#replaceLiveCompositionSession(liveOptions);
     this.#liveCompositionPackageKey = options.packageKey;
     this.#announceCompositionMode({
       mode: "live",
       packageKey: options.packageKey,
       ...(options.family !== undefined ? { family: options.family } : {}),
+    });
+  }
+
+  #replaceLiveCompositionSession(options: LiveCompositionOptions): void {
+    this.#agentSetupGeneration += 1;
+    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    this.#liveAgentBaseUrl = options.baseUrl;
+    this.toolCallOrchestrator.attachLiveSession({
+      client: new McpClient({ baseUrl: options.baseUrl, auth: this.auth }),
+      packageKey: options.packageKey,
+      ...(options.family !== undefined ? { family: options.family } : {}),
+      ...(options.schemaVersion !== undefined ? { schemaVersion: options.schemaVersion } : {}),
     });
     this.#scheduleLiveAgentSession();
   }
@@ -469,6 +496,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#agentSetupGeneration += 1;
     this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     this.#liveCompositionPackageKey = undefined;
+    this.#liveCompositionOptions = undefined;
     this.#announceCompositionMode({ mode: "fixture" });
   }
 
@@ -807,6 +835,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         }),
       onEvent: (event) => {
         if (event.type === "toolResult" && event.result.draft) {
+          if (
+            setupGeneration !== this.#agentSetupGeneration ||
+            sessionRef.current !== chat.agentSession ||
+            !this.toolCallOrchestrator.isLive
+          ) {
+            return;
+          }
           this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
         }
       },

@@ -26,8 +26,9 @@ export function buildStudioSystemPrompt(options: StudioSystemPromptOptions): str
     options.draftId !== undefined
       ? `The authoritative server draft is ${options.draftId} at generation ${options.generation ?? "unknown"}.`
       : "No authoritative server draft is attached; do not request durable mutations.",
-    "Use only the declared tools and identifiers present in the supplied catalog or current composition.",
-    "Never invent dataset, layer, style, widget, control, or interaction identifiers.",
+    "Use only the declared tools and governed external identifiers present in the supplied catalog or current composition.",
+    "Never invent dataset, source, style, or existing-object reference identifiers.",
+    "When creating a new layer, widget, control, or interaction, choose a concise deterministic identifier and reuse it in later references.",
     "Prefer small, ordered mutations and inspect the map when the user's intent is ambiguous.",
     "Report tool failures truthfully; do not claim a canvas change until its tool result succeeds.",
     "Available catalog datasets:",

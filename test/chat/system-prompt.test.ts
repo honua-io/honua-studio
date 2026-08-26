@@ -18,7 +18,8 @@ describe("buildStudioSystemPrompt", () => {
 
     expect(prompt).toContain("hi-parcels: Parcels (Polygon; ogc-features)");
     expect(prompt).toContain("parcels (source: hi-parcels)");
-    expect(prompt).toContain("Never invent dataset");
+    expect(prompt).toContain("Never invent dataset, source, style");
+    expect(prompt).toContain("When creating a new layer, widget, control, or interaction");
     expect(prompt).toContain("draft-1 at generation 4");
   });
 });
