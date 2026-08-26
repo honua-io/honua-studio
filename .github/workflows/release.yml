@@ -47,6 +47,10 @@ jobs:
           case "$version" in v*) ;; *) echo "version must start with v" >&2; exit 1;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve checked-out source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build reproducible static bundle
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -65,8 +69,9 @@ jobs:
         id: image
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
-          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.version=$VERSION" -t "$IMAGE:$VERSION" .
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" --label "org.opencontainers.image.version=$VERSION" -t "$IMAGE:$VERSION" .
           docker push "$IMAGE:$VERSION"
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$VERSION" | cut -d@ -f2)"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
@@ -75,8 +80,9 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
-          jq -n --arg version "$VERSION" --arg sourceSha "$GITHUB_SHA" --arg image "$IMAGE@$IMAGE_DIGEST" \
+          jq -n --arg version "$VERSION" --arg sourceSha "$SOURCE_SHA" --arg image "$IMAGE@$IMAGE_DIGEST" \
             '{schemaVersion:"honua.studio.release-receipt.v1",version:$version,sourceSha:$sourceSha,image:$image}' > "honua-studio-${VERSION}.receipt.json"
 
       - name: Publish GitHub release assets

@@ -7,9 +7,11 @@ page load with `Cache-Control: no-store`.
 
 Copy `deploy/config.example.json` to `config.json` and set the public server
 URL and public OIDC client values. The file must not contain provider keys,
-client secrets, admin tokens, or other credentials. In `server-proxy` mode,
-the server owns model-provider credentials. `client-direct` requires a model
-base URL but still must not embed provider credentials.
+client secrets, admin tokens, or other credentials. `serverBaseUrl` is the
+REST API root (commonly `/api`), while `mcpBaseUrl` is the separately
+configured base for the unprefixed `/mcp` endpoint. In the supported
+`server-proxy` model mode, the server owns model-provider credentials.
+Client-direct model transport is not supported by this contract version.
 
 ```sh
 docker pull ghcr.io/honua-io/honua-studio:v2026.1.1

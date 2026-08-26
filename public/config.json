@@ -1,6 +1,7 @@
 {
   "schemaVersion": "honua.studio.runtime-config.v1",
   "serverBaseUrl": "/api",
+  "mcpBaseUrl": "",
   "oidc": {
     "issuer": "/oidc",
     "clientId": "honua-studio-dev",

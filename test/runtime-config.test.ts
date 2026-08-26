@@ -4,12 +4,14 @@ import {
   installRuntimeConfig,
   loadRuntimeConfig,
   parseRuntimeConfig,
+  runtimeMcpBaseUrl,
   runtimeServerBaseUrl,
 } from "../src/runtime-config.js";
 
 const valid = {
   schemaVersion: "honua.studio.runtime-config.v1",
   serverBaseUrl: "https://honua.example/api/",
+  mcpBaseUrl: "https://honua.example/",
   oidc: {
     issuer: "https://id.example/",
     clientId: "studio",
@@ -27,11 +29,14 @@ describe("runtime config", () => {
   it("parses and normalizes the versioned deployment contract", () => {
     const config = parseRuntimeConfig(valid);
     expect(config.serverBaseUrl).toBe("https://honua.example/api");
+    expect(config.mcpBaseUrl).toBe("https://honua.example");
     expect(config.oidc.audience).toBe("honua-api");
   });
 
-  it("rejects client-direct model transport without a base URL", () => {
-    expect(() => parseRuntimeConfig({ ...valid, model: { mode: "client-direct" } })).toThrow(/model.baseUrl/);
+  it("rejects the unsupported client-direct model transport", () => {
+    expect(() =>
+      parseRuntimeConfig({ ...valid, model: { mode: "client-direct", baseUrl: "https://model.example" } }),
+    ).toThrow(/client-direct transport is not supported/);
   });
 
   it("loads config without cache and installs it as every client default", async () => {
@@ -43,6 +48,7 @@ describe("runtime config", () => {
     installRuntimeConfig(await loadRuntimeConfig(fetchImpl));
     expect(calls).toEqual([{ input: "/config.json", init: { cache: "no-store" } }]);
     expect(runtimeServerBaseUrl()).toBe("https://honua.example/api");
+    expect(runtimeMcpBaseUrl()).toBe("https://honua.example");
   });
 
   it("fails closed when the deployment config cannot be loaded", async () => {

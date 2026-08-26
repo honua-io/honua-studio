@@ -19,6 +19,7 @@ export interface OidcEnvConfig {
   clientId: string;
   redirectUri: string;
   scopes: string[];
+  audience?: string;
 }
 
 import { runtimeConfig } from "../runtime-config.js";
@@ -44,7 +45,13 @@ export function resolveOidcConfig(
   const redirectUri = readEnv(env, "HONUA_OIDC_REDIRECT_URI") || `${origin}/`;
   const scopesRaw = readEnv(env, "HONUA_OIDC_SCOPES") || runtime.oidc.scopes.join(" ") || DEV_DEFAULT_SCOPES;
   const scopes = scopesRaw.split(/\s+/).filter((scope) => scope.length > 0);
-  return { issuer, clientId, redirectUri, scopes };
+  return {
+    issuer,
+    clientId,
+    redirectUri,
+    scopes,
+    ...(runtime.oidc.audience ? { audience: runtime.oidc.audience } : {}),
+  };
 }
 
 function readEnv(env: ImportMetaEnv, key: string): string | undefined {

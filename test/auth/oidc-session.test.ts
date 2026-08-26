@@ -63,6 +63,31 @@ describe("OidcAuthSession", () => {
     expect(session.getState().status).toBe("signing-in");
   });
 
+  it("includes a configured API audience in the authorization request", async () => {
+    const windowRef = createFakeWindow();
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/.well-known/openid-configuration")) return jsonResponse(200, discoveryDocument());
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    const session = new OidcAuthSession(
+      {
+        issuer: ISSUER,
+        clientId: "studio-test",
+        redirectUri: REDIRECT_URI,
+        scopes: ["openid", "honua.read"],
+        audience: "honua-api",
+      },
+      { fetchFn: fetchFn as unknown as typeof fetch, windowRef },
+    );
+
+    void session.signIn();
+    await waitForAssign(windowRef);
+
+    const assignedUrl = new URL((windowRef.location.assign as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string);
+    expect(assignedUrl.searchParams.get("audience")).toBe("honua-api");
+  });
+
   it("completes the full sign-in round trip: discovery -> authorize redirect -> code exchange -> fresh", async () => {
     const windowRef = createFakeWindow();
     let capturedVerifier = "";

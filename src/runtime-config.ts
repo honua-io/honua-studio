@@ -2,6 +2,8 @@
 export interface StudioRuntimeConfig {
   readonly schemaVersion: "honua.studio.runtime-config.v1";
   readonly serverBaseUrl: string;
+  /** Base URL whose origin/path owns the unprefixed `/mcp` endpoint. */
+  readonly mcpBaseUrl: string;
   readonly oidc: {
     readonly issuer: string;
     readonly clientId: string;
@@ -9,9 +11,8 @@ export interface StudioRuntimeConfig {
     readonly scopes: readonly string[];
   };
   readonly model: {
-    readonly mode: "server-proxy" | "client-direct";
+    readonly mode: "server-proxy";
     readonly provider?: string;
-    readonly baseUrl?: string;
   };
 }
 
@@ -24,6 +25,7 @@ declare global {
 const DEFAULT_CONFIG: StudioRuntimeConfig = {
   schemaVersion: "honua.studio.runtime-config.v1",
   serverBaseUrl: "/api",
+  mcpBaseUrl: "",
   oidc: {
     issuer: "/oidc",
     clientId: "honua-studio-dev",
@@ -43,6 +45,7 @@ export function parseRuntimeConfig(value: unknown): StudioRuntimeConfig {
     throw new Error('Runtime config schemaVersion must be "honua.studio.runtime-config.v1".');
   }
   if (!nonEmpty(input.serverBaseUrl)) throw new Error("Runtime config serverBaseUrl is required.");
+  if (typeof input.mcpBaseUrl !== "string") throw new Error("Runtime config mcpBaseUrl is required.");
   const oidc = input.oidc as Record<string, unknown> | undefined;
   if (!oidc || !nonEmpty(oidc.issuer) || !nonEmpty(oidc.clientId)) {
     throw new Error("Runtime config oidc.issuer and oidc.clientId are required.");
@@ -51,15 +54,13 @@ export function parseRuntimeConfig(value: unknown): StudioRuntimeConfig {
     throw new Error("Runtime config oidc.scopes must be a non-empty string array.");
   }
   const model = input.model as Record<string, unknown> | undefined;
-  if (!model || (model.mode !== "server-proxy" && model.mode !== "client-direct")) {
-    throw new Error('Runtime config model.mode must be "server-proxy" or "client-direct".');
-  }
-  if (model.mode === "client-direct" && !nonEmpty(model.baseUrl)) {
-    throw new Error("Runtime config model.baseUrl is required in client-direct mode.");
+  if (!model || model.mode !== "server-proxy") {
+    throw new Error('Runtime config model.mode must be "server-proxy"; client-direct transport is not supported.');
   }
   return {
     schemaVersion: input.schemaVersion,
     serverBaseUrl: input.serverBaseUrl.trim().replace(/\/$/, ""),
+    mcpBaseUrl: input.mcpBaseUrl.trim().replace(/\/$/, ""),
     oidc: {
       issuer: oidc.issuer.trim(),
       clientId: oidc.clientId.trim(),
@@ -69,7 +70,6 @@ export function parseRuntimeConfig(value: unknown): StudioRuntimeConfig {
     model: {
       mode: model.mode,
       ...(nonEmpty(model.provider) ? { provider: model.provider.trim() } : {}),
-      ...(nonEmpty(model.baseUrl) ? { baseUrl: model.baseUrl.trim().replace(/\/$/, "") } : {}),
     },
   };
 }
@@ -99,4 +99,8 @@ export function runtimeConfig(): StudioRuntimeConfig {
 
 export function runtimeServerBaseUrl(): string {
   return runtimeConfig().serverBaseUrl;
+}
+
+export function runtimeMcpBaseUrl(): string {
+  return runtimeConfig().mcpBaseUrl;
 }
