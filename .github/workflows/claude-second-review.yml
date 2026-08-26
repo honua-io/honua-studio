@@ -117,8 +117,11 @@ jobs:
 
           # Every top-level comment, paginated: the marker may sit behind any
           # number of later comments, and a missed marker posts a second review.
+          # Marker comments are only trusted from the identities that post the
+          # second-pass review; anyone else writing the marker text must not be
+          # able to suppress a review.
           gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            --jq '.[].body' > comments.txt
+            --jq '.[] | select((.user.login // "") as $l | ($l == "claude[bot]") or ($l == "claude") or ($l == "github-actions[bot]")) | .body' > comments.txt
           if grep -qF "${marker}" comments.txt; then
             already_reviewed=true
           else
@@ -189,9 +192,11 @@ jobs:
           # containing a line matching the heredoc terminator would otherwise
           # close the multiline value and forge workflow commands. base64 has no
           # terminator to forge.
-          jq -r '
-            [.data.repository.pullRequest.reviewThreads.nodes[]
+          jq -r --arg reviewer "${FIRST_PASS_REVIEWER}" '
+            ($reviewer | ascii_downcase) as $reviewer_login
+            | [.data.repository.pullRequest.reviewThreads.nodes[]
              | select(.isResolved)
+             | select(((.comments.nodes[0].author.login // "") | ascii_downcase) | contains($reviewer_login))
              | "### Resolved thread — \(.path // "(no file)")\(if .line then ":\(.line)" else "" end)"
                + (if .isOutdated then " (outdated)" else "" end)
                + "\n\n"
