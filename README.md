@@ -12,10 +12,9 @@ to end.
 
 - **BYOM** — bring your own model: Studio talks to honua-server's Studio AI
   proxy, so the provider is the operator's choice (Bedrock, any hosted API, or
-  a local model) and no key ever reaches the browser. The fixture-conversation
-  mode runs with no model at all — and today it is the only mode in which a
-  turn composes the map end to end
-  ([#40](https://github.com/honua-io/honua-studio/issues/40)).
+  a local model) and no key ever reaches the browser. Live turns use the SDK's
+  `StudioAgentSession` to declare tools, execute them, and return results to
+  the model; fixture-conversation mode remains available with no model at all.
 - **Typed, not generated** — every mutation goes through a closed command
   vocabulary mirroring the SDK's agent-tools contract, applied by a reducer or
   by honua-server's `honua_studio_*` MCP tools. No arbitrary code eval; a live
@@ -60,7 +59,7 @@ the first flagship deployment is the statewide Hawaii demo
 | App shell, design system, one embeddable element (`<honua-studio-app>`) | `src/elements/`, `src/theme/` | #11, #13 |
 | OIDC Authorization Code + PKCE sign-in, tokens in memory only | `src/auth/` | #12 |
 | Chat console, activity log, deterministic fixture-conversation mode | `src/chat/`, `src/composition/fixture-conversation.ts` | #14 |
-| SSE client for honua-server's `POST /v1/studio/ai/chat` proxy — streams text and tool-call events from a real model (streaming only; the loop does not close yet, see #40) | `src/chat/sse-transport.ts` | #14 |
+| SDK-owned live agent loop over honua-server's Studio AI proxy — declares tools, executes model-selected calls, and feeds results back | `@honua/sdk-js/studio-agent`, `src/elements/studio-chat-element.ts` | #40 |
 | Composition engine — intent reducer, preview, undo/redo, pinning | `src/composition/` | #15 |
 | MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 17 `honua_studio_*` tools; this client has typed wrappers for the 13 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16, #31 |
 | MapLibre canvas that mutates as tool calls stream | `src/map/composition-map-view.ts` | #27 |
@@ -78,13 +77,8 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
 
 ### In progress
 
-- **A live model turn does not yet compose the map**
-  ([#40](https://github.com/honua-io/honua-studio/issues/40)). The SSE
-  transport streams a real model's tool-call events, but the request never
-  declares the tool definitions to the proxy and tool results are never fed
-  back, so the agent loop does not close. Today the full
-  chat → tool call → canvas path runs end to end only in fixture-conversation
-  mode — which is also why the eval corpus
+- **Live model quality is not a release gate yet.** The full chat → tool call
+  → canvas loop now runs through `StudioAgentSession`, while the eval corpus
   ([#46](https://github.com/honua-io/honua-studio/issues/46),
   [`docs/evals.md`](docs/evals.md)) scores fixture transcripts in PR CI today
   and keeps its live-model lane behind the same driver seam.
@@ -93,15 +87,14 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   posts to `mock-server.mjs`'s job store, shaped to match `@honua/sdk-js`'s
   `IJobRun`/`JobStatus` so the swap to real OGC API Processes is a client
   substitution, not a rewrite.
-- **The chat and MCP clients are still hand-rolled**
-  ([#40](https://github.com/honua-io/honua-studio/issues/40)). The
+- **Fixture chat and MCP clients remain local.** The
   `@honua/sdk-js` pin is `0.1.7-beta.0`
   ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
   the SDK's declarative interaction compiler and Studio lifecycle client —
   both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
-  `@honua/sdk-js/studio-agent` also ships verbatim ports of `src/mcp/{client,protocol,errors}.ts`
-  and `src/chat/{ai-contract,sse-parser,sse-transport,transport,capabilities-client}.ts`;
-  those retire with the turn loop that calls them, in #40. The console's
+  Live model turns now use `@honua/sdk-js/studio-agent`; the local chat
+  transport remains the deterministic fixture seam and the local MCP client
+  still powers the existing lifecycle/tool orchestrator. The console's
   lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
   header — enumeration endpoints and server DTO fields the SDK's projection
   does not carry yet.
@@ -151,9 +144,10 @@ Against a real server:
 HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 ```
 
-Live mode reaches a real honua-server for the catalog, `/mcp` tool plane, and
-package lifecycle. Chat streams from the server's Studio AI proxy but, per #40
-above, will not compose the map from a model turn yet.
+Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
+package lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the
+same composition controller the canvas renders, then its structured result is
+fed back to the next assistant round.
 
 ## Development
 

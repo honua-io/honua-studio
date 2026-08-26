@@ -123,6 +123,52 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     draftStore = { draftId: "draft-1", generation: 1, body: { layers: [], view: {}, widgets: [] } };
   });
 
+  it("deduplicates concurrent draft setup so live agent reconfiguration cannot orphan a second draft", async () => {
+    let createCalls = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.method === "initialize") {
+        return jsonResponse(
+          { jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-03-26" } },
+          { "mcp-session-id": "s1" },
+        );
+      }
+      createCalls += 1;
+      await gate;
+      return jsonResponse({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: {
+          structuredContent: {
+            draftId: "draft-shared",
+            packageKey: "pkg-1",
+            generation: 1,
+            envelope: { family: "map", schemaVersion: "1", body: { layers: [], view: {}, widgets: [] } },
+          },
+        },
+      });
+    });
+    const orchestrator = new ToolCallOrchestrator({
+      controller: new CompositionController(createEmptyCompositionState()),
+      live: { client: new McpClient({ fetchImpl: fetchImpl as unknown as typeof fetch }), packageKey: "pkg-1" },
+    });
+
+    const first = orchestrator.ensureLiveDraft();
+    const second = orchestrator.ensureLiveDraft();
+    await vi.waitFor(() => expect(createCalls).toBe(1));
+    release?.();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { draftId: "draft-shared", generation: 1 },
+      { draftId: "draft-shared", generation: 1 },
+    ]);
+    expect(createCalls).toBe(1);
+  });
+
   it("calls the granular honua_studio_* tool, then refreshes local state from the RETURNED draft", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
     const log = createActivityLog();

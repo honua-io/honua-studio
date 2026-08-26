@@ -140,6 +140,16 @@ export interface HonuaStudioChatToolCallResultDetail {
   readonly arguments: unknown;
 }
 
+/** SDK-owned execution outcome after a live tool call has actually run. */
+export interface HonuaStudioChatToolExecutionDetail {
+  readonly messageId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly ok: boolean;
+  readonly plane: "runtime" | "composition" | "unknown";
+  readonly errorMessage?: string;
+}
+
 /** `honua-studio-chat-turn-complete` — dispatched when an assistant turn reaches a normal `messageStop`. */
 export interface HonuaStudioChatTurnCompleteDetail {
   readonly messageId: string;
