@@ -58,7 +58,7 @@ jobs:
       should_review: ${{ steps.evaluate.outputs.should_review }}
       head_sha: ${{ steps.evaluate.outputs.head_sha }}
       marker: ${{ steps.evaluate.outputs.marker }}
-      threads_digest: ${{ steps.evaluate.outputs.threads_digest }}
+      threads_digest_base64: ${{ steps.evaluate.outputs.threads_digest_base64 }}
     steps:
       - name: Evaluate the sequential-review precondition
         id: evaluate
@@ -68,9 +68,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # reviewThreads/reviews/comments are read at 100 each: a PR that
-          # exceeds those page sizes is out of scope for the gate and is
-          # reported as not-ready rather than silently passing.
+          # reviews and reviewThreads are read one page deep: a PR that exceeds
+          # those page sizes fails `pages_complete` and is reported as not-ready
+          # rather than silently passing. The dedupe marker cannot be gated that
+          # way — missing it posts a duplicate review — so top-level comments
+          # are paginated in full below, over REST, instead of being read here.
           gh api graphql \
             -f query='
               query($owner: String!, $name: String!, $number: Int!) {
@@ -84,9 +86,6 @@ jobs:
                     reviews(first: 100) {
                       totalCount
                       nodes { author { login } state }
-                    }
-                    comments(last: 100) {
-                      nodes { body }
                     }
                     reviewThreads(first: 100) {
                       totalCount
@@ -116,32 +115,54 @@ jobs:
             echo "marker=${marker}"
           } >> "$GITHUB_OUTPUT"
 
+          # Every top-level comment, paginated: the marker may sit behind any
+          # number of later comments, and a missed marker posts a second review.
+          gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq '.[].body' > comments.txt
+          if grep -qF "${marker}" comments.txt; then
+            already_reviewed=true
+          else
+            already_reviewed=false
+          fi
+
           # One jq pass decides the whole precondition and explains itself.
+          # "Every thread from the first review is resolved" is exactly that:
+          # threads the first-pass reviewer opened. Threads opened by anyone
+          # else are reported but do not hold the sequence — a bot thread nobody
+          # can resolve would otherwise stall the second pass forever.
           jq -r \
             --arg reviewer "${FIRST_PASS_REVIEWER}" \
             --arg repository "${REPOSITORY}" \
-            --arg marker "${marker}" '
-              .data.repository.pullRequest as $pr
+            --argjson already_reviewed "${already_reviewed}" '
+              ($reviewer | ascii_downcase) as $reviewer_login
+              | .data.repository.pullRequest as $pr
               | ($pr.reviewThreads.nodes // []) as $threads
-              | [$threads[] | select((.isResolved | not))] as $unresolved
+              | [
+                  $threads[]
+                  | select(((.comments.nodes[0].author.login // "") | ascii_downcase) | contains($reviewer_login))
+                ] as $first_pass_threads
+              | [$first_pass_threads[] | select(.isResolved | not)] as $unresolved_first_pass
+              | [$threads[] | select(.isResolved | not)] as $unresolved_any
               | (
-                  [($pr.reviews.nodes // [])[] | .author.login // ""]
-                  + [$threads[] | (.comments.nodes // [])[] | .author.login // ""]
-                  | map(ascii_downcase)
-                  | any(contains($reviewer | ascii_downcase))
+                  ([($pr.reviews.nodes // [])[] | (.author.login // "") | ascii_downcase]
+                   | any(contains($reviewer_login)))
+                  or (($first_pass_threads | length) > 0)
                 ) as $first_pass_done
-              | ([($pr.comments.nodes // [])[] | .body // ""] | any(contains($marker))) as $already_reviewed
               | {
                   pr_open: ($pr.state == "OPEN"),
                   head_in_repo: (($pr.headRepository.nameWithOwner // "") == $repository),
                   not_draft: ($pr.isDraft | not),
                   pages_complete: (($pr.reviews.totalCount <= 100) and ($pr.reviewThreads.totalCount <= 100)),
                   first_pass_done: $first_pass_done,
-                  threads_resolved: (($unresolved | length) == 0),
+                  threads_resolved: (($unresolved_first_pass | length) == 0),
                   not_already_reviewed: ($already_reviewed | not),
-                  unresolved_count: ($unresolved | length)
+                  first_pass_threads: ($first_pass_threads | length),
+                  unresolved_first_pass: ($unresolved_first_pass | length),
+                  unresolved_other: (($unresolved_any | length) - ($unresolved_first_pass | length))
                 }
-              | "unresolved=\(.unresolved_count)",
+              | "first_pass_threads=\(.first_pass_threads)",
+                "unresolved_first_pass=\(.unresolved_first_pass)",
+                "unresolved_other=\(.unresolved_other) (informational; does not gate)",
                 (to_entries[] | select(.value == false) | "blocked_by=\(.key)"),
                 "should_review=\(
                   [.pr_open, .head_in_repo, .not_draft, .pages_complete,
@@ -162,8 +183,12 @@ jobs:
 
           # Resolved threads are the second pass's other input: it must judge
           # whether each was fixed or refuted with evidence. Passed to the
-          # review job as a job output, written to a file there — never
-          # interpolated into a shell command, since the bodies are untrusted.
+          # review job as a base64 job output and decoded to a file there. The
+          # bodies are untrusted, so they are never interpolated into a shell
+          # command and never written to $GITHUB_OUTPUT as text: a thread body
+          # containing a line matching the heredoc terminator would otherwise
+          # close the multiline value and forge workflow commands. base64 has no
+          # terminator to forge.
           jq -r '
             [.data.repository.pullRequest.reviewThreads.nodes[]
              | select(.isResolved)
@@ -175,14 +200,9 @@ jobs:
           ' pull-request.json > resolved-threads.full.md
           head -c 60000 resolved-threads.full.md > resolved-threads.md
           grep -q '[^[:space:]]' resolved-threads.md \
-            || echo "(The first pass opened no threads on this pull request.)" > resolved-threads.md
+            || echo "(No resolved review threads on this pull request.)" > resolved-threads.md
 
-          {
-            echo 'threads_digest<<CLAUDE_SECOND_REVIEW_EOF'
-            cat resolved-threads.md
-            echo
-            echo 'CLAUDE_SECOND_REVIEW_EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "threads_digest_base64=$(base64 -w0 resolved-threads.md)" >> "$GITHUB_OUTPUT"
 
   review:
     name: Claude second-pass review
@@ -204,15 +224,15 @@ jobs:
 
       - name: Write the resolved first-pass threads
         env:
-          THREADS_DIGEST: ${{ needs.gate.outputs.threads_digest }}
+          THREADS_DIGEST_BASE64: ${{ needs.gate.outputs.threads_digest_base64 }}
         run: |
           set -euo pipefail
           mkdir -p .claude-second-review
-          printf '%s\n' "${THREADS_DIGEST}" > .claude-second-review/resolved-threads.md
+          printf '%s' "${THREADS_DIGEST_BASE64}" | base64 -d > .claude-second-review/resolved-threads.md
           wc -c .claude-second-review/resolved-threads.md
 
       - name: Run the second-pass review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@1f291e1cfe0f5fc21db2aef19af844591600ade7 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
