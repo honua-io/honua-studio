@@ -107,6 +107,62 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     expect(draft.envelope.body.interactions).toEqual([]);
   });
 
+  it("binding an existing interaction replaces it like the production draft reducer", async () => {
+    server = await startMockServer();
+    const token = mintFixtureAccessToken();
+    const create = await rpc(
+      server.url,
+      "tools/call",
+      {
+        name: "honua_studio_create_draft",
+        arguments: { packageKey: "pkg-rebind", family: "map", schemaVersion: "1" },
+      },
+      token,
+    );
+    let draft = create.body.result.structuredContent;
+    const addControl = await rpc(
+      server.url,
+      "tools/call",
+      {
+        name: "honua_studio_add_control",
+        arguments: {
+          draftId: draft.draftId,
+          generation: draft.generation,
+          control: { id: "year", kind: "filterSlider" },
+        },
+      },
+      token,
+    );
+    draft = addControl.body.result.structuredContent;
+    for (const verb of ["setFilter", "clearFilter"]) {
+      const call = await rpc(
+        server.url,
+        "tools/call",
+        {
+          name: "honua_studio_bind_interaction",
+          arguments: {
+            draftId: draft.draftId,
+            generation: draft.generation,
+            interaction: {
+              id: "year-filter",
+              on: { ref: "control:year", event: "change" },
+              do: { ref: "layer:parcels", verb },
+            },
+          },
+        },
+        token,
+      );
+      draft = call.body.result.structuredContent;
+    }
+    expect(draft.envelope.body.interactions).toEqual([
+      {
+        id: "year-filter",
+        on: { ref: "control:year", event: "change" },
+        do: { ref: "layer:parcels", verb: "clearFilter" },
+      },
+    ]);
+  });
+
   it("tools/call without a bearer token is unauthenticated (401), matching every other protected route", async () => {
     server = await startMockServer();
     const { status } = await rpc(server.url, "tools/call", { name: "honua_studio_create_draft", arguments: {} });

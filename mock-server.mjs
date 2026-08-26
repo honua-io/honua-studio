@@ -660,12 +660,11 @@ function createMcpDispatcher(store) {
       }
       return mutateComposition(args.draftId, args.generation, (body) => {
         const interactions = body.interactions ?? [];
-        if (interactions.some((existing) => existing.id === args.interaction.id)) {
-          return {
-            error: toolError("invalid_argument", `An interaction with id '${args.interaction.id}' already exists.`),
-          };
-        }
-        return { body: { ...body, interactions: [...interactions, args.interaction] } };
+        const index = interactions.findIndex((existing) => existing.id === args.interaction.id);
+        const next = [...interactions];
+        if (index === -1) next.push(args.interaction);
+        else next[index] = args.interaction;
+        return { body: { ...body, interactions: next } };
       });
     },
 
