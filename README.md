@@ -186,8 +186,8 @@ auto-approving fixture user, so clicking "Sign in" completes instantly with
 no login form.
 
 Against a real deployment, point Studio at your operator's actual external
-IdP (the same `Authority` honua-server itself validates bearer tokens
-against — see honua-server's `docs/guides/secure/authentication.md`):
+IdP (the same `Authority` honua-server validates bearer tokens against).
+Development accepts environment variables:
 
 ```bash
 HONUA_BASE_URL=http://localhost:8080 \
@@ -196,9 +196,10 @@ HONUA_OIDC_CLIENT_ID=honua-studio \
 npm run dev:live
 ```
 
-`HONUA_OIDC_ISSUER`/`HONUA_OIDC_CLIENT_ID` are baked into the client bundle
-at build time (unlike `HONUA_BASE_URL`, which only ever configures the dev
-proxy) — set them before `npm run build` for a production deployment, too.
+Production bundles instead load the versioned `/config.json` contract, so
+server, OIDC, and model-transport settings can change without rebuilding.
+See [`docs/self-hosted.md`](docs/self-hosted.md) for the container, static
+bundle, clean-machine launch, and credential boundary.
 
 Embedded inside another shell (honua-console's `/studio`, or any
 third-party host), Studio never runs its own OIDC flow — the host hands off

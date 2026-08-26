@@ -69,6 +69,7 @@ export class OidcAuthSession implements AuthSession {
       clientId: this.config.clientId,
       redirectUri: this.config.redirectUri,
       scopes: this.config.scopes,
+      ...(this.config.audience ? { extraAuthorizationParams: { audience: this.config.audience } } : {}),
       fetchFn: this.fetchFn,
       windowRef: this.windowRef,
       // No `store` option: defaults to InMemoryCredentialStore (REQ-002).
