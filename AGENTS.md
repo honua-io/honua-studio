@@ -56,7 +56,8 @@ From the repo root; copied from `package.json` / CI. Do not invent variants.
 
 CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`), `build`,
 `browser-smoke`, and `blazor-host-smoke` (builds the host, then `npx playwright test --grep @blazor`).
-`pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR (see "Pull Requests").
+`pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR, and `claude-second-review.yml` the
+second-pass review once the first pass's threads are resolved (both under "Pull Requests").
 `live-demo-smoke.yml` runs `test:browser:live` nightly against `demo.honua.io`; `security.yml` runs the org's
 reusable Trivy + Scorecard workflows.
 
@@ -122,6 +123,7 @@ playwright.config.mjs  biome.json  tsconfig.json  .nvmrc
   ```
 - Say what changed, what you tested and which acceptance criteria are met; state honestly what you could not run locally (`npm run test:browser` needs browser system deps this box may lack) and leave it to CI.
 - Open PRs non-draft with `gh pr create`; all six CI jobs plus the `PR Issue Disposition` check must be green.
+- Every PR gets **two review passes, in order**. Codex reviews on open; fix each finding or refute it with evidence (a test, cited code, an argument that holds against the code as it stands) — never resolve a thread to silence the bot. Once every first-pass thread is resolved, `claude-second-review.yml` runs the second pass over the updated diff *plus* the resolved threads, looking for what the first pass missed, regressions the fixes introduced, and refutations that were not evidence-based. It posts one comment tagged `<!-- claude-second-review: <head sha> -->`; pushing new commits re-arms it. Nothing dispatches on thread resolution, so if the second pass has not appeared, re-evaluate the gate with `gh workflow run claude-second-review.yml -f pull_request_number=<N>`.
 
 ## Shared dev-environment rules (multi-agent WSL)
 
