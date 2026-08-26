@@ -56,6 +56,7 @@ From the repo root; copied from `package.json` / CI. Do not invent variants.
 
 CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`), `build`,
 `browser-smoke`, and `blazor-host-smoke` (builds the host, then `npx playwright test --grep @blazor`).
+`pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR (see "Pull Requests").
 `live-demo-smoke.yml` runs `test:browser:live` nightly against `demo.honua.io`; `security.yml` runs the org's
 reusable Trivy + Scorecard workflows.
 
@@ -83,7 +84,8 @@ src/            # app source: auth chat client composition controls elements eva
                 # lifecycle map mcp pages router styles theme widgets; main.ts is the bootstrap
 test/           # vitest specs mirroring src/ + test/playwright/*.spec.mjs
 harness/        # bare/ static embed harness, blazor-host/ .NET test host, blazor-host-src/ its mount module
-scripts/        # dev-mock.mjs (npm run dev), vendor-basemap-land.mjs
+scripts/        # dev-mock.mjs (npm run dev), vendor-basemap-land.mjs,
+                # check-pr-issue-disposition.mjs + lib/ (the PR Issue Disposition check, + .d.mts types)
 mock-server.mjs # fixture honua-server + fake OIDC issuer (+ .d.mts types)
 docs/  vite.config.ts  vite.blazor-assets.config.ts  vitest.config.ts
 playwright.config.mjs  biome.json  tsconfig.json  .nvmrc
@@ -92,7 +94,7 @@ playwright.config.mjs  biome.json  tsconfig.json  .nvmrc
 ## Conventions & Gotchas
 
 - `npm run check` (Biome) is the CI style gate — run it, or `check:fix`, before calling work done. `noExplicitAny` is `warn` in `src/`, off in `test/`; `noNonNullAssertion` and `useNodejsImportProtocol` are off.
-- Biome's `files.include` is an explicit allow-list (`src`, `test`, `harness`, `scripts/**/*.mjs`, root `*.mjs`/`*.ts`/`*.json`); a new top-level directory is invisible to the gate until you add it.
+- Biome's `files.include` is an explicit allow-list (`src`, `test`, `harness`, `scripts/**/*.mjs`/`*.mts`, root `*.mjs`/`*.mts`/`*.ts`/`*.json`); a new top-level directory is invisible to the gate until you add it.
 - `tsconfig.json` excludes `test/playwright` (those specs are `.mjs`) but includes `harness/bare` and `harness/blazor-host-src`, so harness code must typecheck.
 - Playwright specs build the app and serve it with `vite preview` — never a dev server. `@blazor` and `@live` are excluded from the default browser run.
 - Drive `mock-server.mjs` rather than stubbing: it implements the real REST, `/mcp` and OIDC surfaces, which is what makes fixture-mode tests meaningful.
@@ -110,9 +112,16 @@ playwright.config.mjs  biome.json  tsconfig.json  .nvmrc
 ## Pull Requests
 
 - Branch off `main`. Commit messages and PR titles are Conventional Commits with a scope (`feat(tool-bridge): …`, `docs(readme): …`); PRs squash-merge, so the title becomes the commit subject.
-- End the body with the issue disposition — `Closes #N` when every acceptance criterion is met, `Refs #N (what remains)` when it genuinely is not. No CI check enforces the grammar here, but it is the org convention.
+- End the body with the issue disposition — `Closes #N` when every acceptance criterion is met, `Refs #N (what remains)` when it genuinely is not. The `PR Issue Disposition` check (`.github/workflows/pr-issue-disposition.yml` → `scripts/check-pr-issue-disposition.mjs`) enforces the grammar and **fails the PR** on any deviation, so get the footer right when you open the PR rather than after a red check. The block must be the final nonblank lines, one disposition per issue, at most 20, no issue twice; a `Refs` explanation is 1–160 trimmed characters with no parentheses and must carry a progress marker (`S<number>`, `slice`, `partial`, `remain`/`remains`/`remaining`, `follow-up`, `blocked`, `handoff`). No `Refs #N` and no closing keyword tied to an issue (`close`/`fix`/`resolve` + `#N`) may appear above the block — write "this PR is not sufficient on its own", never "this does not close #123". The check also resolves every declared issue against `honua-io/honua-studio`, so a syntactically perfect footer still fails when it names a closed issue, a pull request, or an issue in another repository.
+- Syntax-check a body before pushing instead of guessing at the grammar (this covers the footer grammar only — the API-resolution rules above are checked in CI):
+  ```bash
+  node --input-type=module -e '
+  import { parsePullRequestDisposition } from "./scripts/lib/pr-issue-disposition.mjs";
+  import { readFileSync } from "node:fs";
+  console.log(parsePullRequestDisposition(readFileSync("/tmp/body.md", "utf8")));'
+  ```
 - Say what changed, what you tested and which acceptance criteria are met; state honestly what you could not run locally (`npm run test:browser` needs browser system deps this box may lack) and leave it to CI.
-- Open PRs non-draft with `gh pr create`; all six CI jobs must be green.
+- Open PRs non-draft with `gh pr create`; all six CI jobs plus the `PR Issue Disposition` check must be green.
 
 ## Shared dev-environment rules (multi-agent WSL)
 

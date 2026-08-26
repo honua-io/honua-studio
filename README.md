@@ -38,7 +38,7 @@ to end.
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
 Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
-739 unit tests across 76 files and 25 Playwright browser journeys, all green.
+752 unit tests across 77 files and 25 Playwright browser journeys, all green.
 What that preview is *not*: there is no released build, no container or static
 bundle, and no hosted instance you can click into — running from source against
 your own honua-server is the only way to run Studio today
@@ -212,7 +212,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 739 tests across 76 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 752 tests across 77 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 25 Playwright boot/harness/journey specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
