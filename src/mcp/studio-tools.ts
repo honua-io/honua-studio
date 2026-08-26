@@ -1,5 +1,5 @@
 /**
- * Typed wrappers over `McpClient.callTool` for 13 `honua_studio_*` tools
+ * Typed wrappers over `McpClient.callTool` for 17 `honua_studio_*` tools
  * (honua-server#3002; `gh pr diff 3016` in honua-server — draft lifecycle:
  * create/get/update/validate/preview, composition mutation: add/remove
  * layer, set layer style, set layer visibility, set view, add/remove widget,
@@ -193,6 +193,31 @@ export interface RemoveStudioWidgetInput {
   readonly widgetId: string;
 }
 
+export interface AddStudioControlInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly control: StudioMcpControlInput;
+}
+
+export interface RemoveStudioControlInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly controlId: string;
+  readonly cascadeInteractions?: boolean;
+}
+
+export interface BindStudioInteractionInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly interaction: StudioMcpInteractionInput;
+}
+
+export interface RemoveStudioInteractionInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly interactionId: string;
+}
+
 export interface ProposeStudioPublicationInput {
   readonly draftId: string;
   readonly generation: number;
@@ -226,6 +251,10 @@ export const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_set_view",
   "honua_studio_add_widget",
   "honua_studio_remove_widget",
+  "honua_studio_add_control",
+  "honua_studio_remove_control",
+  "honua_studio_bind_interaction",
+  "honua_studio_remove_interaction",
   "honua_studio_propose_publication",
 ] as const;
 
@@ -251,7 +280,7 @@ export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDra
 }
 
 /**
- * Typed convenience layer over {@link McpClient.callTool} for the 13
+ * Typed convenience layer over {@link McpClient.callTool} for the 17
  * `honua_studio_*` tools. Every method is a thin `callTool(name, args)` plus
  * response parsing (`structuredContent`, falling back to the first text
  * block as JSON — the tool success side of the same shape
@@ -318,6 +347,26 @@ export class StudioMcpToolClient {
 
   public async removeWidget(input: RemoveStudioWidgetInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_widget", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async addControl(input: AddStudioControlInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_add_control", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async removeControl(input: RemoveStudioControlInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_remove_control", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async bindInteraction(input: BindStudioInteractionInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_bind_interaction", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async removeInteraction(input: RemoveStudioInteractionInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_remove_interaction", { ...input });
     return structured<StudioMcpDraft>(result);
   }
 

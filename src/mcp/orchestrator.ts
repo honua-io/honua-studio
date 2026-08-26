@@ -126,6 +126,13 @@ export interface ToolCallOrchestratorOptions {
   readonly live?: ToolCallOrchestratorLiveOptions;
 }
 
+interface DeferredControlCall {
+  readonly toolName: string;
+  readonly command: CompositionCommand & { readonly name: "addControl" };
+  readonly serverToolName: StudioMcpToolName;
+  readonly resolve: (result: ToolCallOrchestrationResult) => void;
+}
+
 /**
  * Wires tool-call intents to composition state — see the module doc for the
  * full flow. One instance per composition session (one `CompositionController`,
@@ -140,6 +147,8 @@ export class ToolCallOrchestrator {
   #generation: number | undefined;
   /** Serializes server-bound calls so two rapid tool-call events never race the same draft's generation against each other. */
   #serverQueue: Promise<unknown> = Promise.resolve();
+  /** Source-bound controls emitted before their layer; flushed after a returned draft makes the source resolvable. */
+  #deferredControls: DeferredControlCall[] = [];
 
   public constructor(options: ToolCallOrchestratorOptions) {
     this.#controller = options.controller;
@@ -174,6 +183,9 @@ export class ToolCallOrchestrator {
     this.#studioTools = undefined;
     this.#draftId = undefined;
     this.#generation = undefined;
+    for (const pending of this.#deferredControls.splice(0)) {
+      pending.resolve(this.#applyLocal(pending.toolName, pending.command));
+    }
   }
 
   /**
@@ -190,6 +202,21 @@ export class ToolCallOrchestrator {
     const useServer = this.#live !== undefined && resolution.serverToolName !== undefined;
     if (!useServer) {
       return this.#applyLocal(call.toolName, resolution.command);
+    }
+
+    if (
+      resolution.command.name === "addControl" &&
+      resolution.command.control.sourceId !== undefined &&
+      !this.#sourceResolves(resolution.command.control.sourceId)
+    ) {
+      return new Promise<ToolCallOrchestrationResult>((resolve) => {
+        this.#deferredControls.push({
+          toolName: call.toolName,
+          command: resolution.command as CompositionCommand & { readonly name: "addControl" },
+          serverToolName: resolution.serverToolName as StudioMcpToolName,
+          resolve,
+        });
+      });
     }
 
     // Queued: a burst of tool-call events (e.g. a multi-step assistant turn)
@@ -257,7 +284,25 @@ export class ToolCallOrchestrator {
 
     this.#generation = draft.generation;
     this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
-    return this.#accept(toolName, "server", command, draft);
+    const accepted = this.#accept(toolName, "server", command, draft);
+    if (command.name === "addLayer") await this.#flushDeferredControls();
+    return accepted;
+  }
+
+  #sourceResolves(sourceId: string): boolean {
+    return this.#controller.state.layers.some((layer) => layer.id === sourceId || layer.sourceId === sourceId);
+  }
+
+  async #flushDeferredControls(): Promise<void> {
+    const ready = this.#deferredControls.filter((pending) => {
+      const sourceId = pending.command.control.sourceId;
+      return sourceId !== undefined && this.#sourceResolves(sourceId);
+    });
+    if (ready.length === 0) return;
+    this.#deferredControls = this.#deferredControls.filter((pending) => !ready.includes(pending));
+    for (const pending of ready) {
+      pending.resolve(await this.#applyServer(pending.toolName, pending.command, pending.serverToolName));
+    }
   }
 
   /** One generation-conflict reload+retry, per the module doc. */
