@@ -41,7 +41,9 @@
       "test/**/*.mjs",
       "harness/**/*.ts",
       "scripts/**/*.mjs",
+      "scripts/**/*.mts",
       "*.mjs",
+      "*.mts",
       "*.ts",
       "*.json"
     ],

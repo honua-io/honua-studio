@@ -37,7 +37,7 @@ to end.
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
 Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
-739 unit tests across 76 files and 25 Playwright browser journeys, all green.
+752 unit tests across 77 files and 25 Playwright browser journeys, all green.
 What that preview is *not*: there is no released build, no container or static
 bundle, and no hosted instance you can click into — running from source against
 your own honua-server is the only way to run Studio today
@@ -98,15 +98,11 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
   header — enumeration endpoints and server DTO fields the SDK's projection
   does not carry yet.
-- **Four commands still apply locally instead of calling their server tool.**
-  The control and interaction commands
-  ([#43](https://github.com/honua-io/honua-studio/issues/43)) mutate local state
-  and reach the draft through the body of the next `honua_studio_update_draft`,
-  even though honua-server now publishes `honua_studio_add_control` /
-  `..._remove_control` (honua-server#3196) and `honua_studio_bind_interaction` /
-  `..._remove_interaction` (honua-server#3175). Visibility toggles no longer
-  do: they delegate to `honua_studio_set_layer_visibility`
-  ([#31](https://github.com/honua-io/honua-studio/issues/31)).
+- **Live composition mutations delegate to the server.** Control and
+  interaction commands ([#43](https://github.com/honua-io/honua-studio/issues/43))
+  use the landed `honua_studio_*` tools, following visibility delegation in
+  [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
+  static `serverToolName` table until sdk-js#1397 supplies discovery.
 
 ### Not started
 
@@ -184,8 +180,8 @@ auto-approving fixture user, so clicking "Sign in" completes instantly with
 no login form.
 
 Against a real deployment, point Studio at your operator's actual external
-IdP (the same `Authority` honua-server itself validates bearer tokens
-against — see honua-server's `docs/guides/secure/authentication.md`):
+IdP (the same `Authority` honua-server validates bearer tokens against).
+Development accepts environment variables:
 
 ```bash
 HONUA_BASE_URL=http://localhost:8080 \
@@ -194,9 +190,10 @@ HONUA_OIDC_CLIENT_ID=honua-studio \
 npm run dev:live
 ```
 
-`HONUA_OIDC_ISSUER`/`HONUA_OIDC_CLIENT_ID` are baked into the client bundle
-at build time (unlike `HONUA_BASE_URL`, which only ever configures the dev
-proxy) — set them before `npm run build` for a production deployment, too.
+Production bundles instead load the versioned `/config.json` contract, so
+server, OIDC, and model-transport settings can change without rebuilding.
+See [`docs/self-hosted.md`](docs/self-hosted.md) for the container, static
+bundle, clean-machine launch, and credential boundary.
 
 Embedded inside another shell (honua-console's `/studio`, or any
 third-party host), Studio never runs its own OIDC flow — the host hands off
@@ -210,7 +207,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 739 tests across 76 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 752 tests across 77 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 25 Playwright boot/harness/journey specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

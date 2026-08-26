@@ -1,0 +1,94 @@
+name: Release Studio bundle
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing v-prefixed release tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20.19.0"
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/honua-io/honua-studio
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.version || github.ref }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check && npm run typecheck && npm test && npm run build
+
+      - name: Resolve release version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${REQUESTED_VERSION:-$REF_NAME}"
+          case "$version" in v*) ;; *) echo "version must start with v" >&2; exit 1;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve checked-out source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build reproducible static bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -czf "honua-studio-${VERSION}.tar.gz" -C dist .
+          sha256sum "honua-studio-${VERSION}.tar.gz" > "honua-studio-${VERSION}.tar.gz.sha256"
+        shell: bash
+
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Build and push versioned image
+        id: image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" --label "org.opencontainers.image.version=$VERSION" -t "$IMAGE:$VERSION" .
+          docker push "$IMAGE:$VERSION"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$VERSION" | cut -d@ -f2)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Emit release receipt
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          jq -n --arg version "$VERSION" --arg sourceSha "$SOURCE_SHA" --arg image "$IMAGE@$IMAGE_DIGEST" \
+            '{schemaVersion:"honua.studio.release-receipt.v1",version:$version,sourceSha:$sourceSha,image:$image}' > "honua-studio-${VERSION}.receipt.json"
+
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --verify-tag --generate-notes
+          gh release upload "$VERSION" "honua-studio-${VERSION}.tar.gz" "honua-studio-${VERSION}.tar.gz.sha256" "honua-studio-${VERSION}.receipt.json" --clobber

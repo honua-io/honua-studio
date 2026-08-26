@@ -69,6 +69,7 @@ import type { CompositionController } from "../composition/controller.js";
 import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
 import { compositionLayerColor } from "../composition/palette.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
+import { runtimeServerBaseUrl } from "../runtime-config.js";
 import type { chartSeriesFromSpec } from "../widgets/chart-data.js";
 import type { renderChartSvg } from "../widgets/chart-render.js";
 import type { compositionChartSpec } from "../widgets/chart-spec.js";
@@ -138,7 +139,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #composition: CompositionController | undefined;
   #compositionUnsubscribe: (() => void) | undefined;
   #sourceCatalog: readonly CompositionSourceDescriptor[] | undefined;
-  #sourceBaseUrl = "/api";
+  #sourceBaseUrl = runtimeServerBaseUrl();
   #dataLoader: WidgetDataLoader | undefined;
   #defaultLoader: WidgetDataLoader | undefined;
   #onSelection: ((targets: readonly CompositionTarget[]) => void) | undefined;

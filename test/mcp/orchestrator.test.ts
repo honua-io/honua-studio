@@ -355,4 +355,51 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     expect(seenGenerations).toEqual([1, 2]); // strictly sequential, never both at generation 1
     expect(controller.state.layers.map((l) => l.id)).toEqual(["a", "b"]);
   });
+
+  it("defers a source-bound control until a later streamed layer makes its source resolvable", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    const calls: string[] = [];
+    const draftResult = () => ({
+      structuredContent: {
+        draftId: draftStore.draftId,
+        packageKey: "pkg-1",
+        generation: draftStore.generation,
+        envelope: { family: "map", schemaVersion: "1", body: draftStore.body },
+      },
+    });
+    const fetchImpl = fetchRouter({
+      honua_studio_create_draft: () => draftResult(),
+      honua_studio_add_layer: (_id, args) => {
+        calls.push("layer");
+        draftStore.generation += 1;
+        draftStore.body = { ...draftStore.body, layers: [args.layer] };
+        return draftResult();
+      },
+      honua_studio_add_control: (_id, args) => {
+        calls.push("control");
+        draftStore.generation += 1;
+        draftStore.body = { ...draftStore.body, controls: [args.control] };
+        return draftResult();
+      },
+    });
+    const orchestrator = new ToolCallOrchestrator({
+      controller,
+      live: { client: new McpClient({ fetchImpl: fetchImpl as unknown as typeof fetch }), packageKey: "pkg-1" },
+    });
+
+    const control = orchestrator.handleToolCall({
+      toolName: "addControl",
+      arguments: { control: { id: "opacity", kind: "opacity", sourceId: "parcels" } },
+    });
+    const layer = orchestrator.handleToolCall({
+      toolName: "addLayer",
+      arguments: { layer: { id: "parcels", sourceId: "parcels-source" } },
+    });
+
+    const [controlResult, layerResult] = await Promise.all([control, layer]);
+    expect(controlResult.ok).toBe(true);
+    expect(layerResult.ok).toBe(true);
+    expect(calls).toEqual(["layer", "control"]);
+    expect(controller.state.controls).toEqual([{ id: "opacity", kind: "opacity", sourceId: "parcels" }]);
+  });
 });
