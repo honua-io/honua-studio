@@ -38,7 +38,6 @@ import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit 
 import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
-import { STATIC_STUDIO_AGENT_TOOLS } from "../chat/studio-agent-tools.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
@@ -198,18 +197,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #liveAgentBaseUrl = "/api";
   #liveCompositionOptions: LiveCompositionOptions | undefined;
 
-  /**
-   * Tool-schema seam for sdk-js#1397. Today the published SDK kit is the
-   * static source of truth; hosts/tests may replace this provider without
-   * changing chat or composition wiring.
-   */
+  /** Runtime-tool seam. Server-backed composition tools are discovered from
+   * the authenticated MCP endpoint by sdk-js 0.1.9; hosts/tests may replace
+   * the local provider without changing chat or composition wiring. */
   public get agentToolDefinitions(): (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike> {
     return (
       this.#agentToolDefinitions ??
-      ((kit) => [
-        ...kit.tools.filter((tool) => tool.mode === "read" || tool.name === "selectFeature"),
-        ...STATIC_STUDIO_AGENT_TOOLS,
-      ])
+      ((kit) => kit.tools.filter((tool) => tool.mode === "read" || tool.name === "selectFeature"))
     );
   }
 
@@ -802,11 +796,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       auth: this.auth,
       tools: [...this.agentToolDefinitions(kit)],
       execute: async (call) => {
-        // The pinned SDK predates the already-landed visibility tool in its
-        // composition allow-list. Forward only this newer server mutation
-        // through Studio's generation-safe orchestrator until sdk-js#1397
-        // supplies the discovered dispatcher; all older honua_studio_* names
-        // remain SDK-owned.
+        // Local runtime tools execute through the kit. The compatibility
+        // forwarding remains for a host that deliberately supplies the
+        // visibility mutation through the public runtime-tool seam; normally
+        // sdk-js discovers and dispatches it through MCP.
         const forwardedCall = call as unknown as {
           readonly name: string;
           readonly args?: Readonly<Record<string, unknown>>;

@@ -105,8 +105,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - run: npm ci && npm run build
-      - run: docker build -t honua-studio:ci .
+      - name: Build immutable assets
+        run: npm ci && npm run build
+
+      - name: Build candidate container
+        run: docker build -t honua-studio:ci .
 
       - name: Serve injected config from immutable assets
         run: |
@@ -116,8 +119,8 @@ jobs:
             --mount type=bind,src="$PWD/deploy/config.example.json",dst=/usr/share/nginx/html/config.json,readonly \
             honua-studio:ci
           trap 'docker stop honua-studio-ci >/dev/null 2>&1 || true' EXIT
-          curl --retry 10 --retry-delay 1 --retry-connrefused --fail http://127.0.0.1:18081/config.json | jq -e '.schemaVersion == "honua.studio.runtime-config.v1"'
-          curl --fail http://127.0.0.1:18081/a/deep/spa/route | grep -q '<!doctype html>'
+          curl --retry 10 --retry-delay 1 --retry-all-errors --fail http://127.0.0.1:18081/config.json | jq -e '.schemaVersion == "honua.studio.runtime-config.v1"'
+          curl --retry 10 --retry-delay 1 --retry-all-errors --fail http://127.0.0.1:18081/a/deep/spa/route | grep -q '<!doctype html>'
 
   browser-smoke:
     name: Browser smoke (mock + live dev modes)

@@ -69,6 +69,26 @@ describe("<honua-studio-chat>", () => {
             { headers: { "content-type": "application/json", "mcp-session-id": "session-1" } },
           );
         }
+        if (request.method === "tools/list") {
+          const tool = setViewTool[0];
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: request.id,
+              result: {
+                tools: [
+                  {
+                    name: tool?.name,
+                    description: tool?.description,
+                    inputSchema: tool?.inputSchema,
+                    _meta: { "honua.studio": { family: "honua.studio.composition", view: "studio" } },
+                  },
+                ],
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+        }
         if (request.params) mcpCalls.push(request.params);
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { structuredContent: draft } }), {
           headers: { "content-type": "application/json" },
@@ -78,7 +98,6 @@ describe("<honua-studio-chat>", () => {
     const setViewTool = STATIC_STUDIO_AGENT_TOOLS.filter((tool) => tool.name === "honua_studio_set_view");
 
     el.attachAgentSession({
-      tools: setViewTool,
       transport: model,
       mcpClient,
       draft: { draftId: "draft-1", generation: 1 },

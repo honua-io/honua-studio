@@ -29,7 +29,7 @@ describe("widgets/chart-spec (REQ-004)", () => {
     const result = compositionChartSpec(chart({ groupBy: "zoning_code" }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.spec.$schema).toBe("https://vega.github.io/schema/vega-lite/v5.json");
+    expect(result.spec.$schema).toBe("https://vega.github.io/schema/vega-lite/v6.json");
     expect(result.spec.mark).toEqual({ type: "bar", tooltip: true });
     expect(result.spec.encoding.x).toMatchObject({ field: "zoning_code", type: "nominal" });
     expect(result.spec.encoding.y).toMatchObject({ field: "count", aggregate: "count" });
