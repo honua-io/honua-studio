@@ -233,7 +233,14 @@ export interface CompositionDraftStore {
   replace(draftId: string, request: CompositionDraftReplaceRequest): Promise<CompositionDraft>;
 }
 
-export type CompositionDraftErrorCode = "generation-conflict" | "not-found" | "validation" | "internal" | "unknown";
+export type CompositionDraftErrorCode =
+  | "generation-conflict"
+  | "unauthorized"
+  | "forbidden"
+  | "not-found"
+  | "validation"
+  | "internal"
+  | "unknown";
 
 /** Mirrors `HonuaStudioError`'s `.code` discriminant (`src/studio/lifecycle-errors.ts`) — a `CompositionDraftStore` implementation should throw this (or something `isCompositionDraftConflict` recognizes) rather than a bare `Error`. */
 export class CompositionDraftError extends Error {

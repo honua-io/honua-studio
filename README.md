@@ -88,7 +88,7 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   `IJobRun`/`JobStatus` so the swap to real OGC API Processes is a client
   substitution, not a rewrite.
 - **Fixture chat and MCP clients remain local.** The
-  `@honua/sdk-js` pin is `0.1.7-beta.0`
+  `@honua/sdk-js` pin is `0.1.9-beta.0`
   ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
   the SDK's declarative interaction compiler and Studio lifecycle client —
   both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
