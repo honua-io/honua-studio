@@ -17,9 +17,67 @@ env:
   NODE_VERSION: "20.19.0"
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/honua-io/honua-studio
+  HONUA_LIVE_BASE_URL: "https://demo.honua.io/api"
 
 jobs:
+  trivy:
+    permissions:
+      contents: read
+      security-events: write
+    uses: honua-io/.github/.github/workflows/reusable-trivy.yml@main
+    with:
+      scan-type: fs
+
+  scorecard:
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+      actions: read
+    uses: honua-io/.github/.github/workflows/reusable-scorecard.yml@main
+
+  preview-qualification:
+    name: Preview container, runtime config, and GA-server smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.version || github.ref }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci && npm run build
+      - run: docker build -t honua-studio:release-candidate .
+
+      - name: Verify runtime configuration on the candidate image
+        run: |
+          docker run --rm -d --name honua-studio-release-candidate --read-only \
+            --tmpfs /var/cache/nginx:uid=101,gid=101 --tmpfs /var/run:uid=101,gid=101 \
+            -p 18081:8080 \
+            --mount type=bind,src="$PWD/deploy/config.example.json",dst=/usr/share/nginx/html/config.json,readonly \
+            honua-studio:release-candidate
+          trap 'docker stop honua-studio-release-candidate >/dev/null 2>&1 || true' EXIT
+          curl --retry 10 --retry-delay 1 --retry-connrefused --fail http://127.0.0.1:18081/config.json | jq -e '.schemaVersion == "honua.studio.runtime-config.v1"'
+          curl --fail http://127.0.0.1:18081/a/deep/spa/route | grep -q '<!doctype html>'
+
+      - name: Require GA-server smoke credentials
+        env:
+          HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
+        run: test -n "$HONUA_LIVE_API_KEY"
+
+      - name: Install Playwright Chromium
+        run: npm run test:browser:install
+
+      - name: Exercise the candidate against the GA server
+        env:
+          HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
+        run: npm run test:browser:live
+
   release:
+    needs: [trivy, scorecard, preview-qualification]
     runs-on: ubuntu-latest
     permissions:
       contents: write
