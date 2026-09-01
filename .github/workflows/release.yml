@@ -24,7 +24,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    uses: honua-io/.github/.github/workflows/reusable-trivy.yml@main
+    uses: honua-io/.github/.github/workflows/reusable-trivy.yml@e26b67e904f2c23796fe677d267d73188a764545 # main
     with:
       scan-type: fs
 
@@ -34,7 +34,7 @@ jobs:
       security-events: write
       id-token: write
       actions: read
-    uses: honua-io/.github/.github/workflows/reusable-scorecard.yml@main
+    uses: honua-io/.github/.github/workflows/reusable-scorecard.yml@e26b67e904f2c23796fe677d267d73188a764545 # main
 
   preview-qualification:
     name: Preview container, runtime config, and GA-server smoke
