@@ -1,22 +1,25 @@
 # Sharing: Preview and graduation posture
 
-Studio preserves the server's publication separation of duties. An agent or
-browser session may submit publication intent, but it must never execute
-publish, share, or embed directly or approve its own proposal.
+Studio preserves the server's publication separation of duties. Agent-controlled
+chat and MCP paths may submit publication intent, but they must never execute
+publish, share, or embed directly. Publication remains reachable only through
+the lifecycle panel's explicit human confirmation flow.
 
 ## 2026.1 Preview gate
 
 For the 2026.1 browser Preview, sharing is qualified by a smoke against the GA
-server that verifies the existing server-owned contract:
+server that verifies the existing two-stage, server-owned contract:
 
-1. a saved immutable version can be submitted through the canonical proposal
-   API;
-2. the server returns a proposal handle and a pending state;
-3. the client cannot turn that proposal into published state without a separate
-   human principal; and
-4. an approved fixture proposal resolves to the server-issued working URL.
+1. the canonical proposal MCP tool records publication intent on a mutable
+   draft and returns `recorded` plus `humanConfirmationRequired`;
+2. the draft can be saved as an immutable version carrying that intent;
+3. agent-controlled paths cannot call the publish-request API, while an explicit
+   lifecycle-panel confirmation can submit that immutable version; and
+4. an accepted fixture publish request moves the server-owned published pointer
+   and resolves to the server-issued working URL.
 
-The smoke may use deterministic, separately scoped test principals. It must not
+The smoke may use deterministic, separately scoped test principals when the GA
+server configuration requires them. It must not
 add an agent-executable publication exception or a second sharing model. A
 real-model turn, hosted demo, polished proposal UI, and unattended end-to-end
 approval journey do not gate the 2026.1 Preview.
