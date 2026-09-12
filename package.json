@@ -29,7 +29,7 @@
     "test:browser:blazor": "npm run build:blazor-host --silent && playwright test --grep @blazor"
   },
   "dependencies": {
-    "@honua/sdk-js": "0.1.7-beta.0",
+    "@honua/sdk-js": "0.1.9-beta.0",
     "maplibre-gl": "5.24.0"
   },
   "devDependencies": {

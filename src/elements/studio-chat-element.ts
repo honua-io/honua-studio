@@ -465,6 +465,11 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
       return;
     }
 
+    // Discovery/watch events describe the session's tool inventory rather
+    // than streamed chat content. The session exposes their current state;
+    // they must not be projected into the transcript reducer.
+    if (sessionEvent.type !== "chat") return;
+
     const event = sessionEvent.event;
     // Intermediate stops separate tool rounds; chat() owns the final stop.
     if (event.type === "messageStop" || event.type === "error") return;

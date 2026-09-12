@@ -42,12 +42,13 @@ function specFor(
 describe("widgets/chart-data", () => {
   it("aggregates from a spec that no widget produced — the spec really is the contract", () => {
     const handWritten: HonuaVegaLiteChartSpec = {
-      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      $schema: "https://vega.github.io/schema/vega-lite/v6.json",
       mark: "bar",
       encoding: {
         x: { field: "district", type: "nominal" },
         y: { field: "count", type: "quantitative", aggregate: "count", title: "Count" },
       },
+      data: { values: PARCELS },
     };
     const series = chartSeriesFromSpec(handWritten, PARCELS);
     expect(series.points).toEqual([
