@@ -36,6 +36,11 @@ to end.
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
+The browser release gates only packaging integrity, security, runtime
+configuration, and a smoke against the GA server in 2026.1. The broader
+qualification work is the 2026.2 graduation checklist; see
+[`docs/preview-release-posture.md`](docs/preview-release-posture.md).
+
 Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
 752 unit tests across 77 files and 25 Playwright browser journeys, all green.
 What that preview is *not*: there is no released build, no container or static
