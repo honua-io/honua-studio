@@ -121,7 +121,10 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
 - Dual-mode visual style editor
   ([#22](https://github.com/honua-io/honua-studio/issues/22)).
 - Sharing a composed app through the propose-and-approve loop
-  ([#26](https://github.com/honua-io/honua-studio/issues/26)).
+  ([#26](https://github.com/honua-io/honua-studio/issues/26)). The 2026.1
+  Preview gates only the canonical GA-server proposal smoke; the complete
+  conversational approval experience is a 2026.2 graduation criterion
+  ([posture](docs/share-preview-posture.md)).
 - Console embed at `/studio`
   ([honua-io/honua-console#324](https://github.com/honua-io/honua-console/issues/324),
   2026.2).
