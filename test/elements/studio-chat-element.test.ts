@@ -8,7 +8,6 @@ import type { StudioAiChatEvent, StudioAiChatRequest } from "../../src/chat/ai-c
 import { playFixtureConversation } from "../../src/chat/fixture-player.js";
 import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
 import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
-import { STATIC_STUDIO_AGENT_TOOLS } from "../../src/chat/studio-agent-tools.js";
 import type { ChatTransport } from "../../src/chat/transport.js";
 import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
@@ -17,6 +16,26 @@ import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-elem
 import { applyStudioDraft } from "../../src/mcp/tool-bridge.js";
 
 registerAllStudioElements();
+
+// A server-classified descriptor as `tools/list` serves it. Studio owns no local
+// copy of the composition catalog: the SDK session discovers and routes it.
+const serverSetViewDescriptor = {
+  name: "honua_studio_set_view",
+  description: "Set the authoritative Studio draft's map view.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      draftId: { type: "string" },
+      generation: { type: "integer" },
+      view: {
+        type: "object",
+        properties: { center: { type: "array", items: { type: "number" } }, zoom: { type: "number" } },
+      },
+    },
+    required: ["draftId", "generation", "view"],
+  },
+  _meta: { "honua.studio": { family: "honua.studio.composition", view: "setup", revision: "setup.v2" } },
+};
 
 function mountChat(): HonuaStudioChatElement {
   const el = document.createElement("honua-studio-chat") as HonuaStudioChatElement;
@@ -70,22 +89,8 @@ describe("<honua-studio-chat>", () => {
           );
         }
         if (request.method === "tools/list") {
-          const tool = setViewTool[0];
           return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: request.id,
-              result: {
-                tools: [
-                  {
-                    name: tool?.name,
-                    description: tool?.description,
-                    inputSchema: tool?.inputSchema,
-                    _meta: { "honua.studio": { family: "honua.studio.composition", view: "studio" } },
-                  },
-                ],
-              },
-            }),
+            JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [serverSetViewDescriptor] } }),
             { headers: { "content-type": "application/json" } },
           );
         }
@@ -95,7 +100,6 @@ describe("<honua-studio-chat>", () => {
         });
       }),
     });
-    const setViewTool = STATIC_STUDIO_AGENT_TOOLS.filter((tool) => tool.name === "honua_studio_set_view");
 
     el.attachAgentSession({
       transport: model,
