@@ -55,6 +55,36 @@ describe("chat/sse-transport", () => {
     ]);
   });
 
+  it("decodes a transcript_provenance frame into a transcriptProvenance event carrying the signed transcript", async () => {
+    const provenance = {
+      schemaVersion: "honua.studio-ai.transcript.v1",
+      canonicalization: "honua-canonical-json-v1",
+      digestAlgorithm: "sha-256",
+      signatureAlgorithm: "Ed25519",
+      keyId: "studio-ai-1",
+      canonicalTranscript: "e30=",
+      transcriptDigest: "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      signature: "c2lnbmF0dXJl",
+    };
+    const provenanceEvent = `event: transcript_provenance\ndata: ${JSON.stringify({ type: "TranscriptProvenance", provenance })}\n\n`;
+    const fetchImpl = fakeFetch({ body: sseBodyStream([DELTA_EVENT, STOP_EVENT, provenanceEvent]) });
+    const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
+
+    const events: StudioAiChatEvent[] = [];
+    for await (const event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      new AbortController().signal,
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "textDelta", text: "hi" },
+      { type: "messageStop", stopReason: "endTurn" },
+      { type: "transcriptProvenance", provenance },
+    ]);
+  });
+
   it("reassembles an SSE frame split across two chunks at an arbitrary byte boundary", async () => {
     const combined = START_EVENT + DELTA_EVENT;
     const splitPoint = 40;

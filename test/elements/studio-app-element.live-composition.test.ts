@@ -243,6 +243,31 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     await expect(replacementAuth.getAccessToken()).resolves.toBe("replacement-token");
   });
 
+  it("hands host certification options to the live agent session and rebuilds it when they change", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ packageKey: "pkg-live-certified" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    expect(attachedAgentOptions[0]).not.toHaveProperty("certification");
+    expect(attachedAgentOptions[0]).not.toHaveProperty("transcriptVerifier");
+
+    const certification = {
+      candidateId: "sha256:candidate",
+      releaseId: "2026.1",
+      endpointIdentity: "https://studio.example",
+      actionId: "studio.setup",
+      runNonce: "run-2",
+    };
+    const transcriptVerifier = { verify: vi.fn(async () => ({ ok: true })) };
+    element.agentCertification = { certification, transcriptVerifier };
+
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(2));
+    expect(attachedAgentOptions[1]?.certification).toBe(certification);
+    expect(attachedAgentOptions[1]?.transcriptVerifier).toBe(transcriptVerifier);
+    expect(element.agentCertification?.certification).toBe(certification);
+  });
+
   it("ignores draft events emitted by a superseded agent session", async () => {
     enableDraftFetch();
     const element = mount();

@@ -57,7 +57,7 @@ import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
-import type { HonuaStudioChatElement } from "./studio-chat-element.js";
+import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
@@ -193,6 +193,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
+  #agentCertification: StudioAgentCertificationOptions | undefined;
   #agentSetupGeneration = 0;
   #liveAgentBaseUrl = "/api";
   #liveCompositionOptions: LiveCompositionOptions | undefined;
@@ -209,6 +210,25 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public set agentToolDefinitions(provider: (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) {
     this.#agentToolDefinitions = provider;
+    if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
+  }
+
+  /**
+   * Certified-dispatch options for the live agent session: a certification
+   * binding and a transcript verifier (for example the SDK's
+   * `StudioAiTranscriptVerifier` over the proxy's published
+   * `transcriptSigning` keys). The SDK dispatches a model-selected tool only
+   * after it verifies that round's signed `transcriptProvenance`
+   * (honua-io/honua-sdk-js#1748); without these options the turn ends with
+   * the SDK's refusal as a turn error. Assigning rebuilds a live session, so
+   * a new binding (and run nonce) takes effect on the next turn.
+   */
+  public get agentCertification(): StudioAgentCertificationOptions | undefined {
+    return this.#agentCertification;
+  }
+
+  public set agentCertification(options: StudioAgentCertificationOptions | undefined) {
+    this.#agentCertification = options;
     if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
@@ -791,7 +811,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
     const kit = this.aiMapKit;
     const sessionRef: { current?: StudioAgentSession } = {};
+    const certification = this.#agentCertification;
     sessionRef.current = chat.attachAgentSession({
+      ...(certification?.certification ? { certification: certification.certification } : {}),
+      ...(certification?.transcriptVerifier ? { transcriptVerifier: certification.transcriptVerifier } : {}),
       baseUrl,
       auth: this.auth,
       tools: [...this.agentToolDefinitions(kit)],

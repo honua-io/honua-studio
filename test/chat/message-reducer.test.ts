@@ -118,6 +118,41 @@ describe("chat/message-reducer", () => {
     expect(state.messages[0]).toMatchObject({ status: "error", errorMessage: "boom" });
   });
 
+  it("a transcriptProvenance event leaves the message and the streaming flag unchanged", () => {
+    const provenance = {
+      schemaVersion: "honua.studio-ai.transcript.v1" as const,
+      canonicalization: "honua-canonical-json-v1" as const,
+      digestAlgorithm: "sha-256" as const,
+      signatureAlgorithm: "Ed25519" as const,
+      keyId: "k1",
+      canonicalTranscript: "e30=",
+      transcriptDigest: "d1",
+      signature: "c2ln",
+    };
+    let state = chatReducer(initialChatState, { type: "assistant-turn-started", id: "m2" });
+    state = chatReducer(state, { type: "ai-event", id: "m2", event: { type: "textDelta", text: "hi" } });
+    const streaming = chatReducer(state, {
+      type: "ai-event",
+      id: "m2",
+      event: { type: "transcriptProvenance", provenance },
+    });
+    expect(streaming.messages).toEqual(state.messages);
+    expect(streaming.streaming).toBe(true);
+
+    const stopped = chatReducer(state, {
+      type: "ai-event",
+      id: "m2",
+      event: { type: "messageStop", stopReason: "endTurn" },
+    });
+    const attested = chatReducer(stopped, {
+      type: "ai-event",
+      id: "m2",
+      event: { type: "transcriptProvenance", provenance },
+    });
+    expect(attested.messages).toEqual(stopped.messages);
+    expect(attested.streaming).toBe(false);
+  });
+
   it("turn-cancelled only affects a still-streaming message", () => {
     let state = chatReducer(initialChatState, { type: "assistant-turn-started", id: "m2" });
     state = chatReducer(state, { type: "turn-cancelled", id: "m2" });

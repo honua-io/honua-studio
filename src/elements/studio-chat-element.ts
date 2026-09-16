@@ -27,7 +27,11 @@ import {
   type ChatTransport,
   type CreateAnnotationInput,
   SseChatTransport,
+  type StudioAiChatEvent,
   type StudioAiChatMessage,
+  type StudioAiChatRequest,
+  type StudioAiSignedTranscript,
+  type StudioAiTranscriptCertification,
   annotationChipLabel,
   chatReducer,
   composeMessageContent,
@@ -53,6 +57,37 @@ import type {
   HonuaStudioChatTurnCompleteDetail,
   HonuaStudioChatTurnErrorDetail,
 } from "./types.js";
+
+/** Outcome of one transcript verification — the SDK's `StudioAiTranscriptVerification`. */
+export interface StudioAgentTranscriptVerification {
+  readonly ok: boolean;
+  readonly reason?: string;
+  readonly transcriptDigest?: string;
+}
+
+/** The SDK's `StudioAiTranscriptVerifierLike`; `StudioAiTranscriptVerifier` from `@honua/sdk-js/studio-agent` satisfies it. */
+export interface StudioAgentTranscriptVerifier {
+  verify(
+    provenance: StudioAiSignedTranscript,
+    request: StudioAiChatRequest,
+    events: readonly StudioAiChatEvent[],
+  ): Promise<StudioAgentTranscriptVerification>;
+}
+
+/**
+ * Certified-dispatch options for an SDK agent session. Since
+ * honua-io/honua-sdk-js#1748, `StudioAgentSession` dispatches a
+ * model-selected tool only when the session has both options and the round
+ * ends in exactly one verified `transcriptProvenance` event. They are declared
+ * here, not taken from `StudioAgentSessionOptions`, so Studio also compiles
+ * against a published SDK that predates them (that SDK ignores them).
+ */
+export interface StudioAgentCertificationOptions {
+  /** Candidate/action binding the SDK sends with every tool-capable round. */
+  readonly certification?: StudioAiTranscriptCertification;
+  /** Verifies each round's signed transcript before any model-selected tool dispatches. */
+  readonly transcriptVerifier?: StudioAgentTranscriptVerifier;
+}
 
 export class HonuaStudioChatElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
@@ -123,7 +158,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   }
 
   /** Installs the SDK-owned multi-round model/tool loop. */
-  public attachAgentSession(options: StudioAgentSessionOptions): StudioAgentSession {
+  public attachAgentSession(options: StudioAgentSessionOptions & StudioAgentCertificationOptions): StudioAgentSession {
     this.#activeAbort?.abort();
     const callerOnEvent = options.onEvent;
     this.#agentSession = createStudioAgentSession({
@@ -470,9 +505,13 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     // they must not be projected into the transcript reducer.
     if (sessionEvent.type !== "chat") return;
 
-    const event = sessionEvent.event;
+    // Typed against Studio's contract so the check below also compiles
+    // against a published SDK whose event union predates transcriptProvenance.
+    const event: StudioAiChatEvent = sessionEvent.event;
     // Intermediate stops separate tool rounds; chat() owns the final stop.
-    if (event.type === "messageStop" || event.type === "error") return;
+    // Transcript provenance is consumed by the SDK session's verifier and has
+    // no transcript content of its own.
+    if (event.type === "messageStop" || event.type === "error" || event.type === "transcriptProvenance") return;
     this.#state = chatReducer(this.#state, { type: "ai-event", id: messageId, event });
     if (event.type === "toolCallStart" && event.toolCallId && event.toolName) {
       this.activityLog.append("tool_call_started", {
