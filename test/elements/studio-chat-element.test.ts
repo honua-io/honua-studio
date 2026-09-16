@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 
-import { McpClient as SdkMcpClient } from "@honua/sdk-js/studio-agent";
+import { McpClient as SdkMcpClient, type StudioAgentSessionOptions } from "@honua/sdk-js/studio-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createActivityLog } from "../../src/chat/activity-log.js";
-import type { StudioAiChatEvent, StudioAiChatRequest } from "../../src/chat/ai-contract.js";
+import type {
+  StudioAiChatEvent,
+  StudioAiChatRequest,
+  StudioAiSignedTranscript,
+  StudioAiTranscriptCertification,
+} from "../../src/chat/ai-contract.js";
 import { playFixtureConversation } from "../../src/chat/fixture-player.js";
 import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
 import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
@@ -37,6 +42,32 @@ const serverSetViewDescriptor = {
   _meta: { "honua.studio": { family: "honua.studio.composition", view: "setup", revision: "setup.v2" } },
 };
 
+// The SDK session's transport type. A published SDK that predates
+// honua-io/honua-sdk-js#1748 has no transcriptProvenance member in its event
+// union, so a transport typed against Studio's contract is narrowed here.
+type SdkChatTransport = NonNullable<StudioAgentSessionOptions["transport"]>;
+
+const certification: StudioAiTranscriptCertification = {
+  candidateId: "sha256:candidate",
+  releaseId: "2026.1",
+  endpointIdentity: "http://studio.test",
+  actionId: "studio.setup",
+  runNonce: "run-1",
+};
+
+function signedTranscript(round: number): StudioAiSignedTranscript {
+  return {
+    schemaVersion: "honua.studio-ai.transcript.v1",
+    canonicalization: "honua-canonical-json-v1",
+    digestAlgorithm: "sha-256",
+    signatureAlgorithm: "Ed25519",
+    keyId: "studio-ai-test",
+    canonicalTranscript: btoa(`{"round":${round}}`),
+    transcriptDigest: `digest-${round}`,
+    signature: btoa(`signature-${round}`),
+  };
+}
+
 function mountChat(): HonuaStudioChatElement {
   const el = document.createElement("honua-studio-chat") as HonuaStudioChatElement;
   document.body.appendChild(el);
@@ -63,10 +94,19 @@ describe("<honua-studio-chat>", () => {
           yield { type: "toolCallDelta", toolCallId: "call-1", toolArgumentsDelta: '{"view":{"zoom":9}}' };
           yield { type: "toolCallStop", toolCallId: "call-1", toolArguments: { view: { zoom: 9 } } };
           yield { type: "messageStop", stopReason: "toolCall" };
+          // A certification-bound proxy ends every round with its signed transcript.
+          yield { type: "transcriptProvenance", provenance: signedTranscript(round) };
           return;
         }
         yield { type: "textDelta", text: "Zoomed the map." };
         yield { type: "messageStop", stopReason: "endTurn" };
+        yield { type: "transcriptProvenance", provenance: signedTranscript(round) };
+      },
+    };
+    // Stands in for the SDK's StudioAiTranscriptVerifier over the proxy's published keys.
+    const transcriptVerifier = {
+      async verify(provenance: StudioAiSignedTranscript) {
+        return { ok: true, transcriptDigest: provenance.transcriptDigest };
       },
     };
     const draft = {
@@ -101,13 +141,17 @@ describe("<honua-studio-chat>", () => {
       }),
     });
 
+    const chatEvents: StudioAiChatEvent[] = [];
     el.attachAgentSession({
-      transport: model,
+      certification,
+      transcriptVerifier,
+      transport: model as SdkChatTransport,
       mcpClient,
       draft: { draftId: "draft-1", generation: 1 },
       system: "grounded system prompt",
       fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
       onEvent: (event) => {
+        if (event.type === "chat") chatEvents.push(event.event);
         if (event.type === "toolResult" && event.result.draft) {
           controller.replaceState(applyStudioDraft(event.result.draft as never, controller.state));
         }
@@ -130,7 +174,36 @@ describe("<honua-studio-chat>", () => {
     expect(requests[1]?.messages.at(-1)?.content).toContain('"status":"ok"');
     expect(el.messages.at(-1)?.text).toBe("Zoomed the map.");
     expect(el.messages.at(-1)?.status).toBe("complete");
+    expect(el.messages.at(-1)?.errorMessage).toBeUndefined();
+    expect(el.messages.at(-1)?.toolCalls).toMatchObject([{ id: "call-1", status: "complete" }]);
     expect(el.activityLog.entries().map((entry) => entry.type)).toContain("tool_call_completed");
+    expect(chatEvents.filter((event) => event.type === "transcriptProvenance")).toHaveLength(2);
+  });
+
+  it("keeps a session's transcriptProvenance events out of the rendered transcript", async () => {
+    const el = mountChat();
+    el.attachAgentSession({
+      transport: {
+        async *streamChat() {
+          yield { type: "messageStart", model: "fixture" };
+          yield { type: "textDelta", text: "No tools needed." };
+          yield { type: "messageStop", stopReason: "endTurn" };
+          yield { type: "transcriptProvenance", provenance: signedTranscript(1) };
+        },
+      } as ChatTransport as SdkChatTransport,
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+    });
+
+    await el.sendMessage("Hello");
+
+    expect(el.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "No tools needed.",
+      status: "complete",
+      toolCalls: [],
+    });
+    expect(el.messages.at(-1)?.errorMessage).toBeUndefined();
+    expect(el.streaming).toBe(false);
   });
 
   it("keeps explicit fixture transport authoritative over an attached live agent session", async () => {
@@ -141,7 +214,7 @@ describe("<honua-studio-chat>", () => {
         throw new Error("live session must have been detached");
       },
     };
-    el.attachAgentSession({ transport: liveTransport });
+    el.attachAgentSession({ transport: liveTransport as SdkChatTransport });
     el.transport = new FixtureChatTransport(composeDistrictsMapConversation);
 
     await el.sendMessage("Add parcels");
@@ -164,6 +237,7 @@ describe("<honua-studio-chat>", () => {
           yield { type: "messageStop", stopReason: "endTurn" };
         },
       },
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
     });
 
     const first = el.sendMessage("one");
@@ -201,6 +275,12 @@ describe("<honua-studio-chat>", () => {
     const execution = vi.fn();
     el.addEventListener("honua-studio-chat-tool-execution", execution);
     el.attachAgentSession({
+      certification,
+      transcriptVerifier: {
+        async verify(provenance: StudioAiSignedTranscript) {
+          return { ok: true, transcriptDigest: provenance.transcriptDigest };
+        },
+      },
       tools: [
         {
           name: "failingProbe",
@@ -232,11 +312,12 @@ describe("<honua-studio-chat>", () => {
             yield { type: "toolCallStart", toolCallId: "failed-1", toolName: "failingProbe" };
             yield { type: "toolCallStop", toolCallId: "failed-1", toolArguments: {} };
             yield { type: "messageStop", stopReason: "toolCall" };
+            yield { type: "transcriptProvenance", provenance: signedTranscript(round) };
             return;
           }
           yield { type: "messageStop", stopReason: "endTurn" };
         },
-      },
+      } as ChatTransport as SdkChatTransport,
     });
 
     await el.sendMessage("fail");
