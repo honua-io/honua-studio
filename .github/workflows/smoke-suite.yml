@@ -4,17 +4,14 @@ name: Smoke suite
 # `release.yml` (every `v*` tag), so the image a release pushes to GHCR is the
 # same artifact these jobs exercised. A reusable workflow does NOT inherit the
 # caller's `env`, so NODE_VERSION/DOTNET_VERSION are declared here.
+# Every job checks out the ref that triggered the caller — there is deliberately
+# no `ref` input. A caller-supplied ref would be untrusted code checked out in a
+# context that can write the default branch's dependency cache
+# (CodeQL `actions/cache-poisoning/poisonable-step`). `release.yml` instead
+# refuses to package a version that is not the ref it was triggered on, so what
+# these jobs smoke is always what the release publishes.
 on:
   workflow_call:
-    inputs:
-      ref:
-        description: >-
-          Revision to check out. Leave empty to use the ref that triggered the
-          caller (CI's default); `release.yml` passes the tag it is packaging so
-          a `workflow_dispatch` re-release smokes that tag, not the branch.
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -29,8 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -60,8 +55,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: ${{ inputs.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -92,8 +85,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: ${{ inputs.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
