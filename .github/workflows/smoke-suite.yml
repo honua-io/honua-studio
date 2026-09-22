@@ -1,0 +1,128 @@
+name: Smoke suite
+
+# The three end-to-end smokes shared by `ci.yml` (every PR and push to main) and
+# `release.yml` (every `v*` tag), so the image a release pushes to GHCR is the
+# same artifact these jobs exercised. A reusable workflow does NOT inherit the
+# caller's `env`, so NODE_VERSION/DOTNET_VERSION are declared here.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          Revision to check out. Leave empty to use the ref that triggered the
+          caller (CI's default); `release.yml` passes the tag it is packaging so
+          a `workflow_dispatch` re-release smokes that tag, not the branch.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20.19.0"
+  DOTNET_VERSION: "10.0.x"
+
+jobs:
+  container-smoke:
+    name: Clean-machine container + runtime config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Build immutable assets
+        run: npm ci && npm run build
+
+      - name: Build candidate container
+        run: docker build -t honua-studio:ci .
+
+      - name: Serve injected config from immutable assets
+        run: |
+          docker run --rm -d --name honua-studio-ci --read-only \
+            --tmpfs /var/cache/nginx:uid=101,gid=101 --tmpfs /var/run:uid=101,gid=101 \
+            -p 18081:8080 \
+            --mount type=bind,src="$PWD/deploy/config.example.json",dst=/usr/share/nginx/html/config.json,readonly \
+            honua-studio:ci
+          trap 'docker stop honua-studio-ci >/dev/null 2>&1 || true' EXIT
+          curl --retry 10 --retry-delay 1 --retry-all-errors --fail http://127.0.0.1:18081/config.json | jq -e '.schemaVersion == "honua.studio.runtime-config.v1"'
+          curl --retry 10 --retry-delay 1 --retry-all-errors --fail http://127.0.0.1:18081/a/deep/spa/route | grep -q '<!doctype html>'
+
+  browser-smoke:
+    name: Browser smoke (mock + live dev modes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npm run test:browser:install
+
+      - name: Browser boot smoke (builds first)
+        run: npm run test:browser
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report
+          path: .tmp/playwright-output
+          if-no-files-found: ignore
+
+  blazor-host-smoke:
+    name: Blazor Web App test host smoke (honua-io/honua-studio#5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npm run test:browser:install
+
+      - name: Build Studio bundle + Blazor host (scoped — never the whole solution/tree)
+        run: npm run build:blazor-host
+
+      - name: Blazor host hazard smoke
+        run: npx playwright test --grep @blazor
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-blazor-host
+          path: .tmp/playwright-output
+          if-no-files-found: ignore

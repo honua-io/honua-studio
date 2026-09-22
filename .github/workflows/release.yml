@@ -19,8 +19,20 @@ env:
   IMAGE: ghcr.io/honua-io/honua-studio
 
 jobs:
+  # The image published below must never be one the smokes have not run against,
+  # so the same suite CI runs gates the release (honua-io/honua-server#4428).
+  smokes:
+    name: Smoke suite
+    uses: ./.github/workflows/smoke-suite.yml
+    permissions:
+      contents: read
+    with:
+      # Package the requested tag, not the branch the dispatch ran from.
+      ref: ${{ inputs.version || github.ref }}
+
   release:
     runs-on: ubuntu-latest
+    needs: smokes
     permissions:
       contents: write
       packages: write
