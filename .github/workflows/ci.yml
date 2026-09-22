@@ -95,6 +95,12 @@ jobs:
         run: npm run build
 
   smokes:
+    # This `name` is load-bearing. A called workflow's checks report as
+    # "<caller job name> / <called job name>", falling back to the job id when
+    # no name is set, so renaming or deleting it silently renames all three
+    # required checks to "smokes / ..." and branch protection then waits
+    # forever on checks that no longer report. Change it only together with the
+    # repository's required-check settings.
     name: Smoke suite
     # Extracted to .github/workflows/smoke-suite.yml so `release.yml` runs the
     # identical container/browser/Blazor-host smokes before it pushes an image.
