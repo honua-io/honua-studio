@@ -19,8 +19,8 @@ env:
   IMAGE: ghcr.io/honua-io/honua-studio
 
 jobs:
-  # The image published below must never be one the smokes have not run against,
-  # so the same suite CI runs gates the release (honua-io/honua-server#4428).
+  # Run the same smoke suite on the release revision before publishing its image
+  # (honua-io/honua-server#4428).
   smokes:
     name: Smoke suite
     # Deliberately passes no ref: the suite checks out the ref that triggered

@@ -1,8 +1,10 @@
 name: Smoke suite
 
-# The three end-to-end smokes shared by `ci.yml` (every PR and push to main) and
-# `release.yml` (every `v*` tag), so the image a release pushes to GHCR is the
-# same artifact these jobs exercised. A reusable workflow does NOT inherit the
+# The three end-to-end smokes run directly for PRs/pushes and are called by
+# `release.yml` for every `v*` tag, so release smokes use the packaged revision.
+# Direct PR triggers preserve the existing branch-protection check names;
+# calling this from ci.yml would add a caller prefix to those required names.
+# A reusable workflow does NOT inherit the
 # caller's `env`, so NODE_VERSION/DOTNET_VERSION are declared here.
 # Every job checks out the ref that triggered the caller — there is deliberately
 # no `ref` input. A caller-supplied ref would be untrusted code checked out in a
@@ -11,6 +13,11 @@ name: Smoke suite
 # refuses to package a version that is not the ref it was triggered on, so what
 # these jobs smoke is always what the release publishes.
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
   workflow_call:
 
 permissions:

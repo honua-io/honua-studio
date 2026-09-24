@@ -54,9 +54,10 @@ From the repo root; copied from `package.json` / CI. Do not invent variants.
 - **Blazor host lane:** `npm run test:browser:blazor`, wrapping `npm run build:blazor-host` (= `build:blazor-assets` plus a scoped `dotnet build` of `harness/blazor-host/StudioHost`); needs the .NET SDK, see that dir's README
 - **Live lane:** `npm run test:browser:live` — `@live` journeys against a real deployment; skips unless `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set (the key is injected server-side by the proxy as `X-API-Key`, never bundled)
 
-CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`) and `build`, then
-calls `smoke-suite.yml` for `container-smoke`, `browser-smoke` and `blazor-host-smoke` (builds the host, then
-`npx playwright test --grep @blazor`). `smoke-suite.yml` is a `workflow_call` reusable workflow so `release.yml`
+CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`) and `build`.
+`smoke-suite.yml` runs directly on the same events for `container-smoke`, `browser-smoke` and `blazor-host-smoke`
+(builds the host, then `npx playwright test --grep @blazor`), preserving the existing required check names.
+`smoke-suite.yml` also exposes `workflow_call` so `release.yml`
 runs the identical three smokes — and `needs:` them — before it pushes a versioned image to GHCR; it declares its own
 `NODE_VERSION`/`DOTNET_VERSION` because a reusable workflow does not inherit the caller's `env`.
 `pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR, and `claude-second-review.yml` the
