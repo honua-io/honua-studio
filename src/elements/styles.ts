@@ -28,9 +28,9 @@ export function baseElementStyles(): string {
       box-sizing: border-box;
     }
     :host(:not([theme-connected])) {
-      /* No token CSS reached this element yet (host forgot to load it) — stay legible instead of silently mis-themed. */
-      color: canvastext;
-      background: canvas;
+      /* Inherited tokens also theme nested elements; only use system colors when tokens are absent. */
+      color: var(--hn-ink, canvastext);
+      background: var(--hn-surface, canvas);
     }
     a { color: var(--hn-link, #0b6b4d); }
     :focus-visible {
@@ -344,7 +344,7 @@ export function canvasStyles(): string {
     .composition-row:hover { border-color: var(--hn-accent, #0b6b4d); }
     .composition-row[aria-pressed="true"] { border-color: var(--hn-accent, #0b6b4d); background: var(--hn-accent-tint, #e3f1ea); }
     .composition-row[data-pinned="true"] { border-style: dashed; }
-    .composition-empty { color: var(--hn-ink-faint, #8b988f); margin: 0; }
+    .composition-empty { color: var(--hn-ink-muted, #5f6e66); margin: 0; }
     .composition-view-fields { display: flex; flex-wrap: wrap; gap: var(--hn-space-2, 8px); margin: 0; padding: 0; list-style: none; }
     .composition-view-fields li { font-size: var(--hn-text-sm, 0.8125rem); }
   `;

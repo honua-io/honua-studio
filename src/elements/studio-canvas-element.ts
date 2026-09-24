@@ -392,7 +392,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
                  data-testid="studio-canvas-widget-deck"
                  label="Composed widgets"
                ></honua-studio-widget-deck>
-               <div class="composition-readout" id="composition-readout" data-testid="studio-canvas-readout"></div>`
+               <div class="composition-readout" id="composition-readout" data-testid="studio-canvas-readout" tabindex="0" role="region" aria-label="Composition details"></div>`
         }
       </section>
     `);
