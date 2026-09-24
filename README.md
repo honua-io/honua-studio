@@ -38,10 +38,17 @@ to end.
 
 Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
 752 unit tests across 77 files and 29 Playwright browser journeys, including four accessibility checks.
-What that preview is *not*: there is no released build, no container or static
-bundle, and no hosted instance you can click into — running from source against
-your own honua-server is the only way to run Studio today
-([#41](https://github.com/honua-io/honua-studio/issues/41)). Standing Studio up
+What that preview is *not*: no version has been released yet and there is no
+hosted instance you can click into — running from source against your own
+honua-server is the only way to run Studio today
+([#41](https://github.com/honua-io/honua-studio/issues/41)). The packaging is
+built and smoked in CI rather than missing: a `v*` tag runs
+[`release.yml`](.github/workflows/release.yml), which builds a reproducible
+static tarball, pushes the version-only image
+`ghcr.io/honua-io/honua-studio:<version>`, and attaches the tarball, its
+checksum, and a receipt binding version/source SHA/image digest to the GitHub
+release. No such tag has been cut, so no image or tarball exists to pull yet —
+see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
 on the public demo additionally waits on an open owner decision about model
 access there (2026.1 decision D2), so treat every capability below as something
 you verify by running it, not by visiting a URL.
@@ -106,12 +113,15 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
 
 ### Not started
 
-- Release artifact, container/static bundle, runtime base-URL/OIDC config, and
-  a hosted instance on the demo server
+- Cutting the first release tag, and a hosted instance on the demo server
   ([#41](https://github.com/honua-io/honua-studio/issues/41)) — **running from
-  source is the only way to run Studio today.** The hosted demo also depends on
-  decision D2 (model access on `demo.honua.io`) and on
-  honua-io/honua-server#3303, so it is not purely a packaging task.
+  source is the only way to run Studio today.** The pieces a release needs have
+  landed and are exercised on every PR: the container image, the runtime
+  `/config.json` base-URL/OIDC contract, the reproducible static tarball, and
+  the tag-triggered `release.yml` that publishes them. What has not happened is
+  the tag itself, so nothing is published on GHCR or as a release asset yet. The
+  hosted demo also depends on decision D2 (model access on `demo.honua.io`) and
+  on honua-io/honua-server#3303, so it is not purely a packaging task.
 - Raster and image layers: COG, ImageServer, WMS
   ([#36](https://github.com/honua-io/honua-studio/issues/36)).
 - 3D — scene projection, 2D/3D toggle, scene agent tools
