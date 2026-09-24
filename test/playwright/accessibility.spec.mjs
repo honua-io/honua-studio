@@ -28,7 +28,9 @@ for (const themeSet of ["standalone", "console"]) {
             }, mintFixtureAccessToken());
           }
           await expect(page.getByTestId("studio-canvas-readout")).toBeVisible();
-          const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+          const results = await new AxeBuilder({ page })
+            .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+            .analyze();
           await testInfo.attach(`axe-${state}.json`, {
             body: JSON.stringify(results, null, 2),
             contentType: "application/json",

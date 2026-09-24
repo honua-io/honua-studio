@@ -28,9 +28,9 @@ export function baseElementStyles(): string {
       box-sizing: border-box;
     }
     :host(:not([theme-connected])) {
-      /* No token CSS reached this element yet (host forgot to load it) — stay legible instead of silently mis-themed. */
-      color: canvastext;
-      background: canvas;
+      /* Inherited tokens also theme nested elements; only use system colors when tokens are absent. */
+      color: var(--hn-ink, canvastext);
+      background: var(--hn-surface, canvas);
     }
     a { color: var(--hn-link, #0b6b4d); }
     :focus-visible {
