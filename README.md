@@ -37,7 +37,7 @@ to end.
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
 Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
-752 unit tests across 77 files and 25 Playwright browser journeys, all green.
+752 unit tests across 77 files and 29 Playwright browser journeys, including four accessibility checks.
 What that preview is *not*: no version has been released yet and there is no
 hosted instance you can click into — running from source against your own
 honua-server is the only way to run Studio today
@@ -219,7 +219,7 @@ Other commands:
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
 | `npm test` | Unit tests (Vitest) — 752 tests across 77 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
-| `npm run test:browser` | Builds, then runs the 25 Playwright boot/harness/journey specs (chromium) |
+| `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 | `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
 
