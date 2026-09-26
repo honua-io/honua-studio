@@ -152,11 +152,13 @@ export function projectShareConversation(
   }
 }
 
-/** Accepts only an absolute http(s) URL that is not the proposal handle. */
+/**
+ * Accepts only an absolute http(s) URL that is not the proposal handle.
+ * Schemes are allowlisted after parsing. A denylist of `javascript:` or
+ * `data:` is incomplete (`vbscript:` and other schemes would still pass).
+ */
 export function verifiedPublicationUrl(candidate: unknown, proposalUri: string): string | undefined {
   if (typeof candidate !== "string" || candidate.length === 0 || candidate === proposalUri) return undefined;
-  if (candidate.toLowerCase().startsWith("javascript:") || candidate.toLowerCase().startsWith("data:"))
-    return undefined;
   let url: URL;
   try {
     url = new URL(candidate);

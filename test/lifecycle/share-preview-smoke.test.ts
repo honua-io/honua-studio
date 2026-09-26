@@ -240,6 +240,8 @@ describe("governed preview share smoke", () => {
       }).publicationUrl,
     ).toBeUndefined();
     expect(verifiedPublicationUrl("javascript:alert(1)", handle.proposalUri)).toBeUndefined();
+    expect(verifiedPublicationUrl("data:text/html,hi", handle.proposalUri)).toBeUndefined();
+    expect(verifiedPublicationUrl("vbscript:msgbox(1)", handle.proposalUri)).toBeUndefined();
     expect(
       projectShareConversation(handle, {
         proposalId: "other",
