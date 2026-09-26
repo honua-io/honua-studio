@@ -46,6 +46,18 @@ reproducible static archive, pushes the version-only GHCR tag, and attaches the
 archive, checksum, and a receipt binding version, source SHA, and image digest
 to the GitHub release. Nothing is pushed unless all three smokes pass.
 
-The clean-machine container/config smoke is available now. The credentialed
-real-model composition/save/reopen smoke remains the final acceptance item and
-will be wired after #40 supplies the live `StudioAgentSession` loop.
+The clean-machine container/config smoke runs on every pull request. The same
+job then runs `npm run test:self-hosted-preview` against that image, without
+rebuilding it. Injected `/config.json` points the browser at a local BYOM
+preview model (`byom-preview`). The model sees the full advertised Studio tool
+catalog, chooses the compose, save, reopen, and propose calls itself, and
+`StudioAgentSession` executes those choices. A separate approver principal
+publishes the link; the proposing browser session cannot approve itself, then
+reads the approved URL back. No demo credential and no hosted-model decision
+are required.
+
+That receipt is Preview evidence. It is not a GA claim, not a hosted-model
+qualification, and not a registry digest. Nothing is published to GHCR until
+an operator pushes a `v*` tag and `release.yml` attaches the tarball, checksum,
+and source/image receipt to the GitHub release. Hosted demo access stays a
+2026.2 concern.

@@ -118,6 +118,8 @@ import { readFileSync } from "node:fs";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 
+import { planByomPreviewTurn } from "./scripts/lib/byom-preview-model.mjs";
+
 // Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
 // file's module doc for why it's a duplicate, not an import.
 const CHAT_EVENT_TYPE_TO_SSE_NAME = {
@@ -134,6 +136,23 @@ const CHAT_EVENT_TYPE_TO_SSE_NAME = {
 const FIXTURE_CONVERSATION = JSON.parse(
   readFileSync(new URL("./src/chat/fixtures/compose-districts-map.json", import.meta.url), "utf8"),
 );
+
+const BYOM_CAPABILITIES = {
+  enabled: true,
+  defaultProvider: "byom-preview",
+  providers: [
+    {
+      provider: "byom-preview",
+      kind: "local-planner",
+      model: "honua-studio-byom-preview",
+      maxTokens: 4096,
+      toolSupport: true,
+      streaming: true,
+      isDefault: true,
+      configured: true,
+    },
+  ],
+};
 
 const AI_CAPABILITIES = {
   enabled: true,
@@ -180,8 +199,14 @@ const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_remove_control",
   "honua_studio_bind_interaction",
   "honua_studio_remove_interaction",
+  "honua_studio_save_version",
+  "honua_studio_reopen_version",
   "honua_studio_propose_publication",
 ];
+
+const STUDIO_TOOL_CLASSIFICATION = {
+  "honua.studio": { family: "honua.studio.composition", view: "setup", revision: "preview.v1" },
+};
 
 const COMPOSITION_ELIGIBLE_FAMILIES = new Set(["map", "app"]);
 const KNOWN_FAMILIES = new Set([
@@ -231,10 +256,12 @@ function createStudioLifecycleStore() {
   const versionsByItem = new Map();
   const publicationRequests = new Map();
   const rollbackRequests = new Map();
+  const proposals = new Map();
   let nextDraftSeq = 1;
   let nextVersionSeq = 1;
   let nextPublicationRequestSeq = 1;
   let nextRollbackRequestSeq = 1;
+  let nextProposalSeq = 1;
 
   function now() {
     return new Date().toISOString();
@@ -269,12 +296,14 @@ function createStudioLifecycleStore() {
     versionsByItem,
     publicationRequests,
     rollbackRequests,
+    proposals,
     now,
     touchItem,
     nextDraftId: () => `mock-draft-${nextDraftSeq++}`,
     nextVersionId: () => `mock-version-${nextVersionSeq++}`,
     nextPublicationRequestId: () => `mock-publish-request-${nextPublicationRequestSeq++}`,
     nextRollbackRequestId: () => `mock-rollback-request-${nextRollbackRequestSeq++}`,
+    nextProposalId: () => `mock-proposal-${nextProposalSeq++}`,
   };
 }
 
@@ -684,9 +713,75 @@ function createMcpDispatcher(store) {
       });
     },
 
-    honua_studio_propose_publication(args) {
+    honua_studio_save_version(args) {
       const { draft, error } = requireDraft(args?.draftId);
       if (error) return error;
+      if (args?.generation !== draft.generation) {
+        return toolError(
+          "failed_precondition",
+          `Stale draft generation; refresh and retry. (expected ${draft.generation}, got ${args?.generation})`,
+        );
+      }
+      const saved = saveStudioVersion(store, draft, typeof args.changeNote === "string" ? args.changeNote : undefined);
+      return toolSuccess({
+        draft: {
+          ...draftPublic(saved.draft),
+          savedVersionId: saved.version.versionId,
+          savedItemId: saved.version.itemId,
+          savedContentHash: saved.version.contentHash,
+        },
+        version: {
+          itemId: saved.version.itemId,
+          versionId: saved.version.versionId,
+          contentHash: saved.version.contentHash,
+          versionNumber: saved.version.versionNumber,
+        },
+      });
+    },
+
+    honua_studio_reopen_version(args) {
+      const version = store.versions.get(args?.versionId);
+      if (!version || version.itemId !== args?.itemId) {
+        return toolError("not_found", "Studio content version was not found.");
+      }
+      const draft = reopenStudioVersion(store, version);
+      return toolSuccess({
+        ...draftPublic(draft),
+        baseVersionId: draft.baseVersionId,
+        reopenedFromVersionId: version.versionId,
+      });
+    },
+
+    honua_studio_propose_publication(args, actor) {
+      const { draft, error } = requireDraft(args?.draftId);
+      if (error) return error;
+      const versionBound =
+        typeof args?.itemId === "string" &&
+        typeof args?.versionId === "string" &&
+        typeof args?.contentHash === "string";
+      let proposal;
+      if (versionBound) {
+        if (typeof args.route !== "string" || typeof args.visibility !== "string") {
+          return toolError("invalid_argument", "'route' and 'visibility' are required.");
+        }
+        if (args.generation !== draft.generation) {
+          return toolError(
+            "failed_precondition",
+            `Stale draft generation; refresh and retry. (expected ${draft.generation}, got ${args.generation})`,
+          );
+        }
+        const created = createCanonicalProposal(store, {
+          itemId: args.itemId,
+          versionId: args.versionId,
+          contentHash: args.contentHash,
+          route: args.route,
+          visibility: args.visibility,
+          note: args.note,
+          proposedBy: actor?.sub ?? FIXTURE_ACTOR,
+        });
+        if (created.error) return toolError(created.error.code, created.error.message);
+        proposal = created.proposal;
+      }
       const publicationIntent = {
         route: args.route,
         visibility: args.visibility,
@@ -700,17 +795,23 @@ function createMcpDispatcher(store) {
       const result = applyUpdate(draft, { envelope }, args.generation);
       if (result.error) return result.error;
       return toolSuccess({
-        draft: draftPublic(result.draft),
+        draft: {
+          ...draftPublic(result.draft),
+          ...(proposal ? { proposalId: proposal.proposalId, proposalStatus: "pending" } : {}),
+        },
         recorded: true,
         humanConfirmationRequired: true,
-        message: "Publication intent recorded for human review. No publish/share/embed action was taken.",
+        ...(proposal ? { proposalId: proposal.proposalId, operationId: proposal.operationId, status: "pending" } : {}),
+        message: proposal
+          ? "Canonical publication proposal recorded. No pointer moved; a separate approver must approve."
+          : "Publication intent recorded for human review. No publish/share/embed action was taken.",
       });
     },
   };
 
   return {
     /** `initialize` / `tools/list` are open (no bearer) per the honua-server MCP doc; `tools/call` is dispatched to `handlers` above. Returns `{ status, body }` — `status` lets the route handler decide HTTP status/session-id headers uniformly. */
-    handle(method, params) {
+    handle(method, params, actor) {
       if (method === "initialize") {
         return {
           result: { protocolVersion: "2025-03-26", serverInfo: { name: "honua-studio-mock-mcp", version: "0.0.0" } },
@@ -721,7 +822,9 @@ function createMcpDispatcher(store) {
           result: {
             tools: STUDIO_MCP_TOOL_NAMES.map((name) => ({
               name,
-              inputSchema: { type: "object" },
+              description: name,
+              inputSchema: { type: "object", additionalProperties: true },
+              _meta: STUDIO_TOOL_CLASSIFICATION,
             })),
           },
         };
@@ -732,7 +835,7 @@ function createMcpDispatcher(store) {
         if (!handler) {
           return { error: { code: -32602, message: `Unknown tool "${name}".` } };
         }
-        return { result: handler(params?.arguments ?? {}) };
+        return { result: handler(params?.arguments ?? {}, actor) };
       }
       return { error: { code: -32601, message: `Method not found: "${method}".` } };
     },
@@ -893,6 +996,146 @@ function runValidation() {
   return { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: new Date().toISOString() };
 }
 
+function saveStudioVersion(store, draft, changeNote, actor = FIXTURE_ACTOR) {
+  const validation = runValidation();
+  const envelope = { ...draft.envelope, validation };
+  const contentHash = computeContentHash(envelope);
+  const versionId = store.nextVersionId();
+  const versionNumber = (store.versionsByItem.get(draft.itemId) ?? []).length + 1;
+  const ts = store.now();
+  const version = {
+    itemId: draft.itemId,
+    packageKey: draft.packageKey,
+    workspaceId: draft.workspaceId,
+    ownerId: draft.ownerId,
+    versionId,
+    versionNumber,
+    contentHash,
+    envelope,
+    validation,
+    dependencies: envelope.dependencies ?? [],
+    provenance: envelope.provenance ?? [],
+    sourceDraftId: draft.draftId,
+    baseVersionId: draft.baseVersionId,
+    changeNote,
+    createdBy: actor,
+    createdAt: ts,
+  };
+  store.versions.set(versionId, version);
+  store.versionsByItem.set(draft.itemId, [...(store.versionsByItem.get(draft.itemId) ?? []), versionId]);
+  const item = store.touchItem(draft.itemId, {
+    packageKey: draft.packageKey,
+    workspaceId: draft.workspaceId,
+    family: draft.family,
+    actor,
+  });
+  store.items.set(draft.itemId, { ...item, currentVersionId: versionId, updatedAt: ts });
+  const savedDraft = {
+    ...draft,
+    envelope,
+    validation,
+    generation: draft.generation + 1,
+    updatedBy: actor,
+    updatedAt: ts,
+  };
+  store.drafts.set(draft.draftId, savedDraft);
+  return { version, draft: savedDraft };
+}
+
+function reopenStudioVersion(store, version, actor = FIXTURE_ACTOR) {
+  const draftId = store.nextDraftId();
+  const ts = store.now();
+  const draft = {
+    draftId,
+    itemId: version.itemId,
+    packageKey: version.packageKey,
+    workspaceId: version.workspaceId,
+    ownerId: version.ownerId,
+    family: version.envelope.family,
+    envelope: version.envelope,
+    validation: version.validation,
+    baseVersionId: version.versionId,
+    generation: 1,
+    createdBy: actor,
+    updatedBy: actor,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+  store.drafts.set(draftId, draft);
+  return draft;
+}
+
+function createCanonicalProposal(store, input) {
+  const version = store.versions.get(input.versionId);
+  if (!version || version.itemId !== input.itemId) {
+    return { error: { code: "not_found", message: "Studio content version was not found." } };
+  }
+  if (version.contentHash !== input.contentHash) {
+    return {
+      error: {
+        code: "failed_precondition",
+        message: "The supplied content hash does not match the saved Studio version.",
+      },
+    };
+  }
+  const item = store.items.get(input.itemId);
+  if (!item || item.currentVersionId !== input.versionId) {
+    return {
+      error: {
+        code: "failed_precondition",
+        message: "The publication proposal must bind the current saved Studio version.",
+      },
+    };
+  }
+  const proposalId = store.nextProposalId();
+  const proposal = {
+    proposalId,
+    operationId: `mock-operation-${proposalId}`,
+    itemId: input.itemId,
+    versionId: input.versionId,
+    contentHash: input.contentHash,
+    route: input.route,
+    visibility: input.visibility,
+    note: input.note,
+    status: "pending",
+    proposedBy: input.proposedBy,
+    createdAt: store.now(),
+  };
+  store.proposals.set(proposalId, proposal);
+  return { proposal };
+}
+
+function approveCanonicalProposal(store, proposal, approver, origin) {
+  if (proposal.status === "approved") return proposal;
+  const approvedUrl = `${origin}/published/${proposal.proposalId}`;
+  const next = { ...proposal, status: "approved", approvedBy: approver, approvedUrl, decidedAt: store.now() };
+  store.proposals.set(proposal.proposalId, next);
+  const item = store.items.get(proposal.itemId);
+  if (item) {
+    store.items.set(proposal.itemId, {
+      ...item,
+      publishedVersionId: proposal.versionId,
+      updatedBy: approver,
+      updatedAt: store.now(),
+    });
+  }
+  return next;
+}
+
+function publicProposal(proposal) {
+  return {
+    proposalId: proposal.proposalId,
+    operationId: proposal.operationId,
+    itemId: proposal.itemId,
+    versionId: proposal.versionId,
+    route: proposal.route,
+    visibility: proposal.visibility,
+    status: proposal.status,
+    proposedBy: proposal.proposedBy,
+    ...(proposal.status === "approved" ? { approvedBy: proposal.approvedBy, approvedUrl: proposal.approvedUrl } : {}),
+  };
+}
+
 function createStudioLifecycleRestRouter(store) {
   function versionsForItem(itemId) {
     const ids = store.versionsByItem.get(itemId) ?? [];
@@ -999,53 +1242,9 @@ function createStudioLifecycleRestRouter(store) {
   }
 
   function saveDraftAsVersion(draft, changeNote) {
-    const validation = runValidation();
-    const envelope = { ...draft.envelope, validation };
-    const contentHash = computeContentHash(envelope);
-    const versionId = store.nextVersionId();
-    const versionNumber = versionsForItem(draft.itemId).length + 1;
-    const ts = store.now();
-    const version = {
-      itemId: draft.itemId,
-      packageKey: draft.packageKey,
-      workspaceId: draft.workspaceId,
-      ownerId: draft.ownerId,
-      versionId,
-      versionNumber,
-      contentHash,
-      envelope,
-      validation,
-      dependencies: envelope.dependencies ?? [],
-      provenance: envelope.provenance ?? [],
-      sourceDraftId: draft.draftId,
-      baseVersionId: draft.baseVersionId,
-      changeNote,
-      createdBy: FIXTURE_ACTOR,
-      createdAt: ts,
-    };
-    store.versions.set(versionId, version);
-    store.versionsByItem.set(draft.itemId, [...(store.versionsByItem.get(draft.itemId) ?? []), versionId]);
-    // "Saving a draft as a content version revalidates the draft... and
-    // advances the content item's current pointer" (doc) — also bumps the
-    // draft's own generation, matching "save-as-version calls persist the
-    // latest validation summary back onto the draft and therefore also
-    // advance the draft generation."
-    const item = store.touchItem(draft.itemId, {
-      packageKey: draft.packageKey,
-      workspaceId: draft.workspaceId,
-      family: draft.family,
-      actor: FIXTURE_ACTOR,
-    });
-    store.items.set(draft.itemId, { ...item, currentVersionId: versionId, updatedAt: ts });
-    store.drafts.set(draft.draftId, {
-      ...draft,
-      envelope,
-      validation,
-      generation: draft.generation + 1,
-      updatedBy: FIXTURE_ACTOR,
-      updatedAt: ts,
-    });
-    return version;
+    // Same bytes the MCP save tool writes. REST still does not check generation;
+    // the tool does, before it calls this.
+    return saveStudioVersion(store, draft, changeNote, FIXTURE_ACTOR).version;
   }
 
   function compareVersionRecords(left, right) {
@@ -1069,6 +1268,74 @@ function createStudioLifecycleRestRouter(store) {
    * own 404).
    */
   async function handle(req, res, method, subPath, searchParams) {
+    const proposalMatch = /^\/publication-proposals\/([^/]+)(\/decision)?$/.exec(subPath);
+    if (proposalMatch) {
+      const proposalId = decodeURIComponent(proposalMatch[1]);
+      const deciding = Boolean(proposalMatch[2]);
+      const actor = verifyFixtureJwt(bearerToken(req));
+      const proposal = store.proposals.get(proposalId);
+      if (!proposal) {
+        problemResponse(
+          res,
+          404,
+          "Studio publication proposal not found",
+          "Studio publication proposal was not found.",
+        );
+        return true;
+      }
+      const roles = Array.isArray(actor?.roles) ? actor.roles : [];
+      const isProposer = actor?.sub === proposal.proposedBy;
+      const isApprover = proposal.approvedBy !== undefined && actor?.sub === proposal.approvedBy;
+      if (!deciding && method === "GET") {
+        if (!isProposer && !isApprover) {
+          problemResponse(
+            res,
+            404,
+            "Studio publication proposal not found",
+            "Studio publication proposal was not found.",
+          );
+          return true;
+        }
+        apiResponse(res, 200, publicProposal(proposal));
+        return true;
+      }
+      if (deciding && method === "POST") {
+        let body = {};
+        try {
+          const text = await readBody(req);
+          body = text ? JSON.parse(text) : {};
+        } catch {
+          problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+          return true;
+        }
+        if (body.decision !== "approve") {
+          problemResponse(res, 400, "Invalid request", "Only an approve decision is supported.");
+          return true;
+        }
+        if (isProposer) {
+          problemResponse(
+            res,
+            403,
+            "Separation of duties",
+            "The proposing principal cannot approve its own Studio publication.",
+          );
+          return true;
+        }
+        if (!roles.includes("approver")) {
+          problemResponse(
+            res,
+            404,
+            "Studio publication proposal not found",
+            "Studio publication proposal was not found.",
+          );
+          return true;
+        }
+        const approved = approveCanonicalProposal(store, proposal, actor.sub, `http://${req.headers.host}`);
+        apiResponse(res, 200, publicProposal(approved));
+        return true;
+      }
+    }
+
     // GET /package-families
     if (method === "GET" && subPath === "/package-families") {
       apiResponse(res, 200, packageFamilyCapabilities());
@@ -1424,25 +1691,7 @@ function createStudioLifecycleRestRouter(store) {
           if (!requireItemOr404(itemId, res)) return true;
           const version = requireVersionOr404(itemId, versionId, res);
           if (!version) return true;
-          const draftId = store.nextDraftId();
-          const ts = store.now();
-          const draft = {
-            draftId,
-            itemId,
-            packageKey: version.packageKey,
-            workspaceId: version.workspaceId,
-            ownerId: version.ownerId,
-            family: version.envelope.family,
-            envelope: version.envelope,
-            validation: version.validation,
-            baseVersionId: versionId,
-            generation: 1,
-            createdBy: FIXTURE_ACTOR,
-            updatedBy: FIXTURE_ACTOR,
-            createdAt: ts,
-            updatedAt: ts,
-          };
-          store.drafts.set(draftId, draft);
+          const draft = reopenStudioVersion(store, version, FIXTURE_ACTOR);
           apiResponse(res, 201, draftRestPublic(draft));
           return true;
         }
@@ -2023,7 +2272,10 @@ function unauthorized(res) {
  * Starts the fixture server on an ephemeral loopback port.
  * @returns {Promise<{ server: import("node:http").Server, url: string, close: () => Promise<void> }>}
  */
-export async function startMockServer({ port = 0 } = {}) {
+export async function startMockServer({ port = 0, model = "fixture" } = {}) {
+  if (model !== "fixture" && model !== "byom-preview") {
+    throw new Error('Mock model must be "fixture" or "byom-preview".');
+  }
   // Pending authorization codes -> { codeChallenge, redirectUri, expiresAt }.
   const pendingCodes = new Map();
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
@@ -2184,7 +2436,7 @@ export async function startMockServer({ port = 0 } = {}) {
         unauthorized(res);
         return;
       }
-      json(res, 200, { success: true, data: AI_CAPABILITIES });
+      json(res, 200, { success: true, data: model === "byom-preview" ? BYOM_CAPABILITIES : AI_CAPABILITIES });
       return;
     }
     // ── Studio AI proxy: fixture chat SSE stream (honua-studio#6) ──
@@ -2205,8 +2457,16 @@ export async function startMockServer({ port = 0 } = {}) {
         json(res, 400, { error: "invalid_request", message: "At least one message is required." });
         return;
       }
+      const planned =
+        model === "byom-preview"
+          ? planByomPreviewTurn({
+              messages,
+              tools: Array.isArray(requestBody?.tools) ? requestBody.tools : [],
+              toolChoice: requestBody?.toolChoice,
+            })
+          : undefined;
       const turnIndex = messages.filter((m) => m?.role === "user").length - 1;
-      const turn = FIXTURE_CONVERSATION.turns[turnIndex];
+      const turn = planned ? { assistant: { events: planned.events } } : FIXTURE_CONVERSATION.turns[turnIndex];
 
       // Tracks a REAL client disconnect (the response socket closing), not
       // `req.destroyed` — that flips true the moment `readBody()` above
@@ -2289,7 +2549,7 @@ export async function startMockServer({ port = 0 } = {}) {
         return;
       }
 
-      const outcome = mcp.handle(method, params);
+      const outcome = mcp.handle(method, params, verifyFixtureJwt(bearerToken(req)));
       const extraHeaders = {};
       if (method === "initialize") {
         const sessionId = randomUUID();
@@ -2316,7 +2576,8 @@ export async function startMockServer({ port = 0 } = {}) {
         subPath === "/content-items" ||
         subPath.startsWith("/content-items/") ||
         subPath === "/package-drafts" ||
-        subPath.startsWith("/package-drafts/");
+        subPath.startsWith("/package-drafts/") ||
+        subPath.startsWith("/publication-proposals/");
       if (knownLifecyclePrefix) {
         if (!verifyFixtureJwt(bearerToken(req))) {
           unauthorized(res);
@@ -2384,8 +2645,26 @@ export async function startMockServer({ port = 0 } = {}) {
       return;
     }
 
+    const publishedMatch = /^\/published\/([^/]+)$/.exec(pathname);
+    if (publishedMatch && req.method === "GET") {
+      const proposal = studioLifecycleStore.proposals.get(decodeURIComponent(publishedMatch[1]));
+      if (!proposal || proposal.status !== "approved") {
+        json(res, 404, { error: "not_found" });
+        return;
+      }
+      json(res, 200, {
+        schemaVersion: "honua.studio.published-preview.v1",
+        proposalId: proposal.proposalId,
+        itemId: proposal.itemId,
+        versionId: proposal.versionId,
+        route: proposal.route,
+        visibility: proposal.visibility,
+      });
+      return;
+    }
+
     if (pathname === "/health" && req.method === "GET") {
-      json(res, 200, { status: "ok", mode: "mock" });
+      json(res, 200, { status: "ok", mode: "mock", model });
       return;
     }
 
@@ -2428,15 +2707,19 @@ function bearerToken(req) {
 export function mintFixtureAccessToken({
   issuer = "https://console.example/oidc",
   ttlSeconds = ACCESS_TOKEN_TTL_SECONDS,
+  sub = FIXTURE_USER.sub,
+  name = FIXTURE_USER.name,
+  email = FIXTURE_USER.email,
+  roles = FIXTURE_USER.roles,
 } = {}) {
   const now = Math.floor(Date.now() / 1000);
   return signFixtureJwt({
     iss: issuer,
-    sub: FIXTURE_USER.sub,
+    sub,
     aud: OIDC_CLIENT_ID,
-    name: FIXTURE_USER.name,
-    email: FIXTURE_USER.email,
-    roles: FIXTURE_USER.roles,
+    name,
+    email,
+    roles,
     scope: "openid profile honua.read honua.write",
     iat: now,
     exp: now + ttlSeconds,
