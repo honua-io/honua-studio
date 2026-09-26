@@ -185,22 +185,17 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
 });
 
 describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
-  it("offers durable mutations only through static honua_studio schemas", () => {
+  it("keeps durable mutations out of the local runtime plane so SDK discovery owns them", () => {
     const element = document.createElement("honua-studio-app") as HonuaStudioAppElement;
     const names = element.agentToolDefinitions(element.aiMapKit).map((tool) => tool.name);
     expect(names).toContain("inspectMap");
     expect(names).toContain("selectFeature");
-    expect(names).toContain("honua_studio_add_layer");
-    expect(names).toContain("honua_studio_set_view");
-    expect(names).toContain("honua_studio_set_layer_visibility");
+    expect(names).not.toContain("honua_studio_add_layer");
+    expect(names).not.toContain("honua_studio_set_view");
+    expect(names).not.toContain("honua_studio_set_layer_visibility");
     expect(names).not.toContain("addLayer");
     expect(names).not.toContain("setViewport");
-    for (const tool of element
-      .agentToolDefinitions(element.aiMapKit)
-      .filter((entry) => entry.name.startsWith("honua_"))) {
-      expect(tool.inputSchema.properties).not.toHaveProperty("draftId");
-      expect(tool.inputSchema.properties).not.toHaveProperty("generation");
-    }
+    expect(names.some((name) => name.startsWith("honua_studio_"))).toBe(false);
   });
 
   it("retains a replaceable discovery-provider seam around today's static schemas", () => {
@@ -246,6 +241,31 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     expect(secondSession).not.toBe(firstSession);
     const replacementAuth = attachedAgentOptions[1]?.auth as { getAccessToken: () => Promise<string | undefined> };
     await expect(replacementAuth.getAccessToken()).resolves.toBe("replacement-token");
+  });
+
+  it("hands host certification options to the live agent session and rebuilds it when they change", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ packageKey: "pkg-live-certified" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    expect(attachedAgentOptions[0]).not.toHaveProperty("certification");
+    expect(attachedAgentOptions[0]).not.toHaveProperty("transcriptVerifier");
+
+    const certification = {
+      candidateId: "sha256:candidate",
+      releaseId: "2026.1",
+      endpointIdentity: "https://studio.example",
+      actionId: "studio.setup",
+      runNonce: "run-2",
+    };
+    const transcriptVerifier = { verify: vi.fn(async () => ({ ok: true })) };
+    element.agentCertification = { certification, transcriptVerifier };
+
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(2));
+    expect(attachedAgentOptions[1]?.certification).toBe(certification);
+    expect(attachedAgentOptions[1]?.transcriptVerifier).toBe(transcriptVerifier);
+    expect(element.agentCertification?.certification).toBe(certification);
   });
 
   it("ignores draft events emitted by a superseded agent session", async () => {

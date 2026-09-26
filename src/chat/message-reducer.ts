@@ -124,6 +124,10 @@ function applyAiEvent(message: ChatMessage, event: StudioAiChatEvent): ChatMessa
         status: "error",
         errorMessage: event.errorMessage ?? "The Studio AI proxy reported an error.",
       };
+    case "transcriptProvenance":
+      // Signed attestation of the round, verified by the SDK session before it
+      // dispatches a model-selected tool. It carries no transcript content.
+      return message;
     default:
       return message;
   }

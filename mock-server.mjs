@@ -128,6 +128,7 @@ const CHAT_EVENT_TYPE_TO_SSE_NAME = {
   toolCallStop: "tool_call_stop",
   messageStop: "message_stop",
   error: "error",
+  transcriptProvenance: "transcript_provenance",
 };
 
 const FIXTURE_CONVERSATION = JSON.parse(

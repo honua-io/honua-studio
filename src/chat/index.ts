@@ -10,4 +10,3 @@ export * from "./fixture-conversation.js";
 export { playFixtureConversation, type FixtureChatTarget } from "./fixture-player.js";
 export { fetchStudioAiCapabilities, type FetchStudioAiCapabilitiesOptions } from "./capabilities-client.js";
 export * from "./system-prompt.js";
-export * from "./studio-agent-tools.js";

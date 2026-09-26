@@ -38,7 +38,6 @@ import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit 
 import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
-import { STATIC_STUDIO_AGENT_TOOLS } from "../chat/studio-agent-tools.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
@@ -58,7 +57,7 @@ import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
-import type { HonuaStudioChatElement } from "./studio-chat-element.js";
+import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
@@ -194,27 +193,42 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
+  #agentCertification: StudioAgentCertificationOptions | undefined;
   #agentSetupGeneration = 0;
   #liveAgentBaseUrl = "/api";
   #liveCompositionOptions: LiveCompositionOptions | undefined;
 
-  /**
-   * Tool-schema seam for sdk-js#1397. Today the published SDK kit is the
-   * static source of truth; hosts/tests may replace this provider without
-   * changing chat or composition wiring.
-   */
+  /** Runtime-tool seam. Server-backed composition tools are discovered from
+   * the authenticated MCP endpoint by sdk-js 0.1.9; hosts/tests may replace
+   * the local provider without changing chat or composition wiring. */
   public get agentToolDefinitions(): (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike> {
     return (
       this.#agentToolDefinitions ??
-      ((kit) => [
-        ...kit.tools.filter((tool) => tool.mode === "read" || tool.name === "selectFeature"),
-        ...STATIC_STUDIO_AGENT_TOOLS,
-      ])
+      ((kit) => kit.tools.filter((tool) => tool.mode === "read" || tool.name === "selectFeature"))
     );
   }
 
   public set agentToolDefinitions(provider: (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) {
     this.#agentToolDefinitions = provider;
+    if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
+  }
+
+  /**
+   * Certified-dispatch options for the live agent session: a certification
+   * binding and a transcript verifier (for example the SDK's
+   * `StudioAiTranscriptVerifier` over the proxy's published
+   * `transcriptSigning` keys). The SDK dispatches a model-selected tool only
+   * after it verifies that round's signed `transcriptProvenance`
+   * (honua-io/honua-sdk-js#1748); without these options the turn ends with
+   * the SDK's refusal as a turn error. Assigning rebuilds a live session, so
+   * a new binding (and run nonce) takes effect on the next turn.
+   */
+  public get agentCertification(): StudioAgentCertificationOptions | undefined {
+    return this.#agentCertification;
+  }
+
+  public set agentCertification(options: StudioAgentCertificationOptions | undefined) {
+    this.#agentCertification = options;
     if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
@@ -797,16 +811,18 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
     const kit = this.aiMapKit;
     const sessionRef: { current?: StudioAgentSession } = {};
+    const certification = this.#agentCertification;
     sessionRef.current = chat.attachAgentSession({
+      ...(certification?.certification ? { certification: certification.certification } : {}),
+      ...(certification?.transcriptVerifier ? { transcriptVerifier: certification.transcriptVerifier } : {}),
       baseUrl,
       auth: this.auth,
       tools: [...this.agentToolDefinitions(kit)],
       execute: async (call) => {
-        // The pinned SDK predates the already-landed visibility tool in its
-        // composition allow-list. Forward only this newer server mutation
-        // through Studio's generation-safe orchestrator until sdk-js#1397
-        // supplies the discovered dispatcher; all older honua_studio_* names
-        // remain SDK-owned.
+        // Local runtime tools execute through the kit. The compatibility
+        // forwarding remains for a host that deliberately supplies the
+        // visibility mutation through the public runtime-tool seam; normally
+        // sdk-js discovers and dispatches it through MCP.
         const forwardedCall = call as unknown as {
           readonly name: string;
           readonly args?: Readonly<Record<string, unknown>>;

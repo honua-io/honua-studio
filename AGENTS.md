@@ -23,7 +23,7 @@ rendering is vector-only** (OGC API Features or a GeoServices FeatureServer); an
 - **Bundler/dev server:** Vite 8 — multi-page build (the shell plus `harness/bare/`).
 - **Tests:** Vitest 4 (`environment: node`, `test/**/*.test.ts`) + Playwright 1.58 (chromium only, `test/playwright/*.spec.mjs`).
 - **Lint/format:** Biome 1.9.4 (`biome.json`), 2-space indent, 120 cols.
-- **Map runtime:** `maplibre-gl` 5.24.0; SDK pin `@honua/sdk-js` 0.1.7-beta.0.
+- **Map runtime:** `maplibre-gl` 5.24.0; SDK pin `@honua/sdk-js` 0.1.9-beta.0.
 - **Blazor embed harness:** .NET 10 SDK (`harness/blazor-host/`), needed only for the `@blazor` lane.
 
 ## Setup
@@ -54,8 +54,12 @@ From the repo root; copied from `package.json` / CI. Do not invent variants.
 - **Blazor host lane:** `npm run test:browser:blazor`, wrapping `npm run build:blazor-host` (= `build:blazor-assets` plus a scoped `dotnet build` of `harness/blazor-host/StudioHost`); needs the .NET SDK, see that dir's README
 - **Live lane:** `npm run test:browser:live` — `@live` journeys against a real deployment; skips unless `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set (the key is injected server-side by the proxy as `X-API-Key`, never bundled)
 
-CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`), `build`,
-`browser-smoke`, and `blazor-host-smoke` (builds the host, then `npx playwright test --grep @blazor`).
+CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`) and `build`.
+`smoke-suite.yml` runs directly on the same events for `container-smoke`, `browser-smoke` and `blazor-host-smoke`
+(builds the host, then `npx playwright test --grep @blazor`), preserving the existing required check names.
+`smoke-suite.yml` also exposes `workflow_call` so `release.yml`
+runs the identical three smokes — and `needs:` them — before it pushes a versioned image to GHCR; it declares its own
+`NODE_VERSION`/`DOTNET_VERSION` because a reusable workflow does not inherit the caller's `env`.
 `pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR, and `claude-second-review.yml` the
 second-pass review once the first pass's threads are resolved (both under "Pull Requests").
 `live-demo-smoke.yml` runs `test:browser:live` nightly against `demo.honua.io`; `security.yml` runs the org's
