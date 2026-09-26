@@ -23,14 +23,9 @@
  *
  *  2. RUNTIME: drives `honua_studio_propose_publication` — the ONLY
  *     publish-adjacent MCP tool an agent can call — through the REAL MCP
- *     client + REAL mock-server `/mcp` dispatcher (the exact path a chat
- *     tool-call intent takes via `ToolCallOrchestrator`), and asserts,
- *     against the REAL REST lifecycle store (the SAME store per this
- *     issue's "one store, both surfaces" design), that the content item's
- *     published pointer never moves and no publication/rollback request was
- *     ever recorded — proving the agent path has NO side effect beyond the
- *     documented "intent recorded on the draft", regardless of what code
- *     exists elsewhere in the app.
+ *     client + REAL mock-server `/mcp` dispatcher, and asserts, against the
+ *     REAL REST lifecycle store, that the call records an `AwaitingApproval`
+ *     proposal and does not move the published pointer.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -91,11 +86,6 @@ describe("THE HUMAN GATE — spec REQ-009 (static analysis)", () => {
   });
 
   it("honua_studio_propose_publication's typed argument/output shapes (mcp/studio-tools.ts) never reference a publish/rollback pointer field", () => {
-    // Structural corroboration: the propose-publication input/output types
-    // carry only intent fields (route/visibility/embed/service/schedule/job/note)
-    // and draft/recorded/humanConfirmationRequired/message — never
-    // `publishedVersionId`, `currentVersionId`, or a `pointer` field, which
-    // would be the tell of an accidental publish/rollback side channel.
     const content = readFileSync(join(srcRoot, "mcp/studio-tools.ts"), "utf8");
     const proposeSection = content.slice(
       content.indexOf("interface ProposeStudioPublicationInput"),
@@ -113,7 +103,7 @@ afterEach(async () => {
 });
 
 describe("THE HUMAN GATE — spec REQ-009 (runtime proof against the real mock server)", () => {
-  it("honua_studio_propose_publication (the agent's ONLY publish-adjacent tool) never moves the published pointer or records a publication/rollback request", async () => {
+  it("honua_studio_propose_publication (the agent's ONLY publish-adjacent tool) never moves the published pointer", async () => {
     server = await startMockServer();
     const token = mintFixtureAccessToken();
 
@@ -126,58 +116,54 @@ describe("THE HUMAN GATE — spec REQ-009 (runtime proof against the real mock s
     const mcpClient = new McpClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
     const tools = new StudioMcpToolClient(mcpClient);
 
+    const lifecycle = new StudioLifecycleClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
     const draft = await tools.createDraft({ packageKey: "human-gate-pkg", family: "map", schemaVersion: "1.0" });
+    const version = await lifecycle.saveAsVersion(draft.draftId, "ready");
 
     const proposal = await tools.proposePublication({
-      draftId: draft.draftId,
-      generation: draft.generation,
+      itemId: version.itemId,
+      versionId: version.versionId,
+      contentHash: version.contentHash,
       route: "/studio/human-gate-pkg",
       visibility: "organization",
       note: "Ready for review.",
     });
-    expect(proposal.recorded).toBe(true);
+    expect(proposal.status).toBe("AwaitingApproval");
     expect(proposal.humanConfirmationRequired).toBe(true);
-    expect(proposal.draft.generation).toBeGreaterThan(draft.generation); // recording intent advances generation, same as any other update
-
-    // The REST lifecycle client (a completely independent transport/surface
-    // from the /mcp path above) reads the SAME shared store (this issue's
-    // "one store, both surfaces" design) — proving the propose-publication
-    // call had NO effect beyond writing publicationIntent onto the draft.
-    const lifecycle = new StudioLifecycleClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
-    const restDraft = await lifecycle.getDraft(draft.draftId);
-    expect(restDraft.envelope.publicationIntent).toEqual({
-      route: "/studio/human-gate-pkg",
-      visibility: "organization",
-      note: "Ready for review.",
-    });
+    expect(proposal.proposalUri).toBe(`honua://proposals/${proposal.proposalId}`);
+    expect(proposal).not.toHaveProperty("publicationUrl");
 
     const items = await lifecycle.listContentItems({ q: "human-gate-pkg" });
     expect(items.items).toHaveLength(1);
-    expect(items.items[0]?.state).toBe("draft"); // never advanced to "current" or "published"
-    expect(items.items[0]?.currentVersionId).toBeUndefined();
+    expect(items.items[0]?.state).toBe("current");
     expect(items.items[0]?.publishedVersionId).toBeUndefined();
-    expect(items.items[0]?.publication).toBeUndefined(); // no publication badge — nothing was ever published
+    expect(items.items[0]?.publication).toBeUndefined();
   });
 
-  it("proposing publication twice, then never confirming, still leaves zero publication/rollback requests recorded anywhere in the store", async () => {
+  it("repeating a proposal still does not move the published pointer", async () => {
     server = await startMockServer();
     const token = mintFixtureAccessToken();
     const mcpClient = new McpClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
     const tools = new StudioMcpToolClient(mcpClient);
+    const lifecycle = new StudioLifecycleClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
 
     const draft = await tools.createDraft({ packageKey: "human-gate-repeat", family: "map", schemaVersion: "1.0" });
-    await tools.proposePublication({ draftId: draft.draftId, generation: draft.generation, route: "/a" });
-    const refreshed = await tools.getDraft(draft.draftId);
-    await tools.proposePublication({ draftId: refreshed.draftId, generation: refreshed.generation, route: "/b" });
+    const version = await lifecycle.saveAsVersion(draft.draftId);
+    const input = {
+      itemId: version.itemId,
+      versionId: version.versionId,
+      contentHash: version.contentHash,
+      route: "/a",
+      visibility: "private",
+    };
+    const first = await tools.proposePublication(input);
+    const second = await tools.proposePublication({ ...input, visibility: "public" });
+    expect(first.proposalId).not.toBe(second.proposalId);
+    expect(first.status).toBe("AwaitingApproval");
+    expect(second.status).toBe("AwaitingApproval");
 
-    // No REST publish-request/rollback-request endpoint was ever hit by any
-    // of the above — verified indirectly: the item was never saved as a
-    // version at all (propose-publication only touches the draft), so there
-    // is nothing a publish-request could even target yet.
-    const lifecycle = new StudioLifecycleClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
-    const versions = await lifecycle.listVersions(draft.itemId ?? draft.draftId);
-    expect(versions.versions).toEqual([]);
     const items = await lifecycle.listContentItems({ q: "human-gate-repeat" });
-    expect(items.items[0]?.state).toBe("draft");
+    expect(items.items[0]?.state).toBe("current");
+    expect(items.items[0]?.publishedVersionId).toBeUndefined();
   });
 });

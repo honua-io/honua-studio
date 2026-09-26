@@ -106,6 +106,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   #activeAbort: AbortController | undefined;
   #agentSession: StudioAgentSession | undefined;
   #agentMessageId: string | undefined;
+  #shareNote: string | undefined;
 
   /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
   public get auth(): AuthSession | undefined {
@@ -200,6 +201,21 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   /** Whether an assistant turn is currently streaming. */
   public get streaming(): boolean {
     return this.#state.streaming;
+  }
+
+  /**
+   * Governed-share line rendered inside the conversation. Assigning it does
+   * not publish; the host supplies text from a status read.
+   */
+  public get shareNote(): string | undefined {
+    return this.#shareNote;
+  }
+
+  public set shareNote(value: string | undefined) {
+    const next = typeof value === "string" && value.trim() ? value : undefined;
+    if (next === this.#shareNote) return;
+    this.#shareNote = next;
+    if (this.isConnected) this.render();
   }
 
   public attributeChangedCallback(): void {
@@ -553,9 +569,14 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
         </div>
         <ul class="chat-log" aria-live="polite" data-testid="studio-chat-log">
           ${
-            this.#state.messages.length === 0
+            this.#state.messages.length === 0 && !this.#shareNote
               ? `<li class="hn-muted">No messages yet.</li>`
               : this.#state.messages.map((message) => renderMessage(message)).join("")
+          }
+          ${
+            this.#shareNote
+              ? `<li class="chat-message chat-message--assistant" data-testid="studio-chat-share-status" data-role="assistant">${escapeHtml(this.#shareNote)}</li>`
+              : ""
           }
         </ul>
         <form data-testid="studio-chat-form">
