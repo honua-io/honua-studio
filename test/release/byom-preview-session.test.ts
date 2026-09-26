@@ -64,8 +64,9 @@ describe("byom preview session", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     const pendingBody = await pending.json();
-    expect(pendingBody.data.status).toBe("pending");
+    expect(pendingBody.data.status).toBe("AwaitingApproval");
     expect(pendingBody.data.approvedUrl).toBeUndefined();
+    expect(pendingBody.data.publicationUrl).toBeUndefined();
 
     const selfApprove = await fetch(`${server.url}/v1/studio/publication-proposals/${proposalId}/decision`, {
       method: "POST",
@@ -78,7 +79,7 @@ describe("byom preview session", () => {
     const hidden = await fetch(`${server.url}/v1/studio/publication-proposals/${proposalId}`, {
       headers: { authorization: `Bearer ${stranger}` },
     });
-    expect(hidden.status).toBe(404);
+    expect(hidden.status).toBe(403);
 
     const approver = mintFixtureAccessToken({ sub: "studio-approver", roles: ["approver"] });
     const review = await fetch(`${server.url}/v1/studio/publication-proposals/${proposalId}`, {

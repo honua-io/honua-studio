@@ -381,18 +381,18 @@ browser); `draft` (read-only, the loaded `StudioPackageDraft`); `versions`
 `rollback-requested`/`error`; `studio-app-element.ts` forwards every one of
 these into the shared activity log as a `lifecycle_action` entry).
 
-**THE HUMAN GATE — spec REQ-009.** `honua_studio_propose_publication`
-(server PR #3016, the only publish-adjacent MCP tool an agent can call) only
-ever writes `envelope.publicationIntent` onto a draft. When the loaded draft
-carries one, this panel renders an informational pending-proposal banner —
-it calls nothing. Turning that into an actual publish, or running a
-rollback, requires opening this panel's own confirm dialog and typing the
-exact package key; only that dialog's confirm button calls
+**THE HUMAN GATE — spec REQ-009.** `honua_studio_propose_publication` is the
+only publish-adjacent MCP tool an agent can call. It submits an
+`AwaitingApproval` proposal for an already-saved version and does not move
+the published pointer. A draft that still carries `publicationIntent` renders
+an informational banner and calls nothing. The lifecycle panel's confirm
+dialog is a separate, typed human confirmation: only that button calls
 `StudioLifecycleClient.requestPublish`/`.requestRollback` — the ONLY call
 site for either method anywhere in this package, verified both statically
 and at runtime by `test/lifecycle/human-gate.test.ts`. No chat/MCP
 tool-call/activity-log event handler anywhere in the app can reach either
-method.
+method. The preview conversation reports proposal status and, only after a
+different principal approves, the server-issued link.
 
 ## Lifecycle
 

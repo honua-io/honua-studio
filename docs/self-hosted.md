@@ -39,25 +39,30 @@ Changing `config.json` and restarting the container repoints the same image;
 no `npm` install or asset rebuild is involved. OIDC redirect URIs must include
 the externally visible Studio URL. The server must allow that origin.
 
-The tag release workflow runs checks and the full smoke suite
-([`smoke-suite.yml`](../.github/workflows/smoke-suite.yml) — the same container,
-browser and Blazor-host smokes CI runs on every pull request), then builds a
-reproducible static archive, pushes the version-only GHCR tag, and attaches the
+The tag release workflow runs the pinned Trivy and Scorecard scans and the full
+smoke suite ([`smoke-suite.yml`](../.github/workflows/smoke-suite.yml) — the
+same container, browser and Blazor-host smokes CI runs on every pull request).
+It then builds a reproducible static archive, verifies runtime config on the
+image it is about to push, pushes that version-only GHCR tag, and attaches the
 archive, checksum, and a receipt binding version, source SHA, and image digest
-to the GitHub release. Nothing is pushed unless all three smokes pass.
+to the GitHub release. Nothing is pushed unless those gates pass. The gate list
+is [`preview-release-posture.md`](preview-release-posture.md).
 
-The clean-machine container/config smoke runs on every pull request. The same
-job then runs `npm run test:self-hosted-preview` against that image, without
-rebuilding it. Injected `/config.json` points the browser at a local BYOM
-preview model (`byom-preview`). The model sees the full advertised Studio tool
-catalog, chooses the compose, save, reopen, and propose calls itself, and
-`StudioAgentSession` executes those choices. A separate approver principal
-publishes the link; the proposing browser session cannot approve itself, then
-reads the approved URL back. No demo credential and no hosted-model decision
-are required.
+The clean-machine container/config smoke is a required Preview gate and runs
+on every pull request, with the browser and Blazor-host smokes. That container
+job then runs `npm run test:self-hosted-preview` against the image it just
+built, without rebuilding it. Injected `/config.json` points the browser at a
+local BYOM preview model (`byom-preview`). The model sees the full advertised
+Studio tool catalog, chooses the compose, save, reopen, and propose calls
+itself, and `StudioAgentSession` executes those choices. A separate approver
+principal publishes the link; the proposing browser session cannot approve
+itself, then reads the approved URL back. No demo credential and no
+hosted-model decision are required.
 
 That receipt is Preview evidence. It is not a GA claim, not a hosted-model
-qualification, and not a registry digest. Nothing is published to GHCR until
-an operator pushes a `v*` tag and `release.yml` attaches the tarball, checksum,
-and source/image receipt to the GitHub release. Hosted demo access stays a
-2026.2 concern.
+qualification, and not a registry digest. A credentialed real-model
+composition/save/reopen journey is 2026.2 graduation work, not a 2026.1
+publish requirement. The nightly demo lane is separate and does not block a
+tag. Nothing is published to GHCR until an operator pushes a `v*` tag and
+`release.yml` attaches the tarball, checksum, and source/image receipt to the
+GitHub release.

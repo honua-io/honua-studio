@@ -36,15 +36,21 @@ to end.
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
-Fourteen pull requests are merged; `src/` holds 112 files and `test/` 99, with
-791 unit tests across 82 files and 29 Playwright browser journeys, including four accessibility checks.
+The 2026.1 browser Preview gates are packaging integrity, security, runtime
+configuration, and the in-repo browser and embed smokes. Hosted demo and
+real-model journeys are not those gates. The 2026.2 graduation checklist is
+[`docs/preview-release-posture.md`](docs/preview-release-posture.md).
+
+Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
+796 unit tests across 83 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
 `/config.json` points at the candidate, a local model selects from the full
 tool catalog, and the browser composes, saves, reopens, and proposes. A
 separate approver returns the URL. That journey does not use a demo
-credential or a hosted model. A `v*` tag runs
+credential or a hosted model, and it is not a substitute for the Preview
+publish gates. A `v*` tag runs
 [`release.yml`](.github/workflows/release.yml), which builds a reproducible
 static tarball, pushes the version-only image
 `ghcr.io/honua-io/honua-studio:<version>`, and attaches the tarball, its
@@ -111,6 +117,13 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   use the landed `honua_studio_*` tools, following visibility delegation in
   [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
   static `serverToolName` table until sdk-js#1397 supplies discovery.
+- **Governed sharing stays Preview**
+  ([#26](https://github.com/honua-io/honua-studio/issues/26)). The self-hosted
+  fixture smoke submits a canonical immutable-version proposal, keeps the
+  handle across a reload boundary, shows pending, rejected, and failed in
+  the conversation, and copies a server-issued link only after a different
+  principal approves. Private and public both wait. This is not a GA claim
+  ([posture](docs/share-preview-posture.md)).
 
 ### Not started
 
@@ -127,8 +140,6 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   [#39](https://github.com/honua-io/honua-studio/issues/39)).
 - Dual-mode visual style editor
   ([#22](https://github.com/honua-io/honua-studio/issues/22)).
-- Sharing a composed app through the propose-and-approve loop
-  ([#26](https://github.com/honua-io/honua-studio/issues/26)).
 - Console embed at `/studio`
   ([honua-io/honua-console#324](https://github.com/honua-io/honua-console/issues/324),
   2026.2).
@@ -214,7 +225,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 791 tests across 82 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 796 tests across 83 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

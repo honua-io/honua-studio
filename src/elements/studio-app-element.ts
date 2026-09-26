@@ -38,6 +38,12 @@ import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit 
 import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
+import {
+  fetchShareProposalStatus,
+  loadShareProposal,
+  projectShareConversation,
+  sessionShareStorage,
+} from "../chat/share-preview.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
@@ -759,6 +765,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (canvas && this.#sourceCatalog) canvas.sourceCatalog = this.#sourceCatalog;
     else void this.#loadSourceCatalog();
     void this.toolCallOrchestrator; // constructs it now, while `<honua-studio-chat>` (if any) is resolvable for its ActivityLog.
+    void this.#resumeSharePreview();
     this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
       const detail = (event as CustomEvent<HonuaStudioChatToolCallResultDetail>).detail;
       void this.#handleChatToolCall(detail);
@@ -894,6 +901,27 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (!result.ok) return { ok: false, reason: result.reason };
     }
     return { ok: true };
+  }
+
+  /** Restores a retained preview proposal into the conversation. Never publishes. */
+  async #resumeSharePreview(): Promise<void> {
+    try {
+      const handle = loadShareProposal(sessionShareStorage());
+      if (!handle) return;
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      if (!chat) return;
+      chat.shareNote = projectShareConversation(handle, {
+        proposalId: handle.proposalId,
+        status: "AwaitingApproval",
+      }).text;
+      const token = await this.auth?.getAccessToken();
+      if (!token) return;
+      const status = await fetchShareProposalStatus(runtimeServerBaseUrl(), handle.proposalId, token);
+      if (!status) return;
+      chat.shareNote = projectShareConversation(handle, status).text;
+    } catch {
+      // A retained handle must not block the shell when the preview server is unreachable.
+    }
   }
 
   /** Resolves one chat-emitted tool-call intent through `.toolCallOrchestrator` (honua-studio#7). Never throws — every outcome is recorded on the orchestrator's activity log; see `../mcp/orchestrator.js`'s module doc. */
