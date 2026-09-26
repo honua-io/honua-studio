@@ -171,6 +171,13 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     return this.#agentSession;
   }
 
+  #agentSessionPending = false;
+
+  public set agentSessionPending(pending: boolean) {
+    this.#agentSessionPending = pending;
+    this.render();
+  }
+
   public detachAgentSession(): void {
     this.#activeAbort?.abort();
     this.#agentSession = undefined;
@@ -294,7 +301,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
    */
   public async sendMessage(text: string): Promise<void> {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || this.#agentSessionPending) return;
     // StudioAgentSession owns one ordered history. A second concurrent turn
     // would interleave events/tool results and corrupt that history.
     if (this.#agentSession && this.streaming) return;
@@ -576,8 +583,8 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
               : ""
           }
           <div class="chat-composer-row">
-            <input id="honua-studio-chat-input" type="text" placeholder="${escapeHtml(placeholder)}" data-testid="studio-chat-input" autocomplete="off" ${streaming ? "disabled" : ""} />
-            <button type="submit" class="hn-btn hn-btn--sm" data-testid="studio-chat-send" ${streaming ? "disabled" : ""}>Send</button>
+            <input id="honua-studio-chat-input" type="text" placeholder="${escapeHtml(placeholder)}" data-testid="studio-chat-input" autocomplete="off" ${streaming || this.#agentSessionPending ? "disabled" : ""} />
+            <button type="submit" class="hn-btn hn-btn--sm" data-testid="studio-chat-send" ${streaming || this.#agentSessionPending ? "disabled" : ""}>Send</button>
             ${streaming ? `<button type="button" class="hn-btn hn-btn--sm" data-testid="studio-chat-cancel">Cancel</button>` : ""}
           </div>
         </form>

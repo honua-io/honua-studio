@@ -81,6 +81,12 @@ describe("byom preview session", () => {
     expect(hidden.status).toBe(404);
 
     const approver = mintFixtureAccessToken({ sub: "studio-approver", roles: ["approver"] });
+    const review = await fetch(`${server.url}/v1/studio/publication-proposals/${proposalId}`, {
+      headers: { authorization: `Bearer ${approver}` },
+    });
+    expect(review.status).toBe(200);
+    expect((await review.json()).data).toEqual(pendingBody.data);
+
     const decision = await fetch(`${server.url}/v1/studio/publication-proposals/${proposalId}/decision`, {
       method: "POST",
       headers: { authorization: `Bearer ${approver}`, "content-type": "application/json" },

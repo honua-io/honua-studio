@@ -184,6 +184,26 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
   });
 });
 
+it("blocks chat during setup and returns to fixture mode on failure", async () => {
+  const element = mount();
+  let rejectSetup!: (reason: Error) => void;
+  vi.spyOn(element.toolCallOrchestrator, "ensureLiveDraft").mockImplementation(
+    () =>
+      new Promise((_, reject) => {
+        rejectSetup = reject;
+      }),
+  );
+  element.enableLiveComposition({ packageKey: "pkg-pending", family: "map" });
+  const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
+  expect(chat.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="studio-chat-send"]')?.disabled).toBe(true);
+  await chat.sendMessage("must not reach raw transport");
+  expect(chat.activityLog.entries().some((entry) => entry.type === "user_message_sent")).toBe(false);
+  rejectSetup(new Error("draft initialization failed"));
+  await vi.waitFor(() => expect(element.toolCallOrchestrator.isLive).toBe(false));
+  expect(control(element, "live-composition-status").textContent).toBe("Fixture mode");
+  expect(chat.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="studio-chat-send"]')?.disabled).toBe(false);
+});
+
 describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
   it("keeps durable mutations out of the local runtime plane so SDK discovery owns them", () => {
     const element = document.createElement("honua-studio-app") as HonuaStudioAppElement;

@@ -1287,7 +1287,7 @@ function createStudioLifecycleRestRouter(store) {
       const isProposer = actor?.sub === proposal.proposedBy;
       const isApprover = proposal.approvedBy !== undefined && actor?.sub === proposal.approvedBy;
       if (!deciding && method === "GET") {
-        if (!isProposer && !isApprover) {
+        if (!isProposer && !isApprover && !roles.includes("approver")) {
           problemResponse(
             res,
             404,

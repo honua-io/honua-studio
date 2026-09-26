@@ -490,7 +490,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #scheduleLiveAgentSession(): void {
-    void this.#attachLiveAgentSession(this.#liveAgentBaseUrl).catch((error) => {
+    const setup = this.#attachLiveAgentSession(this.#liveAgentBaseUrl);
+    const generation = this.#agentSetupGeneration;
+    void setup.catch((error) => {
+      if (generation !== this.#agentSetupGeneration) return;
+      this.disableLiveComposition();
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
       chat?.activityLog.append("assistant_turn_error", {
         errorMessage: error instanceof Error ? error.message : String(error),
@@ -510,6 +514,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.toolCallOrchestrator.detachLiveSession();
     this.#agentSetupGeneration += 1;
     this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    if (chat) chat.agentSessionPending = false;
     this.#liveCompositionPackageKey = undefined;
     this.#liveCompositionOptions = undefined;
     this.#announceCompositionMode({ mode: "fixture" });
@@ -807,8 +813,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
     if (!chat || chat.hasCustomTransport || !this.toolCallOrchestrator.isLive) return;
     const setupGeneration = ++this.#agentSetupGeneration;
+    chat.agentSessionPending = true;
     const draft = await this.toolCallOrchestrator.ensureLiveDraft();
     if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
+    chat.agentSessionPending = false;
     const kit = this.aiMapKit;
     const sessionRef: { current?: StudioAgentSession } = {};
     const certification = this.#agentCertification;
