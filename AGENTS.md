@@ -8,13 +8,14 @@ command vocabulary over [`@honua/sdk-js`](https://github.com/honua-io/honua-sdk-
 `honua_studio_*` MCP tools. No arbitrary code eval: every mutation goes through the reducer or a server tool and
 lands in a replayable activity log. The app is exactly one embeddable custom element, `<honua-studio-app>`.
 
-Status is **v0.1 preview — bring your own model, run from source**: no released build, container, bundle, or hosted
-instance (#41). Two facts shape most tasks here. **Fixture-conversation mode is the only mode in which a turn
-composes the map end to end** — the SSE transport streams a real model's tool-call events, but the request never
-declares tool definitions and results are never fed back, so the agent loop does not close yet (#40). And **layer
-rendering is vector-only** (OGC API Features or a GeoServices FeatureServer); anything else resolves to a visible
-"unrenderable" note with a reason — raster is #36, 3D is #37–#39. `README.md` is the truth-checked status surface
-(#44): read its tables before claiming a capability, and update them (test counts included) when you change one.
+Status is **v0.1 Preview, not GA**. The self-hosted image, `/config.json`, and tag workflow exist;
+no `v*` tag has been published, and there is still no hosted instance. Live turns use
+`StudioAgentSession` over the server proxy. `npm run test:self-hosted-preview` drives that loop in the
+browser against the built image and a local BYOM planner (compose, save, reopen, propose, then a separate
+approver). It does not claim a hosted model or a GHCR digest. **Layer rendering is vector-only** (OGC API
+Features or a GeoServices FeatureServer); anything else resolves to a visible "unrenderable" note with a
+reason — raster is #36, 3D is #37–#39. `README.md` is the truth-checked status surface (#44): read its tables
+before claiming a capability, and update them (test counts included) when you change one.
 
 ## Tech Stack
 
@@ -53,6 +54,7 @@ From the repo root; copied from `package.json` / CI. Do not invent variants.
 - **Browser:** `npm run test:browser:install` once (Playwright chromium), then `npm run test:browser` — builds first, runs every spec except `@blazor`/`@live`
 - **Blazor host lane:** `npm run test:browser:blazor`, wrapping `npm run build:blazor-host` (= `build:blazor-assets` plus a scoped `dotnet build` of `harness/blazor-host/StudioHost`); needs the .NET SDK, see that dir's README
 - **Live lane:** `npm run test:browser:live` — `@live` journeys against a real deployment; skips unless `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set (the key is injected server-side by the proxy as `X-API-Key`, never bundled)
+- **Self-hosted preview receipt:** `npm run test:self-hosted-preview` — requires the `honua-studio:ci` image and Playwright chromium. Container smoke builds the image, then runs this. No demo credential.
 
 CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`) and `build`.
 `smoke-suite.yml` runs directly on the same events for `container-smoke`, `browser-smoke` and `blazor-host-smoke`

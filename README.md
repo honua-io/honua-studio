@@ -41,22 +41,24 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
-752 unit tests across 77 files and 29 Playwright browser journeys, including four accessibility checks.
-What that preview is *not*: no version has been released yet and there is no
-hosted instance you can click into — running from source against your own
-honua-server is the only way to run Studio today
-([#41](https://github.com/honua-io/honua-studio/issues/41)). The packaging is
-built and smoked in CI rather than missing: a `v*` tag runs
+Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
+796 unit tests across 83 files and 29 Playwright browser journeys, including four accessibility checks.
+2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
+hosted instance you can click into. CI builds the image and runs a browser
+BYOM preview against it: the page loads from the container, runtime
+`/config.json` points at the candidate, a local model selects from the full
+tool catalog, and the browser composes, saves, reopens, and proposes. A
+separate approver returns the URL. That journey does not use a demo
+credential or a hosted model, and it is not a substitute for the Preview
+publish gates. A `v*` tag runs
 [`release.yml`](.github/workflows/release.yml), which builds a reproducible
 static tarball, pushes the version-only image
 `ghcr.io/honua-io/honua-studio:<version>`, and attaches the tarball, its
 checksum, and a receipt binding version/source SHA/image digest to the GitHub
 release. No such tag has been cut, so no image or tarball exists to pull yet —
 see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
-on the public demo additionally waits on an open owner decision about model
-access there (2026.1 decision D2), so treat every capability below as something
-you verify by running it, not by visiting a URL.
+on the public demo remains a 2026.2 decision (D2), so treat every capability
+below as something you verify by running it, not by visiting a URL.
 
 The founding specification is
 [#1 — agent-composed dynamic UI](https://github.com/honua-io/honua-studio/issues/1),
@@ -125,15 +127,11 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
 
 ### Not started
 
-- Cutting the first release tag, and a hosted instance on the demo server
-  ([#41](https://github.com/honua-io/honua-studio/issues/41)) — **running from
-  source is the only way to run Studio today.** The pieces a release needs have
-  landed and are exercised on every PR: the container image, the runtime
-  `/config.json` base-URL/OIDC contract, the reproducible static tarball, and
-  the tag-triggered `release.yml` that publishes them. What has not happened is
-  the tag itself, so nothing is published on GHCR or as a release asset yet. The
-  hosted demo also depends on decision D2 (model access on `demo.honua.io`) and
-  on honua-io/honua-server#3303, so it is not purely a packaging task.
+- Cutting the first release tag, and a hosted instance on the demo server.
+  The container, runtime `/config.json` contract, reproducible tarball, tag
+  workflow, and local BYOM compose/save/reopen/propose receipt are exercised
+  on every pull request. What has not happened is the tag itself, so nothing
+  is published on GHCR yet. The hosted demo remains decision D2.
 - Raster and image layers: COG, ImageServer, WMS
   ([#36](https://github.com/honua-io/honua-studio/issues/36)).
 - 3D — scene projection, 2D/3D toggle, scene agent tools
@@ -227,7 +225,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 752 tests across 77 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 796 tests across 83 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

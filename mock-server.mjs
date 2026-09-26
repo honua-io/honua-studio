@@ -120,6 +120,8 @@ import { readFileSync } from "node:fs";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 
+import { planByomPreviewTurn } from "./scripts/lib/byom-preview-model.mjs";
+
 // Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
 // file's module doc for why it's a duplicate, not an import.
 const CHAT_EVENT_TYPE_TO_SSE_NAME = {
@@ -136,6 +138,23 @@ const CHAT_EVENT_TYPE_TO_SSE_NAME = {
 const FIXTURE_CONVERSATION = JSON.parse(
   readFileSync(new URL("./src/chat/fixtures/compose-districts-map.json", import.meta.url), "utf8"),
 );
+
+const BYOM_CAPABILITIES = {
+  enabled: true,
+  defaultProvider: "byom-preview",
+  providers: [
+    {
+      provider: "byom-preview",
+      kind: "local-planner",
+      model: "honua-studio-byom-preview",
+      maxTokens: 4096,
+      toolSupport: true,
+      streaming: true,
+      isDefault: true,
+      configured: true,
+    },
+  ],
+};
 
 const AI_CAPABILITIES = {
   enabled: true,
@@ -182,8 +201,14 @@ const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_remove_control",
   "honua_studio_bind_interaction",
   "honua_studio_remove_interaction",
+  "honua_studio_save_version",
+  "honua_studio_reopen_version",
   "honua_studio_propose_publication",
 ];
+
+const STUDIO_TOOL_CLASSIFICATION = {
+  "honua.studio": { family: "honua.studio.composition", view: "setup", revision: "preview.v1" },
+};
 
 const COMPOSITION_ELIGIBLE_FAMILIES = new Set(["map", "app"]);
 const KNOWN_FAMILIES = new Set([
@@ -350,6 +375,7 @@ function proposalStatusPayload(proposal) {
   };
   if (proposal.reason) payload.reason = proposal.reason;
   if (proposal.status === "Active" && proposal.publicationUrl) payload.publicationUrl = proposal.publicationUrl;
+  if (proposal.status === "Active" && proposal.approvedUrl) payload.approvedUrl = proposal.approvedUrl;
   return payload;
 }
 
@@ -759,6 +785,45 @@ function createMcpDispatcher(store) {
       });
     },
 
+    honua_studio_save_version(args) {
+      const { draft, error } = requireDraft(args?.draftId);
+      if (error) return error;
+      if (args?.generation !== draft.generation) {
+        return toolError(
+          "failed_precondition",
+          `Stale draft generation; refresh and retry. (expected ${draft.generation}, got ${args?.generation})`,
+        );
+      }
+      const saved = saveStudioVersion(store, draft, typeof args.changeNote === "string" ? args.changeNote : undefined);
+      return toolSuccess({
+        draft: {
+          ...draftPublic(saved.draft),
+          savedVersionId: saved.version.versionId,
+          savedItemId: saved.version.itemId,
+          savedContentHash: saved.version.contentHash,
+        },
+        version: {
+          itemId: saved.version.itemId,
+          versionId: saved.version.versionId,
+          contentHash: saved.version.contentHash,
+          versionNumber: saved.version.versionNumber,
+        },
+      });
+    },
+
+    honua_studio_reopen_version(args) {
+      const version = store.versions.get(args?.versionId);
+      if (!version || version.itemId !== args?.itemId) {
+        return toolError("not_found", "Studio content version was not found.");
+      }
+      const draft = reopenStudioVersion(store, version);
+      return toolSuccess({
+        ...draftPublic(draft),
+        baseVersionId: draft.baseVersionId,
+        reopenedFromVersionId: version.versionId,
+      });
+    },
+
     honua_studio_propose_publication(args, actorId) {
       if (!args || typeof args !== "object") return toolError("invalid_argument", "Proposal arguments are required.");
       const smuggled = Object.keys(args).find((key) => PROPOSAL_SMUGGLE_KEYS.has(key.toLowerCase()));
@@ -838,7 +903,9 @@ function createMcpDispatcher(store) {
           result: {
             tools: STUDIO_MCP_TOOL_NAMES.map((name) => ({
               name,
-              inputSchema: { type: "object" },
+              description: name,
+              inputSchema: { type: "object", additionalProperties: true },
+              _meta: STUDIO_TOOL_CLASSIFICATION,
             })),
           },
         };
@@ -1010,6 +1077,75 @@ function runValidation() {
   return { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: new Date().toISOString() };
 }
 
+function saveStudioVersion(store, draft, changeNote, actor = FIXTURE_ACTOR) {
+  const validation = runValidation();
+  const envelope = { ...draft.envelope, validation };
+  const contentHash = computeContentHash(envelope);
+  const versionId = store.nextVersionId();
+  const versionNumber = (store.versionsByItem.get(draft.itemId) ?? []).length + 1;
+  const ts = store.now();
+  const version = {
+    itemId: draft.itemId,
+    packageKey: draft.packageKey,
+    workspaceId: draft.workspaceId,
+    ownerId: draft.ownerId,
+    versionId,
+    versionNumber,
+    contentHash,
+    envelope,
+    validation,
+    dependencies: envelope.dependencies ?? [],
+    provenance: envelope.provenance ?? [],
+    sourceDraftId: draft.draftId,
+    baseVersionId: draft.baseVersionId,
+    changeNote,
+    createdBy: actor,
+    createdAt: ts,
+  };
+  store.versions.set(versionId, version);
+  store.versionsByItem.set(draft.itemId, [...(store.versionsByItem.get(draft.itemId) ?? []), versionId]);
+  const item = store.touchItem(draft.itemId, {
+    packageKey: draft.packageKey,
+    workspaceId: draft.workspaceId,
+    family: draft.family,
+    actor,
+  });
+  store.items.set(draft.itemId, { ...item, currentVersionId: versionId, updatedAt: ts });
+  const savedDraft = {
+    ...draft,
+    envelope,
+    validation,
+    generation: draft.generation + 1,
+    updatedBy: actor,
+    updatedAt: ts,
+  };
+  store.drafts.set(draft.draftId, savedDraft);
+  return { version, draft: savedDraft };
+}
+
+function reopenStudioVersion(store, version, actor = FIXTURE_ACTOR) {
+  const draftId = store.nextDraftId();
+  const ts = store.now();
+  const draft = {
+    draftId,
+    itemId: version.itemId,
+    packageKey: version.packageKey,
+    workspaceId: version.workspaceId,
+    ownerId: version.ownerId,
+    family: version.envelope.family,
+    envelope: version.envelope,
+    validation: version.validation,
+    baseVersionId: version.versionId,
+    generation: 1,
+    createdBy: actor,
+    updatedBy: actor,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+  store.drafts.set(draftId, draft);
+  return draft;
+}
+
 function createStudioLifecycleRestRouter(store) {
   function versionsForItem(itemId) {
     const ids = store.versionsByItem.get(itemId) ?? [];
@@ -1116,53 +1252,9 @@ function createStudioLifecycleRestRouter(store) {
   }
 
   function saveDraftAsVersion(draft, changeNote) {
-    const validation = runValidation();
-    const envelope = { ...draft.envelope, validation };
-    const contentHash = computeContentHash(envelope);
-    const versionId = store.nextVersionId();
-    const versionNumber = versionsForItem(draft.itemId).length + 1;
-    const ts = store.now();
-    const version = {
-      itemId: draft.itemId,
-      packageKey: draft.packageKey,
-      workspaceId: draft.workspaceId,
-      ownerId: draft.ownerId,
-      versionId,
-      versionNumber,
-      contentHash,
-      envelope,
-      validation,
-      dependencies: envelope.dependencies ?? [],
-      provenance: envelope.provenance ?? [],
-      sourceDraftId: draft.draftId,
-      baseVersionId: draft.baseVersionId,
-      changeNote,
-      createdBy: FIXTURE_ACTOR,
-      createdAt: ts,
-    };
-    store.versions.set(versionId, version);
-    store.versionsByItem.set(draft.itemId, [...(store.versionsByItem.get(draft.itemId) ?? []), versionId]);
-    // "Saving a draft as a content version revalidates the draft... and
-    // advances the content item's current pointer" (doc) — also bumps the
-    // draft's own generation, matching "save-as-version calls persist the
-    // latest validation summary back onto the draft and therefore also
-    // advance the draft generation."
-    const item = store.touchItem(draft.itemId, {
-      packageKey: draft.packageKey,
-      workspaceId: draft.workspaceId,
-      family: draft.family,
-      actor: FIXTURE_ACTOR,
-    });
-    store.items.set(draft.itemId, { ...item, currentVersionId: versionId, updatedAt: ts });
-    store.drafts.set(draft.draftId, {
-      ...draft,
-      envelope,
-      validation,
-      generation: draft.generation + 1,
-      updatedBy: FIXTURE_ACTOR,
-      updatedAt: ts,
-    });
-    return version;
+    // Same bytes the MCP save tool writes. REST still does not check generation;
+    // the tool does, before it calls this.
+    return saveStudioVersion(store, draft, changeNote, FIXTURE_ACTOR).version;
   }
 
   function compareVersionRecords(left, right) {
@@ -1541,25 +1633,7 @@ function createStudioLifecycleRestRouter(store) {
           if (!requireItemOr404(itemId, res)) return true;
           const version = requireVersionOr404(itemId, versionId, res);
           if (!version) return true;
-          const draftId = store.nextDraftId();
-          const ts = store.now();
-          const draft = {
-            draftId,
-            itemId,
-            packageKey: version.packageKey,
-            workspaceId: version.workspaceId,
-            ownerId: version.ownerId,
-            family: version.envelope.family,
-            envelope: version.envelope,
-            validation: version.validation,
-            baseVersionId: versionId,
-            generation: 1,
-            createdBy: FIXTURE_ACTOR,
-            updatedBy: FIXTURE_ACTOR,
-            createdAt: ts,
-            updatedAt: ts,
-          };
-          store.drafts.set(draftId, draft);
+          const draft = reopenStudioVersion(store, version, FIXTURE_ACTOR);
           apiResponse(res, 201, draftRestPublic(draft));
           return true;
         }
@@ -1643,7 +1717,7 @@ function createStudioLifecycleRestRouter(store) {
       const actorId = payload && typeof payload.sub === "string" && payload.sub ? payload.sub : FIXTURE_ACTOR;
       if (!decision) {
         if (method !== "GET") return false;
-        if (actorId !== proposal.proposerId) {
+        if (actorId !== proposal.proposerId && !(Array.isArray(payload?.roles) && payload.roles.includes("approver"))) {
           problemResponse(
             res,
             403,
@@ -1690,6 +1764,7 @@ function createStudioLifecycleRestRouter(store) {
       if (choice === "approve") {
         proposal.status = "Active";
         proposal.publicationUrl = `https://studio.preview.invalid/share/${encodeURIComponent(proposal.proposalId)}`;
+        proposal.approvedUrl = `http://${req.headers.host}/published/${encodeURIComponent(proposal.proposalId)}`;
         const item = store.items.get(proposal.itemId);
         if (item) {
           store.items.set(proposal.itemId, {
@@ -2220,7 +2295,10 @@ function unauthorized(res) {
  * Starts the fixture server on an ephemeral loopback port.
  * @returns {Promise<{ server: import("node:http").Server, url: string, close: () => Promise<void> }>}
  */
-export async function startMockServer({ port = 0 } = {}) {
+export async function startMockServer({ port = 0, model = "fixture" } = {}) {
+  if (model !== "fixture" && model !== "byom-preview") {
+    throw new Error('Mock model must be "fixture" or "byom-preview".');
+  }
   // Pending authorization codes -> { codeChallenge, redirectUri, expiresAt }.
   const pendingCodes = new Map();
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
@@ -2381,7 +2459,7 @@ export async function startMockServer({ port = 0 } = {}) {
         unauthorized(res);
         return;
       }
-      json(res, 200, { success: true, data: AI_CAPABILITIES });
+      json(res, 200, { success: true, data: model === "byom-preview" ? BYOM_CAPABILITIES : AI_CAPABILITIES });
       return;
     }
     // ── Studio AI proxy: fixture chat SSE stream (honua-studio#6) ──
@@ -2402,8 +2480,16 @@ export async function startMockServer({ port = 0 } = {}) {
         json(res, 400, { error: "invalid_request", message: "At least one message is required." });
         return;
       }
+      const planned =
+        model === "byom-preview"
+          ? planByomPreviewTurn({
+              messages,
+              tools: Array.isArray(requestBody?.tools) ? requestBody.tools : [],
+              toolChoice: requestBody?.toolChoice,
+            })
+          : undefined;
       const turnIndex = messages.filter((m) => m?.role === "user").length - 1;
-      const turn = FIXTURE_CONVERSATION.turns[turnIndex];
+      const turn = planned ? { assistant: { events: planned.events } } : FIXTURE_CONVERSATION.turns[turnIndex];
 
       // Tracks a REAL client disconnect (the response socket closing), not
       // `req.destroyed` — that flips true the moment `readBody()` above
@@ -2588,8 +2674,26 @@ export async function startMockServer({ port = 0 } = {}) {
       return;
     }
 
+    const publishedMatch = /^\/published\/([^/]+)$/.exec(pathname);
+    if (publishedMatch && req.method === "GET") {
+      const proposal = studioLifecycleStore.publicationProposals.get(decodeURIComponent(publishedMatch[1]));
+      if (!proposal || proposal.status !== "Active") {
+        json(res, 404, { error: "not_found" });
+        return;
+      }
+      json(res, 200, {
+        schemaVersion: "honua.studio.published-preview.v1",
+        proposalId: proposal.proposalId,
+        itemId: proposal.itemId,
+        versionId: proposal.versionId,
+        route: proposal.route,
+        visibility: proposal.visibility,
+      });
+      return;
+    }
+
     if (pathname === "/health" && req.method === "GET") {
-      json(res, 200, { status: "ok", mode: "mock" });
+      json(res, 200, { status: "ok", mode: "mock", model });
       return;
     }
 
@@ -2634,6 +2738,8 @@ export function mintFixtureAccessToken({
   ttlSeconds = ACCESS_TOKEN_TTL_SECONDS,
   sub = FIXTURE_USER.sub,
   name = FIXTURE_USER.name,
+  email = FIXTURE_USER.email,
+  roles = FIXTURE_USER.roles,
 } = {}) {
   const now = Math.floor(Date.now() / 1000);
   return signFixtureJwt({
@@ -2641,8 +2747,8 @@ export function mintFixtureAccessToken({
     sub,
     aud: OIDC_CLIENT_ID,
     name,
-    email: FIXTURE_USER.email,
-    roles: FIXTURE_USER.roles,
+    email,
+    roles,
     scope: "openid profile honua.read honua.write",
     iat: now,
     exp: now + ttlSeconds,

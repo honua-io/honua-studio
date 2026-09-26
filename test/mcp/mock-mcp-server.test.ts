@@ -40,10 +40,11 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     expect(body.result.protocolVersion).toBe("2025-03-26");
   });
 
-  it("tools/list is open and advertises all 17 honua_studio_* tool names", async () => {
+  it("tools/list is open and advertises the classified honua_studio_* tool names", async () => {
     server = await startMockServer();
     const { body } = await rpc(server.url, "tools/list", {});
     const names = body.result.tools.map((t: { name: string }) => t.name);
+    expect(body.result.tools[0]._meta["honua.studio"].family).toBe("honua.studio.composition");
     expect(names).toEqual([
       "honua_studio_create_draft",
       "honua_studio_get_draft",
@@ -61,6 +62,8 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       "honua_studio_remove_control",
       "honua_studio_bind_interaction",
       "honua_studio_remove_interaction",
+      "honua_studio_save_version",
+      "honua_studio_reopen_version",
       "honua_studio_propose_publication",
     ]);
   });
