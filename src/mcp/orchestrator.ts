@@ -38,13 +38,40 @@
  * a host never has to wrap this call in its own try/catch to keep the UI
  * responsive.
  *
+ * ## What `StudioAgentSession` supersedes here (honua-studio#40)
+ *
+ * `@honua/sdk-js/studio-agent` now ships `createStudioAgentSession`, and the
+ * pin carries it (honua-studio#30). It is the retirement target for this
+ * module and for `elements/studio-chat-element.ts`'s turn loop, but it is
+ * #40's work, not #30's — wiring it changes behavior (it is what finally
+ * CLOSES the model turn: declaring tool definitions to the proxy and feeding
+ * tool results back), and #30 deletes mirrors without changing behavior.
+ * Concretely, when #40 lands:
+ *
+ *  - **Superseded.** The turn loop itself — streaming a turn, routing each
+ *    tool call to the tool plane, feeding the result back, and deciding when
+ *    the turn is done. `StudioAgentSession` owns that, with the same
+ *    `failed_precondition` reload-and-retry-once semantics this module
+ *    implements below (`parseStudioDraftResult` is the SDK's counterpart to
+ *    `studio-tools.ts`'s draft parsing).
+ *  - **Not superseded.** Everything that makes a tool call land in *this*
+ *    app: `tool-bridge.ts`'s command→tool translation and its
+ *    client-local-only commands (pin/annotate), the reducer application,
+ *    `CompositionController` refresh from the returned draft, and the
+ *    `ActivityLog` entries. `StudioAgentSession` takes a tool plane; it does
+ *    not take a composition engine.
+ *  - **Also ported, also #40's call.** The SDK's `studio-agent` entrypoint
+ *    carries verbatim ports of `./client.ts`, `./protocol.ts`, `./errors.ts`
+ *    and `../chat/{ai-contract,sse-parser,sse-transport,transport,capabilities-client}.ts`
+ *    (its own module docs say so). Those are mirrors and should go, but they
+ *    go with the session that replaces their caller, not before it.
+ *
  * @module
  */
 import type { ActivityLog } from "../chat/activity-log.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
-import type { CompositionState } from "../composition/model.js";
-import { isCompositionCommandError } from "../composition/reducer.js";
+import { applyCompositionCommand, isCompositionCommandError } from "../composition/reducer.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
 import type { McpClient } from "./client.js";
 import { isMcpGenerationConflict } from "./errors.js";
@@ -99,6 +126,13 @@ export interface ToolCallOrchestratorOptions {
   readonly live?: ToolCallOrchestratorLiveOptions;
 }
 
+interface DeferredControlCall {
+  readonly toolName: string;
+  readonly command: CompositionCommand & { readonly name: "addControl" };
+  readonly serverToolName: StudioMcpToolName;
+  readonly resolve: (result: ToolCallOrchestrationResult) => void;
+}
+
 /**
  * Wires tool-call intents to composition state — see the module doc for the
  * full flow. One instance per composition session (one `CompositionController`,
@@ -111,8 +145,12 @@ export class ToolCallOrchestrator {
   #studioTools: StudioMcpToolClient | undefined;
   #draftId: string | undefined;
   #generation: number | undefined;
+  #draftSetupGeneration = 0;
+  #draftSetup: Promise<{ readonly draftId: string; readonly generation: number }> | undefined;
   /** Serializes server-bound calls so two rapid tool-call events never race the same draft's generation against each other. */
   #serverQueue: Promise<unknown> = Promise.resolve();
+  /** Source-bound controls emitted before their layer; flushed after a returned draft makes the source resolvable. */
+  #deferredControls: DeferredControlCall[] = [];
 
   public constructor(options: ToolCallOrchestratorOptions) {
     this.#controller = options.controller;
@@ -133,13 +171,15 @@ export class ToolCallOrchestrator {
     return this.#live !== undefined;
   }
 
-  /** Ensures the live draft exists before a model turn starts. */
-  public ensureLiveDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
+  /** Creates or resolves the authoritative draft before a model turn begins. */
+  public async ensureLiveDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
+    if (!this.#live) throw new Error("No live Studio composition session is attached.");
     return this.#ensureDraft();
   }
 
-  /** Reconciles local state and the concurrency token from an SDK-owned agent tool result. */
+  /** Refreshes local composition from a draft returned by StudioAgentSession. */
   public acceptServerDraft(draft: StudioMcpDraft): void {
+    if (!this.#live) return;
     this.#draftId = draft.draftId;
     this.#generation = draft.generation;
     this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
@@ -147,6 +187,8 @@ export class ToolCallOrchestrator {
 
   /** Attaches (or replaces) the live session. Passing `draftId`/`generation` skips lazy draft creation. */
   public attachLiveSession(options: ToolCallOrchestratorLiveOptions): void {
+    this.#draftSetupGeneration += 1;
+    this.#draftSetup = undefined;
     this.#live = options;
     this.#studioTools = new StudioMcpToolClient(options.client);
     this.#draftId = options.draftId;
@@ -155,10 +197,15 @@ export class ToolCallOrchestrator {
 
   /** Reverts to fixture/offline mode — every subsequent command applies through the local reducer only. Does not clear local composition state. */
   public detachLiveSession(): void {
+    this.#draftSetupGeneration += 1;
+    this.#draftSetup = undefined;
     this.#live = undefined;
     this.#studioTools = undefined;
     this.#draftId = undefined;
     this.#generation = undefined;
+    for (const pending of this.#deferredControls.splice(0)) {
+      pending.resolve(this.#applyLocal(pending.toolName, pending.command));
+    }
   }
 
   /**
@@ -175,6 +222,21 @@ export class ToolCallOrchestrator {
     const useServer = this.#live !== undefined && resolution.serverToolName !== undefined;
     if (!useServer) {
       return this.#applyLocal(call.toolName, resolution.command);
+    }
+
+    if (
+      resolution.command.name === "addControl" &&
+      resolution.command.control.sourceId !== undefined &&
+      !this.#sourceResolves(resolution.command.control.sourceId)
+    ) {
+      return new Promise<ToolCallOrchestrationResult>((resolve) => {
+        this.#deferredControls.push({
+          toolName: call.toolName,
+          command: resolution.command as CompositionCommand & { readonly name: "addControl" },
+          serverToolName: resolution.serverToolName as StudioMcpToolName,
+          resolve,
+        });
+      });
     }
 
     // Queued: a burst of tool-call events (e.g. a multi-step assistant turn)
@@ -203,23 +265,24 @@ export class ToolCallOrchestrator {
     command: CompositionCommand,
     serverToolName: StudioMcpToolName,
   ): Promise<ToolCallOrchestrationResult> {
-    // Optimistically apply against the cached view so the canvas responds
-    // immediately. The returned server draft then replaces this projection;
-    // a failed call reconciles from the server or rolls back the snapshot.
+    // Pre-flight local validation against this client's cached view — fails
+    // fast (duplicate id, out-of-bounds zoom, pinned target, …) without a
+    // network round trip. Never committed to the controller's history: the
+    // server's response is what actually lands via `replaceState` below, so
+    // this check exists purely to reject obviously-invalid commands early.
+    try {
+      applyCompositionCommand(this.#controller.state, command);
+    } catch (error) {
+      const reason = isCompositionCommandError(error) ? error.message : String(error);
+      return this.#reject(toolName, "reducer-rejected", reason);
+    }
+
     let draftId: string;
     let generation: number;
     try {
       ({ draftId, generation } = await this.#ensureDraft());
     } catch (error) {
       return this.#reject(toolName, "server-error", errorMessage(error));
-    }
-
-    const stateBeforeOptimisticApply = this.#controller.state;
-    try {
-      this.#controller.apply(command);
-    } catch (error) {
-      const reason = isCompositionCommandError(error) ? error.message : String(error);
-      return this.#reject(toolName, "reducer-rejected", reason);
     }
 
     const invocation = buildServerToolInvocation(
@@ -236,27 +299,30 @@ export class ToolCallOrchestrator {
     try {
       draft = await this.#callServerTool(invocation);
     } catch (error) {
-      await this.#reconcileAfterFailure(stateBeforeOptimisticApply);
       return this.#reject(toolName, "server-error", errorMessage(error));
     }
 
     this.#generation = draft.generation;
     this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
-    return this.#accept(toolName, "server", command, draft);
+    const accepted = this.#accept(toolName, "server", command, draft);
+    if (command.name === "addLayer") await this.#flushDeferredControls();
+    return accepted;
   }
 
-  async #reconcileAfterFailure(fallback: CompositionState): Promise<void> {
-    if (this.#draftId && this.#studioTools) {
-      try {
-        const current = await this.#studioTools.getDraft(this.#draftId);
-        this.acceptServerDraft(current);
-        return;
-      } catch {
-        // The original failure remains the useful error; the snapshot is the
-        // safest available rollback when the reconciliation read also fails.
-      }
+  #sourceResolves(sourceId: string): boolean {
+    return this.#controller.state.layers.some((layer) => layer.id === sourceId || layer.sourceId === sourceId);
+  }
+
+  async #flushDeferredControls(): Promise<void> {
+    const ready = this.#deferredControls.filter((pending) => {
+      const sourceId = pending.command.control.sourceId;
+      return sourceId !== undefined && this.#sourceResolves(sourceId);
+    });
+    if (ready.length === 0) return;
+    this.#deferredControls = this.#deferredControls.filter((pending) => !ready.includes(pending));
+    for (const pending of ready) {
+      pending.resolve(await this.#applyServer(pending.toolName, pending.command, pending.serverToolName));
     }
-    this.#controller.replaceState(fallback);
   }
 
   /** One generation-conflict reload+retry, per the module doc. */
@@ -290,16 +356,29 @@ export class ToolCallOrchestrator {
     const live = this.#live;
     const tools = this.#studioTools;
     if (!live || !tools) throw new Error("ToolCallOrchestrator: no live session attached.");
-    const draft = await tools.createDraft({
-      packageKey: live.packageKey,
-      family: live.family ?? "map",
-      schemaVersion: live.schemaVersion ?? "1",
-      body: toStudioCompositionBody(this.#controller.state),
-    });
-    this.#draftId = draft.draftId;
-    this.#generation = draft.generation;
-    this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
-    return { draftId: draft.draftId, generation: draft.generation };
+    if (!this.#draftSetup) {
+      const setupGeneration = this.#draftSetupGeneration;
+      this.#draftSetup = tools
+        .createDraft({
+          packageKey: live.packageKey,
+          family: live.family ?? "map",
+          schemaVersion: live.schemaVersion ?? "1",
+          body: toStudioCompositionBody(this.#controller.state),
+        })
+        .then((draft) => {
+          if (setupGeneration !== this.#draftSetupGeneration || this.#live !== live) {
+            throw new Error("Live Studio composition session changed while its draft was being created.");
+          }
+          this.#draftId = draft.draftId;
+          this.#generation = draft.generation;
+          this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
+          return { draftId: draft.draftId, generation: draft.generation };
+        })
+        .finally(() => {
+          if (setupGeneration === this.#draftSetupGeneration) this.#draftSetup = undefined;
+        });
+    }
+    return this.#draftSetup;
   }
 
   #accept(

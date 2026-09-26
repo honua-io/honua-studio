@@ -1,6 +1,21 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const attachedAgentOptions = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+
+vi.mock("@honua/sdk-js/studio-agent", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@honua/sdk-js/studio-agent")>();
+  return {
+    ...original,
+    createStudioAgentSession: (options: Record<string, unknown>) => {
+      attachedAgentOptions.push(options);
+      return original.createStudioAgentSession(
+        options as unknown as Parameters<typeof original.createStudioAgentSession>[0],
+      );
+    },
+  };
+});
+
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
@@ -28,6 +43,36 @@ function control<T extends Element>(element: HonuaStudioAppElement, testId: stri
   return found;
 }
 
+function enableDraftFetch(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { id: number; method: string };
+      if (body.method === "initialize") {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-03-26" } }),
+          { headers: { "content-type": "application/json", "mcp-session-id": "session-1" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            structuredContent: {
+              draftId: "draft-current",
+              packageKey: "pkg-live",
+              generation: 1,
+              envelope: { family: "map", schemaVersion: "1", body: { layers: [], view: {}, widgets: [] } },
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }),
+  );
+}
+
 async function goLive(element: HonuaStudioAppElement, packageKey: string, family?: string): Promise<void> {
   control<HTMLButtonElement>(element, "live-composition-toggle").click();
   control<HTMLInputElement>(element, "live-composition-package-key").value = packageKey;
@@ -38,6 +83,7 @@ async function goLive(element: HonuaStudioAppElement, packageKey: string, family
 }
 
 beforeEach(() => {
+  attachedAgentOptions.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(() => Promise.reject(new Error("network disabled in unit tests"))),
@@ -134,11 +180,120 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
     const options = [...control<HTMLSelectElement>(element, "live-composition-family").options].map(
       (option) => option.value,
     );
-    expect(options).toEqual(["map", "app", "dashboard"]);
+    expect(options).toEqual(["map", "app"]);
   });
 });
 
 describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
+  it("keeps durable mutations out of the local runtime plane so SDK discovery owns them", () => {
+    const element = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+    const names = element.agentToolDefinitions(element.aiMapKit).map((tool) => tool.name);
+    expect(names).toContain("inspectMap");
+    expect(names).toContain("selectFeature");
+    expect(names).not.toContain("honua_studio_add_layer");
+    expect(names).not.toContain("honua_studio_set_view");
+    expect(names).not.toContain("honua_studio_set_layer_visibility");
+    expect(names).not.toContain("addLayer");
+    expect(names).not.toContain("setViewport");
+    expect(names.some((name) => name.startsWith("honua_studio_"))).toBe(false);
+  });
+
+  it("retains a replaceable discovery-provider seam around today's static schemas", () => {
+    const element = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+    element.agentToolDefinitions = () => [
+      {
+        name: "discoveredProbe",
+        description: "Test replacement for the static schema provider.",
+        mode: "read",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      },
+    ];
+    expect(element.agentToolDefinitions(element.aiMapKit).map((tool) => tool.name)).toEqual(["discoveredProbe"]);
+  });
+
+  it("keeps pre-connect tool-schema configuration side-effect free so orchestration shares the chat log", async () => {
+    const element = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+    element.agentToolDefinitions = () => [];
+    element.session = { getToken: async () => "fixture-token", onExpired: () => () => {} };
+    document.body.appendChild(element);
+
+    await element.toolCallOrchestrator.handleToolCall({
+      toolName: "addLayer",
+      arguments: { layer: { id: "roads", sourceId: "roads-source" } },
+    });
+
+    const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    expect(chat?.activityLog.entries().some((entry) => entry.type === "composition_command_applied")).toBe(true);
+  });
+
+  it("rebuilds both live clients with replacement host credentials even when the host owns the catalog", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ packageKey: "pkg-live-auth" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    const firstSession = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.agentSession;
+
+    element.session = { getToken: async () => "replacement-token", onExpired: () => () => {} };
+
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(2));
+    const secondSession = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.agentSession;
+    expect(secondSession).not.toBe(firstSession);
+    const replacementAuth = attachedAgentOptions[1]?.auth as { getAccessToken: () => Promise<string | undefined> };
+    await expect(replacementAuth.getAccessToken()).resolves.toBe("replacement-token");
+  });
+
+  it("hands host certification options to the live agent session and rebuilds it when they change", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ packageKey: "pkg-live-certified" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    expect(attachedAgentOptions[0]).not.toHaveProperty("certification");
+    expect(attachedAgentOptions[0]).not.toHaveProperty("transcriptVerifier");
+
+    const certification = {
+      candidateId: "sha256:candidate",
+      releaseId: "2026.1",
+      endpointIdentity: "https://studio.example",
+      actionId: "studio.setup",
+      runNonce: "run-2",
+    };
+    const transcriptVerifier = { verify: vi.fn(async () => ({ ok: true })) };
+    element.agentCertification = { certification, transcriptVerifier };
+
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(2));
+    expect(attachedAgentOptions[1]?.certification).toBe(certification);
+    expect(attachedAgentOptions[1]?.transcriptVerifier).toBe(transcriptVerifier);
+    expect(element.agentCertification?.certification).toBe(certification);
+  });
+
+  it("ignores draft events emitted by a superseded agent session", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ packageKey: "pkg-live-stale" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    const staleOnEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
+
+    element.agentToolDefinitions = () => [];
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(2));
+    staleOnEvent({
+      type: "toolResult",
+      result: {
+        draft: {
+          draftId: "stale-draft",
+          packageKey: "pkg-live-stale",
+          generation: 99,
+          envelope: { family: "map", schemaVersion: "1", body: { layers: [], view: {}, widgets: [] } },
+        },
+      },
+    });
+
+    expect(element.toolCallOrchestrator.draftId).not.toBe("stale-draft");
+    expect(element.toolCallOrchestrator.generation).not.toBe(99);
+  });
+
   it("hands an assigned catalog straight to the auto-composed canvas", () => {
     const element = mount();
     element.sourceCatalog = [{ id: "hi-parcels", title: "Parcels", protocol: "ogc-features", geometryType: "Polygon" }];

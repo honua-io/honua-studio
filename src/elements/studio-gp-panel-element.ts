@@ -39,7 +39,7 @@ import type { GpJobClient } from "../gp/job-client.js";
  */
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioPackageDraft, StudioPreviewPlan } from "../lifecycle/lifecycle-types.js";
-import { getRuntimeConfig } from "../runtime-config.js";
+import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, gpPanelStyles, lifecycleStyles } from "./styles.js";
@@ -106,8 +106,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
   }
 
   public get client(): StudioLifecycleClient {
-    if (!this.#client)
-      this.#client = new StudioLifecycleClient({ baseUrl: getRuntimeConfig().serverBaseUrl, auth: this.#auth });
+    if (!this.#client) this.#client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.#auth });
     return this.#client;
   }
 
@@ -118,7 +117,8 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
 
   /** THE HUMAN GATE's own client — see the module doc. Lazily created; override for tests. */
   public get jobClient(): GpJobClient {
-    if (!this.#jobClient) this.#jobClient = new StudioGpJobClient({ baseUrl: "/api", auth: this.#auth });
+    if (!this.#jobClient)
+      this.#jobClient = new StudioGpJobClient({ baseUrl: runtimeServerBaseUrl(), auth: this.#auth });
     return this.#jobClient;
   }
 

@@ -1,24 +1,20 @@
 # Honua Studio
 
-**The AI-native path from Esri services to maps, apps, and dashboards.**
+**Natural language to map app.**
 
-Honua Studio is an open-source, model-agnostic builder for teams migrating
-from ArcGIS without abandoning familiar services and geoprocessing tasks.
-Describe the outcome in conversation and an agent composes it — layers from
-the live catalog, styling, views, tables, charts, OGC processes, and Esri
-GPServer-compatible tasks — through typed, bounded, auditable commands over the
+Honua Studio is an open-source, model-agnostic builder
+for geospatial applications: describe the app you want in conversation, and an
+agent composes it — layers from the live catalog, styling, views, tables,
+charts, analysis — through typed, bounded, auditable commands over the
 [Honua JS SDK](https://github.com/honua-io/honua-sdk-js)'s package, style, and
 agent-tool contracts. No license seats, no platform lock-in, self-hostable end
 to end.
 
-The 2026.1 journey is deliberately one arc: run Honua in Docker or the cloud,
-connect and configure services and GP with AI, then build maps, apps, and
-dashboards and save the governed artifacts with AI.
-
 - **BYOM** — bring your own model: Studio talks to honua-server's Studio AI
   proxy, so the provider is the operator's choice (Bedrock, any hosted API, or
-  a local model) and no key ever reaches the browser. The fixture-conversation
-  mode still runs the same UI contract with no model at all.
+  a local model) and no key ever reaches the browser. Live turns use the SDK's
+  `StudioAgentSession` to declare tools, execute them, and return results to
+  the model; fixture-conversation mode remains available with no model at all.
 - **Typed, not generated** — every mutation goes through a closed command
   vocabulary mirroring the SDK's agent-tools contract, applied by a reducer or
   by honua-server's `honua_studio_*` MCP tools. No arbitrary code eval; a live
@@ -38,13 +34,24 @@ dashboards and save the governed artifacts with AI.
 
 ## Status
 
-**2026.1 preview — self-hosted, bring your own model.**
+**v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
-The repository builds a static bundle and a non-root container whose server,
-OIDC, provider, and model routing are supplied at runtime. A hosted public demo
-is intentionally not a release gate. Treat live AI, durable restart, and share
-receipts as dependency-gated until the server issues listed below close; local
-mock coverage is not presented as production evidence.
+Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
+752 unit tests across 77 files and 29 Playwright browser journeys, including four accessibility checks.
+What that preview is *not*: no version has been released yet and there is no
+hosted instance you can click into — running from source against your own
+honua-server is the only way to run Studio today
+([#41](https://github.com/honua-io/honua-studio/issues/41)). The packaging is
+built and smoked in CI rather than missing: a `v*` tag runs
+[`release.yml`](.github/workflows/release.yml), which builds a reproducible
+static tarball, pushes the version-only image
+`ghcr.io/honua-io/honua-studio:<version>`, and attaches the tarball, its
+checksum, and a receipt binding version/source SHA/image digest to the GitHub
+release. No such tag has been cut, so no image or tarball exists to pull yet —
+see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
+on the public demo additionally waits on an open owner decision about model
+access there (2026.1 decision D2), so treat every capability below as something
+you verify by running it, not by visiting a URL.
 
 The founding specification is
 [#1 — agent-composed dynamic UI](https://github.com/honua-io/honua-studio/issues/1),
@@ -59,37 +66,62 @@ the first flagship deployment is the statewide Hawaii demo
 | App shell, design system, one embeddable element (`<honua-studio-app>`) | `src/elements/`, `src/theme/` | #11, #13 |
 | OIDC Authorization Code + PKCE sign-in, tokens in memory only | `src/auth/` | #12 |
 | Chat console, activity log, deterministic fixture-conversation mode | `src/chat/`, `src/composition/fixture-conversation.ts` | #14 |
-| SDK `StudioAgentSession` loop — declares governed tools, executes them in order, returns results to the model, and streams the final answer | `src/elements/studio-chat-element.ts`, `src/elements/studio-app-element.ts` | #40 |
+| SDK-owned live agent loop over honua-server's Studio AI proxy — declares tools, executes model-selected calls, and feeds results back | `@honua/sdk-js/studio-agent`, `src/elements/studio-chat-element.ts` | #40 |
 | Composition engine — intent reducer, preview, undo/redo, pinning | `src/composition/` | #15 |
-| MCP tool plane — server-advertised schemas under a governed allow-list; granular visibility/control/interaction mutations stay authoritative on the draft | `src/mcp/` | #16, #31 |
+| MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 17 `honua_studio_*` tools; this client has typed wrappers for the 13 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16, #31 |
 | MapLibre canvas that mutates as tool calls stream | `src/map/composition-map-view.ts` | #27 |
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
 | Package lifecycle UI — draft, version, compare, publish, rollback against honua-server's Studio package lifecycle REST API | `src/lifecycle/` | #17 |
-| Conversational GP — OGC/direct processes and the exact Esri GP task roster (`list_tasks`, `describe_task`, `execute_task`) share job/artifact rendering | `src/gp/`, `src/mcp/agent-tool-policy.ts` | #18 |
+| Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
+| Model-quality eval corpus for the composition loop — typed expected-state scoring, fixture-mode known-good/known-bad gate ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
 | Nightly `@live` Playwright journeys against `demo.honua.io` — green; they build Studio from the CI checkout, since no hosted Studio exists to point at | `.github/workflows/live-demo-smoke.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
 "unrenderable" note with a reason rather than a blank map.
 
-### External integration gates
+### In progress
 
+- **Live model quality is not a release gate yet.** The full chat → tool call
+  → canvas loop now runs through `StudioAgentSession`, while the eval corpus
+  ([#46](https://github.com/honua-io/honua-studio/issues/46),
+  [`docs/evals.md`](docs/evals.md)) scores fixture transcripts in PR CI today
+  and keeps its live-model lane behind the same driver seam.
 - **The GP panel talks to a fixture, not a server**
   ([#35](https://github.com/honua-io/honua-studio/issues/35)). `src/gp/job-client.ts`
   posts to `mock-server.mjs`'s job store, shaped to match `@honua/sdk-js`'s
   `IJobRun`/`JobStatus` so the swap to real OGC API Processes is a client
   substitution, not a rewrite.
-- **Provider authentication:** a credentialed BYOM receipt waits on
-  honua-server#3303.
-- **Durable restart:** a draft-survives-restart receipt waits on
-  honua-server#3312.
-- **Approved share link:** the propose/human-confirm/poll UI contract is built,
-  while the real poll endpoint waits on honua-server#3304.
+- **Fixture chat and MCP clients remain local.** The
+  `@honua/sdk-js` pin is `0.1.9-beta.0`
+  ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
+  the SDK's declarative interaction compiler and Studio lifecycle client —
+  both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
+  Live model turns now use `@honua/sdk-js/studio-agent`; the local chat
+  transport remains the deterministic fixture seam and the local MCP client
+  still powers the existing lifecycle/tool orchestrator. The console's
+  lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
+  header — enumeration endpoints and server DTO fields the SDK's projection
+  does not carry yet.
+- **Live composition mutations delegate to the server.** Control and
+  interaction commands ([#43](https://github.com/honua-io/honua-studio/issues/43))
+  use the landed `honua_studio_*` tools, following visibility delegation in
+  [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
+  static `serverToolName` table until sdk-js#1397 supplies discovery.
 
 ### Not started
 
+- Cutting the first release tag, and a hosted instance on the demo server
+  ([#41](https://github.com/honua-io/honua-studio/issues/41)) — **running from
+  source is the only way to run Studio today.** The pieces a release needs have
+  landed and are exercised on every PR: the container image, the runtime
+  `/config.json` base-URL/OIDC contract, the reproducible static tarball, and
+  the tag-triggered `release.yml` that publishes them. What has not happened is
+  the tag itself, so nothing is published on GHCR or as a release asset yet. The
+  hosted demo also depends on decision D2 (model access on `demo.honua.io`) and
+  on honua-io/honua-server#3303, so it is not purely a packaging task.
 - Raster and image layers: COG, ImageServer, WMS
   ([#36](https://github.com/honua-io/honua-studio/issues/36)).
 - 3D — scene projection, 2D/3D toggle, scene agent tools
@@ -98,6 +130,8 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   [#39](https://github.com/honua-io/honua-studio/issues/39)).
 - Dual-mode visual style editor
   ([#22](https://github.com/honua-io/honua-studio/issues/22)).
+- Sharing a composed app through the propose-and-approve loop
+  ([#26](https://github.com/honua-io/honua-studio/issues/26)).
 - Console embed at `/studio`
   ([honua-io/honua-console#324](https://github.com/honua-io/honua-console/issues/324),
   2026.2).
@@ -120,12 +154,10 @@ Against a real server:
 HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 ```
 
-Live mode reaches a real honua-server for the catalog, `/mcp` tool plane, and
-package lifecycle. In live composition mode, chat uses the SDK-owned multi-turn
-agent loop and only server-advertised governed tools.
-
-Or run the static container with runtime configuration; see
-[`docs/self-hosting.md`](docs/self-hosting.md).
+Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
+package lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the
+same composition controller the canvas renders, then its structured result is
+fed back to the next assistant round.
 
 ## Development
 
@@ -158,8 +190,8 @@ auto-approving fixture user, so clicking "Sign in" completes instantly with
 no login form.
 
 Against a real deployment, point Studio at your operator's actual external
-IdP (the same `Authority` honua-server itself validates bearer tokens
-against — see honua-server's `docs/guides/secure/authentication.md`):
+IdP (the same `Authority` honua-server validates bearer tokens against).
+Development accepts environment variables:
 
 ```bash
 HONUA_BASE_URL=http://localhost:8080 \
@@ -168,10 +200,10 @@ HONUA_OIDC_CLIENT_ID=honua-studio \
 npm run dev:live
 ```
 
-Source-mode Vite runs still read these variables at build time. The released
-static/container bundle instead reads OIDC, server, provider, and model routing
-from `/config.json` at startup, so one artifact can move between deployments.
-See [`docs/self-hosting.md`](docs/self-hosting.md).
+Production bundles instead load the versioned `/config.json` contract, so
+server, OIDC, and model-transport settings can change without rebuilding.
+See [`docs/self-hosted.md`](docs/self-hosted.md) for the container, static
+bundle, clean-machine launch, and credential boundary.
 
 Embedded inside another shell (honua-console's `/studio`, or any
 third-party host), Studio never runs its own OIDC flow — the host hands off
@@ -185,9 +217,9 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 655 tests across 71 files |
+| `npm test` | Unit tests (Vitest) — 752 tests across 77 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
-| `npm run test:browser` | Builds, then runs the 24 Playwright boot/harness/journey specs (chromium) |
+| `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 | `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
 

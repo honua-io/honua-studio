@@ -31,7 +31,7 @@ import { FixtureChatTransport } from "./chat/fixture-transport.js";
 import { FIXTURE_CONVERSATIONS } from "./chat/fixtures/index.js";
 import type { HonuaStudioAppElement, HonuaStudioChatElement, HonuaStudioThemeChangeDetail } from "./elements/index.js";
 import { registerAllStudioElements } from "./elements/registry.js";
-import { loadRuntimeConfig } from "./runtime-config.js";
+import { installRuntimeConfig, loadRuntimeConfig } from "./runtime-config.js";
 
 declare global {
   interface Window {
@@ -56,7 +56,7 @@ declare global {
   }
 }
 
-await loadRuntimeConfig();
+installRuntimeConfig(await loadRuntimeConfig());
 registerAllStudioElements();
 
 const root = document.getElementById("app");

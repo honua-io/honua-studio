@@ -148,6 +148,8 @@ describe("interactions/StudioInteractionRuntime", () => {
       interaction: {
         id: "zoom-on-change",
         on: { ref: "control:year", event: "change" },
+        // ADR-0030 spells a viewport argument flat; the SDK compiler reads
+        // `bbox`/`center`/`zoom`/`pitch`/`bearing` off `args` directly.
         do: { ref: "map", verb: "setViewport", args: { zoom: 9 } },
       },
     });

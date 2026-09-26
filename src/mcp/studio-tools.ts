@@ -1,9 +1,9 @@
 /**
- * Typed wrappers over `McpClient.callTool` for the 12 `honua_studio_*` tools
+ * Typed wrappers over `McpClient.callTool` for 17 `honua_studio_*` tools
  * (honua-server#3002; `gh pr diff 3016` in honua-server — draft lifecycle:
  * create/get/update/validate/preview, composition mutation: add/remove
- * layer, set layer style, set view, add/remove widget, and
- * propose_publication). One method per tool, each returning the tool's
+ * layer, set layer style, set layer visibility, set view, add/remove widget,
+ * and propose_publication). One method per tool, each returning the tool's
  * plain JSON result — no lifecycle logic lives here, it all runs
  * server-side (AD-8: composition state IS the server draft).
  *
@@ -161,6 +161,13 @@ export interface SetStudioLayerStyleInput {
   readonly styleRef?: string;
 }
 
+/**
+ * `honua_studio_set_layer_visibility` (honua-server#3199, landed in
+ * honua-server PR #3207). All four fields are required and the tool's schema
+ * is `additionalProperties: false`, so this shape is exact, not a subset: a
+ * stale `generation` comes back `failed_precondition`, an id no layer in the
+ * draft carries comes back `not_found`.
+ */
 export interface SetStudioLayerVisibilityInput {
   readonly draftId: string;
   readonly generation: number;
@@ -184,6 +191,31 @@ export interface RemoveStudioWidgetInput {
   readonly draftId: string;
   readonly generation: number;
   readonly widgetId: string;
+}
+
+export interface AddStudioControlInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly control: StudioMcpControlInput;
+}
+
+export interface RemoveStudioControlInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly controlId: string;
+  readonly cascadeInteractions?: boolean;
+}
+
+export interface BindStudioInteractionInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly interaction: StudioMcpInteractionInput;
+}
+
+export interface RemoveStudioInteractionInput {
+  readonly draftId: string;
+  readonly generation: number;
+  readonly interactionId: string;
 }
 
 export interface ProposeStudioPublicationInput {
@@ -248,7 +280,7 @@ export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDra
 }
 
 /**
- * Typed convenience layer over {@link McpClient.callTool} for the 12
+ * Typed convenience layer over {@link McpClient.callTool} for the 17
  * `honua_studio_*` tools. Every method is a thin `callTool(name, args)` plus
  * response parsing (`structuredContent`, falling back to the first text
  * block as JSON — the tool success side of the same shape
@@ -297,6 +329,7 @@ export class StudioMcpToolClient {
     return structured<StudioMcpDraft>(result);
   }
 
+  /** `honua_studio_set_layer_visibility` — the durable half of a TOC toggle (honua-studio#31). `visible` is part of the server's `StudioCompositionLayer`, so this is what makes a toggle survive a draft sync. */
   public async setLayerVisibility(input: SetStudioLayerVisibilityInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_layer_visibility", { ...input });
     return structured<StudioMcpDraft>(result);
@@ -314,6 +347,26 @@ export class StudioMcpToolClient {
 
   public async removeWidget(input: RemoveStudioWidgetInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_widget", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async addControl(input: AddStudioControlInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_add_control", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async removeControl(input: RemoveStudioControlInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_remove_control", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async bindInteraction(input: BindStudioInteractionInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_bind_interaction", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async removeInteraction(input: RemoveStudioInteractionInput): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_remove_interaction", { ...input });
     return structured<StudioMcpDraft>(result);
   }
 

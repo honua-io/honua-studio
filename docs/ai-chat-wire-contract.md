@@ -6,6 +6,12 @@ adapters"). This document records the exact wire shapes as verified against
 that PR's diff (not guessed from the prose guide alone) — `src/chat/ai-contract.ts`
 is the TypeScript source of truth; this is the prose cross-reference.
 
+> **The live loop is SDK-owned.** `<honua-studio-app>` installs
+> `@honua/sdk-js/studio-agent`'s `StudioAgentSession`, which declares the
+> SDK kit's tools to the proxy, executes model-selected calls, returns a
+> `role: "tool"` result, and continues until the model ends the turn. The
+> local wire modules remain for deterministic fixture replay and its tests.
+
 ## Endpoints
 
 - `GET /api/v{version}/studio/ai/capabilities` — admin-authorized, returns
@@ -108,11 +114,12 @@ stops the upstream call. `SseChatTransport.streamChat()` passes its
 — matching `ChatTransport`'s contract that cancellation is a normal outcome,
 not a transport failure.
 
-## Live session ownership
+## Tool-loop ownership
 
-In live composition mode, SDK `StudioAgentSession` declares the governed tool
-schemas, sends `toolChoice`, executes each tool in order, feeds the tool result
-back as a `role: "tool"` message, and continues until the model ends the turn.
-It also consults `/capabilities` to resolve the configured provider. The raw
-`SseChatTransport` path remains only for deterministic fixture conversations
-and embedders that explicitly supply their own transport.
+The app supplies the current `HonuaAiMapKit` definitions to
+`StudioAgentSession`; its system prompt is rebuilt from the current catalog
+and composition before each user turn. `agentToolDefinitions` is an explicit
+provider seam: today it returns the published SDK's static schemas, and can
+switch to sdk-js#1397 discovery without changing the chat loop. Assigning an
+explicit `ChatTransport` detaches the live session, keeping fixture playback
+network- and model-free.

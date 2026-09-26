@@ -5,12 +5,48 @@
  * #3003) — every method below corresponds 1:1 to one row of that doc's
  * endpoint table, at `${baseUrl}/v1/studio/...`.
  *
- * `@honua/sdk-js@0.1.7-beta.0` supplies the canonical lifecycle client for
- * the stable draft/version surface. This thin projection remains temporarily
- * because Studio also needs joined enumeration badges and the poll/list
- * publication-request contract tracked by honua-server#3304, neither of
- * which is exposed as one SDK surface yet. Removal gate: replace this module
- * when the released SDK covers those three Studio UI reads.
+ * ## Why this is not `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient`
+ *
+ * The SDK ships a lifecycle client and this app is pinned to a version that
+ * has it (honua-studio#30). The composition draft path *does* use it —
+ * `./composition-draft-store.ts` puts `HonuaStudioLifecycleClient.drafts`
+ * behind the `CompositionDraftStore` seam. This module stays because the
+ * console surfaces (`studio-content-browser-element.ts`,
+ * `studio-lifecycle-panel-element.ts`) need four things the SDK's client
+ * does not have, none of which is a release-timing problem:
+ *
+ *  1. **The enumeration endpoints.** `GET /content-items` and
+ *     `GET /package-drafts` (server PR #3014, issue #3003) are how the
+ *     content browser finds an `itemId`/`draftId` in the first place. The
+ *     SDK's module doc names this as its own open gap and offers `.raw()`
+ *     — an untyped escape hatch — in place of methods. Cursor pagination,
+ *     the family/state/owner filters, and the joined publication badge are
+ *     all typed here (`lifecycle-types.ts`).
+ *  2. **A `changeNote` on save-as-version.** The SDK's
+ *     `drafts.createContentVersion` posts no body. The deployed server 400s
+ *     a bodyless `POST .../content-versions`, and the change note is what
+ *     the panel's "save a version" dialog collects.
+ *  3. **The server's DTO fields.** honua-server returns
+ *     `StudioPackageDraft.validation` (the panel's status badge),
+ *     `persistenceMode`/`durable` at the top of `GET /package-families`, and
+ *     `currentSchemaVersion`/`previewSupported`/`publishSupported` per
+ *     family. The SDK's projection has none of those as declared members —
+ *     they survive only through its index signatures, typed `unknown`, so
+ *     adopting it would replace typed reads with casts at every call site.
+ *  4. **Refresh-then-retry on a POST.** `HonuaClient` replays a `401` only
+ *     for replay-safe methods (`GET`/`HEAD`/`PUT`/`DELETE`). Draft create,
+ *     validate, preview-plan, save-as-version, publish and rollback are all
+ *     POSTs, and a token that expires mid-session must not turn one of them
+ *     into a hard sign-in prompt.
+ *
+ * Points 1-3 are honua-sdk-js work, not honua-studio work: when the SDK's
+ * projection covers the server's DTOs and the enumeration endpoints, this
+ * module becomes an adapter the way `./composition-draft-store.ts` already
+ * is. Until then it is a complete, independently-typed REST client against
+ * `docs/internal/admin-api/studio-package-lifecycle.md`'s endpoint table,
+ * built the same way `client/studio-client.ts` and `mcp/client.ts` are: a
+ * thin fetch wrapper, no schema-validation dependency, bearer-attached via
+ * the same `TokenSource` shape those two already use.
  *
  * ## The human gate (spec REQ-009 — READ BEFORE TOUCHING THIS FILE)
  *
@@ -56,8 +92,6 @@ import type {
   StudioPreviewPlan,
   StudioProblemDetails,
   StudioPublicationRequest,
-  StudioPublicationRequestListResponse,
-  StudioPublicationRequestStatusResult,
   StudioPublishRequestInput,
   StudioRollbackRequest,
   StudioRollbackRequestInput,
@@ -240,19 +274,6 @@ export class StudioLifecycleClient {
       `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests`,
       request,
     );
-  }
-
-  /** honua-server#3304: poll the governed request; never approves it. */
-  public getPublicationRequest(itemId: string, requestId: string): Promise<StudioPublicationRequestStatusResult> {
-    return this.#request(
-      "GET",
-      `/content-items/${encodeURIComponent(itemId)}/publish-requests/${encodeURIComponent(requestId)}`,
-    );
-  }
-
-  /** honua-server#3304: newest-first request list for a pending-state surface. */
-  public listPublicationRequests(itemId: string): Promise<StudioPublicationRequestListResponse> {
-    return this.#request("GET", `/content-items/${encodeURIComponent(itemId)}/publish-requests`);
   }
 
   /**

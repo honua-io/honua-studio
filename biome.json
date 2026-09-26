@@ -41,16 +41,12 @@
       "test/**/*.mjs",
       "harness/**/*.ts",
       "scripts/**/*.mjs",
+      "scripts/**/*.mts",
       "*.mjs",
+      "*.mts",
       "*.ts",
       "*.json"
     ],
-    "ignore": [
-      "dist",
-      "node_modules",
-      ".tmp",
-      "harness/blazor-host/StudioHost",
-      "test/release/fixtures/zero-to-map/journey.v1.json"
-    ]
+    "ignore": ["dist", "node_modules", ".tmp", "harness/blazor-host/StudioHost"]
   }
 }

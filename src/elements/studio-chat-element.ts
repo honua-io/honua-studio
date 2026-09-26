@@ -27,7 +27,11 @@ import {
   type ChatTransport,
   type CreateAnnotationInput,
   SseChatTransport,
+  type StudioAiChatEvent,
   type StudioAiChatMessage,
+  type StudioAiChatRequest,
+  type StudioAiSignedTranscript,
+  type StudioAiTranscriptCertification,
   annotationChipLabel,
   chatReducer,
   composeMessageContent,
@@ -35,7 +39,7 @@ import {
   createAnnotationRef,
   initialChatState,
 } from "../chat/index.js";
-import { getRuntimeConfig } from "../runtime-config.js";
+import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
@@ -48,10 +52,42 @@ import type {
   HonuaStudioChatMessageDetail,
   HonuaStudioChatToolCallResultDetail,
   HonuaStudioChatToolCallStartDetail,
+  HonuaStudioChatToolExecutionDetail,
   HonuaStudioChatTurnCancelledDetail,
   HonuaStudioChatTurnCompleteDetail,
   HonuaStudioChatTurnErrorDetail,
 } from "./types.js";
+
+/** Outcome of one transcript verification — the SDK's `StudioAiTranscriptVerification`. */
+export interface StudioAgentTranscriptVerification {
+  readonly ok: boolean;
+  readonly reason?: string;
+  readonly transcriptDigest?: string;
+}
+
+/** The SDK's `StudioAiTranscriptVerifierLike`; `StudioAiTranscriptVerifier` from `@honua/sdk-js/studio-agent` satisfies it. */
+export interface StudioAgentTranscriptVerifier {
+  verify(
+    provenance: StudioAiSignedTranscript,
+    request: StudioAiChatRequest,
+    events: readonly StudioAiChatEvent[],
+  ): Promise<StudioAgentTranscriptVerification>;
+}
+
+/**
+ * Certified-dispatch options for an SDK agent session. Since
+ * honua-io/honua-sdk-js#1748, `StudioAgentSession` dispatches a
+ * model-selected tool only when the session has both options and the round
+ * ends in exactly one verified `transcriptProvenance` event. They are declared
+ * here, not taken from `StudioAgentSessionOptions`, so Studio also compiles
+ * against a published SDK that predates them (that SDK ignores them).
+ */
+export interface StudioAgentCertificationOptions {
+  /** Candidate/action binding the SDK sends with every tool-capable round. */
+  readonly certification?: StudioAiTranscriptCertification;
+  /** Verifies each round's signed transcript before any model-selected tool dispatches. */
+  readonly transcriptVerifier?: StudioAgentTranscriptVerifier;
+}
 
 export class HonuaStudioChatElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
@@ -99,23 +135,31 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
    * `studio-app-element.ts`'s `.studioClient`.
    */
   public get transport(): ChatTransport {
-    if (!this.#transport)
-      this.#transport = new SseChatTransport({ baseUrl: getRuntimeConfig().serverBaseUrl, auth: this.#auth });
+    if (!this.#transport) this.#transport = new SseChatTransport({ baseUrl: runtimeServerBaseUrl(), auth: this.#auth });
     return this.#transport;
   }
 
   public set transport(transport: ChatTransport) {
     this.#transport = transport;
     this.#transportOverridden = true;
+    // Explicit transport assignment is the deterministic fixture/test seam.
+    // It always wins over an app-installed live session.
+    this.detachAgentSession();
   }
 
-  /** True when a host deliberately owns chat transport (for example a deterministic fixture replay). */
+  /** True when a host deliberately supplied deterministic chat transport. */
   public get hasCustomTransport(): boolean {
     return this.#transportOverridden;
   }
 
-  /** Activates the SDK-owned live tool loop. Fixture transport remains the default until this is called. */
-  public attachAgentSession(options: StudioAgentSessionOptions): StudioAgentSession {
+  /** Active SDK session, exposed read-only for hosts and diagnostics. */
+  public get agentSession(): StudioAgentSession | undefined {
+    return this.#agentSession;
+  }
+
+  /** Installs the SDK-owned multi-round model/tool loop. */
+  public attachAgentSession(options: StudioAgentSessionOptions & StudioAgentCertificationOptions): StudioAgentSession {
+    this.#activeAbort?.abort();
     const callerOnEvent = options.onEvent;
     this.#agentSession = createStudioAgentSession({
       ...options,
@@ -128,21 +172,9 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   }
 
   public detachAgentSession(): void {
+    this.#activeAbort?.abort();
     this.#agentSession = undefined;
     this.#agentMessageId = undefined;
-  }
-
-  /** Returns a governed lifecycle outcome to the visible conversation. */
-  public appendAssistantNotice(text: string): void {
-    const id = this.#nextMessageId();
-    this.#state = chatReducer(this.#state, { type: "assistant-turn-started", id });
-    this.#state = chatReducer(this.#state, { type: "ai-event", id, event: { type: "textDelta", text } });
-    this.#state = chatReducer(this.#state, {
-      type: "ai-event",
-      id,
-      event: { type: "messageStop", stopReason: "endTurn" },
-    });
-    this.render();
   }
 
   /** This console's own replayable activity log (spec REQ-012) — read-only; assign a fresh `createActivityLog()` (e.g. with a deterministic `clock`) BEFORE sending any messages to control its timestamps. */
@@ -263,6 +295,9 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   public async sendMessage(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
+    // StudioAgentSession owns one ordered history. A second concurrent turn
+    // would interleave events/tool results and corrupt that history.
+    if (this.#agentSession && this.streaming) return;
 
     const annotations = this.#state.pendingAnnotations;
     const wireContent = composeMessageContent(trimmed, annotations);
@@ -304,20 +339,18 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
         const turn = await this.#agentSession.chat(wireContent, { signal: controller.signal });
         if (turn.status === "completed") {
           settled = true;
-          const stopEvent = { type: "messageStop" as const, stopReason: turn.stopReason ?? "endTurn" };
-          this.#state = chatReducer(this.#state, { type: "ai-event", id: assistantMessageId, event: stopEvent });
+          const event = { type: "messageStop" as const, stopReason: turn.stopReason ?? "endTurn" };
+          this.#state = chatReducer(this.#state, { type: "ai-event", id: assistantMessageId, event });
           this.activityLog.append("assistant_turn_completed", {
             messageId: assistantMessageId,
-            stopReason: stopEvent.stopReason,
+            stopReason: event.stopReason,
             rounds: turn.rounds,
           });
           this.dispatchTypedEvent<HonuaStudioChatTurnCompleteDetail>("honua-studio-chat-turn-complete", {
             messageId: assistantMessageId,
-            stopReason: stopEvent.stopReason,
+            stopReason: event.stopReason,
           });
-        } else if (turn.status === "cancelled") {
-          settled = false;
-        } else {
+        } else if (turn.status !== "cancelled") {
           settled = true;
           const errorMessage = turn.errorMessage ?? `Studio agent turn ${turn.status}.`;
           this.#state = chatReducer(this.#state, {
@@ -440,21 +473,45 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     const messageId = this.#agentMessageId;
     if (!messageId) return;
     if (sessionEvent.type === "toolResult") {
+      this.#state = chatReducer(this.#state, {
+        type: "tool-result",
+        id: messageId,
+        toolCallId: sessionEvent.result.toolCallId,
+        ok: sessionEvent.result.ok,
+        ...(sessionEvent.result.errorMessage ? { errorMessage: sessionEvent.result.errorMessage } : {}),
+      });
       this.activityLog.append("tool_call_completed", {
         messageId,
         toolCallId: sessionEvent.result.toolCallId,
         toolName: sessionEvent.result.toolName,
         ok: sessionEvent.result.ok,
         plane: sessionEvent.result.plane,
-        retriedAfterConflict: sessionEvent.result.retriedAfterConflict ?? false,
+        errorMessage: sessionEvent.result.errorMessage,
       });
+      this.dispatchTypedEvent<HonuaStudioChatToolExecutionDetail>("honua-studio-chat-tool-execution", {
+        messageId,
+        toolCallId: sessionEvent.result.toolCallId,
+        toolName: sessionEvent.result.toolName,
+        ok: sessionEvent.result.ok,
+        plane: sessionEvent.result.plane,
+        ...(sessionEvent.result.errorMessage ? { errorMessage: sessionEvent.result.errorMessage } : {}),
+      });
+      this.render();
       return;
     }
-    const event = sessionEvent.event;
-    // StudioAgentSession may run several assistant rounds. Intermediate
-    // messageStop events mean "dispatch tools", not "the UI turn is done";
-    // the final status is applied after chat() resolves above.
-    if (event.type === "messageStop" || event.type === "error") return;
+
+    // Discovery/watch events describe the session's tool inventory rather
+    // than streamed chat content. The session exposes their current state;
+    // they must not be projected into the transcript reducer.
+    if (sessionEvent.type !== "chat") return;
+
+    // Typed against Studio's contract so the check below also compiles
+    // against a published SDK whose event union predates transcriptProvenance.
+    const event: StudioAiChatEvent = sessionEvent.event;
+    // Intermediate stops separate tool rounds; chat() owns the final stop.
+    // Transcript provenance is consumed by the SDK session's verifier and has
+    // no transcript content of its own.
+    if (event.type === "messageStop" || event.type === "error" || event.type === "transcriptProvenance") return;
     this.#state = chatReducer(this.#state, { type: "ai-event", id: messageId, event });
     if (event.type === "toolCallStart" && event.toolCallId && event.toolName) {
       this.activityLog.append("tool_call_started", {
@@ -587,12 +644,13 @@ function renderMessage(message: ChatState["messages"][number]): string {
                   (toolCall) => `
                 <li class="chat-tool-call" data-testid="studio-chat-tool-call" data-tool-call-id="${escapeHtml(toolCall.id)}" data-status="${toolCall.status}">
                   <span class="chat-tool-call-name">${escapeHtml(toolCall.name)}</span>
-                  <span class="hn-badge hn-badge--status">${toolCall.status === "complete" ? "Complete" : "Calling…"}</span>
+                  <span class="hn-badge hn-badge--status">${toolCall.status === "complete" ? "Complete" : toolCall.status === "error" ? "Failed" : "Calling…"}</span>
                   <pre class="chat-tool-call-args" data-testid="studio-chat-tool-call-args">${escapeHtml(
                     toolCall.status === "complete" && toolCall.args !== undefined
                       ? JSON.stringify(toolCall.args, null, 2)
                       : toolCall.argumentsText,
                   )}</pre>
+                  ${toolCall.errorMessage ? `<p class="hn-error">${escapeHtml(toolCall.errorMessage)}</p>` : ""}
                 </li>`,
                 )
                 .join("")}

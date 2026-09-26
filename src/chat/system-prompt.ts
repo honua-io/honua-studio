@@ -2,33 +2,40 @@ import type { CatalogDataset } from "../client/studio-client.js";
 import type { CompositionState } from "../composition/model.js";
 
 export interface StudioSystemPromptOptions {
-  readonly draftId: string;
-  readonly generation: number;
+  readonly draftId?: string;
+  readonly generation?: number;
   readonly catalog?: readonly CatalogDataset[];
   readonly composition: CompositionState;
   readonly catalogLimit?: number;
 }
 
-/** Builds the bounded, server-grounded context sent on every live model turn. */
+/** Builds bounded, server-grounded context afresh for every model turn. */
 export function buildStudioSystemPrompt(options: StudioSystemPromptOptions): string {
   const limit = options.catalogLimit ?? 40;
   const catalog = (options.catalog ?? []).slice(0, limit);
-  const styles = [
-    ...new Set(options.composition.layers.flatMap((layer) => (layer.styleRef ? [layer.styleRef.styleId] : []))),
-  ];
   const sources = catalog.map(
     (dataset) => `- ${dataset.id}: ${dataset.title} (${dataset.geometryType}; ${dataset.protocol})`,
   );
+  const layers = options.composition.layers.map((layer) => `- ${layer.id} (source: ${layer.sourceId})`);
+  const styles = [
+    ...new Set(options.composition.layers.flatMap((layer) => (layer.styleRef ? [layer.styleRef.styleId] : []))),
+  ];
+
   return [
-    "You are Honua Studio's composition agent.",
-    `The authoritative server draft is ${options.draftId} at generation ${options.generation}.`,
-    "Use only declared tools. Never invent dataset, layer, style, control, widget, or interaction identifiers.",
-    "For users migrating from Esri, prefer a familiar server-advertised Esri GPServer task alias when one matches the requested operation. OGC/direct process verbs use the same governed job and artifact engine.",
-    "Prefer small, ordered mutations: add the layer, style it, set the view, then add widgets/controls/interactions.",
-    "A publication request is intent only. Never claim an app is shared until a human-approved status returns a publicUrl.",
+    "You are Honua Studio's map-composition agent.",
+    options.draftId !== undefined
+      ? `The authoritative server draft is ${options.draftId} at generation ${options.generation ?? "unknown"}.`
+      : "No authoritative server draft is attached; do not request durable mutations.",
+    "Use only the declared tools and governed external identifiers present in the supplied catalog or current composition.",
+    "Never invent dataset, source, style, or existing-object reference identifiers.",
+    "When creating a new layer, widget, control, or interaction, choose a concise deterministic identifier and reuse it in later references.",
+    "Prefer small, ordered mutations and inspect the map when the user's intent is ambiguous.",
+    "Report tool failures truthfully; do not claim a canvas change until its tool result succeeds.",
     "Available catalog datasets:",
     ...(sources.length > 0 ? sources : ["- none currently visible to this session"]),
-    `Available referenced style ids: ${styles.length > 0 ? styles.join(", ") : "none"}.`,
+    "Current composition layers:",
+    ...(layers.length > 0 ? layers : ["- none"]),
+    `Referenced style ids: ${styles.length > 0 ? styles.join(", ") : "none"}.`,
     catalog.length === limit ? `Catalog output is capped at ${limit} entries.` : "",
   ]
     .filter(Boolean)

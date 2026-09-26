@@ -1,16 +1,72 @@
 // @vitest-environment happy-dom
+
+import { McpClient as SdkMcpClient, type StudioAgentSessionOptions } from "@honua/sdk-js/studio-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createActivityLog } from "../../src/chat/activity-log.js";
-import type { StudioAiChatEvent, StudioAiChatRequest } from "../../src/chat/ai-contract.js";
+import type {
+  StudioAiChatEvent,
+  StudioAiChatRequest,
+  StudioAiSignedTranscript,
+  StudioAiTranscriptCertification,
+} from "../../src/chat/ai-contract.js";
 import { playFixtureConversation } from "../../src/chat/fixture-player.js";
 import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
 import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
 import type { ChatTransport } from "../../src/chat/transport.js";
+import { CompositionController } from "../../src/composition/controller.js";
+import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
+import { applyStudioDraft } from "../../src/mcp/tool-bridge.js";
 
 registerAllStudioElements();
+
+// A server-classified descriptor as `tools/list` serves it. Studio owns no local
+// copy of the composition catalog: the SDK session discovers and routes it.
+const serverSetViewDescriptor = {
+  name: "honua_studio_set_view",
+  description: "Set the authoritative Studio draft's map view.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      draftId: { type: "string" },
+      generation: { type: "integer" },
+      view: {
+        type: "object",
+        properties: { center: { type: "array", items: { type: "number" } }, zoom: { type: "number" } },
+      },
+    },
+    required: ["draftId", "generation", "view"],
+  },
+  _meta: { "honua.studio": { family: "honua.studio.composition", view: "setup", revision: "setup.v2" } },
+};
+
+// The SDK session's transport type. A published SDK that predates
+// honua-io/honua-sdk-js#1748 has no transcriptProvenance member in its event
+// union, so a transport typed against Studio's contract is narrowed here.
+type SdkChatTransport = NonNullable<StudioAgentSessionOptions["transport"]>;
+
+const certification: StudioAiTranscriptCertification = {
+  candidateId: "sha256:candidate",
+  releaseId: "2026.1",
+  endpointIdentity: "http://studio.test",
+  actionId: "studio.setup",
+  runNonce: "run-1",
+};
+
+function signedTranscript(round: number): StudioAiSignedTranscript {
+  return {
+    schemaVersion: "honua.studio-ai.transcript.v1",
+    canonicalization: "honua-canonical-json-v1",
+    digestAlgorithm: "sha-256",
+    signatureAlgorithm: "Ed25519",
+    keyId: "studio-ai-test",
+    canonicalTranscript: btoa(`{"round":${round}}`),
+    transcriptDigest: `digest-${round}`,
+    signature: btoa(`signature-${round}`),
+  };
+}
 
 function mountChat(): HonuaStudioChatElement {
   const el = document.createElement("honua-studio-chat") as HonuaStudioChatElement;
@@ -23,13 +79,261 @@ afterEach(() => {
 });
 
 describe("<honua-studio-chat>", () => {
-  it("marks an explicitly assigned fixture transport as host-owned", () => {
+  it("runs a model-selected server tool, feeds its result back, and refreshes the real canvas controller", async () => {
     const el = mountChat();
-    expect(el.hasCustomTransport).toBe(false);
+    const controller = new CompositionController(createEmptyCompositionState());
+    const requests: StudioAiChatRequest[] = [];
+    const mcpCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    let round = 0;
+    const model: ChatTransport = {
+      async *streamChat(request) {
+        requests.push(request);
+        round += 1;
+        if (round === 1) {
+          yield { type: "toolCallStart", toolCallId: "call-1", toolName: "honua_studio_set_view" };
+          yield { type: "toolCallDelta", toolCallId: "call-1", toolArgumentsDelta: '{"view":{"zoom":9}}' };
+          yield { type: "toolCallStop", toolCallId: "call-1", toolArguments: { view: { zoom: 9 } } };
+          yield { type: "messageStop", stopReason: "toolCall" };
+          // A certification-bound proxy ends every round with its signed transcript.
+          yield { type: "transcriptProvenance", provenance: signedTranscript(round) };
+          return;
+        }
+        yield { type: "textDelta", text: "Zoomed the map." };
+        yield { type: "messageStop", stopReason: "endTurn" };
+        yield { type: "transcriptProvenance", provenance: signedTranscript(round) };
+      },
+    };
+    // Stands in for the SDK's StudioAiTranscriptVerifier over the proxy's published keys.
+    const transcriptVerifier = {
+      async verify(provenance: StudioAiSignedTranscript) {
+        return { ok: true, transcriptDigest: provenance.transcriptDigest };
+      },
+    };
+    const draft = {
+      draftId: "draft-1",
+      packageKey: "map-1",
+      generation: 2,
+      envelope: { family: "map" as const, schemaVersion: "1.0", body: { layers: [], view: { zoom: 9 }, widgets: [] } },
+    };
+    const mcpClient = new SdkMcpClient({
+      fetchImpl: vi.fn(async (_url, init) => {
+        const request = JSON.parse(String(init?.body)) as {
+          method: string;
+          params?: { name: string; arguments: Record<string, unknown> };
+          id: string;
+        };
+        if (request.method === "initialize") {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2025-03-26" } }),
+            { headers: { "content-type": "application/json", "mcp-session-id": "session-1" } },
+          );
+        }
+        if (request.method === "tools/list") {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [serverSetViewDescriptor] } }),
+            { headers: { "content-type": "application/json" } },
+          );
+        }
+        if (request.params) mcpCalls.push(request.params);
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { structuredContent: draft } }), {
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    });
 
+    const chatEvents: StudioAiChatEvent[] = [];
+    el.attachAgentSession({
+      certification,
+      transcriptVerifier,
+      transport: model as SdkChatTransport,
+      mcpClient,
+      draft: { draftId: "draft-1", generation: 1 },
+      system: "grounded system prompt",
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+      onEvent: (event) => {
+        if (event.type === "chat") chatEvents.push(event.event);
+        if (event.type === "toolResult" && event.result.draft) {
+          controller.replaceState(applyStudioDraft(event.result.draft as never, controller.state));
+        }
+      },
+    });
+    await el.sendMessage("Zoom in");
+
+    expect(controller.state.view.zoom).toBe(9);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.system).toBe("grounded system prompt");
+    expect(requests[0]?.tools?.map((tool) => tool.name)).toEqual(["honua_studio_set_view"]);
+    expect(mcpCalls).toEqual([
+      { name: "honua_studio_set_view", arguments: { view: { zoom: 9 }, draftId: "draft-1", generation: 1 } },
+    ]);
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolCallId: "call-1",
+      toolName: "honua_studio_set_view",
+    });
+    expect(requests[1]?.messages.at(-1)?.content).toContain('"status":"ok"');
+    expect(el.messages.at(-1)?.text).toBe("Zoomed the map.");
+    expect(el.messages.at(-1)?.status).toBe("complete");
+    expect(el.messages.at(-1)?.errorMessage).toBeUndefined();
+    expect(el.messages.at(-1)?.toolCalls).toMatchObject([{ id: "call-1", status: "complete" }]);
+    expect(el.activityLog.entries().map((entry) => entry.type)).toContain("tool_call_completed");
+    expect(chatEvents.filter((event) => event.type === "transcriptProvenance")).toHaveLength(2);
+  });
+
+  it("keeps a session's transcriptProvenance events out of the rendered transcript", async () => {
+    const el = mountChat();
+    el.attachAgentSession({
+      transport: {
+        async *streamChat() {
+          yield { type: "messageStart", model: "fixture" };
+          yield { type: "textDelta", text: "No tools needed." };
+          yield { type: "messageStop", stopReason: "endTurn" };
+          yield { type: "transcriptProvenance", provenance: signedTranscript(1) };
+        },
+      } as ChatTransport as SdkChatTransport,
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+    });
+
+    await el.sendMessage("Hello");
+
+    expect(el.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "No tools needed.",
+      status: "complete",
+      toolCalls: [],
+    });
+    expect(el.messages.at(-1)?.errorMessage).toBeUndefined();
+    expect(el.streaming).toBe(false);
+  });
+
+  it("keeps explicit fixture transport authoritative over an attached live agent session", async () => {
+    const el = mountChat();
+    const liveTransport: ChatTransport = {
+      // biome-ignore lint/correctness/useYield: a call proves the fixture override failed
+      async *streamChat() {
+        throw new Error("live session must have been detached");
+      },
+    };
+    el.attachAgentSession({ transport: liveTransport as SdkChatTransport });
     el.transport = new FixtureChatTransport(composeDistrictsMapConversation);
 
-    expect(el.hasCustomTransport).toBe(true);
+    await el.sendMessage("Add parcels");
+
+    expect(el.messages.at(-1)?.status).toBe("complete");
+    expect(el.messages.at(-1)?.toolCalls[0]?.name).toBe("add_layer");
+  });
+
+  it("rejects an overlapping public send while an SDK session turn is active", async () => {
+    const el = mountChat();
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    el.attachAgentSession({
+      transport: {
+        async *streamChat() {
+          yield { type: "textDelta", text: "first" };
+          await gate;
+          yield { type: "messageStop", stopReason: "endTurn" };
+        },
+      },
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+    });
+
+    const first = el.sendMessage("one");
+    await vi.waitFor(() => expect(el.streaming).toBe(true));
+    await el.sendMessage("two");
+    expect(el.messages.filter((message) => message.role === "user").map((message) => message.text)).toEqual(["one"]);
+    release?.();
+    await first;
+  });
+
+  it("aborts an in-flight SDK turn when the live session is detached", async () => {
+    const el = mountChat();
+    el.attachAgentSession({
+      transport: {
+        async *streamChat(_request, signal) {
+          yield { type: "messageStart", model: "fixture" };
+          if (signal.aborted) return;
+          await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+        },
+      },
+    });
+
+    const turn = el.sendMessage("one");
+    await vi.waitFor(() => expect(el.streaming).toBe(true));
+    el.detachAgentSession();
+    await turn;
+
+    expect(el.messages.at(-1)?.status).toBe("cancelled");
+    expect(el.streaming).toBe(false);
+  });
+
+  it("renders and announces a failed SDK tool execution as failed, not complete", async () => {
+    const el = mountChat();
+    let round = 0;
+    const execution = vi.fn();
+    el.addEventListener("honua-studio-chat-tool-execution", execution);
+    el.attachAgentSession({
+      certification,
+      transcriptVerifier: {
+        async verify(provenance: StudioAiSignedTranscript) {
+          return { ok: true, transcriptDigest: provenance.transcriptDigest };
+        },
+      },
+      tools: [
+        {
+          name: "failingProbe",
+          description: "Always fails.",
+          mode: "action",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+      ],
+      execute: async () =>
+        ({
+          tool: "inspectMap",
+          status: "error",
+          deniedReason: "server rejected the mutation",
+          audit: {
+            tool: "inspectMap",
+            status: "error",
+            dryRun: false,
+            action: true,
+            outcome: "error",
+            parameters: {},
+            timestamp: "FIXED",
+          },
+        }) as never,
+      fetchImpl: vi.fn(() => Promise.reject(new Error("capabilities unavailable"))),
+      transport: {
+        async *streamChat() {
+          round += 1;
+          if (round === 1) {
+            yield { type: "toolCallStart", toolCallId: "failed-1", toolName: "failingProbe" };
+            yield { type: "toolCallStop", toolCallId: "failed-1", toolArguments: {} };
+            yield { type: "messageStop", stopReason: "toolCall" };
+            yield { type: "transcriptProvenance", provenance: signedTranscript(round) };
+            return;
+          }
+          yield { type: "messageStop", stopReason: "endTurn" };
+        },
+      } as ChatTransport as SdkChatTransport,
+    });
+
+    await el.sendMessage("fail");
+
+    expect(el.messages.at(-1)?.toolCalls[0]).toMatchObject({
+      id: "failed-1",
+      status: "error",
+      errorMessage: "server rejected the mutation",
+    });
+    expect(el.shadowRoot?.querySelector('[data-testid="studio-chat-tool-call"]')?.textContent).toContain("Failed");
+    expect(execution).toHaveBeenCalledTimes(1);
+    expect((execution.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
+      toolCallId: "failed-1",
+      ok: false,
+      errorMessage: "server rejected the mutation",
+    });
   });
 
   it("still dispatches honua-studio-chat-message with the exact legacy {text} shape on composer submit (honua-studio#5 contract)", async () => {
@@ -152,64 +456,6 @@ describe("<honua-studio-chat>", () => {
       "tool_call_completed",
       "assistant_turn_completed",
     ]);
-  });
-
-  it("uses StudioAgentSession to execute a tool, feed its result back, and finish the same visible turn", async () => {
-    const el = mountChat();
-    const requests: StudioAiChatRequest[] = [];
-    let round = 0;
-    const transport: ChatTransport = {
-      async *streamChat(request) {
-        requests.push(request);
-        round += 1;
-        yield { type: "messageStart", model: "fixture-model" };
-        if (round === 1) {
-          yield { type: "toolCallStart", toolCallId: "call-live-1", toolName: "setViewport" };
-          yield { type: "toolCallDelta", toolCallId: "call-live-1", toolArgumentsDelta: '{"zoom":8}' };
-          yield { type: "toolCallStop", toolCallId: "call-live-1", toolArguments: { zoom: 8 } };
-          yield { type: "messageStop", stopReason: "toolCall" };
-          return;
-        }
-        yield { type: "textDelta", text: "The map is now zoomed to 8." };
-        yield { type: "messageStop", stopReason: "endTurn" };
-      },
-    };
-    const execute = vi.fn(async () => ({
-      tool: "setViewport",
-      status: "ok",
-      data: { zoom: 8 },
-      audit: {
-        tool: "setViewport",
-        status: "ok",
-        dryRun: false,
-        action: true,
-        outcome: "allowed",
-        parameters: {},
-        timestamp: "t",
-      },
-    }));
-    el.attachAgentSession({
-      transport: transport as never,
-      tools: [
-        {
-          name: "setViewport",
-          description: "Set the map viewport.",
-          inputSchema: { type: "object", properties: { zoom: { type: "number" } } },
-        },
-      ],
-      execute: execute as never,
-    });
-
-    await el.sendMessage("Zoom to 8");
-
-    expect(execute).toHaveBeenCalledWith({ name: "setViewport", args: { zoom: 8 } });
-    expect(requests).toHaveLength(2);
-    expect(
-      requests[1]?.messages.some((message) => message.role === "tool" && message.toolCallId === "call-live-1"),
-    ).toBe(true);
-    expect(el.messages.at(-1)?.text).toBe("The map is now zoomed to 8.");
-    expect(el.messages.at(-1)?.status).toBe("complete");
-    expect(el.activityLog.entries().map((entry) => entry.type)).toContain("tool_call_completed");
   });
 
   it("cancel() aborts an in-flight turn, marks the message cancelled, and dispatches honua-studio-chat-turn-cancelled", async () => {

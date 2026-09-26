@@ -10,9 +10,32 @@
  * (`Honua.Core.Features.Studio.Domain.*`, `Honua.Server.Features.Studio.Models.*`)
  * exactly — every property here is already camelCase on the wire, so these
  * interfaces are usable directly against a real `ApiResponse<T>.data`
- * payload with zero translation. See `lifecycle-client.ts`'s module doc for
- * why the joined enumeration and #3304 status extensions remain a local
- * projection beside the released SDK lifecycle client.
+ * payload with zero translation.
+ *
+ * ## Why these are not `@honua/sdk-js/studio`'s lifecycle types
+ *
+ * The SDK's projection of the same API is narrower than the API. Three
+ * concrete gaps, each visible in a response `mock-server.mjs` reproduces
+ * from the server doc:
+ *
+ *  - {@link StudioPackageDraft.validation} — the panel's status badge — is
+ *    not a declared member of the SDK's `StudioPackageDraft`.
+ *  - {@link StudioPackageFamilyCapabilities} carries `persistenceMode` and
+ *    `durable` at the top level and `currentSchemaVersion`,
+ *    `previewSupported`, `publishSupported` per family; the SDK's shape has
+ *    `schemaVersion`, moves `durable`/`persistenceMode` onto the family, and
+ *    declares neither preview nor publish support.
+ *  - The whole enumeration surface ({@link StudioContentItemQuery},
+ *    {@link StudioContentItemSummary}, {@link StudioPackageDraftListResponse}
+ *    and friends, server PR #3014 / issue #3003) has no SDK counterpart.
+ *
+ * The SDK's shapes carry index signatures, so those fields do arrive at
+ * runtime — but typed `unknown`, which turns every read into a cast. Keeping
+ * the server's DTOs typed here is the difference between a compiler that
+ * checks the console's reads and one that cannot. See `lifecycle-client.ts`'s
+ * module doc for the full list, and `./composition-draft-store.ts` for the
+ * path that *does* run on the SDK's client, where none of these fields is
+ * read.
  *
  * @module
  */
@@ -63,7 +86,7 @@ export type StudioPackageSupportLevel = "unsupported" | "limited" | "supported";
 export type StudioPackagePersistenceMode = "in-memory" | "durable";
 export type StudioPackageValidationStatus = "not-validated" | "valid" | "warning" | "invalid";
 export type StudioPackageDiagnosticSeverity = "info" | "warning" | "error" | "blocker";
-export type StudioPublicationRequestStatus = "accepted" | "pending" | "approved" | "published" | "rejected";
+export type StudioPublicationRequestStatus = "accepted" | "pending" | "rejected";
 export type StudioRollbackPointer = "current" | "published" | "both";
 
 /** Derived lifecycle state for a Studio content item (server: `StudioContentItemState`). Distinct from a joined publication's route `lifecycle`. */
@@ -283,22 +306,6 @@ export interface StudioPublicationRequest {
   readonly warningAcknowledgement?: string;
   readonly requestedBy?: string;
   readonly createdAt: string;
-}
-
-/** Pollable status contract tracked by honua-server#3304. */
-export interface StudioPublicationRequestStatusResult {
-  readonly requestId: string;
-  readonly itemId: string;
-  readonly versionId: string;
-  readonly status: StudioPublicationRequestStatus;
-  readonly decidedAt?: string;
-  readonly decidedBy?: string;
-  readonly publicationId?: string;
-  readonly publicUrl?: string;
-}
-
-export interface StudioPublicationRequestListResponse {
-  readonly requests: readonly StudioPublicationRequestStatusResult[];
 }
 
 export interface StudioRollbackRequestInput {

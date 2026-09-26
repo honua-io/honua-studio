@@ -2,6 +2,17 @@
  * Wire types for the Studio `gp` package family's envelope body, plus the
  * async batch-execution job surface (honua-studio#10, REQ-001..005/NFR-001).
  *
+ * ## Why these are not `@honua/sdk-js/studio`'s `HonuaGPPackage`
+ *
+ * The SDK's `gp` family is one of its declared **stub** projections: three
+ * fields (`packageId`, `format`, `status`) plus `[extra: string]: unknown`,
+ * documented as subject to change "when their server contracts ship". It
+ * carries no operation graph, no typed parameters, no input/output bindings
+ * — nothing `gp-model.ts` validates or `<honua-studio-gp-panel>` renders.
+ * Importing it would type the whole authored body as `unknown`. When the SDK
+ * projects the real `honua_gp_package.v1` body, these interfaces become an
+ * import; the stub is not that.
+ *
  * ## The honesty note (spec `.specifica/studio-v0/spec.md` line 66, REQ-006)
  *
  * honua-server's GP support level is `"limited"` today

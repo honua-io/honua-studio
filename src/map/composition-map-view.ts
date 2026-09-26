@@ -377,6 +377,14 @@ export class CompositionMapView {
    * Runs the SDK's style composition (style-ref overrides + theme tokens
    * merged onto `mapSpec`). On failure the un-composed `mapSpec` is used:
    * a bad style ref should cost the map its styling, not its layers.
+   *
+   * The result goes to MapLibre's differ untouched. `composeStyle` prunes
+   * present-but-`undefined` `paint`/`layout`/`metadata` properties itself
+   * (sdk-js#1270); before that fix Studio pruned them here, because
+   * `{ layout: undefined }` fails MapLibre's validator and a rejected diff
+   * leaves the previous style in place — a map that silently stops changing
+   * while composition state stays correct. Do not reintroduce a local pass:
+   * if that symptom returns, it is an SDK regression.
    */
   async #composeSafely(mapPackage: HonuaMapPackage): Promise<HonuaStyleSpecification> {
     try {

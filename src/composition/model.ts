@@ -6,10 +6,20 @@
  * the client's PROJECTION of a Studio package lifecycle draft, never the
  * source of truth. The reducer (`reducer.ts`) is a pure merge engine; the
  * server draft (`history.ts`'s `DraftSync` / `CompositionDraftStore` seam)
- * owns persistence, and undo/redo (`history.ts`) is designed to map to draft
- * revisions through `DraftSync`. The model remains local because it also
- * carries Studio-only ephemeral selection, pins, and annotations around the
- * SDK/server composition body projection.
+ * owns persistence, and undo/redo (`history.ts`) maps to draft revisions
+ * through `DraftSync` — over `FixtureDraftStore` in fixture mode, or over
+ * `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient.drafts` through
+ * `../lifecycle/composition-draft-store.ts` against a real server.
+ *
+ * These types are **not** the durable wire shape and are not meant to become
+ * it: this is the renderer's projection — what the reducer, the map view and
+ * the widget deck all read — while honua-server stores a
+ * `StudioCompositionBody` (`../mcp/tool-bridge.ts`'s
+ * `toStudioCompositionBody`/`applyStudioDraftBody` pair). {@link CompositionState.pins}
+ * and {@link CompositionState.annotations} are app-only and deliberately
+ * outside that envelope. The two meet in exactly two places, both using that
+ * same pair: `../mcp/orchestrator.ts` for a tool call, and
+ * `../lifecycle/composition-draft-store.ts` for a `DraftSync` write.
  *
  * Every field here is plain, JSON-serializable data — no class instances, no
  * DOM references, no functions — so it round-trips unchanged through

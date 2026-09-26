@@ -152,15 +152,25 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   addLayer: compositionPassthroughEntry("addLayer", "honua_studio_add_layer"),
   removeLayer: compositionPassthroughEntry("removeLayer", "honua_studio_remove_layer"),
   setLayerStyleRef: compositionPassthroughEntry("setLayerStyleRef", "honua_studio_set_layer_style"),
-  // TOC/compare/time toggles and agent-authored visibility changes delegate
-  // to the granular server tool. Removal gate: sdk-js#1288; until the SDK
-  // session classifies it, Studio keeps this narrow direct mapping.
+  /**
+   * honua-studio#24's TOC/compare/time toggles and any agent-authored "hide
+   * the parcels" both land here, and both now delegate (honua-studio#31).
+   *
+   * This entry carried no `serverToolName` while honua-server had no tool for
+   * it, which made a toggle sync-fragile in a way pins are not: `visible`
+   * **is** part of the server's `StudioCompositionLayer` wire shape
+   * (`toStudioCompositionBody` sends it), so a live draft sync overwrote a
+   * client-side toggle with the stored value — uncheck a layer, let an
+   * unrelated mutation sync, watch it come back. `honua_studio_set_layer_visibility`
+   * (honua-server#3199, landed in honua-server PR #3207) closes that: the
+   * toggle advances the server draft's generation like every other composition
+   * mutation, and the returned draft is what the client re-reads.
+   */
   setVisibility: compositionPassthroughEntry("setVisibility", "honua_studio_set_layer_visibility"),
   setView: compositionPassthroughEntry("setView", "honua_studio_set_view"),
   addWidget: compositionPassthroughEntry("addWidget", "honua_studio_add_widget"),
   removeWidget: compositionPassthroughEntry("removeWidget", "honua_studio_remove_widget"),
-  // Controls and interactions use their landed granular server tools. They
-  // share the sdk-js#1288 removal gate with visibility in the live session.
+  // Static routing is intentional until sdk-js#1397 supplies discovery.
   addControl: compositionPassthroughEntry("addControl", "honua_studio_add_control"),
   removeControl: compositionPassthroughEntry("removeControl", "honua_studio_remove_control"),
   bindInteraction: compositionPassthroughEntry("bindInteraction", "honua_studio_bind_interaction"),
@@ -259,19 +269,6 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       const styleRef = styleRefFromString(args.styleRef);
       if (styleRef) fields.styleRef = styleRef;
       return finalizeCommand("setLayerStyleRef", fields);
-    },
-  },
-  honua_studio_set_layer_visibility: {
-    vocabulary: "server-mcp",
-    serverToolName: "honua_studio_set_layer_visibility",
-    build: (args) => {
-      if (!isNonEmptyString(args.layerId) || typeof args.visible !== "boolean") {
-        return { ok: false, reason: 'honua_studio_set_layer_visibility requires "layerId" and boolean "visible".' };
-      }
-      return finalizeCommand("setVisibility", {
-        target: { kind: "layer", id: args.layerId },
-        visible: args.visible,
-      });
     },
   },
   honua_studio_set_view: {
@@ -449,9 +446,15 @@ export function buildServerToolInvocation(
         arguments: { ...base, layerId: targetId(command.target), styleRef: command.styleRef?.styleId ?? null },
       };
     case "setVisibility":
+      // Layer-only by construction: the reducer resolves this command's
+      // target as a layer (`requireResolved(..., "layer", ...)`) and the
+      // orchestrator pre-flights it before ever getting here, so a
+      // widget/feature target never reaches the wire. The guard keeps this
+      // function total rather than asserting.
+      if (command.target.kind !== "layer") return undefined;
       return {
         name: "honua_studio_set_layer_visibility",
-        arguments: { ...base, layerId: targetId(command.target), visible: command.visible },
+        arguments: { ...base, layerId: command.target.id, visible: command.visible },
       };
     case "setView":
       return { name: "honua_studio_set_view", arguments: { ...base, view: { ...command.view } } };
@@ -462,21 +465,19 @@ export function buildServerToolInvocation(
     case "addControl":
       return { name: "honua_studio_add_control", arguments: { ...base, control: { ...command.control } } };
     case "removeControl":
+      if (command.target.kind !== "control") return undefined;
       return {
         name: "honua_studio_remove_control",
         arguments: {
           ...base,
-          controlId: targetId(command.target),
+          controlId: command.target.id,
           ...(command.cascadeInteractions !== undefined ? { cascadeInteractions: command.cascadeInteractions } : {}),
         },
       };
     case "bindInteraction":
       return { name: "honua_studio_bind_interaction", arguments: { ...base, interaction: { ...command.interaction } } };
     case "removeInteraction":
-      return {
-        name: "honua_studio_remove_interaction",
-        arguments: { ...base, interactionId: command.interactionId },
-      };
+      return { name: "honua_studio_remove_interaction", arguments: { ...base, interactionId: command.interactionId } };
     default:
       return undefined;
   }

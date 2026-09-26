@@ -23,25 +23,47 @@ describe("mcp/tool-bridge resolveToolCall", () => {
       expect(resolution.serverToolName).toBe("honua_studio_add_layer");
     });
 
+    it("setVisibility delegates to honua_studio_set_layer_visibility (honua-studio#31)", () => {
+      const resolution = resolveToolCall({
+        toolName: "setVisibility",
+        arguments: { target: { kind: "layer", id: "parcels" }, visible: false },
+      });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.serverToolName).toBe("honua_studio_set_layer_visibility");
+    });
+
+    it.each([
+      ["addControl", { control: { id: "year", kind: "filterSlider" } }, "honua_studio_add_control"],
+      [
+        "removeControl",
+        { target: { kind: "control", id: "year" }, cascadeInteractions: true },
+        "honua_studio_remove_control",
+      ],
+      [
+        "bindInteraction",
+        {
+          interaction: {
+            id: "filter",
+            on: { ref: "control:year", event: "change" },
+            do: { ref: "layer:parcels", verb: "setFilter" },
+          },
+        },
+        "honua_studio_bind_interaction",
+      ],
+      ["removeInteraction", { interactionId: "filter" }, "honua_studio_remove_interaction"],
+    ] as const)("%s delegates through its static discovery seam", (toolName, args, expected) => {
+      const resolution = resolveToolCall({ toolName, arguments: args });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.serverToolName).toBe(expected);
+    });
+
     it("pin/unpin have no server tool counterpart", () => {
       const resolution = resolveToolCall({ toolName: "pin", arguments: { target: { kind: "layer", id: "roads" } } });
       expect(resolution.ok).toBe(true);
       if (!resolution.ok) return;
       expect(resolution.serverToolName).toBeUndefined();
-    });
-
-    it("setVisibility delegates to honua_studio_set_layer_visibility", () => {
-      const resolution = resolveToolCall({
-        toolName: "setVisibility",
-        arguments: { target: { kind: "layer", id: "roads" }, visible: false },
-      });
-      expect(resolution.ok).toBe(true);
-      if (!resolution.ok) return;
-      expect(resolution.serverToolName).toBe("honua_studio_set_layer_visibility");
-      expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 4 })).toEqual({
-        name: "honua_studio_set_layer_visibility",
-        arguments: { draftId: "d1", generation: 4, layerId: "roads", visible: false },
-      });
     });
 
     it("invalid composition arguments fail with invalid-arguments", () => {
@@ -217,11 +239,99 @@ describe("mcp/tool-bridge buildServerToolInvocation", () => {
     });
   });
 
+  it("builds honua_studio_set_layer_visibility arguments — all four fields, nothing else", () => {
+    const resolution = resolveToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "layer", id: "parcels" }, visible: false },
+    });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    const invocation = buildServerToolInvocation(resolution, { draftId: "d1", generation: 7 });
+    // The tool's schema is `additionalProperties: false` with all four
+    // required, so this has to be exact rather than a superset.
+    expect(invocation).toEqual({
+      name: "honua_studio_set_layer_visibility",
+      arguments: { draftId: "d1", generation: 7, layerId: "parcels", visible: false },
+    });
+  });
+
+  it("threads the caller's current generation, not a remembered one", () => {
+    const resolution = resolveToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "layer", id: "parcels" }, visible: true },
+    });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 1 })?.arguments.generation).toBe(1);
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 9 })?.arguments.generation).toBe(9);
+  });
+
+  it("returns undefined for a non-layer setVisibility target rather than inventing a layerId", () => {
+    const resolution = resolveToolCall({
+      toolName: "setVisibility",
+      arguments: { target: { kind: "component", id: "toc-1" }, visible: false },
+    });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 1 })).toBeUndefined();
+  });
+
   it("returns undefined for commands with no server tool (pin)", () => {
     const resolution = resolveToolCall({ toolName: "pin", arguments: { target: { kind: "layer", id: "roads" } } });
     expect(resolution.ok).toBe(true);
     if (!resolution.ok) return;
     expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 1 })).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "addControl",
+      { control: { id: "year", kind: "filterSlider" } },
+      {
+        name: "honua_studio_add_control",
+        arguments: { draftId: "d1", generation: 4, control: { id: "year", kind: "filterSlider" } },
+      },
+    ],
+    [
+      "removeControl",
+      { target: { kind: "control", id: "year" }, cascadeInteractions: true },
+      {
+        name: "honua_studio_remove_control",
+        arguments: { draftId: "d1", generation: 4, controlId: "year", cascadeInteractions: true },
+      },
+    ],
+    [
+      "bindInteraction",
+      {
+        interaction: {
+          id: "filter",
+          on: { ref: "control:year", event: "change" },
+          do: { ref: "layer:parcels", verb: "setFilter" },
+        },
+      },
+      {
+        name: "honua_studio_bind_interaction",
+        arguments: {
+          draftId: "d1",
+          generation: 4,
+          interaction: {
+            id: "filter",
+            on: { ref: "control:year", event: "change" },
+            do: { ref: "layer:parcels", verb: "setFilter" },
+          },
+        },
+      },
+    ],
+    [
+      "removeInteraction",
+      { interactionId: "filter" },
+      { name: "honua_studio_remove_interaction", arguments: { draftId: "d1", generation: 4, interactionId: "filter" } },
+    ],
+  ] as const)("builds the exact %s server invocation", (toolName, args, expected) => {
+    const resolution = resolveToolCall({ toolName, arguments: args });
+    expect(resolution.ok).toBe(true);
+    if (!resolution.ok) return;
+    expect(buildServerToolInvocation(resolution, { draftId: "d1", generation: 4 })).toEqual(expected);
   });
 });
 

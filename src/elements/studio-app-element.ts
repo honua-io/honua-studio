@@ -35,33 +35,33 @@
  * the same public properties/events any embedder could use.
  */
 import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
-import { type StudioAgentSession, isHonuaStudioMcpToolName } from "@honua/sdk-js/studio-agent";
+import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
+import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
-import { isGovernedStudioAgentTool, isGpAgentTool, isStudioLifecycleAgentTool } from "../mcp/agent-tool-policy.js";
 import { McpClient } from "../mcp/client.js";
-import { forwardAdvertisedMcpTool } from "../mcp/forwarded-agent-tool.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
-import { type StudioMcpDraft, type StudioPackageFamilyWire, parseStudioDraftResult } from "../mcp/studio-tools.js";
+import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
 import { renderContent } from "../pages/content.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
-import { getRuntimeConfig } from "../runtime-config.js";
+import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
-import type { HonuaStudioChatElement } from "./studio-chat-element.js";
+import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
+  HonuaStudioCommandOutcome,
   HonuaStudioCompositionModeChangeDetail,
   HonuaStudioGpActivityDetail,
   HonuaStudioGpAddOutputDetail,
@@ -78,11 +78,42 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
+function orchestrationAgentResult(
+  call: { readonly name: string; readonly args?: Readonly<Record<string, unknown>> },
+  result: Awaited<ReturnType<ToolCallOrchestrator["handleToolCall"]>>,
+): HonuaAgentToolResult {
+  const status = result.ok ? "ok" : "error";
+  const message = result.ok ? undefined : result.reason;
+  return {
+    tool: call.name,
+    status,
+    ...(result.ok && result.draft ? { data: result.draft } : {}),
+    ...(message ? { deniedReason: message } : {}),
+    audit: {
+      tool: call.name,
+      status,
+      dryRun: false,
+      action: true,
+      outcome: result.ok ? "allowed" : "error",
+      parameters: call.args ?? {},
+      ...(message ? { message } : {}),
+      timestamp: new Date().toISOString(),
+    },
+  } as unknown as HonuaAgentToolResult;
+}
+
 interface StudioRoute {
   path: string;
   navTestId: string;
   label: string;
   render: (root: HTMLElement, client: StudioClient, auth: AuthSession) => void;
+}
+
+interface LiveCompositionOptions {
+  readonly baseUrl: string;
+  readonly packageKey: string;
+  readonly family?: StudioPackageFamilyWire;
+  readonly schemaVersion?: string;
 }
 
 const ROUTES: readonly StudioRoute[] = [
@@ -102,7 +133,7 @@ const ROUTES: readonly StudioRoute[] = [
 ];
 
 /** Package families whose drafts carry a composition body — mirrors `mock-server.mjs`'s `COMPOSITION_ELIGIBLE_FAMILIES` and honua-server#3002's own gate. */
-const LIVE_COMPOSITION_FAMILIES: readonly StudioPackageFamilyWire[] = ["map", "app", "dashboard"];
+const LIVE_COMPOSITION_FAMILIES: readonly StudioPackageFamilyWire[] = ["map", "app"];
 
 /** Shown when composition applies through the local reducer only — the default (REQ-005). */
 const FIXTURE_MODE_LABEL = "Fixture mode";
@@ -138,32 +169,6 @@ function disposeAuthSession(auth: AuthSession | undefined): void {
   (auth as (AuthSession & { dispose?: () => void }) | undefined)?.dispose?.();
 }
 
-function agentToolResult(
-  tool: string,
-  status: "ok" | "error",
-  data?: unknown,
-  message?: string,
-  action = true,
-): HonuaAgentToolResult {
-  const timestamp = new Date().toISOString();
-  return {
-    tool,
-    status,
-    ...(data !== undefined ? { data } : {}),
-    ...(message ? { deniedReason: message } : {}),
-    audit: {
-      tool,
-      status,
-      dryRun: false,
-      action,
-      outcome: status === "ok" ? "allowed" : "error",
-      parameters: {},
-      ...(message ? { message } : {}),
-      timestamp,
-    },
-  } as unknown as HonuaAgentToolResult;
-}
-
 export class HonuaStudioAppElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["data-theme-set", "data-theme", "routing-mode", "current-path", "base-path", "theme-switcher"];
@@ -187,8 +192,45 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #catalogRequested = false;
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
-  #liveAgentSetup: Promise<void> | undefined;
-  #liveAgentSetupGeneration = 0;
+  #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
+  #agentCertification: StudioAgentCertificationOptions | undefined;
+  #agentSetupGeneration = 0;
+  #liveAgentBaseUrl = "/api";
+  #liveCompositionOptions: LiveCompositionOptions | undefined;
+
+  /** Runtime-tool seam. Server-backed composition tools are discovered from
+   * the authenticated MCP endpoint by sdk-js 0.1.9; hosts/tests may replace
+   * the local provider without changing chat or composition wiring. */
+  public get agentToolDefinitions(): (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike> {
+    return (
+      this.#agentToolDefinitions ??
+      ((kit) => kit.tools.filter((tool) => tool.mode === "read" || tool.name === "selectFeature"))
+    );
+  }
+
+  public set agentToolDefinitions(provider: (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) {
+    this.#agentToolDefinitions = provider;
+    if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
+  }
+
+  /**
+   * Certified-dispatch options for the live agent session: a certification
+   * binding and a transcript verifier (for example the SDK's
+   * `StudioAiTranscriptVerifier` over the proxy's published
+   * `transcriptSigning` keys). The SDK dispatches a model-selected tool only
+   * after it verifies that round's signed `transcriptProvenance`
+   * (honua-io/honua-sdk-js#1748); without these options the turn ends with
+   * the SDK's refusal as a turn error. Assigning rebuilds a live session, so
+   * a new binding (and run nonce) takes effect on the next turn.
+   */
+  public get agentCertification(): StudioAgentCertificationOptions | undefined {
+    return this.#agentCertification;
+  }
+
+  public set agentCertification(options: StudioAgentCertificationOptions | undefined) {
+    this.#agentCertification = options;
+    if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
+  }
 
   /**
    * Host-injected session adapter — the primary embed injection path
@@ -208,6 +250,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#session = session;
     if (!this.isConnected) return;
     this.resetAuth();
+    // Both live clients capture the AuthSession supplied at construction.
+    // Replace them explicitly when an embedding host swaps credentials;
+    // a host-owned catalog intentionally does not refresh and therefore
+    // cannot be relied on to incidentally rebuild the agent session.
+    if (this.#orchestrator?.isLive && this.#liveCompositionOptions) {
+      this.#replaceLiveCompositionSession(this.#liveCompositionOptions);
+    }
     // auth.mode may have just changed (standalone <-> host-adapter), and
     // the chrome's sign-in/out button markup depends on that — a
     // paintAuthControls()-only refresh (what auth.subscribe's listener
@@ -249,7 +298,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** The `StudioClient` powering the catalog/packages view — bearer-attached via `.auth`. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
   public get studioClient(): StudioClient {
-    if (!this.#studioClient) this.#studioClient = new StudioClient(getRuntimeConfig().serverBaseUrl, this.auth);
+    if (!this.#studioClient) this.#studioClient = new StudioClient(runtimeServerBaseUrl(), this.auth);
     return this.#studioClient;
   }
 
@@ -311,6 +360,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#aiMapKit = undefined;
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas) canvas.sourceCatalog = catalog;
+    if (this.isConnected && this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
   /**
@@ -410,120 +460,42 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     readonly family?: StudioPackageFamilyWire;
     readonly schemaVersion?: string;
   }): void {
-    const baseUrl = options.baseUrl ?? getRuntimeConfig().serverBaseUrl;
-    const client = new McpClient({ baseUrl, auth: this.auth });
-    this.toolCallOrchestrator.attachLiveSession({
-      client,
+    const liveOptions: LiveCompositionOptions = {
+      baseUrl: options.baseUrl ?? runtimeMcpBaseUrl(),
       packageKey: options.packageKey,
       ...(options.family !== undefined ? { family: options.family } : {}),
       ...(options.schemaVersion !== undefined ? { schemaVersion: options.schemaVersion } : {}),
-    });
+    };
+    this.#liveCompositionOptions = liveOptions;
+    this.#replaceLiveCompositionSession(liveOptions);
     this.#liveCompositionPackageKey = options.packageKey;
     this.#announceCompositionMode({
       mode: "live",
       packageKey: options.packageKey,
       ...(options.family !== undefined ? { family: options.family } : {}),
     });
-    const setupGeneration = ++this.#liveAgentSetupGeneration;
-    this.#liveAgentSetup = this.#attachLiveAgentSession(client, baseUrl, setupGeneration).catch((error) => {
-      if (setupGeneration !== this.#liveAgentSetupGeneration) return;
-      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
-      chat?.activityLog.append("assistant_turn_error", {
-        errorMessage: `Live agent setup is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      });
-    });
   }
 
-  async #attachLiveAgentSession(client: McpClient, baseUrl: string, setupGeneration: number): Promise<void> {
-    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
-    // An explicitly supplied transport is host-owned (notably the model-free
-    // fixture replay used by demos and CI). Live MCP composition can still be
-    // enabled for authoritative draft mutations without silently replacing
-    // that conversation transport with the SDK model loop.
-    if (!chat || chat.hasCustomTransport) return;
-    const [draft, listed] = await Promise.all([this.toolCallOrchestrator.ensureLiveDraft(), client.listTools()]);
-    if (!this.toolCallOrchestrator.isLive || setupGeneration !== this.#liveAgentSetupGeneration) return;
-    const advertisedTools: HonuaAgentToolDefinitionLike[] = listed.tools
-      .filter((tool) => isGovernedStudioAgentTool(tool.name))
-      .map((tool) => ({
-        name: tool.name,
-        title: tool.title ?? tool.name,
-        description: tool.description ?? `Server-advertised ${tool.name} tool.`,
-        mode: tool.annotations?.readOnlyHint ? "read" : "action",
-        inputSchema: tool.inputSchema as HonuaAgentToolDefinitionLike["inputSchema"],
-      }));
-    const advertisedByName = new Map(listed.tools.map((tool) => [tool.name, tool]));
-    const sessionRef: { current?: StudioAgentSession } = {};
-    const execute = async (call: { readonly name: string; readonly args?: unknown }) => {
-      const suppliedArgs = (call.args ?? {}) as Record<string, unknown>;
-      const args = { ...suppliedArgs };
-      // Removal gate: sdk-js#1288. Released 0.1.7 does not classify visibility
-      // or control tools as Studio MCP tools, so route just those through the
-      // sync-safe local bridge until the SDK release owns them.
-      if (
-        call.name.startsWith("honua_studio_") &&
-        !isHonuaStudioMcpToolName(call.name) &&
-        !isStudioLifecycleAgentTool(call.name)
-      ) {
-        const result = await this.toolCallOrchestrator.handleToolCall({ toolName: call.name, arguments: args });
-        return agentToolResult(
-          call.name,
-          result.ok ? "ok" : "error",
-          result.ok ? (result.draft ?? result.command) : undefined,
-          result.ok ? undefined : result.reason,
-        );
-      }
-      if (isGpAgentTool(call.name)) {
-        const descriptor = advertisedByName.get(call.name);
-        if (!descriptor) return agentToolResult(call.name, "error", undefined, "Tool was not advertised.");
-        // The server schema is authoritative for Esri and OGC alike.
-        return forwardAdvertisedMcpTool(client, descriptor, args);
-      }
-      if (isStudioLifecycleAgentTool(call.name)) {
-        const descriptor = advertisedByName.get(call.name);
-        if (!descriptor) return agentToolResult(call.name, "error", undefined, "Tool was not advertised.");
-        if (call.name === "honua_studio_save_version") {
-          args.draftId = this.toolCallOrchestrator.draftId ?? draft.draftId;
-          args.generation = this.toolCallOrchestrator.generation ?? draft.generation;
-        }
-        return forwardAdvertisedMcpTool(client, descriptor, args, (result) => {
-          if (call.name !== "honua_studio_reopen_version") return;
-          const reopened = parseStudioDraftResult(result);
-          this.toolCallOrchestrator.acceptServerDraft(reopened);
-          sessionRef.current?.attachDraft({ draftId: reopened.draftId, generation: reopened.generation });
-        });
-      }
-      return this.aiMapKit.execute(call as never);
-    };
-    sessionRef.current = chat.attachAgentSession({
-      baseUrl,
-      auth: this.auth,
-      kit: this.aiMapKit,
-      tools: advertisedTools,
-      execute: execute as never,
-      draft,
-      ...getRuntimeConfig().model,
-      system: () =>
-        buildStudioSystemPrompt({
-          draftId: this.toolCallOrchestrator.draftId ?? draft.draftId,
-          generation: this.toolCallOrchestrator.generation ?? draft.generation,
-          catalog: this.#sourceCatalog,
-          composition: this.composition.state,
-        }),
-      onEvent: (event) => {
-        if (event.type !== "toolResult") return;
-        if (event.result.draft) {
-          this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
-        }
-        if (isGpAgentTool(event.result.toolName)) {
-          chat.activityLog.append("gp_action", {
-            kind: "job-status",
-            toolName: event.result.toolName,
-            ok: event.result.ok,
-            content: event.result.content,
-          });
-        }
-      },
+  #replaceLiveCompositionSession(options: LiveCompositionOptions): void {
+    this.#agentSetupGeneration += 1;
+    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    this.#liveAgentBaseUrl = options.baseUrl;
+    this.toolCallOrchestrator.attachLiveSession({
+      client: new McpClient({ baseUrl: options.baseUrl, auth: this.auth }),
+      packageKey: options.packageKey,
+      ...(options.family !== undefined ? { family: options.family } : {}),
+      ...(options.schemaVersion !== undefined ? { schemaVersion: options.schemaVersion } : {}),
+    });
+    this.#scheduleLiveAgentSession();
+  }
+
+  #scheduleLiveAgentSession(): void {
+    void this.#attachLiveAgentSession(this.#liveAgentBaseUrl).catch((error) => {
+      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      chat?.activityLog.append("assistant_turn_error", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        phase: "agent-session-setup",
+      });
     });
   }
 
@@ -536,10 +508,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public disableLiveComposition(): void {
     if (!this.toolCallOrchestrator.isLive) return;
     this.toolCallOrchestrator.detachLiveSession();
-    this.#liveAgentSetupGeneration += 1;
+    this.#agentSetupGeneration += 1;
     this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
-    this.#liveAgentSetup = undefined;
     this.#liveCompositionPackageKey = undefined;
+    this.#liveCompositionOptions = undefined;
     this.#announceCompositionMode({ mode: "fixture" });
   }
 
@@ -768,6 +740,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // privileged internal APIs" boundary `main.ts`'s doc calls out).
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas && !canvas.composition) canvas.composition = this.composition;
+    // honua-studio#31: a widget's intrinsic mutation is a composition command
+    // like any other, so it goes through the SAME orchestrator a chat tool
+    // call goes through — which is what routes `setVisibility` to
+    // `honua_studio_set_layer_visibility` in live mode. Assigned only when
+    // the canvas has not been given one by its host.
+    if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#dispatchCommands(commands);
     // honua-studio#23: the canvas needs the catalog to turn a composition
     // layer's bare `sourceId` into something MapLibre can draw. Assign what
     // we already have synchronously; otherwise fetch it in the background so
@@ -794,9 +772,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const detail = (event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail;
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
       chat?.activityLog.append("lifecycle_action", { ...detail });
-      if (detail.kind === "publication-status" && detail.publicUrl) {
-        chat?.appendAssistantNotice(`Shared after human approval: ${detail.publicUrl}`);
-      }
     });
 
     // honua-studio#10 build item 2: GP authoring/validation/preview/execution
@@ -828,6 +803,91 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.
   }
 
+  async #attachLiveAgentSession(baseUrl: string): Promise<void> {
+    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    if (!chat || chat.hasCustomTransport || !this.toolCallOrchestrator.isLive) return;
+    const setupGeneration = ++this.#agentSetupGeneration;
+    const draft = await this.toolCallOrchestrator.ensureLiveDraft();
+    if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
+    const kit = this.aiMapKit;
+    const sessionRef: { current?: StudioAgentSession } = {};
+    const certification = this.#agentCertification;
+    sessionRef.current = chat.attachAgentSession({
+      ...(certification?.certification ? { certification: certification.certification } : {}),
+      ...(certification?.transcriptVerifier ? { transcriptVerifier: certification.transcriptVerifier } : {}),
+      baseUrl,
+      auth: this.auth,
+      tools: [...this.agentToolDefinitions(kit)],
+      execute: async (call) => {
+        // Local runtime tools execute through the kit. The compatibility
+        // forwarding remains for a host that deliberately supplies the
+        // visibility mutation through the public runtime-tool seam; normally
+        // sdk-js discovers and dispatches it through MCP.
+        const forwardedCall = call as unknown as {
+          readonly name: string;
+          readonly args?: Readonly<Record<string, unknown>>;
+        };
+        if (forwardedCall.name === "honua_studio_set_layer_visibility") {
+          const result = await this.toolCallOrchestrator.handleToolCall({
+            toolName: forwardedCall.name,
+            arguments: forwardedCall.args ?? {},
+          });
+          if (result.ok && this.toolCallOrchestrator.draftId && this.toolCallOrchestrator.generation !== undefined) {
+            sessionRef.current?.attachDraft({
+              draftId: this.toolCallOrchestrator.draftId,
+              generation: this.toolCallOrchestrator.generation,
+            });
+          }
+          return orchestrationAgentResult(forwardedCall, result);
+        }
+        return kit.execute(call);
+      },
+      draft,
+      system: () =>
+        buildStudioSystemPrompt({
+          draftId: this.toolCallOrchestrator.draftId,
+          generation: this.toolCallOrchestrator.generation,
+          catalog: this.#sourceCatalog,
+          composition: this.composition.state,
+        }),
+      onEvent: (event) => {
+        if (event.type === "toolResult" && event.result.draft) {
+          if (
+            setupGeneration !== this.#agentSetupGeneration ||
+            sessionRef.current !== chat.agentSession ||
+            !this.toolCallOrchestrator.isLive
+          ) {
+            return;
+          }
+          this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
+        }
+      },
+    });
+  }
+
+  /**
+   * Runs a widget's intrinsic mutation through `.toolCallOrchestrator` — the
+   * one composition write path (honua-studio#31). The orchestrator decides
+   * local vs. server per command from the tool bridge's `serverToolName`, so
+   * a TOC toggle reaches `honua_studio_set_layer_visibility` in live mode and
+   * the reducer in fixture mode, with the generation threading and the
+   * activity-log entry an agent's command already gets.
+   *
+   * Commands run in order and the batch stops at the first failure: a compare
+   * switch's two toggles are one user gesture, and half of it landing is
+   * worse than none of it.
+   */
+  async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+    for (const command of commands) {
+      const result = await this.toolCallOrchestrator.handleToolCall({
+        toolName: command.name,
+        arguments: { ...command } as Record<string, unknown>,
+      });
+      if (!result.ok) return { ok: false, reason: result.reason };
+    }
+    return { ok: true };
+  }
+
   /** Resolves one chat-emitted tool-call intent through `.toolCallOrchestrator` (honua-studio#7). Never throws — every outcome is recorded on the orchestrator's activity log; see `../mcp/orchestrator.js`'s module doc. */
   async #handleChatToolCall(detail: HonuaStudioChatToolCallResultDetail): Promise<void> {
     if (!detail.toolName) return; // no tool name to resolve — nothing this orchestrator can do with it.
@@ -836,6 +896,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   protected onDisconnect(): void {
+    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    this.#agentSetupGeneration += 1;
     this.#hashRouter?.stop();
     this.#hashRouter = undefined;
     this.#authUnsubscribe?.();

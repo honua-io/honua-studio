@@ -220,7 +220,7 @@ test.describe("live demo-server journeys @live", () => {
       await submit.click();
 
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeHidden();
-      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Human approval complete");
+      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Published");
 
       // Independent of the UI: the REAL store now shows the item published.
       const items = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
@@ -260,6 +260,65 @@ test.describe("live demo-server journeys @live", () => {
       await expect(page.getByTestId("studio-chat-input")).toBeEnabled();
       expect(await page.evaluate(() => window.__honuaStudioChat.streaming)).toBe(false);
     } finally {
+      await preview.close();
+    }
+  });
+
+  test("real model turn: declared server tools mutate the authoritative draft and canvas", async ({ page }) => {
+    test.skip(
+      process.env.HONUA_LIVE_MCP_ENABLED !== "true",
+      "Requires the live deployment's MCP session affinity; set HONUA_LIVE_MCP_ENABLED=true once available.",
+    );
+    test.setTimeout(180_000);
+    const packageKey = `studio-e2e-live-agent-${Date.now()}`;
+    const preview = await startLivePreview();
+    let draftId;
+    try {
+      await injectHostSession(page);
+      await page.goto(preview.url);
+      await expect(page.getByTestId("studio-chat")).toBeVisible();
+
+      await page.evaluate((key) => {
+        // The deployed demo does not yet expose Studio's catalog-list route;
+        // seed the same known live dataset descriptor the eventual discovery
+        // response supplies so the system prompt remains grounded.
+        window.__honuaStudioApp.sourceCatalog = [
+          { id: "hi-parcels", title: "Hawaii parcels", protocol: "ogc-features", geometryType: "Polygon" },
+        ];
+        window.__honuaStudioApp.enableLiveComposition({
+          baseUrl: "",
+          packageKey: key,
+          family: "map",
+          schemaVersion: "1.0",
+        });
+      }, packageKey);
+      await expect.poll(() => page.evaluate(() => Boolean(window.__honuaStudioChat.agentSession))).toBe(true);
+
+      const before = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation);
+      await page.evaluate(() =>
+        window.__honuaStudioChat.sendMessage("Add the hi-parcels layer and set the map view to zoom 8."),
+      );
+
+      await expect
+        .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers.map((layer) => layer.id)), {
+          timeout: 120_000,
+        })
+        .toContain("hi-parcels");
+      await expect(page.getByTestId("studio-canvas-layers")).toContainText("hi-parcels");
+      const after = await page.evaluate(() => ({
+        draftId: window.__honuaStudioApp.toolCallOrchestrator.draftId,
+        generation: window.__honuaStudioApp.toolCallOrchestrator.generation,
+        messages: window.__honuaStudioChat.agentSession.messages,
+      }));
+      draftId = after.draftId;
+      expect(after.generation).toBeGreaterThan(before);
+      expect(after.messages.some((message) => message.role === "tool")).toBe(true);
+
+      const stored = await restCall("GET", `/v1/studio/package-drafts/${draftId}`);
+      expect(stored.generation).toBe(after.generation);
+      expect(stored.envelope.body.layers.map((layer) => layer.id)).toContain("hi-parcels");
+    } finally {
+      if (draftId) await restCall("DELETE", `/v1/studio/package-drafts/${draftId}`).catch(() => {});
       await preview.close();
     }
   });

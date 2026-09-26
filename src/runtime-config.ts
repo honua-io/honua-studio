@@ -1,97 +1,106 @@
-/** Runtime configuration loaded by the static Studio shell before mount. */
-export interface HonuaStudioRuntimeConfig {
-  /** Base before `/v1` and `/mcp`; `/api` uses the local dev/static proxy. */
+/** Runtime-only deployment contract. Values are fetched from `/config.json`; no rebuild is required. */
+export interface StudioRuntimeConfig {
+  readonly schemaVersion: "honua.studio.runtime-config.v1";
   readonly serverBaseUrl: string;
-  readonly oidc?: {
-    readonly issuer?: string;
-    readonly clientId?: string;
-    readonly redirectUri?: string;
-    readonly scopes?: readonly string[];
+  /** Base URL whose origin/path owns the unprefixed `/mcp` endpoint. */
+  readonly mcpBaseUrl: string;
+  readonly oidc: {
+    readonly issuer: string;
+    readonly clientId: string;
+    readonly audience?: string;
+    readonly scopes: readonly string[];
   };
-  readonly model?: {
+  readonly model: {
+    readonly mode: "server-proxy";
     readonly provider?: string;
-    readonly model?: string;
-  };
-}
-
-interface RuntimeConfigWire {
-  readonly serverBaseUrl?: unknown;
-  readonly oidc?: {
-    readonly issuer?: unknown;
-    readonly clientId?: unknown;
-    readonly redirectUri?: unknown;
-    readonly scopes?: unknown;
-  };
-  readonly model?: {
-    readonly provider?: unknown;
-    readonly model?: unknown;
   };
 }
 
 declare global {
   interface Window {
-    __HONUA_STUDIO_CONFIG__?: HonuaStudioRuntimeConfig;
+    __honuaStudioRuntimeConfig?: StudioRuntimeConfig;
   }
 }
 
-const DEFAULT_CONFIG: HonuaStudioRuntimeConfig = { serverBaseUrl: "/api" };
+const DEFAULT_CONFIG: StudioRuntimeConfig = {
+  schemaVersion: "honua.studio.runtime-config.v1",
+  serverBaseUrl: "/api",
+  mcpBaseUrl: "",
+  oidc: {
+    issuer: "/oidc",
+    clientId: "honua-studio-dev",
+    scopes: ["openid", "profile", "honua.read", "honua.write"],
+  },
+  model: { mode: "server-proxy" },
+};
 
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
-function scopes(value: unknown): readonly string[] | undefined {
-  const values = Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : typeof value === "string"
-      ? value.split(/\s+/)
-      : [];
-  const normalized = values.map((entry) => entry.trim()).filter(Boolean);
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-export function normalizeRuntimeConfig(value: unknown): HonuaStudioRuntimeConfig {
-  const wire = value && typeof value === "object" ? (value as RuntimeConfigWire) : {};
-  const oidc = {
-    issuer: text(wire.oidc?.issuer),
-    clientId: text(wire.oidc?.clientId),
-    redirectUri: text(wire.oidc?.redirectUri),
-    scopes: scopes(wire.oidc?.scopes),
-  };
-  const model = {
-    provider: text(wire.model?.provider),
-    model: text(wire.model?.model),
-  };
-  const hasOidc = Object.values(oidc).some((entry) => entry !== undefined);
-  const hasModel = Object.values(model).some((entry) => entry !== undefined);
+export function parseRuntimeConfig(value: unknown): StudioRuntimeConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Runtime config must be an object.");
+  const input = value as Record<string, unknown>;
+  if (input.schemaVersion !== "honua.studio.runtime-config.v1") {
+    throw new Error('Runtime config schemaVersion must be "honua.studio.runtime-config.v1".');
+  }
+  if (!nonEmpty(input.serverBaseUrl)) throw new Error("Runtime config serverBaseUrl is required.");
+  if (typeof input.mcpBaseUrl !== "string") throw new Error("Runtime config mcpBaseUrl is required.");
+  const oidc = input.oidc as Record<string, unknown> | undefined;
+  if (!oidc || !nonEmpty(oidc.issuer) || !nonEmpty(oidc.clientId)) {
+    throw new Error("Runtime config oidc.issuer and oidc.clientId are required.");
+  }
+  if (!Array.isArray(oidc.scopes) || oidc.scopes.length === 0 || !oidc.scopes.every(nonEmpty)) {
+    throw new Error("Runtime config oidc.scopes must be a non-empty string array.");
+  }
+  const model = input.model as Record<string, unknown> | undefined;
+  if (!model || model.mode !== "server-proxy") {
+    throw new Error('Runtime config model.mode must be "server-proxy"; client-direct transport is not supported.');
+  }
   return {
-    serverBaseUrl: text(wire.serverBaseUrl) ?? DEFAULT_CONFIG.serverBaseUrl,
-    ...(hasOidc ? { oidc } : {}),
-    ...(hasModel ? { model } : {}),
+    schemaVersion: input.schemaVersion,
+    serverBaseUrl: input.serverBaseUrl.trim().replace(/\/$/, ""),
+    mcpBaseUrl: input.mcpBaseUrl.trim().replace(/\/$/, ""),
+    oidc: {
+      issuer: oidc.issuer.trim(),
+      clientId: oidc.clientId.trim(),
+      ...(nonEmpty(oidc.audience) ? { audience: oidc.audience.trim() } : {}),
+      scopes: oidc.scopes.map((scope) => scope.trim()),
+    },
+    model: {
+      mode: model.mode,
+      ...(nonEmpty(model.provider) ? { provider: model.provider.trim() } : {}),
+    },
   };
 }
 
-export function getRuntimeConfig(
-  target: Window | undefined = typeof window === "undefined" ? undefined : window,
-): HonuaStudioRuntimeConfig {
-  return target?.__HONUA_STUDIO_CONFIG__ ?? DEFAULT_CONFIG;
+export async function loadRuntimeConfig(
+  fetchImpl: typeof fetch = fetch,
+  url = "/config.json",
+): Promise<StudioRuntimeConfig> {
+  const response = await fetchImpl(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not load Studio runtime config (${response.status}).`);
+  return parseRuntimeConfig(await response.json());
 }
 
-/**
- * Loads `/config.json` for a build-once, configure-at-runtime deployment.
- * A missing file deliberately falls back to same-origin fixture defaults;
- * malformed or inaccessible declared config fails closed before app mount.
- */
-export async function loadRuntimeConfig(
-  options: { readonly url?: string; readonly fetchImpl?: typeof fetch; readonly target?: Window } = {},
-): Promise<HonuaStudioRuntimeConfig> {
-  const target = options.target ?? (typeof window === "undefined" ? undefined : window);
-  if (target?.__HONUA_STUDIO_CONFIG__) return target.__HONUA_STUDIO_CONFIG__;
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const response = await fetchImpl(options.url ?? "/config.json", { headers: { accept: "application/json" } });
-  if (response.status === 404) return DEFAULT_CONFIG;
-  if (!response.ok) throw new Error(`Honua Studio runtime config responded ${response.status}.`);
-  const config = normalizeRuntimeConfig(await response.json());
-  if (target) target.__HONUA_STUDIO_CONFIG__ = config;
-  return config;
+let installedConfig: StudioRuntimeConfig | undefined;
+
+export function installRuntimeConfig(config: StudioRuntimeConfig | undefined): void {
+  installedConfig = config;
+  if (typeof window !== "undefined") window.__honuaStudioRuntimeConfig = config;
+}
+
+export function runtimeConfig(): StudioRuntimeConfig {
+  return (
+    installedConfig ??
+    (typeof window === "undefined" ? DEFAULT_CONFIG : (window.__honuaStudioRuntimeConfig ?? DEFAULT_CONFIG))
+  );
+}
+
+export function runtimeServerBaseUrl(): string {
+  return runtimeConfig().serverBaseUrl;
+}
+
+export function runtimeMcpBaseUrl(): string {
+  return runtimeConfig().mcpBaseUrl;
 }

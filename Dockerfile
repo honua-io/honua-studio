@@ -1,45 +1,10 @@
-ARG SOURCE_DATE_EPOCH=0
-FROM node:20.19-alpine@sha256:658d0f63e501824d6c23e06d4bb95c71e7d704537c9d9272f488ac03a370d448 AS build
-ARG SOURCE_DATE_EPOCH
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY . .
-RUN SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" npm run build
+FROM nginx:1.29.4-alpine@sha256:4870c12cd2ca986de501a804b4f506ad3875a0b1874940ba0a2c7f763f1855b2
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
-ARG SOURCE_DATE_EPOCH
-ENV HONUA_SERVER_BASE_URL=/api \
-    HONUA_OIDC_ISSUER= \
-    HONUA_OIDC_CLIENT_ID= \
-    HONUA_OIDC_REDIRECT_URI= \
-    HONUA_OIDC_SCOPES="openid profile honua.read honua.write" \
-    HONUA_MODEL_PROVIDER= \
-    HONUA_MODEL=
-USER 0
-RUN --mount=from=build,source=/app/dist,target=/tmp/studio-dist,ro \
-    --mount=type=bind,source=docker,target=/tmp/studio-docker,ro \
-    set -eu; \
-    find /tmp/studio-dist -type d -print | LC_ALL=C sort | while IFS= read -r source; do \
-      relative="${source#/tmp/studio-dist}"; \
-      mkdir -p "/usr/share/nginx/studio$relative"; \
-    done; \
-    find /tmp/studio-dist -type f -print | LC_ALL=C sort | while IFS= read -r source; do \
-      relative="${source#/tmp/studio-dist/}"; \
-      cp "$source" "/usr/share/nginx/studio/$relative"; \
-    done; \
-    cp /tmp/studio-docker/nginx.conf /etc/nginx/conf.d/default.conf; \
-    cp /tmp/studio-docker/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh; \
-    chown -R 101:101 /usr/share/nginx/studio; \
-    find /usr/share/nginx/studio -type d -exec chmod 0755 {} +; \
-    find /usr/share/nginx/studio -type f -exec chmod 0644 {} +; \
-    chmod 0644 /etc/nginx/conf.d/default.conf; \
-    chmod 0755 /docker-entrypoint.d/40-runtime-config.sh; \
-    find /usr/share/nginx/studio -exec touch -d "@$SOURCE_DATE_EPOCH" {} +; \
-    touch -d "@$SOURCE_DATE_EPOCH" \
-      / /docker-entrypoint.d /docker-entrypoint.d/40-runtime-config.sh \
-      /etc /etc/nginx /etc/nginx/conf.d /etc/nginx/conf.d/default.conf \
-      /usr /usr/share /usr/share/nginx
-USER 101
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dist/ /usr/share/nginx/html/
+
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
+USER 101
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/config.json || exit 1

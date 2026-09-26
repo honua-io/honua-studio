@@ -67,11 +67,11 @@ Implementation: `src/elements/studio-chat-element.ts` (honua-studio#6,
 realizing the honua-studio#5 placeholder shape). Renders a user/assistant/
 tool-call message list with streaming text, a composer with removable
 annotation reference chips (spec REQ-012), and cancellation. Talks to the
-model through either the SDK `StudioAgentSession` live loop or the
-`ChatTransport` seam (`src/chat/transport.ts`) for deterministic fixture
-conversation replay (AD-4). It never calls `fetch` directly. Per AD-5/AD-8
-this element renders tool calls and results; composition state remains owned
-by honua-studio#8.
+model exclusively through the `ChatTransport` seam (`src/chat/transport.ts`)
+— never `fetch` directly — so the same element renders identically against
+the real server AI proxy or a deterministic fixture conversation (AD-4). Per
+AD-5/AD-8 this element EMITS tool-call intents and renders results; it does
+not own composition state (honua-studio#8 owns that).
 
 **Attributes**: `label`, `placeholder`.
 
@@ -82,7 +82,6 @@ by honua-studio#8.
 | `auth` | `AuthSession \| undefined` | Direct override; falls back to the nearest `<honua-studio-app>` ancestor's `.auth` (`src/elements/session.ts`). |
 | `transport` | `ChatTransport` | Defaults to a lazily-constructed `SseChatTransport` reading `/api` (honua-server#3010), bearer-attached via `.auth`. Override with `FixtureChatTransport` (`src/chat/fixture-transport.ts`) for deterministic dev/CI/demo replay — AD-4's "no-model fixture-conversation mode". |
 | `activityLog` | `ActivityLog` | This console's own replayable log (`src/chat/activity-log.ts`) — read-only in practice; assign a fresh instance (e.g. with a deterministic `clock`) before sending any messages to control it. |
-| `hasCustomTransport` | `boolean` | Read-only. True after a host explicitly assigns `.transport`; live MCP draft mode preserves that host-owned conversation instead of replacing it with an SDK model session. |
 | `messages` | `readonly ChatMessage[]` | Read-only. |
 | `pendingAnnotations` | `readonly AnnotationRef[]` | Read-only — chips attached in the composer but not yet sent. |
 | `streaming` | `boolean` | Read-only. |
@@ -94,9 +93,7 @@ replay), `removeAnnotation(id: string): void`, `sendMessage(text: string): Promi
 (folds pending annotations into the outgoing wire content — see
 `src/chat/annotation.ts`'s `composeMessageContent` — and streams the reply;
 resolves once the turn settles, never rejects), `cancel(): void` (aborts the
-in-flight turn, if any), `attachAgentSession(options): StudioAgentSession`
-(activates the SDK-owned multi-round live tool loop), and
-`detachAgentSession(): void`.
+in-flight turn, if any).
 
 **Events**: `honua-studio-chat-message` (`{ text }`, unchanged since
 honua-studio#5), `honua-studio-chat-annotation-added` (`{ annotation }`),
@@ -172,6 +169,7 @@ honua-studio#8 structured readout kept alongside it.
 | — | `mapFactory` | `CompositionMapFactory \| undefined` | the `maplibre-gl` import | Test seam only. |
 | — | `mapView` | `CompositionMapView \| undefined` (read-only) | — | The live binding: `.status`, `.statusDetail`, `.projection` (the `HonuaMapPackage` and any unrenderable layers), `.map`. |
 | — | `widgetDataLoader` | `WidgetDataLoader \| undefined` | the catalog-backed loader | Test seam only — the grid/chart analogue of `mapFactory`. |
+| — | `commandDispatch` | `(commands) => Promise<{ ok, reason? }> \| undefined` | unset | Where the composed widgets' intrinsic mutations go. `<honua-studio-app>` points this at its one `ToolCallOrchestrator`, so a TOC toggle takes the tool-bridge route and, in live mode, round-trips through `honua_studio_set_layer_visibility` (honua-studio#31). Unset, each widget applies through `composition` directly. |
 | — | `widgetDeck` | `HonuaStudioWidgetDeckElement \| undefined` (read-only) | — | The composed `<honua-studio-widget-deck>` (honua-studio#24), built once with the shell and fed catalog/base-url/loader. |
 | — | `controlBar` | `HonuaStudioControlBarElement \| undefined` (read-only) | — | The composed `<honua-studio-control-bar>` (honua-studio#25), built once with the shell above the map. |
 | — | `interactions` | `StudioInteractionRuntime \| undefined` (read-only) | — | The ADR-0030 interaction runtime, created lazily the first time the composition declares a control or a binding. `.compiled` carries the compiler's `issues`/`unsupported`/`bindings`; `.appearance` is the per-layer filter/opacity the map projects. |
@@ -261,18 +259,25 @@ canvas readout carries a matching "not rendered" flag.
 **How `change` reaches an interaction.** One transport, and it is the SDK's:
 a control publishes a `FilterClause` keyed by its own id through
 `bindFilterControlsToExploration` (`@honua/sdk-js/interactions`) on a shared
-`ExplorationContext`. The compiler from
-`@honua/sdk-js/interactions/declarative` subscribes to that same slice on a
-*separate* exploration view and runs the bound verb.
-`honua-studio-control-change` is a
-DOM **notification** of the same gesture for hosts, never the transport.
+`ExplorationContext`. The compiler — `compileHonuaInteractions` from
+`@honua/sdk-js/interactions/declarative` — subscribes to that same slice on a
+*separate* exploration view and runs the bound verb;
+`src/interactions/studio-interactions.ts` supplies the component registry the
+verbs land in. `honua-studio-control-change` is a DOM **notification** of the
+same gesture for hosts, never the transport.
 
-**Actions never emit events** (ADR-0030) is enforced three ways: the
-compiler's exploration view is separate from the controls' one (bound views
-ignore their own notifications); every event carries the `source`
-discriminator `HonuaController` uses and only `adapter`/`exploration`
-gestures dispatch; and a re-entrancy guard drops anything raised while a verb
-is running.
+**Actions never emit events** (ADR-0030) is enforced two ways: the compiler's
+exploration view is separate from the controls' one (bound views ignore their
+own notifications, so a clause a verb writes is structurally invisible to the
+compiler that wrote it), and a re-entrancy guard drops any event raised while
+a verb is running.
+
+**Verb arguments are the standard's, spelled flat.** `setViewport` reads
+`bbox` / `center` / `zoom` / `pitch` / `bearing` directly off `do.args`;
+`setFilter` reads `field` / `operator` / `value` (or a whole `clause`), and a
+binding that wants the control's own clause passes it through explicitly with
+`args: { clause: "$event.clause" }`. A `$event.*` path that resolves to
+nothing clears the filter rather than installing a valueless clause.
 
 ### `<honua-studio-widget-deck>` — the composed chrome
 
@@ -292,6 +297,7 @@ the composition holds none.
 | — | `dataLoader` | `WidgetDataLoader \| undefined` | catalog-backed | Injection seam (`src/widgets/widget-data.ts`), the grid/chart analogue of `mapFactory`. |
 | — | `unrenderableLayers` | `{ layerId, reason }[]` | `[]` | Layers the map could not draw; the TOC flags them "not on map" rather than implying they are drawn. |
 | — | `onSelection` | `(targets) => void \| undefined` | unset | Where a selection goes. The canvas points this at its own dispatcher so the composed app has exactly one selection path; unset, the deck selects and dispatches `honua-studio-selection-change` itself. |
+| — | `commandDispatch` | `(commands) => Promise<{ ok, reason? }> \| undefined` | unset | Where an intrinsic mutation goes — see below. The canvas points this at the app's `ToolCallOrchestrator`; unset, the deck applies through `composition`. |
 
 **Kinds.** `toc` (layer list), `legend`, `table` (data grid), `chart`,
 `compare`, `time` — the bounded `COMPOSITION_WIDGET_KINDS` vocabulary. A
@@ -302,11 +308,23 @@ widget that cannot be rendered as authored (a `compare` naming one layer, a
 **Intrinsic interactions, not authored ones.** A TOC's visibility
 checkboxes, the compare switch, and the time stepper come with the kind — an
 agent writes `addWidget({ kind: "toc" })` and gets working toggles, never
-chrome boilerplate. They are not a side door: each applies a `setVisibility`
-**command** through `controller.apply(...)`, so they share the reducer's
-validation, pin enforcement, history, and draft sync with any agent-authored
-`setVisibility`. A pinned layer's toggle is disabled rather than allowed to
-fail.
+chrome boilerplate. They are not a side door: each is a `setVisibility`
+**command**, and it travels the route `commandDispatch` gives it — in the
+composed app, the same `ToolCallOrchestrator` an agent's tool call goes
+through, so they share the tool bridge, the validation, the pin enforcement,
+the generation threading, and the activity-log entry.
+
+In live mode that means the toggle calls
+`honua_studio_set_layer_visibility` and the client re-reads the returned
+draft (honua-studio#31). That is not tidiness: `visible` **is** part of the
+server's `StudioCompositionLayer` wire shape — unlike pins, which are
+deliberately client-local — so a toggle that only mutated client state was
+overwritten by the next draft sync. The round trip is asynchronous, so a
+toggle that the server (or the reducer) refuses snaps back on the next
+repaint and puts the reason in `[data-testid="studio-widget-status"]`. A
+pinned layer's toggle is disabled rather than allowed to fail. Unset — a
+standalone deck, or fixture/offline mode — the command applies through the
+deck's own controller, the same reducer one hop earlier.
 
 **Selection.** A grid row resolves to `{ kind: "feature", sourceId,
 featureId }` — the same deictic target a map click produces — and travels

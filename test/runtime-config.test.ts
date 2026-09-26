@@ -1,43 +1,58 @@
-// @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getRuntimeConfig, loadRuntimeConfig, normalizeRuntimeConfig } from "../src/runtime-config.js";
+import {
+  installRuntimeConfig,
+  loadRuntimeConfig,
+  parseRuntimeConfig,
+  runtimeMcpBaseUrl,
+  runtimeServerBaseUrl,
+} from "../src/runtime-config.js";
+
+const valid = {
+  schemaVersion: "honua.studio.runtime-config.v1",
+  serverBaseUrl: "https://honua.example/api/",
+  mcpBaseUrl: "https://honua.example/",
+  oidc: {
+    issuer: "https://id.example/",
+    clientId: "studio",
+    audience: "honua-api",
+    scopes: ["openid", "honua.read"],
+  },
+  model: { mode: "server-proxy" },
+};
+
+afterEach(() => {
+  installRuntimeConfig(undefined);
+});
 
 describe("runtime config", () => {
-  afterEach(() => {
-    window.__HONUA_STUDIO_CONFIG__ = undefined;
+  it("parses and normalizes the versioned deployment contract", () => {
+    const config = parseRuntimeConfig(valid);
+    expect(config.serverBaseUrl).toBe("https://honua.example/api");
+    expect(config.mcpBaseUrl).toBe("https://honua.example");
+    expect(config.oidc.audience).toBe("honua-api");
   });
 
-  it("normalizes server, OIDC, and BYOM routing without credentials", () => {
-    expect(
-      normalizeRuntimeConfig({
-        serverBaseUrl: " https://honua.example ",
-        oidc: { issuer: "https://idp.example", clientId: "studio", scopes: "openid honua.read" },
-        model: { provider: "bedrock", model: "operator-default" },
-      }),
-    ).toEqual({
-      serverBaseUrl: "https://honua.example",
-      oidc: {
-        issuer: "https://idp.example",
-        clientId: "studio",
-        redirectUri: undefined,
-        scopes: ["openid", "honua.read"],
-      },
-      model: { provider: "bedrock", model: "operator-default" },
-    });
+  it("rejects the unsupported client-direct model transport", () => {
+    expect(() =>
+      parseRuntimeConfig({ ...valid, model: { mode: "client-direct", baseUrl: "https://model.example" } }),
+    ).toThrow(/client-direct transport is not supported/);
   });
 
-  it("loads config once into the runtime global", async () => {
-    const fetchImpl = async () =>
-      new Response(JSON.stringify({ serverBaseUrl: "https://honua.example" }), { status: 200 });
-    await loadRuntimeConfig({ fetchImpl: fetchImpl as typeof fetch, target: window });
-    expect(getRuntimeConfig(window).serverBaseUrl).toBe("https://honua.example");
+  it("loads config without cache and installs it as every client default", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchImpl = (async (input: string, init?: RequestInit) => {
+      calls.push({ input, init });
+      return new Response(JSON.stringify(valid), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    installRuntimeConfig(await loadRuntimeConfig(fetchImpl));
+    expect(calls).toEqual([{ input: "/config.json", init: { cache: "no-store" } }]);
+    expect(runtimeServerBaseUrl()).toBe("https://honua.example/api");
+    expect(runtimeMcpBaseUrl()).toBe("https://honua.example");
   });
 
-  it("uses same-origin defaults when config.json is absent", async () => {
-    const config = await loadRuntimeConfig({
-      fetchImpl: (async () => new Response(null, { status: 404 })) as typeof fetch,
-    });
-    expect(config).toEqual({ serverBaseUrl: "/api" });
+  it("fails closed when the deployment config cannot be loaded", async () => {
+    const fetchImpl = (async () => new Response("missing", { status: 404 })) as typeof fetch;
+    await expect(loadRuntimeConfig(fetchImpl)).rejects.toThrow(/404/);
   });
 });

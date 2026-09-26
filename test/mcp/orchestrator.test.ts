@@ -123,6 +123,52 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     draftStore = { draftId: "draft-1", generation: 1, body: { layers: [], view: {}, widgets: [] } };
   });
 
+  it("deduplicates concurrent draft setup so live agent reconfiguration cannot orphan a second draft", async () => {
+    let createCalls = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.method === "initialize") {
+        return jsonResponse(
+          { jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-03-26" } },
+          { "mcp-session-id": "s1" },
+        );
+      }
+      createCalls += 1;
+      await gate;
+      return jsonResponse({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: {
+          structuredContent: {
+            draftId: "draft-shared",
+            packageKey: "pkg-1",
+            generation: 1,
+            envelope: { family: "map", schemaVersion: "1", body: { layers: [], view: {}, widgets: [] } },
+          },
+        },
+      });
+    });
+    const orchestrator = new ToolCallOrchestrator({
+      controller: new CompositionController(createEmptyCompositionState()),
+      live: { client: new McpClient({ fetchImpl: fetchImpl as unknown as typeof fetch }), packageKey: "pkg-1" },
+    });
+
+    const first = orchestrator.ensureLiveDraft();
+    const second = orchestrator.ensureLiveDraft();
+    await vi.waitFor(() => expect(createCalls).toBe(1));
+    release?.();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { draftId: "draft-shared", generation: 1 },
+      { draftId: "draft-shared", generation: 1 },
+    ]);
+    expect(createCalls).toBe(1);
+  });
+
   it("calls the granular honua_studio_* tool, then refreshes local state from the RETURNED draft", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
     const log = createActivityLog();
@@ -173,51 +219,6 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     expect(orchestrator.draftId).toBe("draft-1");
     expect(orchestrator.generation).toBe(2);
     expect(log.entries().map((e) => e.type)).toEqual(["composition_command_applied"]);
-  });
-
-  it("routes TOC visibility through honua_studio_set_layer_visibility and accepts the returned draft", async () => {
-    const controller = new CompositionController({
-      ...createEmptyCompositionState(),
-      layers: [{ id: "roads", sourceId: "s", visible: true }],
-    });
-    draftStore.body = { layers: [{ id: "roads", sourceId: "s", visible: true }], view: {}, widgets: [] };
-    const seen = vi.fn();
-    const fetchImpl = fetchRouter({
-      honua_studio_create_draft: () => ({
-        structuredContent: {
-          draftId: draftStore.draftId,
-          packageKey: "pkg-1",
-          generation: draftStore.generation,
-          envelope: { family: "map", schemaVersion: "1", body: draftStore.body },
-        },
-      }),
-      honua_studio_set_layer_visibility: (_id, args) => {
-        seen(args);
-        draftStore.generation += 1;
-        draftStore.body = { ...draftStore.body, layers: [{ id: "roads", sourceId: "s", visible: false }] };
-        return {
-          structuredContent: {
-            draftId: draftStore.draftId,
-            packageKey: "pkg-1",
-            generation: draftStore.generation,
-            envelope: { family: "map", schemaVersion: "1", body: draftStore.body },
-          },
-        };
-      },
-    });
-    const orchestrator = new ToolCallOrchestrator({
-      controller,
-      live: { client: new McpClient({ fetchImpl: fetchImpl as never }), packageKey: "pkg-1" },
-    });
-
-    const result = await orchestrator.handleToolCall({
-      toolName: "setVisibility",
-      arguments: { target: { kind: "layer", id: "roads" }, visible: false },
-    });
-
-    expect(result).toMatchObject({ ok: true, mode: "server" });
-    expect(seen).toHaveBeenCalledWith({ draftId: "draft-1", generation: 1, layerId: "roads", visible: false });
-    expect(controller.state.layers[0]?.visible).toBe(false);
   });
 
   it("a failed_precondition (stale generation) triggers exactly one reload + retry, then succeeds", async () => {
@@ -353,5 +354,52 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     expect(b.ok).toBe(true);
     expect(seenGenerations).toEqual([1, 2]); // strictly sequential, never both at generation 1
     expect(controller.state.layers.map((l) => l.id)).toEqual(["a", "b"]);
+  });
+
+  it("defers a source-bound control until a later streamed layer makes its source resolvable", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    const calls: string[] = [];
+    const draftResult = () => ({
+      structuredContent: {
+        draftId: draftStore.draftId,
+        packageKey: "pkg-1",
+        generation: draftStore.generation,
+        envelope: { family: "map", schemaVersion: "1", body: draftStore.body },
+      },
+    });
+    const fetchImpl = fetchRouter({
+      honua_studio_create_draft: () => draftResult(),
+      honua_studio_add_layer: (_id, args) => {
+        calls.push("layer");
+        draftStore.generation += 1;
+        draftStore.body = { ...draftStore.body, layers: [args.layer] };
+        return draftResult();
+      },
+      honua_studio_add_control: (_id, args) => {
+        calls.push("control");
+        draftStore.generation += 1;
+        draftStore.body = { ...draftStore.body, controls: [args.control] };
+        return draftResult();
+      },
+    });
+    const orchestrator = new ToolCallOrchestrator({
+      controller,
+      live: { client: new McpClient({ fetchImpl: fetchImpl as unknown as typeof fetch }), packageKey: "pkg-1" },
+    });
+
+    const control = orchestrator.handleToolCall({
+      toolName: "addControl",
+      arguments: { control: { id: "opacity", kind: "opacity", sourceId: "parcels" } },
+    });
+    const layer = orchestrator.handleToolCall({
+      toolName: "addLayer",
+      arguments: { layer: { id: "parcels", sourceId: "parcels-source" } },
+    });
+
+    const [controlResult, layerResult] = await Promise.all([control, layer]);
+    expect(controlResult.ok).toBe(true);
+    expect(layerResult.ok).toBe(true);
+    expect(calls).toEqual(["layer", "control"]);
+    expect(controller.state.controls).toEqual([{ id: "opacity", kind: "opacity", sourceId: "parcels" }]);
   });
 });

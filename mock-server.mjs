@@ -67,7 +67,7 @@
  *
  * `/mcp` (honua-studio#7): a minimal JSON-RPC 2.0 dispatcher over the SAME
  * `initialize` / `tools/list` / `tools/call` methods `src/mcp/client.ts`
- * speaks, exposing the 12 `honua_studio_*` tool names honua-server#3002
+ * speaks, exposing the 13 `honua_studio_*` tool names honua-server#3002
  * documents (`STUDIO_MCP_TOOL_NAMES` in `src/mcp/studio-tools.ts` — kept a
  * deliberately duplicated literal list here, same reason as
  * `CHAT_EVENT_TYPE_TO_SSE_NAME` above: this file runs under plain `node`,
@@ -77,7 +77,8 @@
  * create, increments by exactly `1` on every successful mutation, and a
  * stale `generation` on a mutating call returns a `failed_precondition`
  * tool error rather than silently clobbering a concurrent edit. Composition
- * mutation tools (add/remove layer, set style, set view, add/remove widget)
+ * mutation tools (add/remove layer, set style, set layer visibility, set
+ * view, add/remove widget)
  * mirror honua-server's `StudioCompositionBodyEditor` semantics: duplicate
  * ids on add are `invalid_argument`, missing ids on remove/set are
  * `not_found`, and only `map`/`app`-family drafts accept them
@@ -127,6 +128,7 @@ const CHAT_EVENT_TYPE_TO_SSE_NAME = {
   toolCallStop: "tool_call_stop",
   messageStop: "message_stop",
   error: "error",
+  transcriptProvenance: "transcript_provenance",
 };
 
 const FIXTURE_CONVERSATION = JSON.parse(
@@ -170,9 +172,14 @@ const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_add_layer",
   "honua_studio_remove_layer",
   "honua_studio_set_layer_style",
+  "honua_studio_set_layer_visibility",
   "honua_studio_set_view",
   "honua_studio_add_widget",
   "honua_studio_remove_widget",
+  "honua_studio_add_control",
+  "honua_studio_remove_control",
+  "honua_studio_bind_interaction",
+  "honua_studio_remove_interaction",
   "honua_studio_propose_publication",
 ];
 
@@ -535,6 +542,25 @@ function createMcpDispatcher(store) {
       });
     },
 
+    /** honua-server#3199 (landed in honua-server PR #3207): `{ draftId, generation, layerId, visible }`, all four required, `additionalProperties: false`. */
+    honua_studio_set_layer_visibility(args) {
+      if (typeof args?.layerId !== "string" || !args.layerId) {
+        return toolError("invalid_argument", "'layerId' is required.");
+      }
+      if (typeof args?.visible !== "boolean") {
+        return toolError("invalid_argument", "'visible' is required and must be a boolean.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const index = body.layers.findIndex((existing) => existing.id === args.layerId);
+        if (index < 0) {
+          return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
+        }
+        const layers = [...body.layers];
+        layers[index] = { ...layers[index], visible: args.visible };
+        return { body: { ...body, layers } };
+      });
+    },
+
     honua_studio_set_view(args) {
       if (!args?.view || typeof args.view !== "object") {
         return toolError("invalid_argument", "'view' is required.");
@@ -574,6 +600,87 @@ function createMcpDispatcher(store) {
           return { error: toolError("not_found", `No widget with id '${args.widgetId}' exists in the composition.`) };
         }
         return { body: { ...body, widgets: body.widgets.filter((existing) => existing.id !== args.widgetId) } };
+      });
+    },
+
+    honua_studio_add_control(args) {
+      if (
+        !args?.control ||
+        typeof args.control.id !== "string" ||
+        !args.control.id ||
+        typeof args.control.kind !== "string" ||
+        !args.control.kind
+      ) {
+        return toolError("invalid_argument", "'control.id' and 'control.kind' are required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const controls = body.controls ?? [];
+        if (controls.some((existing) => existing.id === args.control.id)) {
+          return { error: toolError("invalid_argument", `A control with id '${args.control.id}' already exists.`) };
+        }
+        return { body: { ...body, controls: [...controls, args.control] } };
+      });
+    },
+
+    honua_studio_remove_control(args) {
+      if (typeof args?.controlId !== "string" || !args.controlId) {
+        return toolError("invalid_argument", "'controlId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const controls = body.controls ?? [];
+        if (!controls.some((existing) => existing.id === args.controlId)) {
+          return { error: toolError("not_found", `No control with id '${args.controlId}' exists.`) };
+        }
+        const referenced = (body.interactions ?? []).filter(
+          (interaction) =>
+            interaction.on?.ref === `control:${args.controlId}` || interaction.do?.ref === `control:${args.controlId}`,
+        );
+        if (referenced.length > 0 && args.cascadeInteractions !== true) {
+          return {
+            error: toolError(
+              "failed_precondition",
+              `Control '${args.controlId}' is referenced by ${referenced.length} interaction(s); set cascadeInteractions=true.`,
+            ),
+          };
+        }
+        return {
+          body: {
+            ...body,
+            controls: controls.filter((existing) => existing.id !== args.controlId),
+            ...(args.cascadeInteractions === true
+              ? { interactions: (body.interactions ?? []).filter((interaction) => !referenced.includes(interaction)) }
+              : {}),
+          },
+        };
+      });
+    },
+
+    honua_studio_bind_interaction(args) {
+      if (!args?.interaction || typeof args.interaction.id !== "string" || !args.interaction.id) {
+        return toolError("invalid_argument", "'interaction.id' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const interactions = body.interactions ?? [];
+        const index = interactions.findIndex((existing) => existing.id === args.interaction.id);
+        const next = [...interactions];
+        if (index === -1) next.push(args.interaction);
+        else next[index] = args.interaction;
+        return { body: { ...body, interactions: next } };
+      });
+    },
+
+    honua_studio_remove_interaction(args) {
+      if (typeof args?.interactionId !== "string" || !args.interactionId) {
+        return toolError("invalid_argument", "'interactionId' is required.");
+      }
+      return mutateComposition(args.draftId, args.generation, (body) => {
+        const interactions = body.interactions ?? [];
+        if (!interactions.some((existing) => existing.id === args.interactionId)) {
+          return { error: toolError("not_found", `No interaction with id '${args.interactionId}' exists.`) };
+        }
+        return {
+          body: { ...body, interactions: interactions.filter((existing) => existing.id !== args.interactionId) },
+        };
       });
     },
 
@@ -825,29 +932,6 @@ function createStudioLifecycleRestRouter(store) {
       };
     }
     return summary;
-  }
-
-  // honua-server#3304 contract fixture. The mock's existing, explicitly
-  // human-confirmed publish POST moves the pointer synchronously, so its
-  // accepted request is immediately observable as published here. This is
-  // contract coverage only; it is not evidence that #3304 has landed.
-  function publicationRequestStatus(request) {
-    const item = store.items.get(request.itemId);
-    const published = request.status === "accepted" && item?.publishedVersionId === request.versionId;
-    return {
-      requestId: request.requestId,
-      itemId: request.itemId,
-      versionId: request.versionId,
-      status: request.status === "rejected" ? "rejected" : published ? "published" : "pending",
-      ...(published
-        ? {
-            decidedAt: request.createdAt,
-            decidedBy: request.requestedBy,
-            publicationId: `mock-publication-${request.itemId}`,
-            publicUrl: `/api/v1/published/studio/${item.packageKey}`,
-          }
-        : {}),
-    };
   }
 
   function packageFamilyCapabilities() {
@@ -1279,29 +1363,6 @@ function createStudioLifecycleRestRouter(store) {
       if (rest === "/versions" && method === "GET") {
         if (!requireItemOr404(itemId, res)) return true;
         apiResponse(res, 200, { itemId, versions: versionsForItem(itemId) });
-        return true;
-      }
-
-      if (rest === "/publish-requests" && method === "GET") {
-        if (!requireItemOr404(itemId, res)) return true;
-        const requests = [...store.publicationRequests.values()]
-          .filter((request) => request.itemId === itemId)
-          .reverse()
-          .map(publicationRequestStatus);
-        apiResponse(res, 200, { requests });
-        return true;
-      }
-
-      const publicationRequestMatch = /^\/publish-requests\/([^/]+)$/.exec(rest);
-      if (publicationRequestMatch && method === "GET") {
-        if (!requireItemOr404(itemId, res)) return true;
-        const requestId = decodeURIComponent(publicationRequestMatch[1]);
-        const request = store.publicationRequests.get(requestId);
-        if (!request || request.itemId !== itemId) {
-          problemResponse(res, 404, "Publication request not found", `No publication request '${requestId}' exists.`);
-          return true;
-        }
-        apiResponse(res, 200, publicationRequestStatus(request));
         return true;
       }
 

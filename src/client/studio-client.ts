@@ -1,13 +1,19 @@
 /**
  * Studio server client (honua-studio#3 REQ-003, honua-studio#4 REQ-001).
  *
- * A deliberately thin fetch wrapper — Phase 0 only needs to prove the two
- * dev-mode wiring paths (fixture / live, see vite.config.ts and
- * scripts/dev-mock.mjs) work end to end. honua-sdk-js#780 will graduate
- * `@honua/sdk-js/studio` into a full typed lifecycle client; this module
- * takes its lifecycle-status vocabulary as a type-only import today so the
- * shapes here already agree with the SDK, without pulling in the SDK's
- * heavier runtime peers (maplibre-gl, cesium, …) that Phase 0 doesn't need.
+ * A deliberately thin fetch wrapper over three endpoints that are **not**
+ * the Studio package lifecycle API: `GET /health`,
+ * `GET /v1/studio/catalog`, and `GET /v1/studio/packages`. That is why this
+ * is not `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient` — that client
+ * covers `/v1/studio/package-drafts` and `/v1/studio/content-items`, and has
+ * no method for any of these three. The shell's boot path (catalog listing,
+ * health probe, package summaries) predates and sits beside the lifecycle
+ * API rather than inside it.
+ *
+ * The lifecycle-status vocabulary *is* the SDK's, as a type-only import, so
+ * a package summary here and a package elsewhere agree on what `status`
+ * means — without pulling the SDK's heavier runtime peers (maplibre-gl,
+ * cesium, …) into the boot path.
  *
  * Every request carries the current session's bearer token (attached via
  * `getAccessToken`, decoupled from the concrete `AuthSession` type so this

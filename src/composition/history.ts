@@ -14,11 +14,29 @@
  * state, so the draft's own `generation` history becomes, in effect, the
  * durable half of the undo stack.
  *
- * `@honua/sdk-js@0.1.7-beta.0` now owns the network lifecycle client. This
- * module remains local because it owns Studio's undo revision stack and the
- * deterministic {@link FixtureDraftStore}; its small structural
- * {@link CompositionDraftStore} lets either the SDK client or a fixture back
- * the same history algorithm without coupling that algorithm to transport.
+ * ## Why {@link CompositionDraftStore} is an interface, not an SDK import
+ *
+ * The real implementation is `@honua/sdk-js/studio`'s
+ * `HonuaStudioLifecycleClient.drafts`, and the adapter onto it now exists
+ * and is compiler-checked: `../lifecycle/composition-draft-store.ts`. This
+ * module still declares the seam as a structural interface for a reason
+ * that has nothing to do with the SDK's release history:
+ *
+ *  - **{@link FixtureDraftStore} is the other implementation.** NFR-001
+ *    requires a deterministic, model- and network-free fixture mode, and
+ *    that mode has no HTTP client to hand `DraftSync`. Two implementations
+ *    means an interface.
+ *  - **This module must not import the SDK's lifecycle client.** Everything
+ *    under `src/composition/**` is agent-reachable, and the human gate
+ *    (spec REQ-009, `test/lifecycle/human-gate.test.ts`) is enforced partly
+ *    by the fact that no file here can reach a client with
+ *    publish/rollback methods on it. Depending on a narrow three-method
+ *    interface is what keeps that provable by inspection.
+ *
+ * The seam's field and method names are still the SDK's
+ * (`draftId`/`generation`/`envelope.body`, `create`/`get`/`replace`,
+ * `generation`-conflict as a distinguishable error), so the adapter is a
+ * projection, not a translation layer.
  *
  * @module
  */
@@ -215,7 +233,14 @@ export interface CompositionDraftStore {
   replace(draftId: string, request: CompositionDraftReplaceRequest): Promise<CompositionDraft>;
 }
 
-export type CompositionDraftErrorCode = "generation-conflict" | "not-found" | "validation" | "internal" | "unknown";
+export type CompositionDraftErrorCode =
+  | "generation-conflict"
+  | "unauthorized"
+  | "forbidden"
+  | "not-found"
+  | "validation"
+  | "internal"
+  | "unknown";
 
 /** Mirrors `HonuaStudioError`'s `.code` discriminant (`src/studio/lifecycle-errors.ts`) — a `CompositionDraftStore` implementation should throw this (or something `isCompositionDraftConflict` recognizes) rather than a bare `Error`. */
 export class CompositionDraftError extends Error {
