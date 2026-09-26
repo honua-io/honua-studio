@@ -198,7 +198,7 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     expect(addLayer.body.result).toMatchObject({ isError: true, structuredContent: { code: "invalid_argument" } });
   });
 
-  it("honua_studio_propose_publication records intent only — never a publish/share/embed action", async () => {
+  it("honua_studio_propose_publication requires a saved version and does not publish it", async () => {
     server = await startMockServer();
     const token = mintFixtureAccessToken();
     const create = await rpc(
@@ -208,21 +208,32 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       token,
     );
     const draft = create.body.result.structuredContent;
+    const saved = await fetch(`${server.url}/v1/studio/package-drafts/${draft.draftId}/content-versions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    const version = (await saved.json()).data;
     const propose = await rpc(
       server.url,
       "tools/call",
       {
         name: "honua_studio_propose_publication",
         arguments: {
-          draftId: draft.draftId,
-          generation: draft.generation,
+          itemId: version.itemId,
+          versionId: version.versionId,
+          contentHash: version.contentHash,
           route: "/apps/districts",
-          visibility: "org",
+          visibility: "private",
         },
       },
       token,
     );
-    expect(propose.body.result.structuredContent).toMatchObject({ recorded: true, humanConfirmationRequired: true });
+    expect(propose.body.result.structuredContent).toMatchObject({
+      status: "AwaitingApproval",
+      humanConfirmationRequired: true,
+    });
+    expect(propose.body.result.structuredContent.publicationUrl).toBeUndefined();
   });
 
   it("a presented Mcp-Session-Id that was never issued returns 404", async () => {

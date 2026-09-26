@@ -61,9 +61,8 @@
  * themselves wired to nothing but a `click` listener on a button inside that
  * element's own shadow DOM. No chat/MCP/tool-call/activity-log event handler
  * anywhere in this package may call either method — `honua_studio_propose_publication`
- * (`mcp/studio-tools.ts`) only ever records `publicationIntent` on a DRAFT
- * via `honua_studio_update_draft`-shaped mutation; it has no reference to
- * this client and cannot reach these two methods even transitively. See
+ * (`mcp/studio-tools.ts`) submits an `AwaitingApproval` proposal for an
+ * already-saved version and has no reference to this client. See
  * `test/lifecycle/human-gate.test.ts`, which asserts this both statically
  * (no `src/mcp/**`, `src/chat/**`, or `src/composition/**` module imports
  * this file) and at runtime (driving `propose_publication` end to end and

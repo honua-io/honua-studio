@@ -115,6 +115,13 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   use the landed `honua_studio_*` tools, following visibility delegation in
   [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
   static `serverToolName` table until sdk-js#1397 supplies discovery.
+- **Governed sharing stays Preview**
+  ([#26](https://github.com/honua-io/honua-studio/issues/26)). The self-hosted
+  fixture smoke submits a canonical immutable-version proposal, keeps the
+  handle across a reload boundary, shows pending, rejected, and failed in
+  the conversation, and copies a server-issued link only after a different
+  principal approves. Private and public both wait. This is not a GA claim
+  ([posture](docs/share-preview-posture.md)).
 
 ### Not started
 
@@ -135,8 +142,6 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   [#39](https://github.com/honua-io/honua-studio/issues/39)).
 - Dual-mode visual style editor
   ([#22](https://github.com/honua-io/honua-studio/issues/22)).
-- Sharing a composed app through the propose-and-approve loop
-  ([#26](https://github.com/honua-io/honua-studio/issues/26)).
 - Console embed at `/studio`
   ([honua-io/honua-console#324](https://github.com/honua-io/honua-console/issues/324),
   2026.2).

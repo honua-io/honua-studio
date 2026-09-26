@@ -11,11 +11,11 @@
  * HUMAN-CONFIRMED gates the agent can propose but never invoke." This
  * element is where that gate LIVES for Studio's package lifecycle:
  *
- *  - `honua_studio_propose_publication` (server PR #3016, `mcp/studio-tools.ts`)
- *    only ever writes `envelope.publicationIntent` onto a DRAFT. When this
- *    panel's loaded draft carries a non-null `publicationIntent`, it renders
- *    a **pending-proposal banner** (`#renderPendingPublicationBanner`) —
- *    informational only, it calls nothing.
+ *  - `honua_studio_propose_publication` submits an `AwaitingApproval`
+ *    proposal for an immutable version and never calls `requestPublish`.
+ *    When a loaded draft still carries `publicationIntent`, this panel
+ *    renders an informational banner (`#renderPendingPublicationBanner`)
+ *    and calls nothing. The conversation share line is separate.
  *  - Turning that proposal into an actual publish (or running a rollback)
  *    requires opening this panel's own confirm dialog
  *    (`#openPublishConfirm`/`#openRollbackConfirm`) and TYPING the exact
