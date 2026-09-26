@@ -36,6 +36,11 @@ to end.
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
 
+The 2026.1 browser Preview gates are packaging integrity, security, runtime
+configuration, and the in-repo browser and embed smokes. Hosted demo and
+real-model journeys are not those gates. The 2026.2 graduation checklist is
+[`docs/preview-release-posture.md`](docs/preview-release-posture.md).
+
 Fourteen pull requests are merged; `src/` holds 110 files and `test/` 92, with
 752 unit tests across 77 files and 29 Playwright browser journeys, including four accessibility checks.
 What that preview is *not*: no version has been released yet and there is no

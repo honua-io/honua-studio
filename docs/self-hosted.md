@@ -39,13 +39,16 @@ Changing `config.json` and restarting the container repoints the same image;
 no `npm` install or asset rebuild is involved. OIDC redirect URIs must include
 the externally visible Studio URL. The server must allow that origin.
 
-The tag release workflow runs checks and the full smoke suite
-([`smoke-suite.yml`](../.github/workflows/smoke-suite.yml) — the same container,
-browser and Blazor-host smokes CI runs on every pull request), then builds a
-reproducible static archive, pushes the version-only GHCR tag, and attaches the
+The tag release workflow runs the pinned Trivy and Scorecard scans and the full
+smoke suite ([`smoke-suite.yml`](../.github/workflows/smoke-suite.yml) — the
+same container, browser and Blazor-host smokes CI runs on every pull request).
+It then builds a reproducible static archive, verifies runtime config on the
+image it is about to push, pushes that version-only GHCR tag, and attaches the
 archive, checksum, and a receipt binding version, source SHA, and image digest
-to the GitHub release. Nothing is pushed unless all three smokes pass.
+to the GitHub release. Nothing is pushed unless those gates pass. The gate list
+is [`preview-release-posture.md`](preview-release-posture.md).
 
-The clean-machine container/config smoke is available now. The credentialed
-real-model composition/save/reopen smoke remains the final acceptance item and
-will be wired after #40 supplies the live `StudioAgentSession` loop.
+The clean-machine container/config smoke is a required Preview gate. A
+credentialed real-model composition/save/reopen journey is 2026.2 graduation
+work, not a 2026.1 publish requirement. The nightly demo lane is separate and
+does not block a tag.
