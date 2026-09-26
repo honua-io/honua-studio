@@ -61,9 +61,9 @@
  * dispatcher uses (ONE store, both surfaces)") — proving spec AD-8
  * coherence in dev mode: a draft an agent mutates through
  * `honua_studio_update_draft` is the exact same record `GET
- * /v1/studio/package-drafts/{draftId}` returns, and `honua_studio_propose_publication`
- * writes `publicationIntent` onto a draft the lifecycle panel's REST client
- * reads back directly, with no second projection anywhere.
+ * /v1/studio/package-drafts/{draftId}` returns. `honua_studio_propose_publication`
+ * records a canonical `AwaitingApproval` proposal for an already-saved
+ * version in that same store; it does not publish.
  *
  * `/mcp` (honua-studio#7): a minimal JSON-RPC 2.0 dispatcher over the SAME
  * `initialize` / `tools/list` / `tools/call` methods `src/mcp/client.ts`
@@ -85,11 +85,13 @@
  * (`invalid_argument` otherwise). `initialize`/`tools/list` are open per the
  * honua-server MCP doc ("handshake methods are open"); `tools/call` requires
  * the same bearer this file's other protected routes require. CRITICALLY,
- * `honua_studio_propose_publication` (the only publish-adjacent MCP tool)
- * never touches `publicationRequests`/`rollbackRequests`/the item's
- * pointers — it only ever writes `envelope.publicationIntent` onto the
- * draft, exactly mirroring the server's real tool (see server PR #3016) and
- * this repo's spec REQ-009 human gate (`test/lifecycle/human-gate.test.ts`).
+ * `honua_studio_propose_publication` submits `{ itemId, versionId,
+ * contentHash, route, visibility }` and returns an `AwaitingApproval`
+ * proposal. It never moves `publishedVersionId` and never accepts an
+ * approval field. A different principal decides the proposal through
+ * `POST /v1/studio/publication-proposals/{proposalId}/decision`. Private
+ * and public visibility both stay pending until that decision. The
+ * proposer's own token is refused. See `test/lifecycle/share-preview-smoke.test.ts`.
  *
  * Auth model (P2-8 review finding): access tokens are short-lived signed
  * JWTs (HS256, dev-only secret — never used outside this loopback fixture);
@@ -255,13 +257,14 @@ function createStudioLifecycleStore() {
   const versions = new Map();
   const versionsByItem = new Map();
   const publicationRequests = new Map();
+  const publicationProposals = new Map();
+  const awaitingProposalByKey = new Map();
   const rollbackRequests = new Map();
-  const proposals = new Map();
   let nextDraftSeq = 1;
   let nextVersionSeq = 1;
   let nextPublicationRequestSeq = 1;
-  let nextRollbackRequestSeq = 1;
   let nextProposalSeq = 1;
+  let nextRollbackRequestSeq = 1;
 
   function now() {
     return new Date().toISOString();
@@ -295,16 +298,85 @@ function createStudioLifecycleStore() {
     versions,
     versionsByItem,
     publicationRequests,
+    publicationProposals,
+    awaitingProposalByKey,
     rollbackRequests,
-    proposals,
     now,
     touchItem,
     nextDraftId: () => `mock-draft-${nextDraftSeq++}`,
     nextVersionId: () => `mock-version-${nextVersionSeq++}`,
     nextPublicationRequestId: () => `mock-publish-request-${nextPublicationRequestSeq++}`,
-    nextRollbackRequestId: () => `mock-rollback-request-${nextRollbackRequestSeq++}`,
     nextProposalId: () => `mock-proposal-${nextProposalSeq++}`,
+    nextRollbackRequestId: () => `mock-rollback-request-${nextRollbackRequestSeq++}`,
   };
+}
+
+const PROPOSAL_SMUGGLE_KEYS = new Set([
+  "approve",
+  "approved",
+  "approval",
+  "approvedat",
+  "approvedby",
+  "autoapprove",
+  "selfapprove",
+  "skipapproval",
+  "bypassapproval",
+  "status",
+  "state",
+  "publicationurl",
+  "publishedversionid",
+  "force",
+]);
+
+function proposalToolOutput(proposal) {
+  return {
+    operation: {
+      operationInstanceId: proposal.operationInstanceId,
+      proposalId: proposal.proposalId,
+      status: "RequiresApproval",
+      auditId: proposal.auditId,
+      correlationId: proposal.correlationId,
+    },
+    operationInstanceId: proposal.operationInstanceId,
+    proposalId: proposal.proposalId,
+    proposalUri: proposal.proposalUri,
+    auditId: proposal.auditId,
+    correlationId: proposal.correlationId,
+    idempotencyIdentity: proposal.idempotencyIdentity,
+    status: "AwaitingApproval",
+    humanConfirmationRequired: true,
+    message: "Publication proposal is awaiting approval by a separate authorized principal.",
+  };
+}
+
+function proposalStatusPayload(proposal) {
+  const payload = {
+    proposalId: proposal.proposalId,
+    proposalUri: proposal.proposalUri,
+    itemId: proposal.itemId,
+    versionId: proposal.versionId,
+    contentHash: proposal.contentHash,
+    route: proposal.route,
+    visibility: proposal.visibility,
+    operationInstanceId: proposal.operationInstanceId,
+    auditId: proposal.auditId,
+    correlationId: proposal.correlationId,
+    idempotencyIdentity: proposal.idempotencyIdentity,
+    status: proposal.status,
+    humanConfirmationRequired: proposal.status === "AwaitingApproval",
+    message:
+      proposal.status === "Active"
+        ? "Publication is active."
+        : proposal.status === "Rejected"
+          ? "Publication proposal was rejected. No link was issued."
+          : proposal.status === "Failed"
+            ? "Publication proposal failed. No link was issued."
+            : "Publication proposal is awaiting approval by a separate authorized principal.",
+  };
+  if (proposal.reason) payload.reason = proposal.reason;
+  if (proposal.status === "Active" && proposal.publicationUrl) payload.publicationUrl = proposal.publicationUrl;
+  if (proposal.status === "Active" && proposal.approvedUrl) payload.approvedUrl = proposal.approvedUrl;
+  return payload;
 }
 
 /** JSON-RPC 2.0 method dispatcher for `POST /mcp` (honua-studio#7) — see this file's module doc. Takes the shared {@link createStudioLifecycleStore} instance so its draft mutations are visible to the REST lifecycle routes (honua-studio#9). */
@@ -752,66 +824,75 @@ function createMcpDispatcher(store) {
       });
     },
 
-    honua_studio_propose_publication(args, actor) {
-      const { draft, error } = requireDraft(args?.draftId);
-      if (error) return error;
-      const versionBound =
-        typeof args?.itemId === "string" &&
-        typeof args?.versionId === "string" &&
-        typeof args?.contentHash === "string";
-      let proposal;
-      if (versionBound) {
-        if (typeof args.route !== "string" || typeof args.visibility !== "string") {
-          return toolError("invalid_argument", "'route' and 'visibility' are required.");
-        }
-        if (args.generation !== draft.generation) {
-          return toolError(
-            "failed_precondition",
-            `Stale draft generation; refresh and retry. (expected ${draft.generation}, got ${args.generation})`,
-          );
-        }
-        const created = createCanonicalProposal(store, {
-          itemId: args.itemId,
-          versionId: args.versionId,
-          contentHash: args.contentHash,
-          route: args.route,
-          visibility: args.visibility,
-          note: args.note,
-          proposedBy: actor?.sub ?? FIXTURE_ACTOR,
-        });
-        if (created.error) return toolError(created.error.code, created.error.message);
-        proposal = created.proposal;
+    honua_studio_propose_publication(args, actorId) {
+      if (!args || typeof args !== "object") return toolError("invalid_argument", "Proposal arguments are required.");
+      const smuggled = Object.keys(args).find((key) => PROPOSAL_SMUGGLE_KEYS.has(key.toLowerCase()));
+      if (smuggled) {
+        return toolError("invalid_argument", `Publication proposals cannot carry '${smuggled}'.`);
       }
-      const publicationIntent = {
-        route: args.route,
-        visibility: args.visibility,
-        embed: args.embed,
-        service: args.service,
-        schedule: args.schedule,
-        job: args.job,
-        note: args.note,
+      const { itemId, versionId, contentHash, route, visibility } = args;
+      if (
+        typeof itemId !== "string" ||
+        !itemId ||
+        typeof versionId !== "string" ||
+        !versionId ||
+        typeof contentHash !== "string" ||
+        !contentHash ||
+        typeof route !== "string" ||
+        !route ||
+        typeof visibility !== "string" ||
+        !visibility
+      ) {
+        return toolError(
+          "invalid_argument",
+          "'itemId', 'versionId', 'contentHash', 'route', and 'visibility' are required.",
+        );
+      }
+      const item = store.items.get(itemId);
+      if (!item) return toolError("not_found", `Studio content item '${itemId}' was not found.`);
+      const version = store.versions.get(versionId);
+      if (!version || version.itemId !== itemId) {
+        return toolError("not_found", `Studio content version '${versionId}' was not found.`);
+      }
+      if (item.currentVersionId !== versionId) {
+        return toolError("failed_precondition", "The publication proposal must bind the current saved Studio version.");
+      }
+      if (version.contentHash !== contentHash) {
+        return toolError("failed_precondition", "The supplied content hash does not match the saved Studio version.");
+      }
+      const proposerId = typeof actorId === "string" && actorId ? actorId : FIXTURE_ACTOR;
+      const key = JSON.stringify([itemId, versionId, contentHash, route, visibility, proposerId]);
+      const existingId = store.awaitingProposalByKey.get(key);
+      const existing = existingId ? store.publicationProposals.get(existingId) : undefined;
+      if (existing && existing.status === "AwaitingApproval") return toolSuccess(proposalToolOutput(existing));
+
+      const proposalId = store.nextProposalId();
+      const proposal = {
+        proposalId,
+        proposalUri: `honua://proposals/${proposalId}`,
+        itemId,
+        versionId,
+        contentHash,
+        route,
+        visibility,
+        note: typeof args.note === "string" ? args.note : undefined,
+        operationInstanceId: `mock-operation-${proposalId}`,
+        auditId: `mock-audit-${proposalId}`,
+        correlationId: `mock-correlation-${proposalId}`,
+        idempotencyIdentity: key,
+        status: "AwaitingApproval",
+        proposerId,
+        key,
       };
-      const envelope = { ...draft.envelope, publicationIntent };
-      const result = applyUpdate(draft, { envelope }, args.generation);
-      if (result.error) return result.error;
-      return toolSuccess({
-        draft: {
-          ...draftPublic(result.draft),
-          ...(proposal ? { proposalId: proposal.proposalId, proposalStatus: "pending" } : {}),
-        },
-        recorded: true,
-        humanConfirmationRequired: true,
-        ...(proposal ? { proposalId: proposal.proposalId, operationId: proposal.operationId, status: "pending" } : {}),
-        message: proposal
-          ? "Canonical publication proposal recorded. No pointer moved; a separate approver must approve."
-          : "Publication intent recorded for human review. No publish/share/embed action was taken.",
-      });
+      store.publicationProposals.set(proposalId, proposal);
+      store.awaitingProposalByKey.set(key, proposalId);
+      return toolSuccess(proposalToolOutput(proposal));
     },
   };
 
   return {
     /** `initialize` / `tools/list` are open (no bearer) per the honua-server MCP doc; `tools/call` is dispatched to `handlers` above. Returns `{ status, body }` — `status` lets the route handler decide HTTP status/session-id headers uniformly. */
-    handle(method, params, actor) {
+    handle(method, params, actorId) {
       if (method === "initialize") {
         return {
           result: { protocolVersion: "2025-03-26", serverInfo: { name: "honua-studio-mock-mcp", version: "0.0.0" } },
@@ -835,7 +916,7 @@ function createMcpDispatcher(store) {
         if (!handler) {
           return { error: { code: -32602, message: `Unknown tool "${name}".` } };
         }
-        return { result: handler(params?.arguments ?? {}, actor) };
+        return { result: handler(params?.arguments ?? {}, actorId) };
       }
       return { error: { code: -32601, message: `Method not found: "${method}".` } };
     },
@@ -1065,77 +1146,6 @@ function reopenStudioVersion(store, version, actor = FIXTURE_ACTOR) {
   return draft;
 }
 
-function createCanonicalProposal(store, input) {
-  const version = store.versions.get(input.versionId);
-  if (!version || version.itemId !== input.itemId) {
-    return { error: { code: "not_found", message: "Studio content version was not found." } };
-  }
-  if (version.contentHash !== input.contentHash) {
-    return {
-      error: {
-        code: "failed_precondition",
-        message: "The supplied content hash does not match the saved Studio version.",
-      },
-    };
-  }
-  const item = store.items.get(input.itemId);
-  if (!item || item.currentVersionId !== input.versionId) {
-    return {
-      error: {
-        code: "failed_precondition",
-        message: "The publication proposal must bind the current saved Studio version.",
-      },
-    };
-  }
-  const proposalId = store.nextProposalId();
-  const proposal = {
-    proposalId,
-    operationId: `mock-operation-${proposalId}`,
-    itemId: input.itemId,
-    versionId: input.versionId,
-    contentHash: input.contentHash,
-    route: input.route,
-    visibility: input.visibility,
-    note: input.note,
-    status: "pending",
-    proposedBy: input.proposedBy,
-    createdAt: store.now(),
-  };
-  store.proposals.set(proposalId, proposal);
-  return { proposal };
-}
-
-function approveCanonicalProposal(store, proposal, approver, origin) {
-  if (proposal.status === "approved") return proposal;
-  const approvedUrl = `${origin}/published/${proposal.proposalId}`;
-  const next = { ...proposal, status: "approved", approvedBy: approver, approvedUrl, decidedAt: store.now() };
-  store.proposals.set(proposal.proposalId, next);
-  const item = store.items.get(proposal.itemId);
-  if (item) {
-    store.items.set(proposal.itemId, {
-      ...item,
-      publishedVersionId: proposal.versionId,
-      updatedBy: approver,
-      updatedAt: store.now(),
-    });
-  }
-  return next;
-}
-
-function publicProposal(proposal) {
-  return {
-    proposalId: proposal.proposalId,
-    operationId: proposal.operationId,
-    itemId: proposal.itemId,
-    versionId: proposal.versionId,
-    route: proposal.route,
-    visibility: proposal.visibility,
-    status: proposal.status,
-    proposedBy: proposal.proposedBy,
-    ...(proposal.status === "approved" ? { approvedBy: proposal.approvedBy, approvedUrl: proposal.approvedUrl } : {}),
-  };
-}
-
 function createStudioLifecycleRestRouter(store) {
   function versionsForItem(itemId) {
     const ids = store.versionsByItem.get(itemId) ?? [];
@@ -1268,74 +1278,6 @@ function createStudioLifecycleRestRouter(store) {
    * own 404).
    */
   async function handle(req, res, method, subPath, searchParams) {
-    const proposalMatch = /^\/publication-proposals\/([^/]+)(\/decision)?$/.exec(subPath);
-    if (proposalMatch) {
-      const proposalId = decodeURIComponent(proposalMatch[1]);
-      const deciding = Boolean(proposalMatch[2]);
-      const actor = verifyFixtureJwt(bearerToken(req));
-      const proposal = store.proposals.get(proposalId);
-      if (!proposal) {
-        problemResponse(
-          res,
-          404,
-          "Studio publication proposal not found",
-          "Studio publication proposal was not found.",
-        );
-        return true;
-      }
-      const roles = Array.isArray(actor?.roles) ? actor.roles : [];
-      const isProposer = actor?.sub === proposal.proposedBy;
-      const isApprover = proposal.approvedBy !== undefined && actor?.sub === proposal.approvedBy;
-      if (!deciding && method === "GET") {
-        if (!isProposer && !isApprover) {
-          problemResponse(
-            res,
-            404,
-            "Studio publication proposal not found",
-            "Studio publication proposal was not found.",
-          );
-          return true;
-        }
-        apiResponse(res, 200, publicProposal(proposal));
-        return true;
-      }
-      if (deciding && method === "POST") {
-        let body = {};
-        try {
-          const text = await readBody(req);
-          body = text ? JSON.parse(text) : {};
-        } catch {
-          problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
-          return true;
-        }
-        if (body.decision !== "approve") {
-          problemResponse(res, 400, "Invalid request", "Only an approve decision is supported.");
-          return true;
-        }
-        if (isProposer) {
-          problemResponse(
-            res,
-            403,
-            "Separation of duties",
-            "The proposing principal cannot approve its own Studio publication.",
-          );
-          return true;
-        }
-        if (!roles.includes("approver")) {
-          problemResponse(
-            res,
-            404,
-            "Studio publication proposal not found",
-            "Studio publication proposal was not found.",
-          );
-          return true;
-        }
-        const approved = approveCanonicalProposal(store, proposal, actor.sub, `http://${req.headers.host}`);
-        apiResponse(res, 200, publicProposal(approved));
-        return true;
-      }
-    }
-
     // GET /package-families
     if (method === "GET" && subPath === "/package-families") {
       apiResponse(res, 200, packageFamilyCapabilities());
@@ -1760,6 +1702,87 @@ function createStudioLifecycleRestRouter(store) {
         apiResponse(res, 201, request);
         return true;
       }
+    }
+
+    const proposalMatch = /^\/publication-proposals\/([^/]+)(\/decision)?$/.exec(subPath);
+    if (proposalMatch) {
+      const proposalId = decodeURIComponent(proposalMatch[1]);
+      const decision = proposalMatch[2] === "/decision";
+      const proposal = store.publicationProposals.get(proposalId);
+      if (!proposal) {
+        problemResponse(res, 404, "Publication proposal not found", `No publication proposal '${proposalId}' exists.`);
+        return true;
+      }
+      const payload = verifyFixtureJwt(bearerToken(req));
+      const actorId = payload && typeof payload.sub === "string" && payload.sub ? payload.sub : FIXTURE_ACTOR;
+      if (!decision) {
+        if (method !== "GET") return false;
+        if (actorId !== proposal.proposerId) {
+          problemResponse(
+            res,
+            403,
+            "Forbidden",
+            "The caller is not authorized to read this Studio publication proposal.",
+          );
+          return true;
+        }
+        apiResponse(res, 200, proposalStatusPayload(proposal));
+        return true;
+      }
+      if (method !== "POST") return false;
+      if (actorId === proposal.proposerId) {
+        problemResponse(res, 403, "Forbidden", "The proposer cannot approve their own publication.");
+        return true;
+      }
+      let body = {};
+      try {
+        const text = await readBody(req);
+        body = text ? JSON.parse(text) : {};
+      } catch {
+        problemResponse(res, 400, "Malformed request body", "Request body must be valid JSON.");
+        return true;
+      }
+      if (body.publicationUrl !== undefined || body.status !== undefined) {
+        problemResponse(res, 400, "Invalid request", "A decision cannot supply a publication URL or status.");
+        return true;
+      }
+      const choice = body.decision;
+      if (choice !== "approve" && choice !== "reject" && choice !== "fail") {
+        problemResponse(res, 400, "Invalid request", "'decision' must be approve, reject, or fail.");
+        return true;
+      }
+      if (proposal.status !== "AwaitingApproval") {
+        problemResponse(
+          res,
+          409,
+          "Publication proposal already decided",
+          `Proposal '${proposalId}' is ${proposal.status}.`,
+        );
+        return true;
+      }
+      store.awaitingProposalByKey.delete(proposal.key);
+      if (choice === "approve") {
+        proposal.status = "Active";
+        proposal.publicationUrl = `https://studio.preview.invalid/share/${encodeURIComponent(proposal.proposalId)}`;
+        proposal.approvedUrl = `http://${req.headers.host}/published/${encodeURIComponent(proposal.proposalId)}`;
+        const item = store.items.get(proposal.itemId);
+        if (item) {
+          store.items.set(proposal.itemId, {
+            ...item,
+            publishedVersionId: proposal.versionId,
+            updatedBy: actorId,
+            updatedAt: store.now(),
+          });
+        }
+      } else if (choice === "reject") {
+        proposal.status = "Rejected";
+        proposal.reason = "Rejected by a separate principal.";
+      } else {
+        proposal.status = "Failed";
+        proposal.reason = "Publication execution failed.";
+      }
+      apiResponse(res, 200, proposalStatusPayload(proposal));
+      return true;
     }
 
     return false;
@@ -2544,12 +2567,17 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
 
       // Handshake methods are open; tools/call requires the same bearer
       // every other protected route on this fixture requires.
-      if (method === "tools/call" && !verifyFixtureJwt(bearerToken(req))) {
-        unauthorized(res);
-        return;
+      let actorId = FIXTURE_ACTOR;
+      if (method === "tools/call") {
+        const principal = verifyFixtureJwt(bearerToken(req));
+        if (!principal) {
+          unauthorized(res);
+          return;
+        }
+        actorId = typeof principal.sub === "string" && principal.sub ? principal.sub : FIXTURE_ACTOR;
       }
 
-      const outcome = mcp.handle(method, params, verifyFixtureJwt(bearerToken(req)));
+      const outcome = mcp.handle(method, params, actorId);
       const extraHeaders = {};
       if (method === "initialize") {
         const sessionId = randomUUID();
@@ -2577,6 +2605,7 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
         subPath.startsWith("/content-items/") ||
         subPath === "/package-drafts" ||
         subPath.startsWith("/package-drafts/") ||
+        subPath === "/publication-proposals" ||
         subPath.startsWith("/publication-proposals/");
       if (knownLifecyclePrefix) {
         if (!verifyFixtureJwt(bearerToken(req))) {
@@ -2647,8 +2676,8 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
 
     const publishedMatch = /^\/published\/([^/]+)$/.exec(pathname);
     if (publishedMatch && req.method === "GET") {
-      const proposal = studioLifecycleStore.proposals.get(decodeURIComponent(publishedMatch[1]));
-      if (!proposal || proposal.status !== "approved") {
+      const proposal = studioLifecycleStore.publicationProposals.get(decodeURIComponent(publishedMatch[1]));
+      if (!proposal || proposal.status !== "Active") {
         json(res, 404, { error: "not_found" });
         return;
       }

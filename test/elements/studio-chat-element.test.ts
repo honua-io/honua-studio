@@ -13,6 +13,7 @@ import type {
 import { playFixtureConversation } from "../../src/chat/fixture-player.js";
 import { FixtureChatTransport } from "../../src/chat/fixture-transport.js";
 import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
+import { projectShareConversation } from "../../src/chat/share-preview.js";
 import type { ChatTransport } from "../../src/chat/transport.js";
 import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
@@ -79,6 +80,38 @@ afterEach(() => {
 });
 
 describe("<honua-studio-chat>", () => {
+  it("renders a governed share update inside the conversation and never treats it as a publish action", () => {
+    const el = mountChat();
+    const handle = {
+      proposalId: "mock-proposal-1",
+      proposalUri: "honua://proposals/mock-proposal-1",
+      itemId: "item-1",
+      versionId: "version-1",
+      contentHash: "abc",
+      route: "/maps/private",
+      visibility: "private",
+      operationInstanceId: "op-1",
+      auditId: "audit-1",
+      correlationId: "corr-1",
+      idempotencyIdentity: "same",
+    };
+    const pending = projectShareConversation(handle, { proposalId: handle.proposalId, status: "AwaitingApproval" });
+    el.shareNote = pending.text;
+    const pendingNode = el.shadowRoot?.querySelector('[data-testid="studio-chat-share-status"]');
+    expect(pendingNode?.textContent).toContain("pending separate human approval");
+    expect(pendingNode?.textContent).not.toContain("http");
+
+    const active = projectShareConversation(handle, {
+      proposalId: handle.proposalId,
+      status: "Active",
+      publicationUrl: "https://studio.preview.invalid/share/mock-proposal-1",
+    });
+    el.shareNote = active.text;
+    expect(el.shadowRoot?.querySelector('[data-testid="studio-chat-share-status"]')?.textContent).toBe(
+      `Shared — ${active.publicationUrl}`,
+    );
+  });
+
   it("runs a model-selected server tool, feeds its result back, and refreshes the real canvas controller", async () => {
     const el = mountChat();
     const controller = new CompositionController(createEmptyCompositionState());

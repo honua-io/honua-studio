@@ -218,22 +218,26 @@ export interface RemoveStudioInteractionInput {
   readonly interactionId: string;
 }
 
+/** Canonical immutable-version proposal. The tool does not accept a draft, a decision, or a URL. */
 export interface ProposeStudioPublicationInput {
-  readonly draftId: string;
-  readonly generation: number;
-  readonly route?: string;
-  readonly visibility?: string;
-  readonly embed?: boolean;
-  readonly service?: string;
-  readonly schedule?: string;
-  readonly job?: string;
+  readonly itemId: string;
+  readonly versionId: string;
+  readonly contentHash: string;
+  readonly route: string;
+  readonly visibility: string;
   readonly note?: string;
 }
 
+/** `AwaitingApproval` receipt. The final URL is not part of this payload. */
 export interface ProposeStudioPublicationOutput {
-  readonly draft: StudioMcpDraft;
-  readonly recorded: boolean;
-  readonly humanConfirmationRequired: boolean;
+  readonly operationInstanceId: string;
+  readonly proposalId: string;
+  readonly proposalUri: string;
+  readonly auditId: string;
+  readonly correlationId: string;
+  readonly idempotencyIdentity: string;
+  readonly status: "AwaitingApproval";
+  readonly humanConfirmationRequired: true;
   readonly message: string;
 }
 

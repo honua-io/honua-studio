@@ -19,8 +19,27 @@ env:
   IMAGE: ghcr.io/honua-io/honua-studio
 
 jobs:
+  # security.yml does not run on tags. These pinned scans are the release gate,
+  # so a v* publish cannot skip them. honua-io/.github main is e26b67e9.
+  trivy:
+    permissions:
+      contents: read
+      security-events: write
+    uses: honua-io/.github/.github/workflows/reusable-trivy.yml@e26b67e904f2c23796fe677d267d73188a764545 # main
+    with:
+      scan-type: fs
+
+  scorecard:
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+      actions: read
+    uses: honua-io/.github/.github/workflows/reusable-scorecard.yml@e26b67e904f2c23796fe677d267d73188a764545 # main
+
   # Run the same smoke suite on the release revision before publishing its image
-  # (honua-io/honua-server#4428).
+  # (honua-io/honua-server#4428). Hosted demo and real-model lanes are not part
+  # of this Preview gate; live-demo-smoke.yml keeps that concurrency group.
   smokes:
     name: Smoke suite
     # Deliberately passes no ref: the suite checks out the ref that triggered
@@ -33,7 +52,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: smokes
+    needs: [smokes, trivy, scorecard]
     permissions:
       contents: write
       packages: write
@@ -104,13 +123,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: echo "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
 
-      - name: Build and push versioned image
+      - name: Build, verify, and push the release image
         id: image
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" --label "org.opencontainers.image.version=$VERSION" -t "$IMAGE:$VERSION" .
+          # Push only this tag. The smoke suite already passed on github.sha;
+          # these checks bind the runtime-config gate to the image bytes below.
+          docker run --rm -d --name honua-studio-release --read-only \
+            --tmpfs /var/cache/nginx:uid=101,gid=101 --tmpfs /var/run:uid=101,gid=101 \
+            -p 18081:8080 \
+            --mount type=bind,src="$PWD/deploy/config.example.json",dst=/usr/share/nginx/html/config.json,readonly \
+            "$IMAGE:$VERSION"
+          trap 'docker stop honua-studio-release >/dev/null 2>&1 || true' EXIT
+          curl --retry 10 --retry-delay 1 --retry-all-errors --fail http://127.0.0.1:18081/config.json | jq -e '.schemaVersion == "honua.studio.runtime-config.v1"'
+          curl --retry 10 --retry-delay 1 --retry-all-errors --fail http://127.0.0.1:18081/a/deep/spa/route | grep -q '<!doctype html>'
+          docker stop honua-studio-release >/dev/null 2>&1 || true
           docker push "$IMAGE:$VERSION"
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$VERSION" | cut -d@ -f2)"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
