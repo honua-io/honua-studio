@@ -131,8 +131,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * basemap's credit is actually visible (REQ-003's data provenance).
  */
 export const defaultCompositionMapFactory: CompositionMapFactory = async (options) => {
-  const maplibre = await import("maplibre-gl");
+  // MapLibre 6 ships its worker as a separate ES module and locates it with
+  // `new URL("./maplibre-gl-worker.mjs", import.meta.url)` — a computed
+  // specifier the bundler cannot see, so once Vite folds maplibre-gl.mjs into
+  // a hashed chunk that URL points at a file that was never emitted, the
+  // worker never starts, and no GeoJSON source ever loads. `?worker&url`
+  // makes Vite bundle the worker entry as a real worker chunk (ES format, see
+  // vite.config.ts) and hand back its URL, which MapLibre is then told to use.
+  const [maplibre, workerModule] = await Promise.all([
+    import("maplibre-gl"),
+    import("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url"),
+  ]);
   const namespace = (maplibre as { default?: Record<string, unknown> }).default ?? maplibre;
+  const setWorkerUrl = (namespace as { setWorkerUrl?: unknown }).setWorkerUrl;
+  if (typeof setWorkerUrl === "function") setWorkerUrl(workerModule.default);
   const MapConstructor = (namespace as { Map?: unknown }).Map as
     | (new (
         constructorOptions: Record<string, unknown>,

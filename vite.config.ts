@@ -78,6 +78,9 @@ export default defineConfig(({ mode }) => {
     envPrefix: ["VITE_", "HONUA_"],
     server: { proxy },
     preview: { proxy },
+    // MapLibre 6's worker uses dynamic import(), which only an ES-format
+    // worker bundle can carry (MapLibre starts it with `type: "module"`).
+    worker: { format: "es" },
     build: {
       // Multi-page build (honua-studio#5): the standalone shell (index.html)
       // plus the bare embed harness (harness/bare/index.html), so
