@@ -14,6 +14,8 @@ import { defineConfig } from "vite";
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  // Same MapLibre 6 worker constraint as vite.config.ts.
+  worker: { format: "es" },
   build: {
     outDir: resolve(projectRoot, "harness/blazor-host/StudioHost/wwwroot/studio"),
     emptyOutDir: true,

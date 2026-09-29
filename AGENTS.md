@@ -24,7 +24,7 @@ before claiming a capability, and update them (test counts included) when you ch
 - **Bundler/dev server:** Vite 8 — multi-page build (the shell plus `harness/bare/`).
 - **Tests:** Vitest 4 (`environment: node`, `test/**/*.test.ts`) + Playwright 1.58 (chromium only, `test/playwright/*.spec.mjs`).
 - **Lint/format:** Biome 1.9.4 (`biome.json`), 2-space indent, 120 cols.
-- **Map runtime:** `maplibre-gl` 5.24.0; SDK pin `@honua/sdk-js` 0.1.9-beta.0.
+- **Map runtime:** `maplibre-gl` 6.11.2 (its worker is bundled via `?worker&url`, see `src/map/composition-map-view.ts`); SDK pin `@honua/sdk-js` 0.1.9-beta.0.
 - **Blazor embed harness:** .NET 10 SDK (`harness/blazor-host/`), needed only for the `@blazor` lane.
 
 ## Setup
