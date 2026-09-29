@@ -67,4 +67,20 @@ describe("self-hosted preview receipt", () => {
     expect(workflow).toContain("gh release upload");
     expect(workflow).not.toMatch(/\bGA\b/);
   });
+
+  it("does not present local preview evidence as proof of model origin", () => {
+    const docs = readFileSync(new URL("../../docs/self-hosted.md", import.meta.url), "utf8");
+    const receipt = buildSelfHostedPreviewReceipt(input);
+
+    expect(receipt.model).toEqual({
+      provider: "byom-preview",
+      kind: "catalog-planner",
+      hosted: false,
+      credentialRequired: false,
+    });
+    expect(receipt).not.toHaveProperty("transcript");
+    expect(receipt).not.toHaveProperty("modelOriginSignature");
+    expect(docs).toContain("contains no model transcript or proxy-issued");
+    expect(docs).toContain("cannot establish that a hosted provider produced");
+  });
 });

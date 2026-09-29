@@ -20,6 +20,12 @@ export interface SelfHostedPreviewReceipt {
   readonly schemaVersion: typeof SELF_HOSTED_PREVIEW_RECEIPT_SCHEMA;
   readonly posture: "preview";
   readonly ga: false;
+  readonly model: {
+    readonly provider: "byom-preview";
+    readonly kind: "catalog-planner";
+    readonly hosted: false;
+    readonly credentialRequired: false;
+  };
   readonly image: { readonly published: false; readonly repository: string; readonly localImageId: string };
   readonly journey: SelfHostedPreviewJourney;
 }

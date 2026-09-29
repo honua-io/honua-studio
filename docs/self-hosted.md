@@ -62,7 +62,10 @@ hosted-model decision are required.
 That receipt is Preview evidence. It is not a GA claim, not a hosted-model
 qualification, and not a registry digest. A credentialed real-model
 composition/save/reopen journey is 2026.2 graduation work, not a 2026.1
-publish requirement. The nightly demo lane is separate and does not block a
-tag. Nothing is published to GHCR until an operator pushes a `v*` tag and
-`release.yml` attaches the tarball, checksum, and source/image receipt to the
-GitHub release.
+publish requirement. The receipt contains no model transcript or proxy-issued
+model-origin signature, so it cannot establish that a hosted provider produced
+any turn. A future credentialed model lane must define and verify that
+non-forgeable evidence before claiming model execution. The nightly demo lane
+is separate and does not block a tag. Nothing is published to GHCR until an
+operator pushes a `v*` tag and `release.yml` attaches the tarball, checksum,
+and source/image receipt to the GitHub release.
