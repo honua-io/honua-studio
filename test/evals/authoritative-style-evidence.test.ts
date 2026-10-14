@@ -107,6 +107,41 @@ describe("actual style semantics supplement", () => {
       prerequisite,
     );
   });
+  it("admits a hash-bound rendered style matching the separately requested identity", async () => {
+    const { observation, composition } = await fixture();
+    const score = await applyAuthoritativeStyleEvidence(
+      prerequisite,
+      { ...requirement, styleId: "district" },
+      [observation],
+      composition,
+    );
+    expect(score.passed).toBe(true);
+    expect(score.checks.find((check) => check.path === "styles.style.requestedIdentity")).toEqual({
+      path: "styles.style.requestedIdentity",
+      expected: "district",
+      actual: "district",
+      status: "pass",
+    });
+  });
+  it("refuses an internally consistent rendered style that substitutes the requested identity", async () => {
+    const { observation, composition } = await fixture();
+    const score = await applyAuthoritativeStyleEvidence(
+      prerequisite,
+      { ...requirement, styleId: "owned-requested-district-v1" },
+      [observation],
+      composition,
+    );
+    expect(score.passed).toBe(false);
+    expect(score.status).toBe("fail");
+    expect(score.checks.filter((check) => check.status !== "pass")).toEqual([
+      {
+        path: "styles.style.requestedIdentity",
+        expected: "owned-requested-district-v1",
+        actual: "district",
+        status: "fail",
+      },
+    ]);
+  });
   it("checks effective composition visibility without rewriting the hash-bound canonical definition", async () => {
     const { observation, composition } = await fixture("none");
     const raw = observation.binding.definition.inlineBody;
