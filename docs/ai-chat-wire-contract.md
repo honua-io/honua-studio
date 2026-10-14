@@ -36,15 +36,28 @@ in honua-server) declares:
     UseStringEnumConverter = true)]
 ```
 
-This means BOTH object keys AND C# enum values serialize camelCase:
-`StudioAiChatEventType.MessageStart` -> `"messageStart"`,
-`StudioAiStopReason.EndTurn` -> `"endTurn"`. `src/chat/ai-contract.ts`'s
-`StudioAiChatEventType`/`StudioAiStopReason` string unions match this
-casing exactly (`"messageStart"`, `"textDelta"`, `"toolCallStart"`,
-`"toolCallDelta"`, `"toolCallStop"`, `"messageStop"`, `"error"`; stop
-reasons `"endTurn"`, `"toolCall"`, `"maxTokens"`, `"contentFilter"`,
-`"cancelled"`, `"error"`). Null/absent fields are omitted from the wire
-payload, not sent as `null`.
+The property policy applies to object keys, not enum values. Actual retained
+server responses serialize `StudioAiChatEventType.MessageStart` as
+`"MessageStart"` and `StudioAiStopReason.EndTurn` as `"EndTurn"`. This spelling
+predates the managed diagnostic and is also present in the signed provider
+transcript. Earlier documentation incorrectly claimed the property policy
+camelcased enum values.
+
+The client event `type` is projected from the authoritative SSE event name.
+Other signed payload values, including `stopReason`, remain unchanged. Local
+fixture projections use camelCase reasons; completion checks accept only the
+explicit successful pairs `EndTurn`/`endTurn` and, when complete tool calls
+exist, `ToolCall`/`toolCall`. Unknown, mixed-case, filtered, cancelled, truncated
+and error reasons are not successful completion. Null/absent fields are omitted
+from the server wire payload.
+
+The SDK verifier checks the signature over original canonical transcript bytes,
+then compares decoded request and provider events. It explicitly maps the
+server's event-type spelling, but does **not** normalize stop reasons. Rewriting
+`EndTurn` to `endTurn` before verification changes the observed payload and must
+fail event binding. Diagnostic completion predicates interpret a reason without
+mutating it, and action-round nonce consumption remains at the SDK dispatch
+boundary. Rejection errors include only a bounded stop-reason value.
 
 ## Two SEPARATE event-name vocabularies — the trap this contract avoids
 
@@ -52,21 +65,21 @@ The SSE `event:` line is a DIFFERENT, hardcoded snake_case vocabulary,
 written by `StudioAiProxyEndpoints.EventName()` — independent of the JSON
 naming policy above:
 
-| SSE `event:` line | JSON body's `"type"` field |
+| SSE `event:` line | Server JSON body's `"type"` field |
 | --- | --- |
-| `message_start` | `"messageStart"` |
-| `text_delta` | `"textDelta"` |
-| `tool_call_start` | `"toolCallStart"` |
-| `tool_call_delta` | `"toolCallDelta"` |
-| `tool_call_stop` | `"toolCallStop"` |
-| `message_stop` | `"messageStop"` |
-| `error` | `"error"` |
+| `message_start` | `"MessageStart"` |
+| `text_delta` | `"TextDelta"` |
+| `tool_call_start` | `"ToolCallStart"` |
+| `tool_call_delta` | `"ToolCallDelta"` |
+| `tool_call_stop` | `"ToolCallStop"` |
+| `message_stop` | `"MessageStop"` |
+| `error` | `"Error"` |
 
 A frame on the wire looks like:
 
 ```
 event: text_delta
-data: {"type":"textDelta","text":"Adding the parcels layer"}
+data: {"type":"TextDelta","text":"Adding the parcels layer"}
 
 ```
 

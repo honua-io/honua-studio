@@ -27,6 +27,122 @@ async function collect(transport: VerifiedRoundTransport) {
 }
 
 describe("diagnostic terminal text verification", () => {
+  it.each(["EndTurn", "endTurn"])("preserves signed text completion spelling %s", async (reason) => {
+    const signer = createFixtureTranscriptSigner();
+    const events: StudioAiChatEvent[] = [
+      { type: "messageStart", model: "fixture" },
+      { type: "textDelta", text: "Needs approval." },
+      Object.assign({ type: "messageStop" as const }, { stopReason: reason }),
+    ] as StudioAiChatEvent[];
+    const envelope = signer.sign(request, events);
+    const transport = new VerifiedRoundTransport(
+      {
+        async *streamChat() {
+          yield* events;
+          yield envelope;
+        },
+      },
+      new StudioAiTranscriptVerifier({ manifest: signer.manifest, replayStore: new InMemoryStudioAiReplayStore() }),
+    );
+    const actual = await collect(transport);
+    expect(actual).toEqual([...events, envelope]);
+    expect(actual[2]).toBe(events[2]);
+    await expect(collect(transport)).rejects.toThrow("replay");
+  });
+  it.each(["EndTurn", "endTurn", "ToolCall", "toolCall"])(
+    "preserves signed tool completion spelling %s",
+    async (reason) => {
+      const signer = createFixtureTranscriptSigner();
+      const events = [
+        { type: "messageStart", model: "fixture" },
+        { type: "toolCallStart", toolCallId: "call", toolName: "honua_studio_add_layer" },
+        { type: "toolCallStop", toolCallId: "call", toolArguments: { layer: { id: "parcels" } } },
+        { type: "messageStop", stopReason: reason },
+      ] as StudioAiChatEvent[];
+      const envelope = signer.sign(request, events);
+      const verifier = new StudioAiTranscriptVerifier({
+        manifest: signer.manifest,
+        replayStore: new InMemoryStudioAiReplayStore(),
+      });
+      const verify = vi.spyOn(verifier, "verify");
+      const transport = new VerifiedRoundTransport(
+        {
+          async *streamChat() {
+            yield* events;
+            yield envelope;
+          },
+        },
+        verifier,
+      );
+      expect(await collect(transport)).toEqual([...events, envelope]);
+      expect(verify).not.toHaveBeenCalled();
+      expect((await verifier.verify(envelope.provenance, request, events)).ok).toBe(true);
+      expect((await verifier.verify(envelope.provenance, request, events)).reason).toBe("replay");
+    },
+  );
+  it.each([
+    "ENDTURN",
+    "ToolCALL",
+    "tool_call",
+    "MaxTokens",
+    "maxTokens",
+    "ContentFilter",
+    "Cancelled",
+    "Error",
+    "",
+    undefined,
+  ])("rejects unsupported or partial terminal reason %j for text and tools", async (reason) => {
+    for (const tools of [false, true]) {
+      const signer = createFixtureTranscriptSigner();
+      const events = [
+        { type: "messageStart", model: "fixture" },
+        ...(tools
+          ? [
+              { type: "toolCallStart", toolCallId: "call", toolName: "honua_studio_add_layer" },
+              { type: "toolCallStop", toolCallId: "call", toolArguments: {} },
+            ]
+          : [{ type: "textDelta", text: "Answer." }]),
+        { type: "messageStop", stopReason: reason },
+      ] as StudioAiChatEvent[];
+      const envelope = signer.sign(request, events);
+      const transport = new VerifiedRoundTransport(
+        {
+          async *streamChat() {
+            yield* events;
+            yield envelope;
+          },
+        },
+        undefined,
+      );
+      await expect(collect(transport)).rejects.toThrow(/did not complete \(stopReason=/);
+    }
+  });
+  it("bounds rejection details without including request contents", async () => {
+    const signer = createFixtureTranscriptSigner();
+    const reason = "unknown".repeat(100);
+    const events = [
+      { type: "messageStart", model: "fixture" },
+      { type: "messageStop", stopReason: reason },
+    ] as StudioAiChatEvent[];
+    const envelope = signer.sign(request, events);
+    const transport = new VerifiedRoundTransport(
+      {
+        async *streamChat() {
+          yield* events;
+          yield envelope;
+        },
+      },
+      undefined,
+    );
+    try {
+      await collect(transport);
+      throw new Error("Expected rejection");
+    } catch (error) {
+      expect(String(error)).toContain(reason.slice(0, 64));
+      expect(String(error).length).toBeLessThan(160);
+      expect(String(error)).not.toContain("Publish this map");
+    }
+  });
   for (const mode of [
     "valid",
     "tampered",

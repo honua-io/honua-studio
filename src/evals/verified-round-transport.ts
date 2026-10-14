@@ -43,11 +43,12 @@ export class VerifiedRoundTransport implements ChatTransport {
       assertCompleteToolCalls(events);
       // Do not consume the replay nonce here. The SDK verifies this exact
       // transcript once, immediately before entering the dispatch boundary.
-      if (stops[0]?.stopReason !== "toolCall" && stops[0]?.stopReason !== "endTurn") {
-        throw new Error("Diagnostic tool round did not complete.");
+      if (!isCompletedReason(stops[0]?.stopReason, true)) {
+        throw new Error(`Diagnostic tool round did not complete (stopReason=${reasonDetail(stops[0]?.stopReason)}).`);
       }
     } else {
-      if (stops[0]?.stopReason !== "endTurn") throw new Error("Diagnostic text round did not complete.");
+      if (!isCompletedReason(stops[0]?.stopReason, false))
+        throw new Error(`Diagnostic text round did not complete (stopReason=${reasonDetail(stops[0]?.stopReason)}).`);
       if (!events.some((event) => event.type === "textDelta" && event.text?.trim())) {
         throw new Error("Diagnostic text round completed without an answer.");
       }
@@ -62,6 +63,17 @@ export class VerifiedRoundTransport implements ChatTransport {
     }
     yield* events;
   }
+}
+
+// Established server enums are PascalCase; fixture/client spellings are camelCase.
+// This predicate interprets completion only. Never rewrite the signed events:
+// the SDK verifier must compare their original stopReason values exactly.
+function isCompletedReason(reason: unknown, hasTools: boolean): boolean {
+  return reason === "EndTurn" || reason === "endTurn" || (hasTools && (reason === "ToolCall" || reason === "toolCall"));
+}
+
+function reasonDetail(reason: unknown): string {
+  return typeof reason === "string" ? JSON.stringify(reason.slice(0, 64)) : `<${typeof reason}>`;
 }
 
 function assertCompleteToolCalls(events: readonly StudioAiChatEvent[]): void {

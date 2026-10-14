@@ -1,19 +1,21 @@
 /**
  * Provider-neutral Studio AI proxy wire contract (honua-studio#6, AD-4/AD-8).
- * Mirrors honua-server#3010 (`POST /api/v1/studio/ai/chat`, SSE) exactly —
+ * Client/fixture projection of honua-server#3010 (`POST /api/v1/studio/ai/chat`, SSE) —
  * see that PR's `src/Honua.Ai/Features/StudioAiProxy/Domain/StudioAiChatEvent.cs`
  * and `StudioAiChatModels.cs`, and `src/Honua.Server/Features/StudioAi/StudioAiProxyEndpoints.cs`.
  * This module owns ONLY the shapes; transport (SSE framing, fixtures) lives
  * in sibling modules so the contract can be unit-tested independent of
  * `fetch`/`ReadableStream`.
  *
- * Wire-shape notes (verified against the PR diff, not guessed):
+ * Wire-shape notes (including retained real signed server responses):
  *  - The server's `StudioAiProxyJsonContext` uses
  *    `JsonSourceGenerationOptions(PropertyNamingPolicy = CamelCase, UseStringEnumConverter = true)`
- *    for every JSON body — so both object keys AND C# enum values serialize
- *    camelCase (`StudioAiChatEventType.MessageStart` -> `"messageStart"`,
- *    `StudioAiStopReason.EndTurn` -> `"endTurn"`). This module's string
- *    unions match that casing exactly.
+ *    for JSON bodies. Object keys are camelCase, but enum strings retain
+ *    their declared PascalCase (`"MessageStart"`, `"EndTurn"`). The SSE
+ *    parser maps event types from the event name and preserves other payload
+ *    values. The local fixture types below use camelCase; the SDK owns the
+ *    live session and signed transcript verification. Completion predicates
+ *    accept exact established aliases without rewriting signed stop reasons.
  *  - The SSE `event:` line is a SEPARATE, hardcoded snake_case vocabulary
  *    written by `StudioAiProxyEndpoints.EventName()` — `message_start`,
  *    `text_delta`, `tool_call_start`, `tool_call_delta`, `tool_call_stop`,
