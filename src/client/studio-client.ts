@@ -1,41 +1,22 @@
-/**
- * Studio server client (honua-studio#3 REQ-003, honua-studio#4 REQ-001).
- *
- * A deliberately thin fetch wrapper over three endpoints that are **not**
- * the Studio package lifecycle API: `GET /health`,
- * `GET /v1/studio/catalog`, and `GET /v1/studio/packages`. That is why this
- * is not `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient` — that client
- * covers `/v1/studio/package-drafts` and `/v1/studio/content-items`, and has
- * no method for any of these three. The shell's boot path (catalog listing,
- * health probe, package summaries) predates and sits beside the lifecycle
- * API rather than inside it.
- *
- * The lifecycle-status vocabulary *is* the SDK's, as a type-only import, so
- * a package summary here and a package elsewhere agree on what `status`
- * means — without pulling the SDK's heavier runtime peers (maplibre-gl,
- * cesium, …) into the boot path.
- *
- * Every request carries the current session's bearer token (attached via
- * `getAccessToken`, decoupled from the concrete `AuthSession` type so this
- * module stays test-friendly). A 401 triggers exactly one
- * refresh-then-retry — never an unbounded loop — and a second 401 surfaces
- * as {@link StudioSessionExpiredError} rather than a generic fetch error, so
- * callers can distinguish "sign in again" from "the server is down".
- */
-import type { HonuaStudioPackageStatus } from "@honua/sdk-js/studio";
+/** Authenticated discovery over the server's MCP layer catalog and Studio content items. */
+import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import { StudioLifecycleSessionExpiredError } from "../lifecycle/lifecycle-errors.js";
+import type { StudioContentItemState } from "../lifecycle/lifecycle-types.js";
+import { McpClient } from "../mcp/client.js";
+import { McpTransportError } from "../mcp/errors.js";
 
 export interface CatalogDataset {
   id: string;
   title: string;
   protocol: string;
   geometryType: string;
+  locator?: Readonly<Record<string, unknown>>;
 }
 
 export interface StudioPackageSummary {
   id: string;
   family: string;
-  format: string;
-  status: HonuaStudioPackageStatus;
+  state: StudioContentItemState;
   title: string;
   updatedAt: string;
 }
@@ -68,28 +49,34 @@ export interface TokenSource {
   getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | undefined>;
 }
 
-async function fetchWithAuth(url: string, auth: TokenSource | undefined, forceRefresh: boolean): Promise<Response> {
-  const headers: Record<string, string> = { accept: "application/json" };
+async function fetchWithAuth(
+  url: string,
+  auth: TokenSource | undefined,
+  forceRefresh: boolean,
+  init?: RequestInit,
+): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("accept")) headers.set("accept", "application/json");
   if (auth) {
     const token = await auth.getAccessToken({ forceRefresh });
     if (token) {
-      headers.authorization = `Bearer ${token}`;
+      headers.set("authorization", `Bearer ${token}`);
     }
   }
-  return fetch(url, { headers });
+  return fetch(url, { ...init, headers });
 }
 
-async function getJson<T>(url: string, auth?: TokenSource): Promise<T> {
+async function authenticatedFetch(url: string, auth?: TokenSource, init?: RequestInit): Promise<Response> {
   let response: Response;
   try {
-    response = await fetchWithAuth(url, auth, false);
+    response = await fetchWithAuth(url, auth, false, init);
   } catch (error) {
     throw new StudioClientError(`Could not reach the Studio server at ${url}.`, error);
   }
   if (response.status === 401 && auth) {
     // Single refresh-then-retry — never a second attempt after this one.
     try {
-      response = await fetchWithAuth(url, auth, true);
+      response = await fetchWithAuth(url, auth, true, init);
     } catch (error) {
       throw new StudioClientError(`Could not reach the Studio server at ${url}.`, error);
     }
@@ -100,27 +87,155 @@ async function getJson<T>(url: string, auth?: TokenSource): Promise<T> {
   if (!response.ok) {
     throw new StudioClientError(`Studio server responded ${response.status} for ${url}.`);
   }
-  return (await response.json()) as T;
+  return response;
 }
 
-/** Reads catalog/lifecycle data from a honua-server-shaped `/api` root — mock or live, see REQ-003. */
+const PAGE_SIZE = 100;
+const MAX_PAGES = 100;
+
+function object(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new StudioClientError("Invalid catalog response.");
+  return value as Record<string, unknown>;
+}
+
+/** Reads real server discovery APIs; missing capabilities remain visible errors. */
 export class StudioClient {
+  private readonly mcp: McpClient;
+  private readonly lifecycle: StudioLifecycleClient;
+  private readonly dataBaseUrl: string;
+
   constructor(
     private readonly baseUrl: string = "/api",
     private readonly auth?: TokenSource,
-  ) {}
+    mcpBaseUrl = baseUrl.replace(/\/api\/?$/, ""),
+  ) {
+    this.dataBaseUrl = mcpBaseUrl.replace(/\/$/, "");
+    this.mcp = new McpClient({
+      baseUrl: this.dataBaseUrl,
+      fetchImpl: (url, init) => authenticatedFetch(String(url), this.auth, init),
+    });
+    this.lifecycle = new StudioLifecycleClient({ baseUrl, auth });
+  }
 
-  health(): Promise<HealthStatus> {
-    return getJson<HealthStatus>(`${this.baseUrl}/health`);
+  async health(): Promise<HealthStatus> {
+    return (await authenticatedFetch(`${this.baseUrl}/health`)).json() as Promise<HealthStatus>;
   }
 
   async listCatalog(): Promise<CatalogDataset[]> {
-    const body = await getJson<{ datasets: CatalogDataset[] }>(`${this.baseUrl}/v1/studio/catalog`, this.auth);
-    return body.datasets;
+    const datasets: CatalogDataset[] = [];
+    const ids = new Set<string>();
+    let offset = 0;
+    try {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const result = await this.mcp.callTool("honua_list_layers", { offset, limit: PAGE_SIZE });
+        const text = result.content?.find((block) => block.type === "text")?.text;
+        const body = object(result.structuredContent ?? (text ? JSON.parse(text) : undefined));
+        if (
+          !Array.isArray(body.layers) ||
+          body.layers.length > PAGE_SIZE ||
+          body.offset !== offset ||
+          typeof body.hasMore !== "boolean" ||
+          body.layerCount !== body.layers.length
+        ) {
+          throw new StudioClientError("Invalid layer catalog page.");
+        }
+        for (const value of body.layers) {
+          const layer = object(value);
+          if (
+            typeof layer.serviceId !== "string" ||
+            !layer.serviceId ||
+            typeof layer.serviceName !== "string" ||
+            !layer.serviceName ||
+            !Number.isSafeInteger(layer.layerId) ||
+            Number(layer.layerId) < 0 ||
+            typeof layer.name !== "string" ||
+            typeof layer.geometryType !== "string"
+          ) {
+            throw new StudioClientError("Invalid layer catalog identity.");
+          }
+          const id = `${encodeURIComponent(layer.serviceId)}/${layer.layerId}`;
+          if (ids.has(id)) throw new StudioClientError("Layer catalog repeated an identity across pages.");
+          ids.add(id);
+          datasets.push({
+            id,
+            title: layer.name,
+            protocol: "geoservices-feature-service",
+            geometryType: layer.geometryType,
+            locator: {
+              url: `${this.dataBaseUrl}/rest/services/${encodeURIComponent(layer.serviceName)}/FeatureServer`,
+              layerId: layer.layerId,
+              serviceId: layer.serviceId,
+            },
+          });
+        }
+        if (!body.hasMore) return datasets;
+        if (
+          !Number.isSafeInteger(body.nextOffset) ||
+          Number(body.nextOffset) <= offset ||
+          body.nextOffset !== offset + body.layers.length
+        ) {
+          throw new StudioClientError("Layer catalog pagination did not advance.");
+        }
+        offset = Number(body.nextOffset);
+      }
+      throw new StudioClientError("Layer catalog exceeded the bounded page limit.");
+    } catch (error) {
+      if (error instanceof StudioClientError) throw error;
+      if (error instanceof McpTransportError && error.cause instanceof StudioClientError) throw error.cause;
+      throw new StudioClientError(
+        `Could not load the layer catalog: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      );
+    }
   }
 
   async listPackages(): Promise<StudioPackageSummary[]> {
-    const body = await getJson<{ packages: StudioPackageSummary[] }>(`${this.baseUrl}/v1/studio/packages`, this.auth);
-    return body.packages;
+    const packages: StudioPackageSummary[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    try {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const body = await this.lifecycle.listContentItems({ limit: PAGE_SIZE, cursor });
+        if (
+          !Array.isArray(body.items) ||
+          body.items.length > PAGE_SIZE ||
+          (body.nextCursor !== null && body.nextCursor !== undefined && typeof body.nextCursor !== "string")
+        ) {
+          throw new StudioClientError("Invalid content item page.");
+        }
+        for (const item of body.items) {
+          if (
+            typeof item.itemId !== "string" ||
+            typeof item.packageKey !== "string" ||
+            typeof item.family !== "string" ||
+            typeof item.updatedAt !== "string" ||
+            !["draft", "current", "published"].includes(item.state)
+          ) {
+            throw new StudioClientError("Invalid content item identity or state.");
+          }
+          packages.push({
+            id: item.itemId,
+            family: item.family,
+            state: item.state,
+            title: item.packageKey,
+            updatedAt: item.updatedAt,
+          });
+        }
+        if (!body.nextCursor) return packages;
+        if (cursors.has(body.nextCursor)) throw new StudioClientError("Content item pagination repeated a cursor.");
+        cursors.add(body.nextCursor);
+        cursor = body.nextCursor;
+      }
+      throw new StudioClientError("Content items exceeded the bounded page limit.");
+    } catch (error) {
+      if (error instanceof StudioLifecycleSessionExpiredError)
+        throw new StudioSessionExpiredError(`${this.baseUrl}/v1/studio/content-items`);
+      if (error instanceof StudioClientError) throw error;
+      throw new StudioClientError(
+        `Could not load Studio content items: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      );
+    }
   }
 }

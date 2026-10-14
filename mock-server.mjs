@@ -381,7 +381,7 @@ function proposalStatusPayload(proposal) {
 }
 
 /** JSON-RPC 2.0 method dispatcher for `POST /mcp` (honua-studio#7) — see this file's module doc. Takes the shared {@link createStudioLifecycleStore} instance so its draft mutations are visible to the REST lifecycle routes (honua-studio#9). */
-function createMcpDispatcher(store) {
+function createMcpDispatcher(store, catalogDatasets) {
   const drafts = store.drafts;
 
   function draftPublic(draft) {
@@ -464,6 +464,30 @@ function createMcpDispatcher(store) {
   }
 
   const handlers = {
+    honua_list_layers(args) {
+      const offset = args.offset ?? 0;
+      const limit = Math.min(args.limit ?? 50, 500);
+      if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1) {
+        return toolError("invalid_argument", "Invalid catalog pagination.");
+      }
+      const layers = catalogDatasets.slice(offset, offset + limit).map((dataset) => ({
+        serviceId: dataset.id,
+        serviceName: dataset.id,
+        layerId: 0,
+        name: dataset.title,
+        type: dataset.geometryType === "Raster" ? "Raster Layer" : "Feature Layer",
+        geometryType: dataset.geometryType,
+      }));
+      const hasMore = offset + layers.length < catalogDatasets.length;
+      return toolSuccess({
+        layerCount: layers.length,
+        totalCount: catalogDatasets.length,
+        offset,
+        hasMore,
+        nextOffset: hasMore ? offset + layers.length : null,
+        layers,
+      });
+    },
     honua_studio_create_draft(args) {
       if (!args || typeof args.packageKey !== "string" || !args.packageKey) {
         return toolError("invalid_argument", "'packageKey' is required.");
@@ -902,12 +926,26 @@ function createMcpDispatcher(store) {
       if (method === "tools/list") {
         return {
           result: {
-            tools: STUDIO_MCP_TOOL_NAMES.map((name) => ({
-              name,
-              description: name,
-              inputSchema: { type: "object", additionalProperties: true },
-              _meta: STUDIO_TOOL_CLASSIFICATION,
-            })),
+            tools: [
+              ...STUDIO_MCP_TOOL_NAMES.map((name) => ({
+                name,
+                description: name,
+                inputSchema: { type: "object", additionalProperties: true },
+                _meta: STUDIO_TOOL_CLASSIFICATION,
+              })),
+              {
+                name: "honua_list_layers",
+                description: "List published fixture layers with real locators and bounded pagination.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    offset: { type: "integer", minimum: 0 },
+                    limit: { type: "integer", minimum: 1, maximum: 500 },
+                  },
+                },
+                annotations: { readOnlyHint: true },
+              },
+            ],
           },
         };
       }
@@ -2315,14 +2353,14 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
   // /mcp (honua-studio#7): a set of live `Mcp-Session-Id`s per server
   // instance, matching honua-server's "a session is bound at initialize"
   // contract (docs/guides/connect/ai-agents-mcp.md).
-  const mcp = createMcpDispatcher(studioLifecycleStore);
+  const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
+  const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
   const mcpSessions = new Set();
   // Per-instance mutable catalog (honua-studio#10 REQ-004): starts as a copy
   // of the static CATALOG.datasets fixture below and gains one entry per GP
   // job output on job completion — never mutates the shared module-level
   // CATALOG constant itself, so one test's completed job can never leak a
   // registered dataset into a different `startMockServer()` instance.
-  const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
   const gpJobStore = createGpJobStore();
   const gpJobRest = createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets);
 
@@ -2604,8 +2642,9 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
     }
 
     // ── Studio package lifecycle REST + enumeration (honua-studio#9) ────
-    if (pathname.startsWith("/v1/studio/") || pathname === "/v1/studio") {
-      const subPath = pathname.slice("/v1/studio".length) || "/";
+    const studioPath = pathname.replace(/^\/api(?=\/v1\/studio(?:\/|$))/, "");
+    if (studioPath.startsWith("/v1/studio/") || studioPath === "/v1/studio") {
+      const subPath = studioPath.slice("/v1/studio".length) || "/";
       // Every lifecycle route requires the same bearer the rest of this
       // fixture's protected routes require (doc: "require admin
       // authorization in the MVP") — checked ONCE here rather than in every

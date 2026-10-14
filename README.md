@@ -164,6 +164,14 @@ Against a real server:
 HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 ```
 
+The catalog reads the authenticated, paged `honua_list_layers` MCP tool and
+keeps each service/layer identity in an explicit map locator. **Add to map** uses
+the normal composition command path with that identity. The home package
+list reads `/api/v1/studio/content-items`: labels are package keys and badges
+are actual `draft`, `current`, or `published` item states. Empty content stores
+show an empty list. Unknown geometry and ambiguous older bare-service references
+remain visibly unrenderable rather than becoming a guessed polygon or layer zero.
+
 Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
 package lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the
 same composition controller the canvas renders, then its structured result is

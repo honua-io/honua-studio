@@ -118,7 +118,12 @@ interface StudioRoute {
   path: string;
   navTestId: string;
   label: string;
-  render: (root: HTMLElement, client: StudioClient, auth: AuthSession) => void;
+  render: (
+    root: HTMLElement,
+    client: StudioClient,
+    auth: AuthSession,
+    onAddSource: (dataset: CatalogDataset) => Promise<void>,
+  ) => void;
 }
 
 interface LiveCompositionOptions {
@@ -133,7 +138,7 @@ const ROUTES: readonly StudioRoute[] = [
     path: "/",
     navTestId: "nav-home",
     label: "Home",
-    render: (root, client, auth) => renderHome(root, client, auth),
+    render: (root, client, auth, onAddSource) => renderHome(root, client, auth, onAddSource),
   },
   {
     path: "/content",
@@ -351,7 +356,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** The `StudioClient` powering the catalog/packages view — bearer-attached via `.auth`. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
   public get studioClient(): StudioClient {
-    if (!this.#studioClient) this.#studioClient = new StudioClient(runtimeServerBaseUrl(), this.auth);
+    if (!this.#studioClient)
+      this.#studioClient = new StudioClient(runtimeServerBaseUrl(), this.auth, runtimeMcpBaseUrl());
     return this.#studioClient;
   }
 
@@ -405,6 +411,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#catalogFromHost = true;
     this.#catalogRequested = true;
     this.#applySourceCatalog(catalog);
+  }
+
+  async #addCatalogSource(dataset: CatalogDataset): Promise<void> {
+    if (!this.#sourceCatalog?.some((entry) => entry.id === dataset.id)) {
+      this.#applySourceCatalog([...(this.#sourceCatalog ?? []), dataset]);
+    }
+    const result = await this.toolCallOrchestrator.handleToolCall({
+      toolName: "addLayer",
+      arguments: { layer: { id: dataset.id, sourceId: dataset.id, title: dataset.title } },
+    });
+    if (!result.ok) throw new Error(result.reason);
   }
 
   #applySourceCatalog(catalog: readonly CatalogDataset[] | undefined): void {
@@ -733,7 +750,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         path: route.path,
         render: (root) => {
           this.#currentPath = route.path;
-          route.render(root, this.studioClient, this.auth);
+          route.render(root, this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
           this.syncNavCurrent();
         },
       })),
@@ -741,7 +758,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         path: "*",
         render: (root) => {
           this.#currentPath = "/";
-          ROUTES[0]?.render(root, this.studioClient, this.auth);
+          ROUTES[0]?.render(root, this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
           this.syncNavCurrent();
         },
       },
@@ -1351,7 +1368,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   private renderView(): void {
     if (!this.shadowRoot?.querySelector("#view")) return;
     const route = ROUTES.find((candidate) => candidate.path === this.#currentPath) ?? ROUTES[0];
-    route?.render(this.viewRoot(), this.studioClient, this.auth);
+    route?.render(this.viewRoot(), this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
     this.syncNavCurrent();
   }
 }
