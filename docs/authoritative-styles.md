@@ -76,3 +76,5 @@ The browser observer also requires `HONUA_CORPUS_DEPLOYMENT_RECEIPT`, naming the
 Canonical MapLibre `name` and `metadata["honua:description"]` may supply explicit author-written display context when server catalog descriptions are unavailable. These values are bound to the retained stylesheet hash, never inferred from style identifiers.
 
 Map views reuse successful bindings for up to 30 seconds while the exact style/source descriptor/session tuple remains unchanged. Selection and appearance changes reuse these bindings; changes to the tuple or a subsequent update after expiry revalidate against the server. Bindings are memory-only, pruned when layers disappear and cleared on disposal or session replacement. There is no persistent stylesheet cache.
+
+`CompositionMapView.refreshAuthoritativeStyles()` explicitly revalidates unchanged style identities and server revisions. The actual browser proof observer calls it before every observed turn, bypassing the interaction cache.

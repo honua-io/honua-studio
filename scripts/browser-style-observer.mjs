@@ -140,7 +140,11 @@ export async function createBrowserStyleObserver({
             undefined,
             { timeout: 30000 },
           );
-          await page.evaluate(async () => document.querySelector("honua-studio-canvas").mapView.settled());
+          await page.evaluate(async () => {
+            const view = document.querySelector("honua-studio-canvas").mapView;
+            await view.settled();
+            await view.refreshAuthoritativeStyles();
+          });
           if (Object.keys(state.view).length === 0) {
             await page.waitForFunction(
               () => {

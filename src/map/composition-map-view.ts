@@ -391,6 +391,13 @@ export class CompositionMapView {
     this.#status = "idle";
   }
 
+  /** Revalidates current stylesheet revisions; proof observers always call this before reading the map. */
+  public async refreshAuthoritativeStyles(): Promise<void> {
+    this.#styleBindings.clear();
+    this.#scheduleUpdate();
+    await this.settled();
+  }
+
   async #resolveStyles(): Promise<void> {
     const provider = this.#options.styleProvider;
     if (!provider) return;

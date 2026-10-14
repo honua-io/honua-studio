@@ -324,6 +324,7 @@ describe("authoritative style interaction bindings", () => {
       locator: { serviceId: "service", layerId: 1, url: "https://honua.test/rest/services/Parcels/FeatureServer" },
     };
     let session = { getAccessToken: async () => "token" };
+    let revision = 1;
     const bind = vi.fn(async (styleId: string, source: CompositionSourceDescriptor) => ({
       sourceId: source.id,
       fields: [],
@@ -334,14 +335,14 @@ describe("authoritative style interaction bindings", () => {
         styleId,
         title: "Style",
         description: "Navy polygons",
-        styleVersion: 1,
+        styleVersion: revision,
         sha256: "hash",
         inlineBody: "{}",
         serverRoot: "https://honua.test",
         observedAt: "2026-10-14T00:00:00Z",
         layers: [],
       },
-      override: { paint: { "fill-color": "#003366" } },
+      override: { paint: { "fill-color": revision === 1 ? "#003366" : "#ddaa22" } },
     }));
     const result = await startView({
       projection: { catalog: [descriptor] },
@@ -360,6 +361,9 @@ describe("authoritative style interaction bindings", () => {
     return {
       ...result,
       bind,
+      changeRevision: () => {
+        revision++;
+      },
       descriptor,
       replaceSession: () => {
         session = { getAccessToken: async () => "replacement" };
@@ -374,6 +378,15 @@ describe("authoritative style interaction bindings", () => {
     view.setAppearance({ parcels: { opacity: 0.5 } });
     await view.settled();
     expect(bind).toHaveBeenCalledTimes(1);
+    view.dispose();
+  });
+  it("explicit refresh reads a changed revision under the same style and source identity", async () => {
+    const { view, map, bind, changeRevision } = await styledView();
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#003366");
+    changeRevision();
+    await view.refreshAuthoritativeStyles();
+    expect(bind).toHaveBeenCalledTimes(2);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#ddaa22");
     view.dispose();
   });
   it("rebinds when style, actual descriptor, session or bounded freshness changes", async () => {
