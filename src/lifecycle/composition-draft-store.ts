@@ -1,76 +1,15 @@
 /**
- * The adapter `composition/history.ts` has always described and never had:
- * `HonuaStudioLifecycleClient.drafts` (`@honua/sdk-js/studio`) behind
- * {@link CompositionDraftStore}, so `DraftSync` persists a composition to a
- * real Studio package draft.
+ * SDK lifecycle adapter for the composition draft store. Map drafts retain the
+ * canonical map identity/format alongside layers, view, widgets, controls and
+ * interactions. This is an editable composition document, not a fabricated
+ * render projection: mapSpec/sourceBindings are never synthesized here.
  *
- * It could not be written before honua-studio#30 bumped the pin — the SDK
- * version this app installed did not export a lifecycle client, so the
- * adapter existed only as prose in `history.ts`'s module doc, which no
- * compiler ever read. It is checked now: {@link StudioDraftsResource} is a
- * `Pick` off the real client, and the calls below pass real argument
- * objects, so a renamed method or a changed request shape fails `tsc`.
+ * Replacement reads the authoritative envelope and preserves unmodelled body
+ * metadata under optimistic generation checking. Pins and annotations remain
+ * local, as the server composition contract does not model them.
  *
- * ## The one wire conversion (AD-8)
- *
- * `CompositionState` is a **renderer projection**; the durable wire shape is
- * honua-server's `StudioCompositionBody` (honua-server#3002 —
- * `{ layers, view, widgets, controls?, interactions? }`). This module is the
- * single place the two meet, and it does the conversion with the pair
- * `../mcp/tool-bridge.ts` already owns — `toStudioCompositionBody` out,
- * `applyStudioDraftBody` in — deliberately, not for tidiness:
- * `ToolCallOrchestrator` writes that exact body to that exact family through
- * `honua_studio_*`, and two writers producing two different shapes in one
- * draft is the coherence failure AD-8 exists to prevent.
- * `test/playwright/live-demo-journeys.spec.mjs` asserts that shape against
- * the REAL deployed store.
- *
- * ### What this envelope does NOT claim
- *
- * It does not declare `format: "honua_map_package.v1"`. That format is the
- * *rendering* projection `../map/map-package-projection.ts` produces —
- * `{ mapPackageId, format, status, initialView, sourceBindings, mapSpec }` —
- * and the real server's validator rejects a `{ layers, view, widgets }` body
- * under it (`live-demo-journeys.spec.mjs`'s `validMapBody` comment says so in
- * as many words; `mock-server.mjs` never runs map-body validation, so a mock
- * green here would prove nothing). Labelling a composition body with that
- * format would produce drafts that pass in fixture mode and fail to validate
- * or publish against a real deployment.
- *
- * A map package is also not a candidate for the durable body: the projection
- * needs a source catalog this boundary does not have, and it drops widgets,
- * controls, interactions, and unresolved layers — there is no inverse to read
- * back. So this module writes what honua-server's composition surface
- * actually stores, and, like `honua_studio_create_draft`, sends **no
- * `format`** at all: the server owns that field, and both of this app's
- * writers leave it alone rather than each guessing a different answer.
- *
- * ### What is lossy, exactly
- *
- * `pins` and `annotations` do not survive a round trip, by design and not by
- * accident: they are app-only annotations explicitly excluded from the
- * durable envelope (honua-studio#30), and `StudioCompositionBodyEditor`
- * server-side models neither. `applyStudioDraftBody` carries them over from
- * the caller's previous state rather than clearing them; a bare
- * {@link CompositionDraftStore.get}, which has no previous state to carry,
- * returns them empty — which is the truth about what the draft holds.
- * Nothing else is dropped: layers, view, widgets, controls and interactions
- * all round-trip.
- *
- * A body that is not composition-shaped is a `validation` error, not a
- * silent cast — a draft written by another client (a real
- * `honua_map_package.v1` package, above all) must fail loudly here rather
- * than read back as a composition with no layers in it.
- *
- * ## Deliberately not in `./index.ts`
- *
- * That barrel exports `StudioLifecycleClient`, which carries the two
- * exposure-widening methods spec REQ-009 gates. This module is reachable
- * from the composition engine's side of the app, so it stays a direct
- * import: a caller that wants a draft store must not pick up `requestPublish`
- * on the way in. See `test/lifecycle/human-gate.test.ts`.
- *
- * @module
+ * Keep this module outside the lifecycle barrel: composition code must not gain
+ * access to publication methods through its narrow create/get/replace seam.
  */
 import { isHonuaStudioError, isHonuaStudioGenerationConflict } from "@honua/sdk-js/studio";
 import type { HonuaStudioLifecycleClient, StudioPackageEnvelope } from "@honua/sdk-js/studio";
@@ -83,35 +22,22 @@ import {
   type CompositionDraftStore,
 } from "../composition/history.js";
 import type { CompositionState } from "../composition/model.js";
+import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import type { StudioCompositionBodyWire } from "../mcp/studio-tools.js";
-import { applyStudioDraftBody, toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import { applyStudioDraftBody } from "../mcp/tool-bridge.js";
 
 /** The SDK resource group this adapter wraps — `HonuaStudioLifecycleClient["drafts"]`, narrowed to the three methods the seam uses. */
 export type StudioDraftsResource = Pick<HonuaStudioLifecycleClient["drafts"], "create" | "get" | "replace">;
 
-/**
- * Envelope metadata a composition draft is stored under. `format` is
- * **optional and absent by default** — see the module doc: the server owns
- * it for a composition body, and this client declines to guess, exactly as
- * `honua_studio_create_draft` does. Supply one only for a deployment that
- * has told you which format string its composition bodies carry.
- */
+/** Optional deployment metadata override for newly created drafts. Existing envelopes remain authoritative. */
 export interface CompositionDraftEnvelopeMetadata {
   readonly family: string;
   readonly schemaVersion: string;
   readonly format?: string;
 }
 
-/**
- * Byte-for-byte what `ToolCallOrchestrator.#ensureDraft` sends when it
- * lazily creates a composition draft (`family ?? "map"`,
- * `schemaVersion ?? "1"`, no `format`). Keeping the two identical is the
- * point: either writer may create the draft the other then writes to.
- */
-export const COMPOSITION_DRAFT_ENVELOPE: CompositionDraftEnvelopeMetadata = {
-  family: "map",
-  schemaVersion: "1",
-};
+/** Shared with the MCP composition path. */
+export const COMPOSITION_DRAFT_ENVELOPE: CompositionDraftEnvelopeMetadata = MAP_COMPOSITION_ENVELOPE;
 
 export interface LifecycleCompositionDraftStoreOptions {
   /** The lifecycle client's `drafts` resource group — `createHonuaStudioLifecycleClient({ client }).drafts`. */
@@ -138,7 +64,7 @@ export function createLifecycleCompositionDraftStore(
           drafts.create({
             packageKey: request.packageKey,
             ...(request.itemId !== undefined ? { itemId: request.itemId } : {}),
-            envelope: toWireEnvelope(request.envelope.body, metadata),
+            envelope: toWireEnvelope(request.envelope.body, request.packageKey, metadata),
           }),
         ),
       );
@@ -149,12 +75,25 @@ export function createLifecycleCompositionDraftStore(
     },
 
     async replace(draftId: string, request: CompositionDraftReplaceRequest): Promise<CompositionDraft> {
+      const current = await run(() => drafts.get(draftId));
+      // Refuse foreign render-only bodies rather than overwriting them with an empty composition.
+      toCompositionState(current.envelope?.body);
       return toCompositionDraft(
         await run(() =>
           drafts.replace(draftId, {
             packageKey: request.packageKey,
-            ...(request.generation !== undefined ? { generation: request.generation } : {}),
-            envelope: toWireEnvelope(request.envelope.body, metadata),
+            generation: request.generation ?? current.generation,
+            ...(current.workspaceId !== undefined ? { workspaceId: current.workspaceId } : {}),
+            ...(current.ownerId !== undefined ? { ownerId: current.ownerId } : {}),
+            envelope: {
+              ...current.envelope,
+              body: toCompositionDraftBody(
+                request.envelope.body,
+                current.packageKey,
+                current.envelope.family,
+                current.envelope.body,
+              ),
+            },
           }),
         ),
       );
@@ -180,26 +119,17 @@ async function run<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * Composition state -> `StudioPackageEnvelope`. The body is honua-server's
- * `StudioCompositionBody`, built by the same `toStudioCompositionBody` the
- * MCP composition path uses, so both writers put the same shape in the same
- * draft. `format` is contributed only when the caller supplied one.
- *
- * The one cast is on the envelope, not the body, and it is narrow: the SDK
- * declares `StudioPackageEnvelope.format` **required**, while honua-server's
- * own composition surface never sends it (`honua_studio_create_draft` takes
- * `packageKey`/`family`/`schemaVersion`/`body` and no format at all). This is
- * the same class of over-constraint `./lifecycle-types.ts`'s header
- * enumerates, and sending a format we do not know would be worse than
- * omitting a field the server fills in.
- */
-function toWireEnvelope(state: CompositionState, metadata: CompositionDraftEnvelopeMetadata): StudioPackageEnvelope {
+/** New drafts share their canonical map metadata with the MCP writer. */
+function toWireEnvelope(
+  state: CompositionState,
+  packageKey: string,
+  metadata: CompositionDraftEnvelopeMetadata,
+): StudioPackageEnvelope {
   return {
     family: metadata.family,
     schemaVersion: metadata.schemaVersion,
     ...(metadata.format !== undefined ? { format: metadata.format } : {}),
-    body: { ...toStudioCompositionBody(state) } as unknown as Record<string, unknown>,
+    body: toCompositionDraftBody(state, packageKey, metadata.family),
   } as StudioPackageEnvelope;
 }
 

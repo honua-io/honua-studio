@@ -33,10 +33,10 @@ afterEach(async () => {
   server = undefined;
 });
 
-function store() {
+function store(fetchFn?: typeof fetch) {
   const token = mintFixtureAccessToken();
   const lifecycle = createHonuaStudioLifecycleClient({
-    client: new HonuaClient({ baseUrl: server?.url ?? "", auth: async () => token }),
+    client: new HonuaClient({ baseUrl: server?.url ?? "", auth: async () => token, fetchFn }),
     // The mock (like honua-server) serves the lifecycle API under
     // `/v1/studio`; the SDK's default base path carries the `/api` prefix a
     // deployment puts in front of it.
@@ -61,7 +61,10 @@ async function seedDraft(packageKey: string, body: unknown): Promise<string> {
   const response = await fetch(`${server?.url}/v1/studio/package-drafts`, {
     method: "POST",
     headers: { authorization: `Bearer ${mintFixtureAccessToken()}`, "content-type": "application/json" },
-    body: JSON.stringify({ packageKey, envelope: { family: "map", schemaVersion: "1", body } }),
+    body: JSON.stringify({
+      packageKey,
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body },
+    }),
   });
   const { data } = (await response.json()) as { data: { draftId: string } };
   return data.draftId;
@@ -123,40 +126,60 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     expect(reloaded.packageKey).toBe("sdk-adapter-round-trip");
   });
 
-  it("writes honua-server's StudioCompositionBody — NOT a honua_map_package.v1 body", async () => {
+  it("writes canonical map metadata alongside lossless composition blocks", async () => {
     server = await startMockServer();
     const sync = new DraftSync({ store: store(), packageKey: "sdk-adapter-shape" });
     let state = withLayer(createEmptyCompositionState(), "parcels");
     state = applyCompositionCommand(state, { name: "setView", view: { zoom: 7 } }).state;
     const draft = await sync.apply(state);
-
-    // Read the raw stored envelope off the REST surface rather than through
-    // the adapter — the mock never validates map bodies (`runValidation` is
-    // envelope-only), so only the literal shape proves anything here.
     const stored = await storedEnvelope(draft.draftId);
-
-    expect(Object.keys(stored.body).sort()).toEqual(["layers", "view", "widgets"]);
-    expect(stored.body).toMatchObject({
-      layers: [{ id: "parcels", sourceId: "src-parcels", visible: true }],
-      view: { zoom: 7 },
-      widgets: [],
+    expect(stored).toMatchObject({
+      family: "map",
+      schemaVersion: "1.0",
+      format: "honua_map_package.v1",
+      body: {
+        mapPackageId: "sdk-adapter-shape",
+        format: "honua_map_package.v1",
+        layers: [{ id: "parcels", sourceId: "src-parcels", visible: true }],
+        view: { zoom: 7 },
+        widgets: [],
+      },
     });
-
-    // The honua_map_package.v1 projection's own fields — the shape
-    // `../map/map-package-projection.ts` produces and the REAL server's
-    // validator demands under that format. None of them belong here, and
-    // claiming the format without them is what made drafts written by this
-    // adapter unable to validate or publish against a real deployment.
-    for (const mapPackageField of ["mapPackageId", "format", "status", "initialView", "mapSpec", "sourceBindings"]) {
-      expect(stored.body).not.toHaveProperty(mapPackageField);
-    }
-
-    // The envelope says `map`/`1` and declines to name a format at all, byte
-    // for byte what `honua_studio_create_draft` sends for the same draft.
-    expect(stored.family).toBe(COMPOSITION_DRAFT_ENVELOPE.family);
+    for (const key of ["status", "initialView", "mapSpec", "sourceBindings"])
+      expect(stored.body).not.toHaveProperty(key);
     expect(stored.schemaVersion).toBe(COMPOSITION_DRAFT_ENVELOPE.schemaVersion);
-    expect(COMPOSITION_DRAFT_ENVELOPE.format).toBeUndefined();
-    expect(stored).not.toHaveProperty("format");
+  });
+
+  it("preserves authoritative identity and foreign metadata while removing optional composition blocks", async () => {
+    server = await startMockServer();
+    const draftId = await seedDraft("foreign-map-key", {
+      mapPackageId: "stable-other-client-identity",
+      format: "honua_map_package.v1",
+      layers: [],
+      view: {},
+      widgets: [],
+      controls: [{ id: "old", kind: "scale" }],
+      interactions: [{ id: "old-binding", on: { ref: "map", event: "click" }, do: { ref: "map", verb: "setView" } }],
+      sourceBindings: [{ sourceId: "trusted-source", protocol: "ogc_features", locator: { collectionId: "parcels" } }],
+      customMetadata: { revision: "from-other-client" },
+    });
+    const fresh = store();
+    const current = await fresh.get(draftId);
+    await fresh.replace(draftId, {
+      packageKey: "renamed-package-key",
+      generation: current.generation,
+      envelope: { body: withLayer(createEmptyCompositionState(), "parcels") },
+    });
+    const actual = await storedEnvelope(draftId);
+    expect(actual.body).toMatchObject({
+      mapPackageId: "stable-other-client-identity",
+      format: "honua_map_package.v1",
+      customMetadata: { revision: "from-other-client" },
+      sourceBindings: [{ sourceId: "trusted-source", protocol: "ogc_features", locator: { collectionId: "parcels" } }],
+      layers: [{ id: "parcels" }],
+    });
+    expect(actual.body).not.toHaveProperty("controls");
+    expect(actual.body).not.toHaveProperty("interactions");
   });
 
   it("produces the same envelope the MCP composition path produces for the same draft", async () => {
@@ -174,7 +197,6 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
         client: new McpClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } }),
         packageKey: "pkg-orchestrator",
         family: "map",
-        schemaVersion: "1",
       },
     });
     await orchestrator.handleToolCall({ toolName: "setView", arguments: { view: { zoom: 4 } } });
@@ -183,6 +205,11 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     const orchestratorEnvelope = await storedEnvelope(orchestrator.draftId as string);
 
     expect(Object.keys(adapterEnvelope).sort()).toEqual(Object.keys(orchestratorEnvelope).sort());
+    expect(orchestratorEnvelope.body).toMatchObject({
+      mapPackageId: "pkg-orchestrator",
+      format: "honua_map_package.v1",
+    });
+    expect(orchestratorEnvelope.schemaVersion).toBe("1.0");
     expect(adapterEnvelope.family).toBe(orchestratorEnvelope.family);
     expect(adapterEnvelope.schemaVersion).toBe(orchestratorEnvelope.schemaVersion);
     expect(Object.keys(adapterEnvelope.body).sort()).toEqual(Object.keys(orchestratorEnvelope.body).sort());
@@ -229,6 +256,59 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
       })
       .catch((thrown: unknown) => thrown);
     expect(isCompositionDraftConflict(error)).toBe(true);
+  });
+
+  it("uses the observed generation when omitted and surfaces a concurrent replacement", async () => {
+    server = await startMockServer();
+    const created = await store().create({
+      packageKey: "generation-race",
+      envelope: { body: createEmptyCompositionState() },
+    });
+    let observedGeneration: number | undefined;
+    const racing = store(async (input, init) => {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        observedGeneration = body.generation;
+        const advanced = await fetch(input, init);
+        expect(advanced.ok).toBe(true);
+      }
+      return fetch(input, init);
+    });
+    const error = await racing
+      .replace(created.draftId, {
+        packageKey: created.packageKey,
+        envelope: { body: createEmptyCompositionState() },
+      })
+      .catch((value: unknown) => value);
+    expect(observedGeneration).toBe(created.generation);
+    expect(isCompositionDraftConflict(error)).toBe(true);
+    expect((await store().get(created.draftId)).generation).toBe(created.generation + 1);
+  });
+
+  it("refuses render-only foreign bodies before sending any replacement", async () => {
+    server = await startMockServer();
+    const draftId = await seedDraft("foreign-render-only", {
+      mapPackageId: "foreign",
+      format: "honua_map_package.v1",
+      mapSpec: {},
+    });
+    const writes: string[] = [];
+    const guarded = store(async (input, init) => {
+      if (init?.method === "PUT") writes.push(String(input));
+      return fetch(input, init);
+    });
+    await expect(
+      guarded.replace(draftId, {
+        packageKey: "foreign-render-only",
+        envelope: { body: createEmptyCompositionState() },
+      }),
+    ).rejects.toThrow(/not a Studio composition body/);
+    expect(writes).toEqual([]);
+    expect((await storedEnvelope(draftId)).body).toEqual({
+      mapPackageId: "foreign",
+      format: "honua_map_package.v1",
+      mapSpec: {},
+    });
   });
 
   it("refuses a real honua_map_package.v1 draft rather than reading it back as an empty map", async () => {

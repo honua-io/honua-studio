@@ -522,6 +522,7 @@ function createMcpDispatcher(store, catalogDatasets) {
         envelope: {
           family,
           schemaVersion: args.schemaVersion,
+          ...(family === "map" ? { format: "honua_map_package.v1" } : {}),
           body: args.body ?? (COMPOSITION_ELIGIBLE_FAMILIES.has(family) ? emptyCompositionBody() : undefined),
         },
       };

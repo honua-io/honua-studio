@@ -562,3 +562,19 @@ constructs the SDK's signature and replay verifier behind `agentCertification`.
 The host owns the binding and trust decision; Studio does not automatically
 trust an arbitrary remote signing manifest. Model-selected actions without
 valid terminal provenance remain refused by SDK 0.2.2.
+
+### Map composition draft metadata
+
+New MCP and REST composition drafts use the server map family's schema version
+`1.0`, envelope format `honua_map_package.v1`, and body members `mapPackageId`
+and `format`. The initial map identity is the stable package key. Composition
+blocks remain alongside this metadata; the client does not invent a renderable
+`mapSpec` or source bindings. On REST replacement the adapter reads the current
+server envelope, preserves existing identity and unrelated metadata, and uses
+its generation to protect against concurrent writes. Optional controls and
+interactions absent from the replacement are removed. Rendering-only bodies
+without a composition layers array still fail explicitly.
+
+These are draft-admission requirements, not proof of portable rendering or
+publication. Actual validation remains a server operation, and publication
+retains its separate human gate.
