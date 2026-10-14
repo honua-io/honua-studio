@@ -45,6 +45,18 @@ export async function styleContentHash(value: string): Promise<string> {
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** Legacy property-name filters cannot safely mix with expression-based controls. */
+function rejectLegacyFilter(value: unknown): void {
+  if (!Array.isArray(value)) return;
+  const [operator, operand] = value;
+  if (
+    ["!has", "!in", "none"].includes(operator) ||
+    (["==", "!=", ">", ">=", "<", "<=", "in"].includes(operator) && typeof operand === "string")
+  )
+    throw new Error("Legacy stylesheet filters are not supported; use explicit get/has expressions.");
+  if (["all", "any", "!"].includes(operator)) for (const child of value.slice(1)) rejectLegacyFilter(child);
+}
+
 /** Initial subset: resource-free fill/line/circle overrides onto existing resolved sources. */
 export function parseStyleLayers(inlineBody: string): readonly Readonly<Record<string, unknown>>[] {
   if (new TextEncoder().encode(inlineBody).length > 262144) throw new Error("Stylesheet exceeds the 256 KiB limit.");
@@ -76,6 +88,10 @@ export function parseStyleLayers(inlineBody: string): readonly Readonly<Record<s
     const layout = record(layer.layout ?? {});
     if (Object.keys(paint).some((key) => key.endsWith("-pattern")) || layout["icon-image"] !== undefined)
       throw new Error("Stylesheet image resources are not supported.");
+    rejectLegacyFilter(layer.filter);
+    for (const value of [...Object.values(paint), ...Object.values(layout)])
+      if (value !== null && typeof value === "object" && !Array.isArray(value))
+        throw new Error("Legacy stylesheet property functions are not supported; use expressions.");
     return layer;
   });
 }

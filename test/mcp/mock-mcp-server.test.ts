@@ -296,7 +296,9 @@ it("the shipped recorded conversation binds to normal discovery without injected
       (event) => event.type === "toolCallStop",
     );
     if (!event || event.type !== "toolCallStop") throw new Error("Missing fixture tool arguments.");
-    const result = resolveToolCall({ toolName, arguments: event.toolArguments });
+    if (!event.toolArguments || typeof event.toolArguments !== "object" || Array.isArray(event.toolArguments))
+      throw new Error("Invalid fixture tool arguments.");
+    const result = resolveToolCall({ toolName, arguments: event.toolArguments as Readonly<Record<string, unknown>> });
     if (!result.ok) throw new Error(result.reason);
     const command = result.command;
     const sourceId =

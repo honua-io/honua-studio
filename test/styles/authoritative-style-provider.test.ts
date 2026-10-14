@@ -123,6 +123,80 @@ describe("authoritative style provider", () => {
     ]);
   });
 
+  it.each(["none", "visible"])(
+    "mirrors canonical %s visibility and zoom limits onto polygon outlines",
+    async (visibility) => {
+      const binding = await fixture().provider.bind("district", source);
+      const state = {
+        ...createEmptyCompositionState(),
+        layers: [
+          {
+            id: "composed",
+            sourceId: source.id,
+            visible: true,
+            styleRef: { kind: "style-ref" as const, styleId: "district" },
+          },
+        ],
+      };
+      const projected = compositionToMapPackage(state, {
+        catalog: [source],
+        authoritativeStyles: {
+          composed: { ...binding, override: { ...binding.override, layout: { visibility }, minzoom: 8, maxzoom: 14 } },
+        },
+      });
+      const actual = await composeStyle(projected.mapPackage, projected.mapPackage.mapSpec, {});
+      for (const id of ["composed", "composed__outline"]) {
+        expect(actual.layers.find((layer) => layer.id === id)).toMatchObject({
+          layout: { visibility },
+          minzoom: 8,
+          maxzoom: 14,
+        });
+      }
+    },
+  );
+
+  it.each([
+    ["==", "imaginary", "North"],
+    ["all", ["==", "district", "North"], ["has", "district"]],
+    ["in", "district", "North", "East"],
+    ["!has", "imaginary"],
+  ])("rejects legacy filters before they can mix with expression controls: %j", async (...filter) => {
+    const altered = { ...sheet, layers: [{ ...sheet.layers[0], filter }] };
+    await expect(
+      fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(altered) }] }).provider.bind(
+        "district",
+        source,
+      ),
+    ).rejects.toThrow("Legacy stylesheet filters");
+  });
+
+  it("rejects legacy property functions rather than bypassing descriptor field validation", async () => {
+    const altered = {
+      ...sheet,
+      layers: [
+        {
+          ...sheet.layers[0],
+          paint: {
+            "fill-color": {
+              property: "imaginary",
+              type: "categorical",
+              stops: [
+                ["North", "#003366"],
+                ["East", "#ddaa22"],
+              ],
+            },
+          },
+        },
+      ],
+    };
+    await expect(
+      fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(altered) }] }).provider.bind(
+        "district",
+        source,
+      ),
+    ).rejects.toThrow("Legacy stylesheet property functions");
+  });
+
   it("projects canonical paint onto the existing layer and refuses missing bindings", async () => {
     const binding = await fixture().provider.bind("district", source);
     const state = {

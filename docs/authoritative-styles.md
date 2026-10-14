@@ -13,7 +13,9 @@ zoom limits apply to the existing composition layer and source; canonical style
 layer IDs do not replace composition IDs. Referenced fields must exist in the
 actual descriptor. Inline GeoJSON sources may appear in the canonical document,
 but are never imported into the map. External sources, sprites, glyphs, imports
-and image patterns are rejected. Ambiguous or unavailable styles produce visible
+and image patterns are rejected. Legacy property functions and property-name
+filters are unsupported; use expression syntax with explicit `get`/`has` field
+references. Ambiguous or unavailable styles produce visible
 unresolved layers rather than a certified fallback preset. Older host catalogs
 without authoritative locators retain the existing fixture projection behavior.
 
@@ -68,7 +70,7 @@ upstream server identity remain distinct.
 Explicit visibility, active filters and opacity controls remain authoritative:
 hidden layers stay hidden, control filters are combined with canonical filters,
 and control opacity multiplies canonical opacity. Derived polygon outlines use
-the same effective filter. Evidence compares the effective rendered properties
+the same effective filter, visibility and zoom limits. Evidence compares the effective rendered properties
 while checking requested palette values against the canonical definition.
 
 The browser observer also requires `HONUA_CORPUS_DEPLOYMENT_RECEIPT`, naming the current owned Docker deployment receipt. It retains its exact bytes and hash and independently verifies the running container, loopback port, image source label, and server binary hash before observation, per observed turn, and at shutdown. A changed deployment invalidates the proof. Both supported host source shapes (top-level service/layer fields and `locator`) must match actual discovery; runtime locator bytes always come from discovery.

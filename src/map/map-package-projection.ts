@@ -247,8 +247,17 @@ export function compositionToMapPackage(
       const supplied = effective
         ? {
             [layer.id]: effective,
-            ...(resolution.layerType === "fill" && effective.filter !== undefined
-              ? { [`${layer.id}${OUTLINE_LAYER_SUFFIX}`]: { filter: effective.filter } }
+            ...(resolution.layerType === "fill"
+              ? {
+                  [`${layer.id}${OUTLINE_LAYER_SUFFIX}`]: {
+                    ...(effective.filter !== undefined ? { filter: effective.filter } : {}),
+                    ...(effective.layout?.visibility !== undefined
+                      ? { layout: { visibility: effective.layout.visibility } }
+                      : {}),
+                    ...(effective.minzoom !== undefined ? { minzoom: effective.minzoom } : {}),
+                    ...(effective.maxzoom !== undefined ? { maxzoom: effective.maxzoom } : {}),
+                  },
+                }
               : {}),
           }
         : options.styleRefBodies?.[layer.styleRef.styleId];

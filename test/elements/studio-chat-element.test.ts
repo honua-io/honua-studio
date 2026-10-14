@@ -463,8 +463,8 @@ describe("<honua-studio-chat>", () => {
       {
         id: "call-1",
         name: "add_layer",
-        argumentsText: '{"datasetId":"hi-parcels","styleBy":"district"}',
-        args: { datasetId: "hi-parcels", styleBy: "district" },
+        argumentsText: '{"datasetId":"hi-parcels","sourceId":"hi-parcels/0","styleBy":"district"}',
+        args: { datasetId: "hi-parcels", sourceId: "hi-parcels/0", styleBy: "district" },
         status: "complete",
       },
     ]);
@@ -474,7 +474,7 @@ describe("<honua-studio-chat>", () => {
       messageId: assistant?.id,
       toolCallId: "call-1",
       toolName: "add_layer",
-      arguments: { datasetId: "hi-parcels", styleBy: "district" },
+      arguments: { datasetId: "hi-parcels", sourceId: "hi-parcels/0", styleBy: "district" },
     });
     expect(turnComplete).toHaveBeenCalledTimes(1);
 

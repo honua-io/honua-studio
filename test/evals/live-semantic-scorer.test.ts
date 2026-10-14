@@ -3,7 +3,7 @@ import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { applyCompositionCommands } from "../../src/composition/reducer.js";
 import { EVAL_CORPUS } from "../../src/evals/corpus.js";
-import { FixtureTurnDriver } from "../../src/evals/driver.js";
+import { type EvalTurnContext, FixtureTurnDriver } from "../../src/evals/driver.js";
 import { type LiveTurnObservation, scoreLiveSemanticRun } from "../../src/evals/live-semantic-scorer.js";
 import { runEvalTask } from "../../src/evals/runner.js";
 import { scoreEvalRun } from "../../src/evals/scorer.js";
@@ -14,6 +14,27 @@ import { applyStudioDraft, toStudioCompositionBody } from "../../src/mcp/tool-br
 type Input = Parameters<typeof scoreLiveSemanticRun>[0];
 type Mutable<T> = T extends object ? { -readonly [Key in keyof T]: Mutable<T[Key]> } : T;
 const baselines = new Map<string, Input>();
+
+// The live corpus host publishes the trusted "hi-parcels" alias, whereas the
+// zero-setup sample uses discovery's "hi-parcels/0". Adapt the fixture driver
+// before execution; independently read HTTP drafts still supply all evidence.
+class LiveHostFixtureDriver extends FixtureTurnDriver {
+  override async *runTurn(context: EvalTurnContext) {
+    for await (const event of super.runTurn(context)) {
+      if (context.task.id === "compose-districts-map") {
+        if (event.type === "toolCallDelta") {
+          yield { ...event, toolArgumentsDelta: event.toolArgumentsDelta?.replaceAll("hi-parcels/0", "hi-parcels") };
+          continue;
+        }
+        if (event.type === "toolCallStop" && event.toolArguments && typeof event.toolArguments === "object") {
+          yield { ...event, toolArguments: { ...event.toolArguments, sourceId: "hi-parcels" } };
+          continue;
+        }
+      }
+      yield event;
+    }
+  }
+}
 
 beforeAll(async () => {
   const server = await startMockServer();
@@ -33,7 +54,7 @@ beforeAll(async () => {
       });
       const observations: LiveTurnObservation[] = [];
       const run = await runEvalTask(task, {
-        driver: new FixtureTurnDriver(),
+        driver: new LiveHostFixtureDriver(),
         live: { client, packageKey: task.id, draftId: draft.draftId, generation: draft.generation },
         observeTurn: async (turn, localState) => {
           const actual = await tools.getDraft(draft.draftId);
