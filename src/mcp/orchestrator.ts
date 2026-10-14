@@ -432,7 +432,8 @@ export class ToolCallOrchestrator {
         .createDraft({
           packageKey: live.packageKey,
           family: live.family ?? "map",
-          schemaVersion: live.schemaVersion ?? MAP_COMPOSITION_ENVELOPE.schemaVersion,
+          schemaVersion:
+            live.schemaVersion ?? ((live.family ?? "map") === "map" ? MAP_COMPOSITION_ENVELOPE.schemaVersion : "1"),
           body: toCompositionDraftBody(this.#controller.state, live.packageKey, live.family),
         })
         .then((draft) => {

@@ -244,6 +244,26 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     expect(Object.keys(adapterEnvelope.body).sort()).toEqual(Object.keys(orchestratorEnvelope.body).sort());
   });
 
+  it("preserves non-map schema defaults and explicit overrides without map metadata", async () => {
+    server = await startMockServer();
+    const client = new McpClient({
+      baseUrl: server.url,
+      auth: { getAccessToken: async () => mintFixtureAccessToken() },
+    });
+    for (const schemaVersion of [undefined, "deployment-version"]) {
+      const orchestrator = new ToolCallOrchestrator({
+        controller: new CompositionController(createEmptyCompositionState()),
+        live: { client, packageKey: "dashboard-composition", family: "dashboard", schemaVersion },
+      });
+      const draft = await orchestrator.ensureLiveDraft();
+      const envelope = await storedEnvelope(draft.draftId);
+      expect(envelope.family).toBe("dashboard");
+      expect(envelope.schemaVersion).toBe(schemaVersion ?? "1");
+      expect(envelope.body).not.toHaveProperty("mapPackageId");
+      expect(envelope.body).not.toHaveProperty("format");
+    }
+  });
+
   it("translates the SDK's 409 into the seam's conflict discriminant, and DraftSync recovers", async () => {
     server = await startMockServer();
     const shared = store();
