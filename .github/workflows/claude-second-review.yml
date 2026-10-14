@@ -70,7 +70,10 @@ jobs:
       review_mode: ${{ steps.evaluate.outputs.review_mode }}
       threads_digest_base64: ${{ steps.evaluate.outputs.threads_digest_base64 }}
     steps:
-      - name: Check out the workflow policy
+      # Version coherence only: same-repository PRs can change both workflow
+      # YAML and this helper. workflow_sha is not a protected-base trust boundary.
+      # Fork events are excluded above; manual audits also validate head repository.
+      - name: Check out the active workflow implementation
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ github.workflow_sha }}

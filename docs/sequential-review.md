@@ -11,6 +11,13 @@ workflow input `post_merge_audit=true`, alongside `pull_request_number` and an
 merged same-repository PR and the same first-pass/thread checks. Forks, closed
 unmerged PRs, automatic audit requests and stale head bindings are refused.
 
+The gate checks out `github.workflow_sha` to keep the helper and the active
+workflow version together. On PR events this may be PR-authored code; it is not
+an isolation boundary against same-repository workflow authors. Fork events
+remain excluded, and manually requested audits validate the head repository
+before the credentialed review job. Use the default-main workflow for the
+ordinary review of changes to this workflow itself.
+
 A retrospective comment starts with `<!-- claude-post-merge-audit: HEAD -->` and
 states that it does not establish historical pre-merge clearance. Ordinary
 comments retain `<!-- claude-second-review: HEAD -->`. Only trusted review authors
