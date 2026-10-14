@@ -185,10 +185,41 @@ describe("StudioClient real discovery", () => {
     await expect(new StudioClient().listCatalog()).rejects.toBeInstanceOf(StudioClientError);
   });
 
-  it("does not relabel duplicate identities as new datasets", async () => {
-    mockCatalog([page([publishedLayer], 0, 1), page([publishedLayer], 1)]);
-    await expect(new StudioClient().listCatalog()).rejects.toThrow("repeated an identity");
+  it("coalesces identical catalog entries while advancing by the raw page length", async () => {
+    const { requests } = mockCatalog([
+      page([publishedLayer, { ...publishedLayer }], 0, 2),
+      page([{ ...publishedLayer }, { ...publishedLayer, layerId: 8 }], 2),
+    ]);
+    expect((await new StudioClient().listCatalog()).map((entry) => entry.id)).toEqual([
+      "service-uuid/7",
+      "service-uuid/8",
+    ]);
+    expect(requests[2]?.body.params).toEqual({ name: "honua_list_layers", arguments: { offset: 2, limit: 100 } });
   });
+
+  it("coalesces the real server catalog shape with four identical layer pairs", async () => {
+    const layers = [1, 2, 3, 4].flatMap((layerId) => {
+      const layer = {
+        ...publishedLayer,
+        serviceId: "svc-publish-mapmaking_corpus",
+        serviceName: "mapmaking_corpus",
+        layerId,
+      };
+      return [layer, { ...layer }];
+    });
+    mockCatalog([{ ...page(layers), totalCount: 8 }]);
+    const catalog = await new StudioClient().listCatalog();
+    expect(catalog).toHaveLength(4);
+    expect(catalog.map((entry) => entry.locator?.layerId)).toEqual([1, 2, 3, 4]);
+  });
+
+  it.each([{ serviceName: "Different service" }, { geometryType: "Polygon" }, { name: "Different title" }])(
+    "refuses conflicting metadata for the same discovered identity",
+    async (change) => {
+      mockCatalog([page([publishedLayer], 0, 1), page([{ ...publishedLayer, ...change }], 1)]);
+      await expect(new StudioClient().listCatalog()).rejects.toThrow("conflicting metadata");
+    },
+  );
 
   it("refreshes once on MCP 401 and preserves the terminal session-expired error", async () => {
     const fetcher = vi.fn(async () => jsonResponse(401, {}));

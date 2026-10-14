@@ -124,7 +124,7 @@ export class StudioClient {
 
   async listCatalog(): Promise<CatalogDataset[]> {
     const datasets: CatalogDataset[] = [];
-    const ids = new Set<string>();
+    const identities = new Map<string, string>();
     let offset = 0;
     try {
       for (let page = 0; page < MAX_PAGES; page++) {
@@ -155,9 +155,7 @@ export class StudioClient {
             throw new StudioClientError("Invalid layer catalog identity.");
           }
           const id = `${encodeURIComponent(layer.serviceId)}/${layer.layerId}`;
-          if (ids.has(id)) throw new StudioClientError("Layer catalog repeated an identity across pages.");
-          ids.add(id);
-          datasets.push({
+          const dataset: CatalogDataset = {
             id,
             title: layer.name,
             protocol: "geoservices-feature-service",
@@ -167,7 +165,16 @@ export class StudioClient {
               layerId: layer.layerId,
               serviceId: layer.serviceId,
             },
-          });
+          };
+          const identity = JSON.stringify(dataset);
+          const previous = identities.get(id);
+          if (previous !== undefined) {
+            if (previous !== identity)
+              throw new StudioClientError("Layer catalog repeated an identity with conflicting metadata.");
+            continue;
+          }
+          identities.set(id, identity);
+          datasets.push(dataset);
         }
         if (!body.hasMore) return datasets;
         if (
