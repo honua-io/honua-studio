@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { AddProtocolAction, ResourceType } from "maplibre-gl";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { type Mock, afterEach, describe, expect, it, vi } from "vitest";
+import type { AuthSession } from "../../src/auth/types.js";
 import { installAuthenticatedSourceProtocol, trustedSourceUrl } from "../../src/map/authenticated-source-protocol.js";
 
 const documentUrl = "https://studio.test/app/";
@@ -14,7 +15,7 @@ const response = (body: unknown, status = 200) => new Response(JSON.stringify(bo
 function setup(fetchImpl = vi.fn(async () => response(collection))) {
   let handler: AddProtocolAction | undefined;
   let protocol = "";
-  let auth: { getAccessToken: ReturnType<typeof vi.fn> } | undefined = {
+  let auth: { getAccessToken: Mock<AuthSession["getAccessToken"]> } | undefined = {
     getAccessToken: vi.fn(async () => "fresh-token"),
   };
   const registry = {
@@ -65,6 +66,9 @@ describe("trusted authenticated map sources", () => {
     "https://honua.test/deployment/rest/services/Roads/FeatureServer",
     "https://honua.test/deployment/mcp",
     "https://honua.test/deployment/ogc/collections/parcels",
+    "https://honua.test/deployment/rest/services/%2f..%2f..%2fadmin/FeatureServer/7/query",
+    "https://honua.test/deployment/rest/services/%5c..%5cadmin/FeatureServer/7/query",
+    "https://honua.test/deployment/rest/services/%252fadmin/FeatureServer/7/query",
     "data:application/json,{}",
   ])("refuses foreign or non-feature URL before token access: %s", async (url) => {
     const context = setup();

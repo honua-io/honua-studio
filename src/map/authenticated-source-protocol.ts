@@ -22,6 +22,9 @@ export function trustedSourceUrl(url: string, sourceBaseUrl: string, documentUrl
     const base = new URL(sourceBaseUrl || "/", documentUrl);
     const target = new URL(url, documentUrl);
     if (!/^https?:$/.test(base.protocol) || target.origin !== base.origin || target.username || target.password) return;
+    // Proxies may decode a path before the router does. Never forward credentials
+    // through encoded separators or a percent escape that permits another decode.
+    if (/%(?:2f|5c|25)/i.test(target.pathname)) return;
     const prefix = base.pathname.replace(/\/api\/?$/, "").replace(/\/$/, "");
     if (!target.pathname.startsWith(`${prefix}/`)) return;
     const route = target.pathname.slice(prefix.length);
