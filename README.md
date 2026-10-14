@@ -42,7 +42,7 @@ real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
 Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
-879 unit tests across 89 files and 29 Playwright browser journeys, including four accessibility checks.
+925 unit tests across 91 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -199,6 +199,14 @@ See [Run it](#run-it) above for the dev-server commands.
 
 ### Authentication (honua-studio#4)
 
+Map feature requests use the current Studio session through an asynchronous MapLibre
+protocol scoped to each map. Only configured Honua GeoServices query and OGC items
+routes receive bearer credentials; external sources, metadata and other resources do
+not. The transport rejects redirects, refreshes once after an authorization failure,
+and cancels pending requests when the map is removed. Tokens are never stored in
+styles, compositions or source URLs.
+
+
 Studio signs in to honua-server with OIDC Authorization Code + PKCE for a
 public client — never a client secret, and tokens live in memory only (no
 localStorage/sessionStorage persistence of credentials; see `src/auth/` and
@@ -235,7 +243,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 879 tests across 89 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 925 tests across 91 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
