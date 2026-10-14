@@ -2,9 +2,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { CompositionController } from "../../src/composition/controller.js";
 import type { CompositionToolCall } from "../../src/composition/tool-call.js";
-import { evalTaskById } from "../../src/evals/corpus.js";
+import { EVAL_CORPUS, evalTaskById } from "../../src/evals/corpus.js";
 import { FixtureTurnDriver } from "../../src/evals/driver.js";
-import { PIN_REJECTION_REASON, createLiveExactTask, scoreLiveExactRun } from "../../src/evals/live-exact-contract.js";
+import {
+  PIN_REJECTION_REASON,
+  createLiveExactTask,
+  readLiveExactStyles,
+  scoreLiveExactRun,
+} from "../../src/evals/live-exact-contract.js";
 import { verifyLiveExactSources } from "../../src/evals/live-exact-prerequisites.js";
 import { type EvalRunResult, runEvalTask } from "../../src/evals/runner.js";
 import { scoreEvalRun } from "../../src/evals/scorer.js";
@@ -143,6 +148,80 @@ describe("predeclared exact live contract", () => {
       ),
     ).toBe(true);
     expect(() => createLiveExactTask(original, { ...bindings, districtStyleId: "" })).toThrow("configured");
+  });
+
+  it("keeps all six unrelated tasks independent of missing or unreadable styles", async () => {
+    const unrelated = EVAL_CORPUS.filter(
+      (task) => !["compose-districts-map", "pin-protects-flood-risk"].includes(task.id),
+    );
+    expect(unrelated).toHaveLength(6);
+    for (const task of unrelated) {
+      expect(createLiveExactTask(task, { districtStyleId: "", councilStyleId: "" }).id).toBe(task.id);
+      let reads = 0;
+      const definitions = await readLiveExactStyles(task.id, bindings, async () => {
+        reads++;
+        throw new Error("unrelated style must never be read");
+      });
+      expect(definitions).toEqual([]);
+      expect(reads).toBe(0);
+    }
+  });
+
+  const styleTasks = [
+    [
+      "compose-districts-map",
+      { districtStyleId: bindings.districtStyleId, councilStyleId: "" },
+      bindings.districtStyleId,
+    ],
+    [
+      "pin-protects-flood-risk",
+      { districtStyleId: "", councilStyleId: bindings.councilStyleId },
+      bindings.councilStyleId,
+    ],
+  ] as const;
+  it("admits each styling task with only its own configured and read-back identity", async () => {
+    for (const [id, ownBinding, styleId] of styleTasks) {
+      const original = evalTaskById(id);
+      if (!original) throw new Error(id);
+      expect(createLiveExactTask(original, ownBinding).id).toBe(id);
+      const calls: string[] = [];
+      const definitions = await readLiveExactStyles(id, ownBinding, async (requested) => {
+        calls.push(requested);
+        return { styleId: requested };
+      });
+      expect(calls).toEqual([styleId]);
+      expect(definitions).toEqual([{ styleId }]);
+    }
+  });
+  it("refuses the applicable missing style before any read or model instruction", async () => {
+    for (const [id] of styleTasks) {
+      const original = evalTaskById(id);
+      if (!original) throw new Error(id);
+      const missing = { districtStyleId: "", councilStyleId: "" };
+      expect(() => createLiveExactTask(original, missing)).toThrow(id);
+      let reads = 0;
+      await expect(
+        readLiveExactStyles(id, missing, async (styleId) => {
+          reads++;
+          return { styleId };
+        }),
+      ).rejects.toThrow(id);
+      expect(reads).toBe(0);
+    }
+  });
+  it("refuses an applicable style read-back identity mismatch", async () => {
+    for (const [id, ownBinding] of styleTasks)
+      await expect(readLiveExactStyles(id, ownBinding, async () => ({ styleId: "wrong-style" }))).rejects.toThrow(
+        "identity mismatch",
+      );
+  });
+  it("propagates applicable style transport failure without admitting the styling task", async () => {
+    for (const [id, ownBinding] of styleTasks)
+      await expect(
+        readLiveExactStyles(id, ownBinding, async () => {
+          throw new Error("actual style read failed");
+        }),
+      ).rejects.toThrow("actual style read failed");
   });
 
   const mutations: [string, string, (run: Mutable<EvalRunResult>) => void][] = [

@@ -10,10 +10,34 @@ export interface LiveExactBindings {
   readonly councilStyleId: string;
 }
 
+function requiredStyleId(taskId: string, bindings: LiveExactBindings): string | undefined {
+  const styleId =
+    taskId === "compose-districts-map"
+      ? bindings.districtStyleId
+      : taskId === "pin-protects-flood-risk"
+        ? bindings.councilStyleId
+        : undefined;
+  if (styleId !== undefined && !styleId.trim())
+    throw new Error(`Exact live task ${taskId} requires its configured authoritative style identity.`);
+  return styleId;
+}
+
+/** Unrelated tasks never read or depend on a different task's style prerequisite. */
+export async function readLiveExactStyles<T extends { readonly styleId: string }>(
+  taskId: string,
+  bindings: LiveExactBindings,
+  read: (styleId: string) => Promise<T>,
+): Promise<T[]> {
+  const styleId = requiredStyleId(taskId, bindings);
+  if (styleId === undefined) return [];
+  const definition = await read(styleId);
+  if (definition.styleId !== styleId) throw new Error("Authoritative style identity mismatch.");
+  return [definition];
+}
+
 /** Requested identities are declared before execution, never learned from a model's output. */
 export function createLiveExactTask(original: EvalTask, bindings: LiveExactBindings): EvalTask {
-  if (!bindings.districtStyleId.trim() || !bindings.councilStyleId.trim())
-    throw new Error("Exact live tasks require configured authoritative style identities.");
+  requiredStyleId(original.id, bindings);
   const task: EvalTask = {
     ...original,
     fixtureConversation: undefined,

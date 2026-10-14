@@ -18,7 +18,12 @@ import {
 import { EVAL_CORPUS } from "./corpus.js";
 import { FixtureTurnDriver } from "./driver.js";
 import { LiveTurnDriver } from "./live-driver.js";
-import { LIVE_EXACT_CONTRACT, createLiveExactTask, scoreLiveExactRun } from "./live-exact-contract.js";
+import {
+  LIVE_EXACT_CONTRACT,
+  createLiveExactTask,
+  readLiveExactStyles,
+  scoreLiveExactRun,
+} from "./live-exact-contract.js";
 import { verifyLiveExactSources } from "./live-exact-prerequisites.js";
 import { type LiveSemanticScore, type LiveTurnObservation, scoreLiveSemanticRun } from "./live-semantic-scorer.js";
 import { type EvalRunResult, runEvalTask } from "./runner.js";
@@ -99,12 +104,13 @@ export async function runServerCorpus(options: {
     let draftId: string | undefined;
     let observation: Record<string, unknown> = { taskId: task.id, title: task.title, passed: false };
     let cleanup: Record<string, unknown> = { passed: false, reason: "draft creation not confirmed" };
+    const exactBindings = {
+      districtStyleId: options.styleRequirements?.["compose-districts-map"]?.styleId ?? "",
+      councilStyleId: options.styleRequirements?.["pin-protects-flood-risk"]?.styleId ?? "",
+    };
     try {
       if (options.model) {
-        task = createLiveExactTask(fixtureTask, {
-          districtStyleId: options.styleRequirements?.["compose-districts-map"]?.styleId ?? "",
-          councilStyleId: options.styleRequirements?.["pin-protects-flood-risk"]?.styleId ?? "",
-        });
+        task = createLiveExactTask(fixtureTask, exactBindings);
         observation.contractTask = task;
         observation.sourceAdmission = await verifyLiveExactSources(options.sources, baseUrl, fetchImpl);
       }
@@ -134,11 +140,8 @@ export async function runServerCorpus(options: {
           fetchImpl,
           signal: AbortSignal.timeout(8000),
         });
-        for (const taskId of ["compose-districts-map", "pin-protects-flood-risk"]) {
-          const styleId = options.styleRequirements?.[taskId]?.styleId;
-          if (!styleId) throw new Error(`Exact live style identity missing for ${taskId}.`);
-          const definition = await provider.read(styleId);
-          if (definition.styleId !== styleId) throw new Error("Authoritative style identity mismatch.");
+        const definitions = await readLiveExactStyles(task.id, exactBindings, (styleId) => provider.read(styleId));
+        for (const definition of definitions) {
           authoritativeStyles.push({
             styleId: definition.styleId,
             title: definition.title,

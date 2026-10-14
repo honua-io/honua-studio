@@ -303,3 +303,14 @@ These corrections affect newly produced live semantic scores. They do not rewrit
 historical receipts or change the strict fixture scorer/corpus. Structural readback
 checks and runtime unit regressions are not claims that an earlier live browser run
 operated a slider. Browser gesture evidence must be recorded separately when claimed.
+
+Style prerequisites are scoped to the live task that uses them: the district
+composition requires only its district style, and pin protection requires only
+its council style. A missing or unreadable style fails that styling task; the
+other six tasks neither require nor fetch those unrelated style definitions.
+
+Source-catalog admission is intentionally corpus-wide: every model turn receives
+the same four configured source descriptors, so all four advertised identities
+and their metadata must be verified before any turn. A source preflight failure
+is a diagnostic setup failure, not evidence of model capability. Style context,
+in contrast, contains only the verified definition required by the current task.
