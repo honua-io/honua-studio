@@ -62,3 +62,20 @@ describe("actual browser source discovery bindings", () => {
     ).toThrow();
   });
 });
+
+it("binds a legacy published service name only with its exact real locator URL", () => {
+  const legacy = { ...supplied, serviceId: "Folder/Parcels" };
+  expect(bindObservedSources([legacy], [actual], upstream, browser)[0].locator).toBe(actual.locator);
+  expect(() => bindObservedSources([{ ...legacy, url: undefined }], [actual], upstream, browser)).toThrow();
+  expect(() =>
+    bindObservedSources([{ ...legacy, url: supplied.url.replace("Parcels", "Other") }], [actual], upstream, browser),
+  ).toThrow();
+  expect(() =>
+    bindObservedSources(
+      [{ ...legacy, locator: { serviceId: legacy.serviceId, layerId: 1 } }],
+      [actual],
+      upstream,
+      browser,
+    ),
+  ).toThrow();
+});

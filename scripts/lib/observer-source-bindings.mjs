@@ -13,9 +13,16 @@ export function bindObservedSources(sources, discovered, upstream, browserOrigin
     for (const key of ["serviceId", "layerId"])
       if (source.locator && source[key] !== undefined && source[key] !== locator[key])
         throw new Error("Conflicting host source identities.");
-    const matches = discovered.filter(
-      (entry) => entry.locator?.serviceId === serviceId && entry.locator?.layerId === layerId,
-    );
+    const matches = discovered.filter((entry) => {
+      if (entry.locator?.layerId !== layerId) return false;
+      if (entry.locator.serviceId === serviceId) return true;
+      // Historical corpus descriptors used the server's published service name as serviceId.
+      // Accept that shape only alongside an exact supplied URL; canonical locator identities never alias.
+      if (source.locator || typeof source.url !== "string") return false;
+      const path = new URL(entry.locator.url, browser).pathname;
+      const match = /^\/rest\/services\/(.+)\/FeatureServer$/.exec(path);
+      return match && match[1].split("/").map(decodeURIComponent).join("/") === serviceId;
+    });
     const actual = matches[0];
     if (matches.length !== 1 || source.protocol !== actual.protocol || source.geometryType !== actual.geometryType)
       throw new Error(`Host source ${source.id} does not match actual catalog discovery.`);
