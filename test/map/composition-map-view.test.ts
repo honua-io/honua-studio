@@ -313,3 +313,95 @@ describe("compositionTargetsFromFeatures", () => {
     expect(compositionTargetsFromFeatures([])).toEqual([]);
   });
 });
+
+describe("authoritative style interaction bindings", () => {
+  async function styledView() {
+    const descriptor = {
+      id: "hi-parcels",
+      title: "Parcels",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { serviceId: "service", layerId: 1, url: "https://honua.test/rest/services/Parcels/FeatureServer" },
+    };
+    let session = { getAccessToken: async () => "token" };
+    const bind = vi.fn(async (styleId: string, source: CompositionSourceDescriptor) => ({
+      sourceId: source.id,
+      fields: [],
+      descriptorSha256: "hash",
+      descriptorBody: "{}",
+      stylesheetLayerId: "canonical",
+      definition: {
+        styleId,
+        title: "Style",
+        description: "Navy polygons",
+        styleVersion: 1,
+        sha256: "hash",
+        inlineBody: "{}",
+        serverRoot: "https://honua.test",
+        observedAt: "2026-10-14T00:00:00Z",
+        layers: [],
+      },
+      override: { paint: { "fill-color": "#003366" } },
+    }));
+    const result = await startView({
+      projection: { catalog: [descriptor] },
+      styleProvider: {
+        bind,
+        get sessionIdentity() {
+          return session;
+        },
+      },
+    });
+    result.controller.apply({
+      name: "addLayer",
+      layer: { id: "parcels", sourceId: "hi-parcels", styleRef: { kind: "style-ref", styleId: "district" } },
+    });
+    await result.view.settled();
+    return {
+      ...result,
+      bind,
+      descriptor,
+      replaceSession: () => {
+        session = { getAccessToken: async () => "replacement" };
+      },
+    };
+  }
+  it("reuses live bindings for selection and control repaint without extra MCP requests", async () => {
+    const { controller, view, bind } = await styledView();
+    expect(bind).toHaveBeenCalledTimes(1);
+    controller.select([{ kind: "layer", id: "parcels" }]);
+    await view.settled();
+    view.setAppearance({ parcels: { opacity: 0.5 } });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(1);
+    view.dispose();
+  });
+  it("rebinds when style, actual descriptor, session or bounded freshness changes", async () => {
+    const { controller, view, bind, descriptor, replaceSession } = await styledView();
+    controller.apply({
+      name: "setLayerStyleRef",
+      target: { kind: "layer", id: "parcels" },
+      styleRef: { kind: "style-ref", styleId: "council" },
+    });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(2);
+    descriptor.locator.layerId = 2;
+    view.setAppearance(undefined);
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(3);
+    replaceSession();
+    view.setAppearance(undefined);
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(4);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 30001);
+    try {
+      view.setAppearance(undefined);
+      await view.settled();
+      expect(bind).toHaveBeenCalledTimes(5);
+    } finally {
+      clock.mockRestore();
+      view.dispose();
+    }
+  });
+});

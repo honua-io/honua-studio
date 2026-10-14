@@ -41,6 +41,7 @@ import type { HonuaMapPackage } from "@honua/sdk-js/runtime";
 import type { HonuaStyleSpecification } from "@honua/sdk-js/style";
 
 import type { CompositionController } from "../composition/controller.js";
+import { canonicalCompositionJson } from "../composition/model.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
 import type { BasemapStyle } from "./basemap.js";
 import {
@@ -201,6 +202,8 @@ export class CompositionMapView {
   #appearance: CompositionLayerAppearance | undefined;
   #basemap: BasemapStyle | undefined;
   #disposed = false;
+  #styleSession: unknown;
+  #styleBindings = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
   #authoritativeStyles?: Record<string, BoundAuthoritativeStyle | { reason: string }>;
 
   public constructor(options: CompositionMapViewOptions) {
@@ -376,6 +379,7 @@ export class CompositionMapView {
 
   public dispose(): void {
     this.#disposed = true;
+    this.#styleBindings.clear();
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
     try {
@@ -393,17 +397,28 @@ export class CompositionMapView {
     const bindings: Record<string, BoundAuthoritativeStyle | { reason: string }> = {};
     const state = this.#options.controller.state;
     const session = provider.sessionIdentity;
+    if (session !== this.#styleSession) this.#styleBindings.clear();
+    this.#styleSession = session;
+    const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
     for (const layer of state.layers) {
       if (!layer.styleRef) continue;
       const source = this.#options.projection?.catalog?.find((entry) => entry.id === layer.sourceId);
       try {
         if (!source) throw new Error("An authoritative source descriptor is required for styles.");
-        bindings[layer.id] = await provider.bind(layer.styleRef.styleId, source);
+        const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source });
+        const cached = this.#styleBindings.get(key);
+        const entry =
+          cached && Date.now() - cached.readAt < 30000
+            ? cached
+            : { binding: await provider.bind(layer.styleRef.styleId, source), readAt: Date.now() };
+        bindings[layer.id] = entry.binding;
+        retained.set(key, entry);
       } catch (error) {
         bindings[layer.id] = { reason: error instanceof Error ? error.message : String(error) };
       }
       if (this.#disposed) return;
     }
+    this.#styleBindings = session === provider.sessionIdentity && !this.#disposed ? retained : new Map();
     // Results never apply to a different composition snapshot.
     this.#authoritativeStyles =
       state === this.#options.controller.state && session === provider.sessionIdentity ? bindings : {};
