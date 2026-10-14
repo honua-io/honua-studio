@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { startPreviewServer } from "../test/playwright/helpers.mjs";
 import { observedGeoJsonBounds } from "./lib/observed-geojson-bounds.mjs";
+import { bindObservedSources } from "./lib/observer-source-bindings.mjs";
+import { bindOwnedDeployment } from "./lib/owned-deployment-binding.mjs";
 
 async function buildHashes() {
   const root = resolve("dist");
@@ -23,12 +25,21 @@ async function buildHashes() {
 }
 
 /** Actual production-map observer for the owned-server corpus, with explicit proxy provenance. */
-export async function createBrowserStyleObserver({ baseUrl, tokenProvider, sources, requirements, directory }) {
+export async function createBrowserStyleObserver({
+  baseUrl,
+  tokenProvider,
+  sources,
+  requirements,
+  directory,
+  deploymentReceipt,
+}) {
   if (typeof tokenProvider !== "function")
     throw new Error("Browser style evidence requires a fresh host token provider.");
   if (!Array.isArray(sources))
     throw new Error("Browser style evidence requires explicit trusted host source descriptors.");
+  const deployment = await bindOwnedDeployment(deploymentReceipt, baseUrl);
   const receipt = {
+    deployment: deployment.identity,
     schemaVersion: "honua.studio.browser-style-observer.v1",
     upstream: baseUrl,
     buildFiles: await buildHashes(),
@@ -49,9 +60,16 @@ export async function createBrowserStyleObserver({ baseUrl, tokenProvider, sourc
       receipt.buildUnchanged = false;
       receipt.errors.push(String(error));
     }
+    try {
+      receipt.deploymentAfter = await deployment.verify();
+    } catch (error) {
+      receipt.errors.push(String(error));
+      receipt.deploymentChanged = true;
+    }
     await browser?.close();
     await preview?.close();
     await writeFile(resolve(directory, "browser-style-observer.json"), `${JSON.stringify(receipt, null, 2)}\n`);
+    if (receipt.deploymentChanged) throw new Error("Owned deployment changed during browser style observation.");
   };
   try {
     preview = await startPreviewServer({ HONUA_BASE_URL: baseUrl }, ["--port", "0"]);
@@ -90,16 +108,7 @@ export async function createBrowserStyleObserver({ baseUrl, tokenProvider, sourc
     await page.waitForFunction(() => Boolean(window.__honuaStudioApp?.studioClient));
     const discovered = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
     receipt.discoveredCatalog = discovered;
-    const catalog = sources.map((source) => {
-      const actual = discovered.find(
-        (entry) =>
-          entry.locator?.serviceId === source.locator?.serviceId && entry.locator?.layerId === source.locator?.layerId,
-      );
-      if (!actual || source.protocol !== actual.protocol || source.geometryType !== actual.geometryType)
-        throw new Error(`Host source ${source.id} does not match actual catalog discovery.`);
-      // Alias ids are the supported host-catalog contract. Locator bytes always come from actual discovery.
-      return { ...actual, id: source.id };
-    });
+    const catalog = bindObservedSources(sources, discovered, baseUrl, preview.url);
     receipt.hostCatalogBindings = catalog;
     await page.evaluate((catalog) => {
       window.__honuaStudioApp.sourceCatalog = catalog;
@@ -194,6 +203,7 @@ export async function createBrowserStyleObserver({ baseUrl, tokenProvider, sourc
             throw new Error("Production build changed during style observation.");
           const name = `${taskId.replace(/[^a-z0-9-]/gi, "_")}-${turnIndex}`;
           await page.screenshot({ path: resolve(directory, `${name}.png`), fullPage: true });
+          turn.deployment = await deployment.verify();
           turn.observations = observations;
           turn.passed = true;
           return observations;

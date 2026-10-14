@@ -42,6 +42,7 @@ if (styleRequirementsPath) {
   const { createBrowserStyleObserver } = await import("./browser-style-observer.mjs");
   styleObserver = await createBrowserStyleObserver({
     baseUrl,
+    deploymentReceipt: process.env.HONUA_CORPUS_DEPLOYMENT_RECEIPT,
     tokenProvider,
     sources,
     requirements: JSON.parse(await readFile(styleRequirementsPath, "utf8")),

@@ -70,3 +70,7 @@ hidden layers stay hidden, control filters are combined with canonical filters,
 and control opacity multiplies canonical opacity. Derived polygon outlines use
 the same effective filter. Evidence compares the effective rendered properties
 while checking requested palette values against the canonical definition.
+
+The browser observer also requires `HONUA_CORPUS_DEPLOYMENT_RECEIPT`, naming the current owned Docker deployment receipt. It retains its exact bytes and hash and independently verifies the running container, loopback port, image source label, and server binary hash before observation, per observed turn, and at shutdown. A changed deployment invalidates the proof. Both supported host source shapes (top-level service/layer fields and `locator`) must match actual discovery; runtime locator bytes always come from discovery.
+
+Canonical MapLibre `name` and `metadata["honua:description"]` may supply explicit author-written display context when server catalog descriptions are unavailable. These values are bound to the retained stylesheet hash, never inferred from style identifiers.

@@ -159,12 +159,20 @@ export class AuthoritativeStyleProvider {
       throw new Error("Canonical inline stylesheet is unavailable.");
     const inlineBody = selected[0].inlineBody;
     const layers = parseStyleLayers(inlineBody);
+    const document = record(JSON.parse(inlineBody));
+    const metadata = record(document.metadata ?? {});
     const sha256 = await styleContentHash(inlineBody);
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style readback.");
     return {
       styleId,
-      title: typeof result.title === "string" ? result.title : styleId,
-      description: typeof result.description === "string" ? result.description : "",
+      title:
+        typeof document.name === "string" ? document.name : typeof result.title === "string" ? result.title : styleId,
+      description:
+        typeof result.description === "string" && result.description.trim()
+          ? result.description
+          : typeof metadata["honua:description"] === "string"
+            ? metadata["honua:description"]
+            : "",
       styleVersion: Number(result.styleVersion),
       sha256,
       inlineBody,

@@ -8,6 +8,7 @@ import { applyCompositionCommands } from "../composition/reducer.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioMcpToolClient } from "../mcp/studio-tools.js";
 import { applyStudioDraft, toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import {
   type LiveStyleObservation,
   type LiveStyleRequirement,
@@ -110,11 +111,41 @@ export async function runServerCorpus(options: {
       ) {
         throw new Error("Independent draft readback does not preserve the scenario setup.");
       }
+      const authoritativeStyles: unknown[] = [];
+      if (options.model && options.styleRequirements) {
+        const provider = new AuthoritativeStyleProvider({
+          baseUrl,
+          documentUrl: baseUrl,
+          getAuth: () => undefined,
+          fetchImpl,
+          signal: AbortSignal.timeout(8000),
+        });
+        try {
+          for (const summary of (await provider.list()).slice(0, 10)) {
+            try {
+              const definition = await provider.read(summary.styleId);
+              authoritativeStyles.push({
+                styleId: definition.styleId,
+                title: definition.title,
+                description: definition.description,
+                styleVersion: definition.styleVersion,
+                sha256: definition.sha256,
+                serverRoot: definition.serverRoot,
+              });
+            } catch {
+              /* Unsupported definitions are unavailable, not inferred from their identifiers. */
+            }
+          }
+        } catch {
+          /* The independent style observer retains an unmet prerequisite if discovery fails. */
+        }
+      }
       const driver = options.model
         ? new LiveTurnDriver({
             baseUrl: apiBaseUrl,
             mcpBaseUrl: baseUrl,
             sourceCatalog: options.sources,
+            authoritativeStyles,
             fetchImpl,
             provider: options.model.provider,
             model: options.model.model,

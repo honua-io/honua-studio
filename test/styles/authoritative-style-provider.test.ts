@@ -215,3 +215,20 @@ describe("authoritative style provider", () => {
     await expect(context.provider.list()).rejects.toThrow();
   });
 });
+
+it("reads explicit author descriptions from the hash-bound canonical document", async () => {
+  const body = JSON.stringify({
+    ...sheet,
+    name: "Council presentation",
+    metadata: { "honua:description": "Navy parcels with 0.8 opacity." },
+  });
+  const { provider } = fixture({
+    title: "opaque-id",
+    description: "",
+    encodings: [{ encoding: "mapbox-style", inlineBody: body }],
+  });
+  const value = await provider.read("district");
+  expect(value.title).toBe("Council presentation");
+  expect(value.description).toBe("Navy parcels with 0.8 opacity.");
+  expect(value.sha256).toBe(await styleContentHash(body));
+});
