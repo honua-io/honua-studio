@@ -1,13 +1,19 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AuthSession } from "../../src/auth/types.js";
 import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
 import type { HonuaStudioSelectionChangeDetail } from "../../src/elements/types.js";
-import type { CompositionMapFactory, CompositionMapLike } from "../../src/map/composition-map-view.js";
+import type {
+  CompositionMapFactory,
+  CompositionMapFactoryOptions,
+  CompositionMapLike,
+} from "../../src/map/composition-map-view.js";
 import type { CompositionSourceDescriptor } from "../../src/map/source-resolution.js";
+import { installRuntimeConfig, runtimeConfig } from "../../src/runtime-config.js";
 
 registerAllStudioElements();
 
@@ -66,7 +72,9 @@ function createFakeMap(): FakeMap {
 /** Mounts a canvas already wired to an injected map, and waits for the async start to settle. */
 async function mountWithMap(options: { catalog?: readonly CompositionSourceDescriptor[] } = {}) {
   const map = createFakeMap();
+  const factoryCalls: CompositionMapFactoryOptions[] = [];
   const factory: CompositionMapFactory = async (factoryOptions) => {
+    factoryCalls.push(factoryOptions);
     map.setStyle(factoryOptions.style);
     return map;
   };
@@ -78,7 +86,7 @@ async function mountWithMap(options: { catalog?: readonly CompositionSourceDescr
   element.composition = controller;
   document.body.appendChild(element);
   await vi.waitUntil(() => element.mapView?.status === "ready", { timeout: MAP_START_TIMEOUT_MS, interval: 5 });
-  return { element, controller, map };
+  return { element, controller, map, factoryCalls };
 }
 
 function readoutText(element: HonuaStudioCanvasElement, testId: string): string {
@@ -86,10 +94,51 @@ function readoutText(element: HonuaStudioCanvasElement, testId: string): string 
 }
 
 afterEach(() => {
+  installRuntimeConfig(undefined);
   document.body.innerHTML = "";
 });
 
 describe("<honua-studio-canvas> map surface (honua-studio#23)", () => {
+  it("resolves the latest inherited session while preserving a direct override", () => {
+    const element = document.createElement("honua-studio-canvas") as HonuaStudioCanvasElement;
+    const first = { getAccessToken: async () => "first" } as AuthSession;
+    const next = { getAccessToken: async () => "next" } as AuthSession;
+    const host = { auth: first };
+    vi.spyOn(element, "closest").mockReturnValue(host as unknown as Element);
+    expect(element.auth).toBe(first);
+    host.auth = next;
+    expect(element.auth).toBe(next);
+    element.auth = first;
+    expect(element.auth).toBe(first);
+    element.auth = undefined;
+    expect(element.auth).toBe(next);
+  });
+
+  it("authenticates against the configured data root even when the API root differs", async () => {
+    installRuntimeConfig({
+      ...runtimeConfig(),
+      serverBaseUrl: "https://api.test/admin/api",
+      mcpBaseUrl: "https://data.test/honua",
+    });
+    const { factoryCalls } = await mountWithMap();
+    expect(factoryCalls[0]?.sourceBaseUrl).toBe("https://data.test/honua");
+    expect(factoryCalls[0]?.legacySourceBaseUrl).toBe("https://api.test/admin/api");
+  });
+
+  it("restarts failed sources when a direct host session arrives and respects a custom data root", async () => {
+    const { element, factoryCalls } = await mountWithMap();
+    const firstView = element.mapView;
+    const auth = { getAccessToken: async () => "late-token" } as AuthSession;
+    element.sourceBaseUrl = "https://custom.test/maps";
+    element.auth = auth;
+    await vi.waitUntil(() => element.mapView?.status === "ready" && element.mapView !== firstView);
+    expect(factoryCalls.at(-1)?.getAuth?.()).toBe(auth);
+    expect(factoryCalls.at(-1)?.sourceBaseUrl).toBe("https://custom.test/maps");
+    const currentView = element.mapView;
+    element.auth = auth;
+    expect(element.mapView).toBe(currentView);
+  });
+
   it("renders a map container and starts a map view when one can be constructed", async () => {
     const { element, map } = await mountWithMap();
     expect(element.shadowRoot?.querySelector('[data-testid="studio-canvas-map"]')).toBeTruthy();
