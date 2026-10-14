@@ -25,6 +25,15 @@ on:
         description: Pull request to evaluate for a second-pass review
         required: true
         type: number
+      post_merge_audit:
+        description: Retrospective audit of an already merged PR; never pre-merge clearance
+        required: false
+        type: boolean
+        default: false
+      expected_head_sha:
+        description: Exact 40-character PR head SHA; required for post-merge audit
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -58,13 +67,26 @@ jobs:
       should_review: ${{ steps.evaluate.outputs.should_review }}
       head_sha: ${{ steps.evaluate.outputs.head_sha }}
       marker: ${{ steps.evaluate.outputs.marker }}
+      review_mode: ${{ steps.evaluate.outputs.review_mode }}
       threads_digest_base64: ${{ steps.evaluate.outputs.threads_digest_base64 }}
     steps:
+      - name: Check out the workflow policy
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.3
       - name: Evaluate the sequential-review precondition
         id: evaluate
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          POST_MERGE_AUDIT: ${{ inputs.post_merge_audit || false }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
         run: |
           set -euo pipefail
 
@@ -80,6 +102,7 @@ jobs:
                   pullRequest(number: $number) {
                     number
                     state
+                    mergedAt
                     isDraft
                     headRefOid
                     headRepository { nameWithOwner }
@@ -108,106 +131,9 @@ jobs:
 
           jq -e '.data.repository.pullRequest' pull-request.json > /dev/null
 
-          head_sha=$(jq -r '.data.repository.pullRequest.headRefOid' pull-request.json)
-          marker="<!-- claude-second-review: ${head_sha} -->"
-          {
-            echo "head_sha=${head_sha}"
-            echo "marker=${marker}"
-          } >> "$GITHUB_OUTPUT"
-
-          # Every top-level comment, paginated: the marker may sit behind any
-          # number of later comments, and a missed marker posts a second review.
-          # Marker comments are only trusted from the identities that post the
-          # second-pass review; anyone else writing the marker text must not be
-          # able to suppress a review.
-          gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            --jq '.[] | select((.user.login // "") as $l | ($l == "claude[bot]") or ($l == "claude") or ($l == "github-actions[bot]")) | .body' > comments.txt
-          if grep -qF "${marker}" comments.txt; then
-            already_reviewed=true
-          else
-            already_reviewed=false
-          fi
-
-          # One jq pass decides the whole precondition and explains itself.
-          # "Every thread from the first review is resolved" is exactly that:
-          # threads the first-pass reviewer opened. Threads opened by anyone
-          # else are reported but do not hold the sequence — a bot thread nobody
-          # can resolve would otherwise stall the second pass forever.
-          jq -r \
-            --arg reviewer "${FIRST_PASS_REVIEWER}" \
-            --arg repository "${REPOSITORY}" \
-            --argjson already_reviewed "${already_reviewed}" '
-              ($reviewer | ascii_downcase) as $reviewer_login
-              | .data.repository.pullRequest as $pr
-              | ($pr.reviewThreads.nodes // []) as $threads
-              | [
-                  $threads[]
-                  | select(((.comments.nodes[0].author.login // "") | ascii_downcase) | contains($reviewer_login))
-                ] as $first_pass_threads
-              | [$first_pass_threads[] | select(.isResolved | not)] as $unresolved_first_pass
-              | [$threads[] | select(.isResolved | not)] as $unresolved_any
-              | (
-                  ([($pr.reviews.nodes // [])[] | (.author.login // "") | ascii_downcase]
-                   | any(contains($reviewer_login)))
-                  or (($first_pass_threads | length) > 0)
-                ) as $first_pass_done
-              | {
-                  pr_open: ($pr.state == "OPEN"),
-                  head_in_repo: (($pr.headRepository.nameWithOwner // "") == $repository),
-                  not_draft: ($pr.isDraft | not),
-                  pages_complete: (($pr.reviews.totalCount <= 100) and ($pr.reviewThreads.totalCount <= 100)),
-                  first_pass_done: $first_pass_done,
-                  threads_resolved: (($unresolved_first_pass | length) == 0),
-                  not_already_reviewed: ($already_reviewed | not),
-                  first_pass_threads: ($first_pass_threads | length),
-                  unresolved_first_pass: ($unresolved_first_pass | length),
-                  unresolved_other: (($unresolved_any | length) - ($unresolved_first_pass | length))
-                }
-              | "first_pass_threads=\(.first_pass_threads)",
-                "unresolved_first_pass=\(.unresolved_first_pass)",
-                "unresolved_other=\(.unresolved_other) (informational; does not gate)",
-                (to_entries[] | select(.value == false) | "blocked_by=\(.key)"),
-                "should_review=\(
-                  [.pr_open, .head_in_repo, .not_draft, .pages_complete,
-                   .first_pass_done, .threads_resolved, .not_already_reviewed]
-                  | all
-                )"
-            ' pull-request.json | tee gate.txt
-
-          grep '^should_review=' gate.txt >> "$GITHUB_OUTPUT"
-
-          {
-            echo "## Claude second-pass review gate"
-            echo
-            echo "PR #${PR_NUMBER} @ \`${head_sha}\`"
-            echo
-            sed 's/^/- /' gate.txt
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          # Resolved threads are the second pass's other input: it must judge
-          # whether each was fixed or refuted with evidence. Passed to the
-          # review job as a base64 job output and decoded to a file there. The
-          # bodies are untrusted, so they are never interpolated into a shell
-          # command and never written to $GITHUB_OUTPUT as text: a thread body
-          # containing a line matching the heredoc terminator would otherwise
-          # close the multiline value and forge workflow commands. base64 has no
-          # terminator to forge.
-          jq -r --arg reviewer "${FIRST_PASS_REVIEWER}" '
-            ($reviewer | ascii_downcase) as $reviewer_login
-            | [.data.repository.pullRequest.reviewThreads.nodes[]
-             | select(.isResolved)
-             | select(((.comments.nodes[0].author.login // "") | ascii_downcase) | contains($reviewer_login))
-             | "### Resolved thread — \(.path // "(no file)")\(if .line then ":\(.line)" else "" end)"
-               + (if .isOutdated then " (outdated)" else "" end)
-               + "\n\n"
-               + ([.comments.nodes[] | "**\(.author.login // "unknown")**:\n\n\(.body)"] | join("\n\n---\n\n"))
-            ] | join("\n\n")
-          ' pull-request.json > resolved-threads.full.md
-          head -c 60000 resolved-threads.full.md > resolved-threads.md
-          grep -q '[^[:space:]]' resolved-threads.md \
-            || echo "(No resolved review threads on this pull request.)" > resolved-threads.md
-
-          echo "threads_digest_base64=$(base64 -w0 resolved-threads.md)" >> "$GITHUB_OUTPUT"
+          # Fully paginate comments before trusted-author, mode-specific dedupe.
+          gh api --paginate --slurp "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" > comments.json
+          node scripts/evaluate-second-review.mjs
 
   review:
     name: Claude second-pass review
@@ -244,6 +170,15 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
             HEAD SHA: ${{ needs.gate.outputs.head_sha }}
+            REVIEW MODE: ${{ needs.gate.outputs.review_mode }}
+
+            If REVIEW MODE is post-merge-audit, this is a retrospective audit
+            after the PR merged, NOT pre-merge clearance. After the required
+            marker, explicitly state: "Post-merge audit; this result does not
+            establish historical pre-merge clearance."
+            Before reading the diff and again before posting, verify with
+            gh pr view that headRefOid still equals HEAD SHA. If it differs,
+            stop without posting a clearance or marker.
 
             You are the SECOND reviewer on this pull request. A first-pass
             reviewer (Codex) already reviewed it, and every thread it opened has
@@ -288,5 +223,5 @@ jobs:
             session's transcript instead of commenting — the PR comment is the
             deliverable.
           claude_args: |
-            --max-turns 40
+            --max-turns 80
             --allowedTools "Read,Grep,Glob,Write,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
