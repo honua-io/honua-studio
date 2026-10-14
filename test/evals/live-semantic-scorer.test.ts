@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
+import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { applyCompositionCommands } from "../../src/composition/reducer.js";
 import { EVAL_CORPUS } from "../../src/evals/corpus.js";
@@ -7,6 +8,7 @@ import { type EvalTurnContext, FixtureTurnDriver } from "../../src/evals/driver.
 import { type LiveTurnObservation, scoreLiveSemanticRun } from "../../src/evals/live-semantic-scorer.js";
 import { runEvalTask } from "../../src/evals/runner.js";
 import { scoreEvalRun } from "../../src/evals/scorer.js";
+import { StudioInteractionRuntime } from "../../src/interactions/studio-interactions.js";
 import { McpClient } from "../../src/mcp/client.js";
 import { StudioMcpToolClient } from "../../src/mcp/studio-tools.js";
 import { applyStudioDraft, toStudioCompositionBody } from "../../src/mcp/tool-bridge.js";
@@ -104,6 +106,8 @@ function renderableFilterInput(): Mutable<Input> {
   const input = inputFor("bind-year-built-filter");
   for (const state of states(input)) {
     for (const control of state.controls) control.config = { field: "year_built", min: 1900, max: 2026, step: 1 };
+    for (const interaction of state.interactions)
+      interaction.do.args = { field: "year_built", operator: ">=", value: "$event.value" };
   }
   return input;
 }
@@ -151,6 +155,80 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
     expect(scoreLiveSemanticRun(input).passed).toBe(true);
   });
 
+  it("accepts actual renderer chart aliases without changing the strict result", () => {
+    const input = inputFor("undo-restores-previous-state");
+    for (const state of [input.observations[0].localState, input.observations[0].serverState]) {
+      const widget = state?.widgets[0];
+      if (!widget) throw new Error("Missing chart baseline");
+      widget.config = { chartType: "bar", categoryField: "zoning_code", aggregationType: "count" };
+    }
+    const score = scoreLiveSemanticRun(input);
+    expect(score.checks.find((check) => check.path === "turns[0].chart.matches")?.status).toBe("pass");
+    expect(score.passed).toBe(true);
+  });
+
+  for (const mode of ["intrinsic", "explicit", "clause", "explicit-no-source"] as const) {
+    it(`scores executable ${mode} own-source filtering and drives the actual runtime`, async () => {
+      const input = renderableFilterInput();
+      for (const state of states(input)) {
+        if (mode === "explicit-no-source") state.controls[0].sourceId = undefined;
+        if (mode === "intrinsic") state.interactions = [];
+        else if (mode === "clause")
+          state.interactions[0].do.args = { clause: { field: "year_built", operator: ">=", value: "$event.value" } };
+      }
+      expect(scoreLiveSemanticRun(input).passed).toBe(true);
+      const controller = new CompositionController(input.run.state);
+      const runtime = new StudioInteractionRuntime({ controller });
+      try {
+        runtime.publishControlChange(input.run.state.controls[0].id, {
+          field: "year_built",
+          operator: ">=",
+          value: 2000,
+        });
+        for (let i = 0; i < 4; i++) await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const filter = runtime.appearance.filters["hi-parcels"];
+        expect(filter).toBeDefined();
+        expect(JSON.stringify(filter)).toContain('[">=",["get","year_built"],2000]');
+        expect(scoreEvalRun(input.run).passed).toBe(false);
+      } finally {
+        runtime.dispose();
+      }
+    });
+  }
+
+  it("rejects an unbound numeric control with no source target", () => {
+    const input = renderableFilterInput();
+    for (const state of states(input)) {
+      state.controls[0].sourceId = undefined;
+      state.interactions = [];
+    }
+    fails(input, "final.slider.target");
+  });
+
+  it("rejects an omitted binding operator because the installed SDK defaults to equality, not the slider event", async () => {
+    const input = renderableFilterInput();
+    for (const state of states(input)) {
+      state.controls[0].sourceId = undefined;
+      state.interactions[0].do.args = { field: "year_built", value: "$event.value" };
+    }
+    const controller = new CompositionController(input.run.state);
+    const runtime = new StudioInteractionRuntime({ controller });
+    try {
+      runtime.publishControlChange(input.run.state.controls[0].id, {
+        field: "year_built",
+        operator: ">=",
+        value: 2000,
+      });
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(JSON.stringify(runtime.appearance.filters["hi-parcels"])).toContain('["==",["get","year_built"],2000]');
+      fails(input, "final.filterBinding.matches");
+    } finally {
+      runtime.dispose();
+    }
+  });
+
   it("rejects duplicate matching components", () => {
     const input = inputFor("add-then-remove-widgets");
     for (const state of [input.run.state, input.observations[1].localState, input.observations[1].serverState]) {
@@ -160,26 +238,32 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
     fails(input, "final.toc.matches");
   });
 
-  for (const defect of ["source", "groupBy"] as const) {
+  for (const defect of ["source", "groupBy", "measure", "chartType"] as const) {
     it(`rejects a chart with the wrong ${defect}`, () => {
       const input = inputFor("undo-restores-previous-state");
       for (const state of [input.observations[0].localState, input.observations[0].serverState]) {
         const widget = state?.widgets[0];
         if (!widget) throw new Error("Missing chart baseline");
         if (defect === "source") widget.sourceId = "wrong-source";
-        else widget.config = { ...widget.config, groupBy: "district" };
+        else if (defect === "groupBy") widget.config = { ...widget.config, groupBy: "district" };
+        else if (defect === "measure") widget.config = { ...widget.config, measure: { fn: "sum", field: "area" } };
+        else widget.config = { ...widget.config, chartType: "line" };
       }
       fails(input, "turns[0].chart.matches");
     });
   }
 
-  for (const defect of ["missing", "target", "event-value"] as const) {
+  for (const defect of ["target", "event-value", "attribute-only", "disabled", "operator"] as const) {
     it(`rejects a ${defect} filter binding`, () => {
       const input = renderableFilterInput();
       for (const state of states(input)) {
-        if (defect === "missing") state.interactions = [];
-        else if (defect === "target") state.interactions[0].do.ref = "map";
-        else state.interactions[0].do.args = { attribute: "year_built", value: 2020 };
+        if (defect === "target") state.interactions[0].do.ref = "map";
+        else if (defect === "attribute-only")
+          state.interactions[0].do.args = { attribute: "year_built", value: "$event.value" };
+        else if (defect === "disabled") state.interactions[0].disabled = true;
+        else if (defect === "operator")
+          state.interactions[0].do.args = { field: "year_built", operator: "<=", value: "$event.value" };
+        else state.interactions[0].do.args = { field: "year_built", value: 2020 };
       }
       fails(input, "final.filterBinding.matches");
     });

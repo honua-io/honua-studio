@@ -1,6 +1,7 @@
 import { type CompositionState, canonicalCompositionJson } from "../composition/model.js";
 import { readControlConfig } from "../controls/control-config.js";
 import { toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import { readChartConfig } from "../widgets/widget-config.js";
 import type { LiveStyleObservation } from "./authoritative-style-evidence.js";
 import type { EvalRunResult } from "./runner.js";
 
@@ -90,15 +91,17 @@ export function scoreLiveSemanticRun(input: {
   };
   const chart = (state: CompositionState | undefined, path: string) => {
     check(`${path}.widgets.count`, 1, state?.widgets.length);
-    unique(
-      `${path}.chart`,
-      state?.widgets,
-      (widget) =>
-        widget.kind === "chart" &&
-        widget.sourceId === "hi-parcels" &&
-        widget.config?.groupBy === "zoning_code" &&
-        widget.config?.chartType === "bar",
-    );
+    unique(`${path}.chart`, state?.widgets, (widget) => {
+      if (widget.kind !== "chart" || widget.sourceId !== "hi-parcels") return false;
+      const rendered = readChartConfig(widget);
+      return (
+        rendered.ok &&
+        rendered.config.groupBy === "zoning_code" &&
+        rendered.config.chartType === "bar" &&
+        rendered.config.measure.fn === "count" &&
+        rendered.config.measure.field === "*"
+      );
+    });
   };
   const stylePrerequisite = () =>
     checks.push({
@@ -154,11 +157,11 @@ export function scoreLiveSemanticRun(input: {
     case "bind-year-built-filter": {
       unchanged(final, ["controls", "interactions"], "final");
       check("final.controls.count", 1, final?.controls.length);
-      check("final.interactions.count", 1, final?.interactions.length);
+      check("final.interactions.bounded", true, Boolean(final && final.interactions.length <= 1));
       const control = unique(
         "final.slider",
         final?.controls,
-        (entry) => entry.kind === "filterSlider" && entry.sourceId === "hi-parcels",
+        (entry) => entry.kind === "filterSlider" && (entry.sourceId === "hi-parcels" || entry.sourceId === undefined),
       );
       const resolved = control ? readControlConfig(control) : undefined;
       const slider = resolved?.ok && resolved.config.kind === "filterSlider" ? resolved.config.config : undefined;
@@ -175,19 +178,37 @@ export function scoreLiveSemanticRun(input: {
             slider.step > 0,
         ),
       );
-      unique(
-        "final.filterBinding",
-        final?.interactions,
-        (entry) =>
+      // A valid control filters its own source intrinsically. An authored binding
+      // is optional, but must not silently clear or redirect that filter.
+      const validBinding = (entry: NonNullable<typeof final>["interactions"][number]) => {
+        const args = entry.do.args;
+        const clause = args?.clause;
+        const effective =
+          clause &&
+          typeof clause === "object" &&
+          !Array.isArray(clause) &&
+          typeof (clause as Record<string, unknown>).field === "string"
+            ? (clause as Record<string, unknown>)
+            : args;
+        return (
           Boolean(control) &&
           entry.on.ref === `control:${control?.id}` &&
           entry.on.event === "change" &&
           entry.do.ref === "layer:hi-parcels" &&
           entry.do.verb === "setFilter" &&
-          entry.do.args?.attribute === "year_built" &&
-          entry.do.args?.value === "$event.value" &&
-          !entry.disabled,
+          effective?.field === "year_built" &&
+          effective?.value === "$event.value" &&
+          (effective?.operator ?? "=") === slider?.operator &&
+          !entry.disabled
+        );
+      };
+      const intrinsic = Boolean(
+        control?.sourceId &&
+          final?.layers.some((layer) => layer.id === "hi-parcels" && layer.sourceId === control.sourceId),
       );
+      const explicit = Boolean(final?.interactions.some(validBinding));
+      check("final.slider.target", true, intrinsic || explicit);
+      if (final?.interactions.length) unique("final.filterBinding", final.interactions, validBinding);
       break;
     }
     case "hide-parcels-keeps-layer": {

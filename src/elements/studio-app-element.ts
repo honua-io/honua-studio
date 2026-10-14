@@ -61,6 +61,7 @@ import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
+import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
@@ -951,6 +952,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       ...(certification?.transcriptVerifier ? { transcriptVerifier: certification.transcriptVerifier } : {}),
       baseUrl,
       auth: this.auth,
+      mcpClient: new StudioAuthoringMcpClient({ baseUrl, auth: this.auth, workflowView: "setup" }),
       tools: [...this.agentToolDefinitions(kit)],
       execute: async (call) => {
         // Local runtime tools execute through the kit. The compatibility

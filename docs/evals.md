@@ -273,3 +273,19 @@ and captures visibly sized SVG/table elements after scrolling into view. This
 proves consistency with actual returned data; desired-source/field semantics are
 still checked separately, and a shared aggregation implementation is not an
 independent oracle for defects in that implementation.
+
+### Runtime contract corrections in live semantics
+
+The supplemental live scorer uses the production chart parser, so supported aliases
+such as `categoryField` retain their actual grouping meaning. It still checks the
+source, bar encoding, count measure and component multiplicity. Numeric filter
+controls may use Studio's intrinsic own-source filtering without a redundant
+interaction. If an explicit interaction is authored, its field, event value,
+operator and target must match executable SDK grammar; `attribute` alone clears
+rather than installs the SDK target filter. Unit regressions exercise the installed
+SDK compiler and actual Studio interaction runtime, including own-source gestures.
+
+These corrections affect newly produced live semantic scores. They do not rewrite
+historical receipts or change the strict fixture scorer/corpus. Structural readback
+checks and runtime unit regressions are not claims that an earlier live browser run
+operated a slider. Browser gesture evidence must be recorded separately when claimed.
