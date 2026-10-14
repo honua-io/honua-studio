@@ -80,6 +80,31 @@ while checking requested palette values against the canonical definition.
 
 The browser observer also requires `HONUA_CORPUS_DEPLOYMENT_RECEIPT`, naming the current owned Docker deployment receipt. It retains its exact bytes and hash and independently verifies the running container, loopback port, image source label, and server binary hash before observation, per observed turn, and at shutdown. A changed deployment invalidates the proof. Both supported host source shapes (top-level service/layer fields and `locator`) must match actual discovery; runtime locator bytes always come from discovery.
 
+Native receipts retain the `honua.owned-native-diagnostic.v1` schema and native
+binary checks. A separate `honua.owned-managed-diagnostic.v1` receipt identifies
+an explicitly synthetic `managed-jit` functional deployment. It requires
+`releaseQualification: false`, `securityQualification: false`,
+`nativeQualification: false` and an actual `health.status: 200` receipt; it has no
+native binary identity and establishes no NativeAOT qualification. Keep its
+endpoint, configuration and result directories separate from native runs.
+
+Managed receipts bind the actual command
+`/diagnostic-dotnet/dotnet exec /managed/Honua.Server.dll`, the assembly and
+runtime configuration hashes, and the complete regular-file closure under
+`/managed` and `/diagnostic-dotnet`. `closureFiles` maps absolute paths to SHA256
+digests; `/diagnostic/managed-closure.sha256` contains the matching ordinary
+checksum lines and has its own retained digest. The observer checks actual
+container entrypoint/arguments, source and image identity, loopback binding,
+file inventory and every file hash on each revalidation. Extra or missing
+files, symlinks, unsafe paths and changed receipts fail. Each complete checksum
+command has a 60-second bound; container metadata reads retain a 10-second bound.
+Inspection never reads container environment credentials. Strict and semantic
+scoring are identical for both execution kinds.
+
+When managed and native diagnostics share owned synthetic style data, retain
+those styles until both consumers finish. Each proof removes only its own
+uniquely created drafts; it does not remove another diagnostic's fixtures.
+
 Canonical MapLibre `name` and `metadata["honua:description"]` may supply explicit author-written display context when server catalog descriptions are unavailable. These values are bound to the retained stylesheet hash, never inferred from style identifiers.
 
 Map views reuse successful bindings for up to 30 seconds while the exact style/source descriptor/session tuple remains unchanged. Selection and appearance changes reuse these bindings; changes to the tuple or a subsequent update after expiry revalidate against the server. Bindings are memory-only, pruned when layers disappear and cleared on disposal or session replacement. There is no persistent stylesheet cache.
