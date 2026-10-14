@@ -109,6 +109,11 @@ function honuaMetadata(layer: CompositionLayer): Record<string, unknown> | undef
   return isPlainObject(honua) ? honua : undefined;
 }
 
+/** An explicit renderer source cannot inherit provenance from an unrelated catalog locator. */
+export function hasCompositionSourceOverride(layer: CompositionLayer): boolean {
+  return honuaMetadata(layer)?.source !== undefined;
+}
+
 /**
  * Geometry type -> MapLibre layer archetype. Deliberately generous about
  * spelling: a Honua catalog may report GeoJSON (`Polygon`, `MultiPolygon`),

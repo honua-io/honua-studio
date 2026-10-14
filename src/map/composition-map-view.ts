@@ -53,6 +53,7 @@ import {
   compositionToMapPackage,
   isBasemapLayerId,
 } from "./map-package-projection.js";
+import { hasCompositionSourceOverride } from "./source-resolution.js";
 
 /**
  * The structural slice of `maplibre-gl`'s `Map` this module uses. Declared
@@ -453,6 +454,8 @@ export class CompositionMapView {
       if (!layer.styleRef) continue;
       const source = this.#options.projection?.catalog?.find((entry) => entry.id === layer.sourceId);
       try {
+        if (hasCompositionSourceOverride(layer))
+          throw new Error("Authoritative styles cannot certify a renderer source override.");
         if (!source) throw new Error("An authoritative source descriptor is required for styles.");
         const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source });
         const cached = this.#styleBindings.get(key);

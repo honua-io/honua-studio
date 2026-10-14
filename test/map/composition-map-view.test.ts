@@ -370,6 +370,30 @@ describe("authoritative style interaction bindings", () => {
       },
     };
   }
+  it("refuses a renderer source override before fetching catalog-bound definitions", async () => {
+    const { controller, view, bind } = await styledView();
+    const previous = bind.mock.calls.length;
+    controller.apply({
+      name: "addLayer",
+      layer: {
+        id: "override",
+        sourceId: "hi-parcels",
+        styleRef: { kind: "style-ref", styleId: "district" },
+        metadata: {
+          honua: {
+            source: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+            geometryType: "Polygon",
+          },
+        },
+      },
+    });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(previous);
+    expect(view.projection?.unresolved.find((layer) => layer.layerId === "override")?.reason).toMatch(
+      /source override/,
+    );
+    view.dispose();
+  });
   it("reuses live bindings for selection and control repaint without extra MCP requests", async () => {
     const { controller, view, bind } = await styledView();
     expect(bind).toHaveBeenCalledTimes(1);

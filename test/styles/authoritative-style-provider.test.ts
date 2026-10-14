@@ -246,3 +246,28 @@ it("reads explicit author descriptions from the hash-bound canonical document", 
   expect(value.description).toBe("Navy parcels with 0.8 opacity.");
   expect(value.sha256).toBe(await styleContentHash(body));
 });
+
+it("refuses catalog provenance when the effective renderer source is overridden", async () => {
+  const binding = await fixture().provider.bind("district", source);
+  const state = {
+    ...createEmptyCompositionState(),
+    layers: [
+      {
+        id: "composed",
+        sourceId: source.id,
+        visible: true,
+        styleRef: { kind: "style-ref" as const, styleId: "district" },
+        metadata: {
+          honua: {
+            source: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+            geometryType: "Polygon",
+          },
+        },
+      },
+    ],
+  };
+  const projected = compositionToMapPackage(state, { catalog: [source], authoritativeStyles: { composed: binding } });
+  expect(projected.renderedLayerIds).toEqual([]);
+  expect(projected.unresolved[0]?.reason).toMatch(/source override/);
+  expect(projected.mapPackage.styleRefs).toBeUndefined();
+});

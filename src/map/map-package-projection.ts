@@ -43,6 +43,7 @@ import { BASEMAP_ID_PREFIX, DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX } from 
 import {
   type CompositionLayerType,
   type CompositionSourceDescriptor,
+  hasCompositionSourceOverride,
   isCompositionSourceResolution,
   resolveCompositionSource,
 } from "./source-resolution.js";
@@ -177,6 +178,14 @@ export function compositionToMapPackage(
       continue;
     }
 
+    if (layer.styleRef && options.authoritativeStyles !== undefined && hasCompositionSourceOverride(layer)) {
+      unresolved.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        reason: "Authoritative styles cannot certify a renderer source override.",
+      });
+      continue;
+    }
     const authoritative = options.authoritativeStyles?.[layer.id];
     if (
       layer.styleRef &&
