@@ -76,6 +76,7 @@ import { canonicalCompositionJson } from "../composition/model.js";
 import { applyCompositionCommand, isCompositionCommandError } from "../composition/reducer.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
 import type { McpClient } from "./client.js";
+import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "./composition-envelope.js";
 import { isMcpGenerationConflict } from "./errors.js";
 import type { StudioMcpDraft, StudioMcpToolName, StudioPackageFamilyWire } from "./studio-tools.js";
 import { StudioMcpToolClient, parseStudioDraftResult } from "./studio-tools.js";
@@ -431,8 +432,9 @@ export class ToolCallOrchestrator {
         .createDraft({
           packageKey: live.packageKey,
           family: live.family ?? "map",
-          schemaVersion: live.schemaVersion ?? "1",
-          body: toStudioCompositionBody(this.#controller.state),
+          schemaVersion:
+            live.schemaVersion ?? ((live.family ?? "map") === "map" ? MAP_COMPOSITION_ENVELOPE.schemaVersion : "1"),
+          body: toCompositionDraftBody(this.#controller.state, live.packageKey, live.family),
         })
         .then((draft) => {
           if (setupGeneration !== this.#draftSetupGeneration || this.#live !== live) {
