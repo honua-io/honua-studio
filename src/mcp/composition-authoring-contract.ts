@@ -13,8 +13,8 @@ export function compositionAuthoringGuidance(): string {
     `Control kinds: ${COMPOSITION_CONTROL_KINDS.join(", ")}. Controls are separate from widgets.`,
     'Numeric thresholds, including numeric year fields, use filterSlider with config {field: "<actual field>", min: <known numeric domain>, max: <known numeric domain>, step: <positive step>, operator: ">="}. max must exceed min. Never invent a field or domain; inspect source metadata or ask when unavailable.',
     "timeSlider is temporal and needs config.field plus config.from and config.to as actual dates, with optional stepDays. It is not a numeric year threshold slider.",
-    'Data controls emit change but do not filter layers without an interaction. Add the control first, then bind on {ref: "control:<actual control id>", event: "change"} to do {ref: "layer:<actual layer id>", verb: "setFilter", args: {field: "<actual field>", operator: ">=", value: "$event.value"}}. Choose the requested operator and matching control config. References use existing component IDs, not source IDs.',
-    "An unbound data control is intentionally inert; do not describe it as a working filter. Map navigation and toc visibility toggles are intrinsic and need no filter interaction.",
+    'Data controls emit change. For an explicit declarative filter binding, add the control first, then bind on {ref: "control:<actual control id>", event: "change"} to do {ref: "layer:<actual layer id>", verb: "setFilter", args: {field: "<actual field>", operator: ">=", value: "$event.value"}}. Choose the requested operator and matching control config. References use existing component IDs, not source IDs.',
+    "Studio intrinsically applies a valid control clause to its own source layers. Explicit interactions declare the target and are required for cross-layer behavior. Do not claim an explicit binding exists until its tool succeeds. Map navigation and toc visibility toggles are intrinsic.",
   ].join("\n");
 }
 
@@ -29,6 +29,8 @@ export function compositionAuthoringError(name: string, args: Record<string, unk
   else if (validation.command.name === "addWidget" && validation.command.widget.kind === "chart") {
     const result = readChartConfig(validation.command.widget);
     if (!result.ok) reason = result.reason;
+    else if (!validation.command.widget.sourceId?.trim())
+      reason = "Chart requires a non-empty sourceId from the trusted catalog.";
   } else if (validation.command.name === "addControl") {
     const result = readControlConfig(validation.command.control);
     if (!result.ok) reason = result.reason;

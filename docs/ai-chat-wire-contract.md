@@ -132,8 +132,10 @@ app and real-model driver. A layer list is a `toc` widget; charts conventionally
 `config.groupBy` and `config.chartType`. Documented renderer aliases such as
 `categoryField` remain accepted and are sent unchanged. Numeric thresholds use
 `filterSlider` with an actual numeric domain; `timeSlider` needs temporal dates.
-Filtering requires a separate `change` to `setFilter` interaction after adding the
-control. An unbound control remains intentionally inert.
+A valid filter control intrinsically filters its own source layers. Explicit filtering
+bindings and cross-layer behavior use a separate `change` to `setFilter` interaction
+after adding the control. The declared target uses a layer ID and `args.field`, with
+`value: "$event.value"`; `args.attribute` does not execute a filter in the SDK.
 
 At the verified model MCP dispatch boundary, Studio rejects unknown widget/control
 kinds and chart/control configuration that its existing renderer cannot interpret.

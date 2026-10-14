@@ -1,6 +1,7 @@
 import { type CompositionState, canonicalCompositionJson } from "../composition/model.js";
 import { readControlConfig } from "../controls/control-config.js";
 import { toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import { readChartConfig } from "../widgets/widget-config.js";
 import type { LiveStyleObservation } from "./authoritative-style-evidence.js";
 import type { EvalRunResult } from "./runner.js";
 
@@ -89,15 +90,17 @@ export function scoreLiveSemanticRun(input: {
   };
   const chart = (state: CompositionState | undefined, path: string) => {
     check(`${path}.widgets.count`, 1, state?.widgets.length);
-    unique(
-      `${path}.chart`,
-      state?.widgets,
-      (widget) =>
-        widget.kind === "chart" &&
-        widget.sourceId === "hi-parcels" &&
-        widget.config?.groupBy === "zoning_code" &&
-        widget.config?.chartType === "bar",
-    );
+    unique(`${path}.chart`, state?.widgets, (widget) => {
+      if (widget.kind !== "chart" || widget.sourceId !== "hi-parcels") return false;
+      const rendered = readChartConfig(widget);
+      return (
+        rendered.ok &&
+        rendered.config.groupBy === "zoning_code" &&
+        rendered.config.chartType === "bar" &&
+        rendered.config.measure.fn === "count" &&
+        rendered.config.measure.field === "*"
+      );
+    });
   };
   const stylePrerequisite = () =>
     checks.push({
@@ -153,7 +156,7 @@ export function scoreLiveSemanticRun(input: {
     case "bind-year-built-filter": {
       unchanged(final, ["controls", "interactions"], "final");
       check("final.controls.count", 1, final?.controls.length);
-      check("final.interactions.count", 1, final?.interactions.length);
+      check("final.interactions.bounded", true, Boolean(final && final.interactions.length <= 1));
       const control = unique(
         "final.slider",
         final?.controls,
@@ -174,19 +177,36 @@ export function scoreLiveSemanticRun(input: {
             slider.step > 0,
         ),
       );
-      unique(
-        "final.filterBinding",
-        final?.interactions,
-        (entry) =>
-          Boolean(control) &&
-          entry.on.ref === `control:${control?.id}` &&
-          entry.on.event === "change" &&
-          entry.do.ref === "layer:hi-parcels" &&
-          entry.do.verb === "setFilter" &&
-          entry.do.args?.attribute === "year_built" &&
-          entry.do.args?.value === "$event.value" &&
-          !entry.disabled,
+      // A valid control filters its own source intrinsically. An authored binding
+      // is optional, but must not silently clear or redirect that filter.
+      check(
+        "final.slider.target",
+        true,
+        Boolean(final?.layers.some((layer) => layer.id === "hi-parcels" && layer.sourceId === control?.sourceId)),
       );
+      if (final?.interactions.length)
+        unique("final.filterBinding", final.interactions, (entry) => {
+          const args = entry.do.args;
+          const clause = args?.clause;
+          const effective =
+            clause &&
+            typeof clause === "object" &&
+            !Array.isArray(clause) &&
+            typeof (clause as Record<string, unknown>).field === "string"
+              ? (clause as Record<string, unknown>)
+              : args;
+          return (
+            Boolean(control) &&
+            entry.on.ref === `control:${control?.id}` &&
+            entry.on.event === "change" &&
+            entry.do.ref === "layer:hi-parcels" &&
+            entry.do.verb === "setFilter" &&
+            effective?.field === "year_built" &&
+            effective?.value === "$event.value" &&
+            (effective?.operator ?? "=") === slider?.operator &&
+            !entry.disabled
+          );
+        });
       break;
     }
     case "hide-parcels-keeps-layer": {

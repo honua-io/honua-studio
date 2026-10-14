@@ -44,6 +44,16 @@ describe("model composition authoring contract", () => {
     });
   }
 
+  for (const sourceId of [undefined, "", "   "]) {
+    it(`refuses a chart without an actual source identifier: ${JSON.stringify(sourceId)}`, () => {
+      const error = compositionAuthoringError("honua_studio_add_widget", {
+        widget: { id: "chart", kind: "chart", sourceId, config: { groupBy: "district" } },
+      });
+      expect(error?.isError).toBe(true);
+      expect(JSON.stringify(error?.content)).toContain("sourceId");
+    });
+  }
+
   for (const alias of ["groupBy", "categoryField", "category", "by", "x", "field"]) {
     it(`preserves the supported ${alias} chart alias and its actual rendering intent`, () => {
       const widget = {
@@ -95,7 +105,12 @@ describe("model composition authoring contract", () => {
       const args = {
         draftId: "unknown-draft",
         generation: 0,
-        widget: { id: "w", kind: "chart", config: { categoryField: "district", chartType: "bar" } },
+        widget: {
+          id: "w",
+          kind: "chart",
+          sourceId: "catalog-source",
+          config: { categoryField: "district", chartType: "bar" },
+        },
       };
       // The actual server may reject this deliberately absent draft; host admission must preserve its arguments.
       await client.callTool("honua_studio_add_widget", args).catch(() => undefined);
