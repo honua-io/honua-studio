@@ -126,11 +126,12 @@ function toWireEnvelope(
   packageKey: string,
   metadata: CompositionDraftEnvelopeMetadata,
 ): StudioPackageEnvelope {
+  const format = metadata.family === "map" ? (metadata.format ?? MAP_COMPOSITION_ENVELOPE.format) : metadata.format;
   return {
     family: metadata.family,
     schemaVersion: metadata.schemaVersion,
-    ...(metadata.format !== undefined ? { format: metadata.format } : {}),
-    body: toCompositionDraftBody(state, packageKey, metadata.family, {}, metadata.format),
+    ...(format !== undefined ? { format } : {}),
+    body: toCompositionDraftBody(state, packageKey, metadata.family, {}, format),
   } as StudioPackageEnvelope;
 }
 

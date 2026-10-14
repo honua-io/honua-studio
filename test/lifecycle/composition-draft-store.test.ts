@@ -151,33 +151,36 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     expect(stored.schemaVersion).toBe(COMPOSITION_DRAFT_ENVELOPE.schemaVersion);
   });
 
-  it("honors an explicitly configured deployment format in both envelope and map body", async () => {
-    server = await startMockServer();
-    const custom = store(undefined, {
-      family: "map",
-      schemaVersion: "deployment-version",
-      format: "deployment-map-format",
-    });
-    const created = await custom.create({
-      packageKey: "custom-format",
-      envelope: { body: createEmptyCompositionState() },
-    });
-    const initial = await storedEnvelope(created.draftId);
-    expect(initial).toMatchObject({
-      schemaVersion: "deployment-version",
-      format: "deployment-map-format",
-      body: { mapPackageId: "custom-format", format: "deployment-map-format" },
-    });
-    await store().replace(created.draftId, {
-      packageKey: created.packageKey,
-      generation: created.generation,
-      envelope: { body: withLayer(createEmptyCompositionState(), "parcels") },
-    });
-    const replaced = await storedEnvelope(created.draftId);
-    expect(replaced.schemaVersion).toBe(initial.schemaVersion);
-    expect(replaced.format).toBe(initial.format);
-    expect(replaced.body.format).toBe(initial.body.format);
-  });
+  it.each([undefined, "deployment-map-format"])(
+    "resolves deployment format %s consistently in envelope and map body",
+    async (format) => {
+      server = await startMockServer();
+      const custom = store(undefined, {
+        family: "map",
+        schemaVersion: "deployment-version",
+        ...(format === undefined ? {} : { format }),
+      });
+      const created = await custom.create({
+        packageKey: "custom-format",
+        envelope: { body: createEmptyCompositionState() },
+      });
+      const initial = await storedEnvelope(created.draftId);
+      expect(initial).toMatchObject({
+        schemaVersion: "deployment-version",
+        format: format ?? "honua_map_package.v1",
+        body: { mapPackageId: "custom-format", format: format ?? "honua_map_package.v1" },
+      });
+      await store().replace(created.draftId, {
+        packageKey: created.packageKey,
+        generation: created.generation,
+        envelope: { body: withLayer(createEmptyCompositionState(), "parcels") },
+      });
+      const replaced = await storedEnvelope(created.draftId);
+      expect(replaced.schemaVersion).toBe(initial.schemaVersion);
+      expect(replaced.format).toBe(initial.format);
+      expect(replaced.body.format).toBe(initial.body.format);
+    },
+  );
 
   it("preserves authoritative identity and foreign metadata while removing optional composition blocks", async () => {
     server = await startMockServer();
