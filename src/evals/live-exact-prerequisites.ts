@@ -32,6 +32,12 @@ export async function verifyLiveExactSources(
     fetchImpl: (input, init) => fetchImpl(input, { ...init, redirect: "error", signal: AbortSignal.timeout(8000) }),
   });
   const descriptors = (sources ?? []).map(object);
+  if (
+    descriptors.length !== REQUIRED_SOURCES.length ||
+    new Set(descriptors.map((entry) => entry.id)).size !== REQUIRED_SOURCES.length ||
+    descriptors.some((entry) => !REQUIRED_SOURCES.some((required) => required === entry.id))
+  )
+    throw new Error("Exact live catalog requires only the four predeclared unique source aliases.");
   const identities = new Set<string>();
   const evidence: {
     sourceId: string;

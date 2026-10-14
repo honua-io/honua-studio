@@ -310,7 +310,8 @@ its council style. A missing or unreadable style fails that styling task; the
 other six tasks neither require nor fetch those unrelated style definitions.
 
 Source-catalog admission is intentionally corpus-wide: every model turn receives
-the same four configured source descriptors, so all four advertised identities
+exactly the same four predeclared, unique source aliases; extra or unexpected
+entries are refused before any network/model call. All four advertised identities
 and their metadata must be verified before any turn. A source preflight failure
 is a diagnostic setup failure, not evidence of model capability. Style context,
 in contrast, contains only the verified definition required by the current task.

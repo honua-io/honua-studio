@@ -434,6 +434,23 @@ describe("live source admission before model execution", () => {
   it("binds configured aliases to independent metadata", async () => {
     expect(await verifyLiveExactSources(sources(), "http://localhost:19929", metadataFetch)).toHaveLength(4);
   });
+  for (const defect of ["extra-malformed", "extra-foreign", "extra-duplicate", "unexpected-alias"] as const)
+    it(`refuses ${defect} before exposing any unverified catalog entry or performing network calls`, async () => {
+      const configured: Record<string, unknown>[] = sources();
+      if (defect === "extra-malformed") configured.push({ id: "unverified-extra" });
+      if (defect === "extra-foreign")
+        configured.push({ ...configured[0], id: "unverified-extra", url: "https://foreign.test/FeatureServer/1" });
+      if (defect === "extra-duplicate") configured.push({ ...configured[0] });
+      if (defect === "unexpected-alias") configured[3] = { ...configured[3], id: "unverified-extra" };
+      let requests = 0;
+      await expect(
+        verifyLiveExactSources(configured, "http://localhost:19929", async () => {
+          requests++;
+          throw new Error("network must not run before catalog membership admission");
+        }),
+      ).rejects.toThrow("four predeclared unique source aliases");
+      expect(requests).toBe(0);
+    });
   for (const layerUrl of [false, true])
     it(`accepts canonical ${layerUrl ? "layer" : "service-root"} locators without supplied fields`, async () => {
       const evidence = await verifyLiveExactSources(
