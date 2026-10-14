@@ -67,7 +67,8 @@ import type { BasemapStyle } from "../map/basemap.js";
 import type { CompositionMapFactory, CompositionMapView } from "../map/composition-map-view.js";
 import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
-import { runtimeServerBaseUrl } from "../runtime-config.js";
+import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
+import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
@@ -663,6 +664,15 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       const view = new MapViewClass({
         container,
         controller,
+        ...(this.#sourceCatalog?.some((source) => source.locator?.serviceId)
+          ? {
+              styleProvider: new AuthoritativeStyleProvider({
+                baseUrl: runtimeMcpBaseUrl(),
+                documentUrl: document.baseURI,
+                getAuth: () => resolveInjectedAuth(this),
+              }),
+            }
+          : {}),
         projection: {
           baseUrl: this.#sourceBaseUrl,
           ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),

@@ -1,3 +1,5 @@
+import type { LiveStyleObservation } from "../evals/authoritative-style-evidence.js";
+import type { AuthoritativeStyleProvider, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 /**
  * The live MapLibre surface (honua-studio#23 REQ-001) — the thing that makes
  * "the agent composes a running application" literally true instead of
@@ -57,6 +59,7 @@ import {
  */
 export interface CompositionMapLike {
   setStyle(style: unknown, options?: { diff?: boolean }): unknown;
+  getStyle?(): { layers?: readonly Readonly<Record<string, unknown>>[] };
   jumpTo(options: Record<string, unknown>): unknown;
   easeTo(options: Record<string, unknown>): unknown;
   fitBounds(bounds: readonly [number, number, number, number], options?: Record<string, unknown>): unknown;
@@ -96,6 +99,7 @@ export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => P
 export type CompositionMapStatus = "idle" | "starting" | "ready" | "unavailable";
 
 export interface CompositionMapViewOptions {
+  readonly styleProvider?: Pick<AuthoritativeStyleProvider, "bind" | "sessionIdentity">;
   readonly container: HTMLElement;
   readonly controller: CompositionController;
   readonly projection?: CompositionMapProjectionOptions;
@@ -197,6 +201,7 @@ export class CompositionMapView {
   #appearance: CompositionLayerAppearance | undefined;
   #basemap: BasemapStyle | undefined;
   #disposed = false;
+  #authoritativeStyles?: Record<string, BoundAuthoritativeStyle | { reason: string }>;
 
   public constructor(options: CompositionMapViewOptions) {
     this.#options = options;
@@ -287,6 +292,27 @@ export class CompositionMapView {
     return this.#projection;
   }
 
+  /** Actual runtime snapshot for external proof harnesses; no renderer means no evidence. */
+  public observeAuthoritativeStyles(): readonly LiveStyleObservation[] {
+    const style = this.#map?.getStyle?.();
+    if (!style?.layers || !this.#map?.queryRenderedFeatures) return [];
+    const observations: LiveStyleObservation[] = [];
+    for (const layer of this.#options.controller.state.layers) {
+      const binding = this.#authoritativeStyles?.[layer.id];
+      const renderedLayer = style.layers.find((entry) => entry.id === layer.id);
+      if (!binding || "reason" in binding || !renderedLayer || !layer.styleRef) continue;
+      observations.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        styleId: layer.styleRef.styleId,
+        binding,
+        renderedLayer: structuredClone(renderedLayer),
+        renderedFeatureCount: this.#map.queryRenderedFeatures(undefined, { layers: [layer.id] }).length,
+      });
+    }
+    return observations;
+  }
+
   public get mapPackage(): HonuaMapPackage | undefined {
     return this.#projection?.mapPackage;
   }
@@ -300,6 +326,9 @@ export class CompositionMapView {
   public async start(): Promise<void> {
     if (this.#disposed || this.#status !== "idle") return;
     this.#status = "starting";
+    const startingState = this.#options.controller.state;
+    await this.#resolveStyles();
+    if (this.#disposed) return;
     const projection = this.#project();
     const initialView = projection.mapPackage.initialView;
     const style = await this.#composeSafely(projection.mapPackage);
@@ -330,6 +359,7 @@ export class CompositionMapView {
     this.#applyView(this.#map, this.#options.controller.state.view, true);
     this.#status = "ready";
     this.#unsubscribe = this.#options.controller.subscribe(() => this.#scheduleUpdate());
+    if (startingState !== this.#options.controller.state) this.#scheduleUpdate();
     this.#notify();
   }
 
@@ -356,9 +386,32 @@ export class CompositionMapView {
     this.#status = "idle";
   }
 
+  async #resolveStyles(): Promise<void> {
+    const provider = this.#options.styleProvider;
+    if (!provider) return;
+    const bindings: Record<string, BoundAuthoritativeStyle | { reason: string }> = {};
+    const state = this.#options.controller.state;
+    const session = provider.sessionIdentity;
+    for (const layer of state.layers) {
+      if (!layer.styleRef) continue;
+      const source = this.#options.projection?.catalog?.find((entry) => entry.id === layer.sourceId);
+      try {
+        if (!source) throw new Error("An authoritative source descriptor is required for styles.");
+        bindings[layer.id] = await provider.bind(layer.styleRef.styleId, source);
+      } catch (error) {
+        bindings[layer.id] = { reason: error instanceof Error ? error.message : String(error) };
+      }
+      if (this.#disposed) return;
+    }
+    // Results never apply to a different composition snapshot.
+    this.#authoritativeStyles =
+      state === this.#options.controller.state && session === provider.sessionIdentity ? bindings : {};
+  }
+
   #project(): CompositionMapProjection {
     const projection = compositionToMapPackage(this.#options.controller.state, {
       ...(this.#options.projection ?? {}),
+      ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
       ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
     });
@@ -426,6 +479,8 @@ export class CompositionMapView {
   async #update(): Promise<void> {
     const map = this.#map;
     if (!map) return;
+    await this.#resolveStyles();
+    if (this.#disposed) return;
     const projection = this.#project();
     const style = await this.#composeSafely(projection.mapPackage);
     if (this.#disposed) return;

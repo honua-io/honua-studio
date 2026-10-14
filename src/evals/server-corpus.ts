@@ -8,6 +8,11 @@ import { applyCompositionCommands } from "../composition/reducer.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioMcpToolClient } from "../mcp/studio-tools.js";
 import { applyStudioDraft, toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import {
+  type LiveStyleObservation,
+  type LiveStyleRequirement,
+  applyAuthoritativeStyleEvidence,
+} from "./authoritative-style-evidence.js";
 import { EVAL_CORPUS } from "./corpus.js";
 import { FixtureTurnDriver } from "./driver.js";
 import { LiveTurnDriver } from "./live-driver.js";
@@ -22,6 +27,12 @@ export async function runServerCorpus(options: {
   apiKey?: string;
   tokenProvider?: () => Promise<string>;
   runId: string;
+  styleRequirements?: Readonly<Record<string, LiveStyleRequirement>>;
+  observeStyles?: (context: {
+    taskId: string;
+    turnIndex: number;
+    state: ReturnType<typeof createEmptyCompositionState>;
+  }) => Promise<readonly LiveStyleObservation[]>;
   fetchImpl?: typeof fetch;
   sources?: readonly unknown[];
   model?: { provider: string; model: string; manifest: StudioAiTranscriptSigningManifest };
@@ -128,7 +139,20 @@ export async function runServerCorpus(options: {
         observeTurn: async (turn, localState) => {
           try {
             const observed = await tools.getDraft(created.draftId);
+            let styles: readonly LiveStyleObservation[] | undefined;
+            let styleObservationError: string | undefined;
+            try {
+              styles = await options.observeStyles?.({
+                taskId: task.id,
+                turnIndex: turn.turnIndex,
+                state: applyStudioDraft(observed),
+              });
+            } catch (error) {
+              styleObservationError = error instanceof Error ? error.message : String(error);
+            }
             perTurnReadbacks.push({
+              styles,
+              styleObservationError,
               turnIndex: turn.turnIndex,
               localState,
               serverState: applyStudioDraft(observed),
@@ -199,13 +223,18 @@ export async function runServerCorpus(options: {
         ? {
             liveSemanticScore:
               semanticRun && semanticInitial
-                ? scoreLiveSemanticRun({
-                    run: semanticRun,
-                    initial: semanticInitial,
-                    observations: perTurnReadbacks,
-                    cleanupPassed: cleanup.passed === true,
-                    lifecycleWrites: modelTraffic.filter(isLifecycleWrite),
-                  })
+                ? await applyAuthoritativeStyleEvidence(
+                    scoreLiveSemanticRun({
+                      run: semanticRun,
+                      initial: semanticInitial,
+                      observations: perTurnReadbacks,
+                      cleanupPassed: cleanup.passed === true,
+                      lifecycleWrites: modelTraffic.filter(isLifecycleWrite),
+                    }),
+                    options.styleRequirements?.[task.id],
+                    perTurnReadbacks.at(-1)?.styles,
+                    semanticRun.state,
+                  )
                 : {
                     schemaVersion: "honua.studio.live-semantic-score.v1",
                     taskId: task.id,

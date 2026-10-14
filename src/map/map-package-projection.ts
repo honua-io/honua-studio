@@ -36,6 +36,7 @@ import type { HonuaMapPackage, HonuaMapPackageSourceBinding, HonuaStyleRefBody }
 import type { HonuaLayerSpecification, HonuaStyleSpecification } from "@honua/sdk-js/style";
 
 import type { CompositionLayer, CompositionState } from "../composition/model.js";
+import type { BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 import { type BasemapStyle, createOfflineBasemapStyle } from "./basemap.js";
 import { BASEMAP_ID_PREFIX, DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import {
@@ -66,6 +67,8 @@ export interface CompositionMapProjectionOptions {
   /** Real style-ref bodies keyed by `styleId`, when the caller could fetch them. A styleId absent here falls back to a deterministic preset — see `./style-presets.ts`. */
   readonly styleRefBodies?: Readonly<Record<string, HonuaStyleRefBody>>;
   readonly mapPackageId?: string;
+  /** When supplied, a missing/failed canonical style is visible instead of a preset fallback. */
+  readonly authoritativeStyles?: Readonly<Record<string, BoundAuthoritativeStyle | { reason: string }>>;
   /**
    * Runtime appearance a control produced (honua-studio#25): per composition
    * layer id, a MapLibre filter expression and/or an opacity multiplier.
@@ -173,6 +176,26 @@ export function compositionToMapPackage(
       continue;
     }
 
+    const authoritative = options.authoritativeStyles?.[layer.id];
+    if (
+      layer.styleRef &&
+      options.authoritativeStyles !== undefined &&
+      (!authoritative ||
+        "reason" in authoritative ||
+        authoritative.definition.styleId !== layer.styleRef.styleId ||
+        authoritative.sourceId !== layer.sourceId)
+    ) {
+      unresolved.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        reason:
+          authoritative && "reason" in authoritative
+            ? authoritative.reason
+            : "Authoritative style binding is unavailable or stale.",
+      });
+      continue;
+    }
+
     // Several composition layers may share one catalog source (the same
     // dataset styled two ways); the source is materialized once.
     const styleSourceId = layer.sourceId;
@@ -204,7 +227,10 @@ export function compositionToMapPackage(
     renderedLayerIds.push(layer.id);
 
     if (layer.styleRef) {
-      const supplied = options.styleRefBodies?.[layer.styleRef.styleId];
+      const supplied =
+        authoritative && !("reason" in authoritative)
+          ? { [layer.id]: authoritative.override }
+          : options.styleRefBodies?.[layer.styleRef.styleId];
       const body: HonuaStyleRefBody = supplied ?? {
         [layer.id]: styleRefFallbackOverride(
           layer.styleRef.styleId,

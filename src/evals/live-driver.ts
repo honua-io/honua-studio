@@ -37,6 +37,7 @@ export class LiveTurnDriver implements EvalTurnDriver {
           // Model-provided identifiers never select a different tenant's or case's draft.
           return super.callTool(name, { draftId: draft.draftId });
         }
+        if (name === "honua_get_style" || name === "honua_describe_layer") return super.callTool(name, args);
         return dispatch(name, args);
       }
     }

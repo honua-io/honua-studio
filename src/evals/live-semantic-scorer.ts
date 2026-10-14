@@ -1,6 +1,7 @@
 import { type CompositionState, canonicalCompositionJson } from "../composition/model.js";
 import { readControlConfig } from "../controls/control-config.js";
 import { toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import type { LiveStyleObservation } from "./authoritative-style-evidence.js";
 import type { EvalRunResult } from "./runner.js";
 
 export interface LiveTurnObservation {
@@ -9,6 +10,8 @@ export interface LiveTurnObservation {
   readonly serverState?: CompositionState;
   readonly generation?: number;
   readonly error?: string;
+  readonly styles?: readonly LiveStyleObservation[];
+  readonly styleObservationError?: string;
 }
 
 export interface LiveSemanticCheck {

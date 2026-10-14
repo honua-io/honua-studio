@@ -96,7 +96,7 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   ([#46](https://github.com/honua-io/honua-studio/issues/46),
   [`docs/evals.md`](docs/evals.md)) scores fixture transcripts in PR CI today
   and can run scripted or signature-verified model turns against an owned real
-  server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
+  server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. The [authoritative style provider](docs/authoritative-styles.md) resolves real server definitions for supported vector layers and accepts actual browser observations for hash-bound semantic verification. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
   follow-up work.
 - **The GP panel talks to a fixture, not a server**
   ([#35](https://github.com/honua-io/honua-studio/issues/35)). `src/gp/job-client.ts`
