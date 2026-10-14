@@ -19,7 +19,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { bindFixtureSourceAliases, startPreviewServer } from "./helpers.mjs";
+import { startPreviewServer } from "./helpers.mjs";
 
 /** Reads live MapLibre state out of the page through the canvas element's public `.mapView`. */
 const readMapState = () => {
@@ -74,7 +74,6 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
       }, "compose-districts-map");
       await page.goto(preview.url);
       await signIn(page);
-      await bindFixtureSourceAliases(page);
 
       // The canvas boots straight into the map surface — the readout is no
       // longer the primary view (REQ-001).
@@ -113,7 +112,7 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
         .poll(() => page.evaluate(readMapState).then((state) => state.styleLayerIds), { timeout: 20_000 })
         .toContain("hi-parcels");
       const afterAdd = await page.evaluate(readMapState);
-      expect(afterAdd.styleSourceIds).toContain("hi-parcels");
+      expect(afterAdd.styleSourceIds).toContain("hi-parcels/0");
       expect(afterAdd.unresolved).toEqual([]);
 
       // Features actually painted — the source resolved to the fixture's discovered
@@ -169,7 +168,6 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
     try {
       await page.goto(preview.url);
       await signIn(page);
-      await bindFixtureSourceAliases(page);
       await expect
         .poll(() => page.evaluate(readMapState).then((state) => state.status), { timeout: 20_000 })
         .toBe("ready");
@@ -200,7 +198,6 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
     try {
       await page.goto(preview.url);
       await signIn(page);
-      await bindFixtureSourceAliases(page);
       await expect
         .poll(() => page.evaluate(readMapState).then((state) => state.status), { timeout: 20_000 })
         .toBe("ready");

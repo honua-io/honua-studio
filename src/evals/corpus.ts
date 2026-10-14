@@ -54,7 +54,7 @@ const composeDistrictsMap: EvalTask = {
     state: {
       layers: {
         ids: [PARCELS],
-        present: [{ id: PARCELS, sourceId: PARCELS, visible: true, styleId: "district" }],
+        present: [{ id: PARCELS, sourceId: `${PARCELS}/0`, visible: true, styleId: "district" }],
       },
       widgets: {
         ids: ["chart-hi-parcels-zoning_code"],
@@ -62,7 +62,7 @@ const composeDistrictsMap: EvalTask = {
           {
             id: "chart-hi-parcels-zoning_code",
             kind: "chart",
-            sourceId: PARCELS,
+            sourceId: `${PARCELS}/0`,
             config: { groupBy: "zoning_code", chartType: "bar" },
           },
         ],
@@ -96,7 +96,9 @@ const composeDistrictsMap: EvalTask = {
           turnIndex: 0,
           assistant: {
             text: "Adding the parcels layer.",
-            toolCalls: [{ toolName: "add_layer", arguments: { datasetId: PARCELS, styleBy: "zoning" } }],
+            toolCalls: [
+              { toolName: "add_layer", arguments: { datasetId: PARCELS, sourceId: `${PARCELS}/0`, styleBy: "zoning" } },
+            ],
           },
         },
       ],

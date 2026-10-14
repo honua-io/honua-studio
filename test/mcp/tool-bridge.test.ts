@@ -358,3 +358,8 @@ describe("mcp/tool-bridge draft body <-> composition state round trip", () => {
     expect(restored.pins).toEqual(local.pins);
   });
 });
+
+it.each(["add_layer", "add_chart"])("refuses invalid explicit fixture source identity for %s", (toolName) => {
+  expect(resolveToolCall({ toolName, arguments: { datasetId: "parcels", sourceId: "" } }).ok).toBe(false);
+  expect(resolveToolCall({ toolName, arguments: { datasetId: "parcels", sourceId: 1 } }).ok).toBe(false);
+});

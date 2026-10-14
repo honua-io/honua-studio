@@ -193,7 +193,10 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       if (!isNonEmptyString(args.datasetId)) {
         return { ok: false, reason: 'add_layer requires a non-empty string "datasetId".' };
       }
-      const layer: Record<string, unknown> = { id: args.datasetId, sourceId: args.datasetId };
+      if (args.sourceId !== undefined && !isNonEmptyString(args.sourceId)) {
+        return { ok: false, reason: 'add_layer "sourceId" must be a non-empty string when supplied.' };
+      }
+      const layer: Record<string, unknown> = { id: args.datasetId, sourceId: args.sourceId ?? args.datasetId };
       const styleRef = styleRefFromString(args.styleBy);
       if (styleRef) layer.styleRef = styleRef;
       return finalizeCommand("addLayer", { layer });
@@ -215,7 +218,10 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       const config: Record<string, unknown> = {};
       if (groupBy !== undefined) config.groupBy = groupBy;
       if (chartType !== undefined) config.chartType = chartType;
-      const widget: Record<string, unknown> = { id, kind: "chart", sourceId: args.datasetId };
+      if (args.sourceId !== undefined && !isNonEmptyString(args.sourceId)) {
+        return { ok: false, reason: 'add_chart "sourceId" must be a non-empty string when supplied.' };
+      }
+      const widget: Record<string, unknown> = { id, kind: "chart", sourceId: args.sourceId ?? args.datasetId };
       if (Object.keys(config).length > 0) widget.config = config;
       return finalizeCommand("addWidget", { widget });
     },

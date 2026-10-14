@@ -7,6 +7,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
+import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
+import { StudioClient } from "../../src/client/studio-client.js";
+import { resolveToolCall } from "../../src/mcp/tool-bridge.js";
 
 let server: Awaited<ReturnType<typeof startMockServer>> | undefined;
 
@@ -281,4 +284,31 @@ it("serves canonical fixture style and actual property descriptors, rejecting un
     token,
   );
   expect(unknown.body.result.isError).toBe(true);
+});
+
+it("the shipped recorded conversation binds to normal discovery without injected aliases", async () => {
+  server = await startMockServer();
+  const catalog = await new StudioClient(`${server.url}/api`, {
+    getAccessToken: async () => mintFixtureAccessToken(),
+  }).listCatalog();
+  for (const [index, toolName] of ["add_layer", "add_chart"].entries()) {
+    const event = composeDistrictsMapConversation.turns[index].assistant.events.find(
+      (event) => event.type === "toolCallStop",
+    );
+    if (!event || event.type !== "toolCallStop") throw new Error("Missing fixture tool arguments.");
+    const result = resolveToolCall({ toolName, arguments: event.toolArguments });
+    if (!result.ok) throw new Error(result.reason);
+    const command = result.command;
+    const sourceId =
+      command.name === "addLayer"
+        ? command.layer.sourceId
+        : command.name === "addWidget"
+          ? command.widget.sourceId
+          : undefined;
+    expect(sourceId).toBe("hi-parcels/0");
+    expect(catalog.find((entry) => entry.id === sourceId)?.locator).toMatchObject({
+      serviceId: "hi-parcels",
+      layerId: 0,
+    });
+  }
 });

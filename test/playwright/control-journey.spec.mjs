@@ -20,7 +20,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { bindFixtureSourceAliases, startPreviewServer } from "./helpers.mjs";
+import { startPreviewServer } from "./helpers.mjs";
 
 /**
  * A fixed, non-default preview port. Several agents run Playwright against
@@ -62,7 +62,6 @@ async function bootComposedStudio(page, preview) {
   }, "compose-districts-map");
   await page.goto(preview.url);
   await signIn(page);
-  await bindFixtureSourceAliases(page);
   await expect.poll(() => page.evaluate(mapStatus), { timeout: 20_000 }).toBe("ready");
 }
 
@@ -171,7 +170,7 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
           id: "zoning",
           kind: "filterSelect",
           title: "Zoning",
-          sourceId: "hi-parcels",
+          sourceId: "hi-parcels/0",
           config: { field: "zoning_code", options: ["R-5", "B-2"] },
         },
       });
@@ -208,7 +207,7 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
       // ---- opacity: same transport, paint rather than filter ----------------
       await page.evaluate(applyCommand, {
         name: "addControl",
-        control: { id: "fade", kind: "opacity", title: "Fade", sourceId: "hi-parcels" },
+        control: { id: "fade", kind: "opacity", title: "Fade", sourceId: "hi-parcels/0" },
       });
       // `fill()` does not drive a range input; set the value and raise the
       // same `input` event a drag would.
