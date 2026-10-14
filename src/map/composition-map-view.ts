@@ -307,6 +307,7 @@ export class CompositionMapView {
         styleId: layer.styleRef.styleId,
         binding,
         renderedLayer: structuredClone(renderedLayer),
+        appearance: { filter: this.#appearance?.filters?.[layer.id], opacity: this.#appearance?.opacity?.[layer.id] },
         renderedFeatureCount: this.#map.queryRenderedFeatures(undefined, { layers: [layer.id] }).length,
       });
     }

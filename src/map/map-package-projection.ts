@@ -1,3 +1,4 @@
+import { compositionStyleOverride } from "../styles/composition-style-override.js";
 /**
  * `CompositionState` → `HonuaMapPackage` (honua-studio#23 REQ-001/REQ-002).
  *
@@ -227,10 +228,21 @@ export function compositionToMapPackage(
     renderedLayerIds.push(layer.id);
 
     if (layer.styleRef) {
-      const supplied =
+      const effective =
         authoritative && !("reason" in authoritative)
-          ? { [layer.id]: authoritative.override }
-          : options.styleRefBodies?.[layer.styleRef.styleId];
+          ? compositionStyleOverride(authoritative.override, resolution.layerType, layer.visible, {
+              filter: options.appearance?.filters?.[layer.id],
+              opacity: options.appearance?.opacity?.[layer.id],
+            })
+          : undefined;
+      const supplied = effective
+        ? {
+            [layer.id]: effective,
+            ...(resolution.layerType === "fill" && effective.filter !== undefined
+              ? { [`${layer.id}${OUTLINE_LAYER_SUFFIX}`]: { filter: effective.filter } }
+              : {}),
+          }
+        : options.styleRefBodies?.[layer.styleRef.styleId];
       const body: HonuaStyleRefBody = supplied ?? {
         [layer.id]: styleRefFallbackOverride(
           layer.styleRef.styleId,

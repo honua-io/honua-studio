@@ -4,6 +4,7 @@ import {
   parseStyleLayers,
   styleContentHash,
 } from "../styles/authoritative-style-provider.js";
+import { compositionStyleOverride } from "../styles/composition-style-override.js";
 import type { LiveSemanticCheck, LiveSemanticScore } from "./live-semantic-scorer.js";
 
 /** Explicit user-readable requirements; neither field nor palette is inferred from a style id. */
@@ -22,6 +23,7 @@ export interface LiveStyleObservation {
   /** Read from the actual MapLibre map, never the intended projection. */
   readonly renderedLayer: Readonly<Record<string, unknown>>;
   readonly renderedFeatureCount: number;
+  readonly appearance?: { readonly filter?: unknown; readonly opacity?: number };
 }
 
 /** Supplements the existing strict score; it cannot turn unrelated failures into passes. */
@@ -35,7 +37,7 @@ export async function applyAuthoritativeStyleEvidence(
   if (
     !requirement ||
     !requirement.description ||
-    (!requirement.classificationField && !requirement.palette) ||
+    (!requirement.classificationField && Object.keys(requirement.palette ?? {}).length === 0) ||
     !observations?.length
   )
     return score;
@@ -83,10 +85,24 @@ export async function applyAuthoritativeStyleEvidence(
       const styleLayer = selected[0];
       if (styleLayer) {
         check("rendered.type", styleLayer.type, renderedLayer.type);
-        for (const key of ["layout", "filter", "minzoom", "maxzoom"] as const)
-          check(`rendered.${key}`, styleLayer[key], renderedLayer[key]);
+        const expected = compositionStyleOverride(
+          {
+            paint: styleLayer.paint as Record<string, unknown> | undefined,
+            layout: styleLayer.layout as Record<string, unknown> | undefined,
+            filter: styleLayer.filter,
+            minzoom: styleLayer.minzoom as number | undefined,
+            maxzoom: styleLayer.maxzoom as number | undefined,
+          },
+          String(styleLayer.type),
+          composed?.visible ?? false,
+          observation.appearance,
+        );
+        check("rendered.layout", expected.layout ?? {}, renderedLayer.layout ?? {});
+        check("rendered.filter", expected.filter, renderedLayer.filter);
+        check("rendered.minzoom", expected.minzoom ?? 0, renderedLayer.minzoom ?? 0);
+        check("rendered.maxzoom", expected.maxzoom ?? 24, renderedLayer.maxzoom ?? 24);
         const paint = renderedLayer.paint as Record<string, unknown> | undefined;
-        for (const [key, expected] of Object.entries((styleLayer.paint ?? {}) as Record<string, unknown>))
+        for (const [key, expected] of Object.entries(expected.paint ?? {}))
           check(`rendered.paint.${key}`, expected, paint?.[key]);
         if (requirement.classificationField) {
           const descriptor = JSON.parse(binding.descriptorBody) as { fields?: Array<{ name?: string }> };
@@ -118,7 +134,7 @@ export async function applyAuthoritativeStyleEvidence(
           );
         }
         for (const [key, expected] of Object.entries(requirement.palette ?? {}))
-          check(`palette.${key}`, expected, paint?.[key]);
+          check(`palette.${key}`, expected, (styleLayer.paint as Record<string, unknown> | undefined)?.[key]);
       }
     } catch (error) {
       check("definition.valid", true, error instanceof Error ? error.message : String(error));

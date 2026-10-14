@@ -41,3 +41,32 @@ observations and explicit requirements, style cases remain
 corpus or turn scripted calls into model-quality evidence. Real synthetic
 style create/readback, rendered browser evidence and cleanup are still required
 for issue86; release-candidate qualification remains a separate gate.
+
+## Production browser corpus observer
+
+Set `HONUA_CORPUS_STYLE_REQUIREMENTS` to a JSON file keyed by corpus task ID,
+with each requirement naming `sourceId`, actual upstream `serverRoot`, a
+user-readable `description`, and `classificationField` or explicit `palette`.
+Use `HONUA_CORPUS_AUTH_MODULE` for the normal fresh host token callback and
+`HONUA_CORPUS_SOURCES` for explicit host-catalog aliases. The observer verifies
+those aliases against real discovered service/layer identities and uses the
+actual discovered locator bytes. Build production first, then run the corpus
+under the shared build lock. The style branch must include the authenticated
+feature transport before real rendering can pass.
+
+The CLI starts an actual production preview and browser, then replays each
+independently read server composition through the public controller API. It
+never installs source/style metadata overrides or intercepts routes. For cases
+with an unspecified view it frames bounds derived from the actual bounded
+EPSG:4326 GeoJSON feature response, recording the exact request, response hash
+and diagnostic camera separately from untouched composition state. Unverified
+CRS or missing real features cannot pass. The receipt records the explicit
+preview-proxy to owned-upstream binding, production asset hashes, actual
+requests, per-turn runtime observations and screenshots. Browser origin and
+upstream server identity remain distinct.
+
+Explicit visibility, active filters and opacity controls remain authoritative:
+hidden layers stay hidden, control filters are combined with canonical filters,
+and control opacity multiplies canonical opacity. Derived polygon outlines use
+the same effective filter. Evidence compares the effective rendered properties
+while checking requested palette values against the canonical definition.

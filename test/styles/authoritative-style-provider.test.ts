@@ -1,3 +1,4 @@
+import { composeStyle } from "@honua/sdk-js/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { compositionToMapPackage } from "../../src/map/map-package-projection.js";
@@ -81,6 +82,40 @@ function fixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe("authoritative style provider", () => {
+  it("preserves hidden layers, combines active filters and scales canonical opacity in the actual SDK composition", async () => {
+    const binding = await fixture().provider.bind("district", source);
+    const canonicalFilter = ["==", ["get", "district"], "East"];
+    const controlFilter = [">", ["get", "year_built"], 1970];
+    const styled = {
+      ...binding,
+      override: {
+        ...binding.override,
+        layout: { visibility: "visible" },
+        filter: canonicalFilter,
+        paint: { ...binding.override.paint, "fill-opacity": 0.8 },
+      },
+    };
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: [{ id: "composed", sourceId: source.id, visible: false, styleRef: { styleId: "district" } }],
+    };
+    const projected = compositionToMapPackage(state, {
+      catalog: [source],
+      authoritativeStyles: { composed: styled },
+      appearance: { filters: { composed: controlFilter }, opacity: { composed: 0.5 } },
+    });
+    const actual = await composeStyle(projected.mapPackage, projected.mapPackage.mapSpec, {});
+    const layer = actual.layers.find((entry) => entry.id === "composed");
+    expect(layer?.layout?.visibility).toBe("none");
+    expect(layer?.paint?.["fill-opacity"]).toBe(0.4);
+    expect(layer?.filter).toEqual(["all", canonicalFilter, controlFilter]);
+    expect(actual.layers.find((entry) => entry.id === "composed__outline")?.filter).toEqual([
+      "all",
+      canonicalFilter,
+      controlFilter,
+    ]);
+  });
+
   it("projects canonical paint onto the existing layer and refuses missing bindings", async () => {
     const binding = await fixture().provider.bind("district", source);
     const state = {

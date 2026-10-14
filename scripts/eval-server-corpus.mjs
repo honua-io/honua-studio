@@ -36,6 +36,18 @@ const sourcesPath = process.env.HONUA_CORPUS_SOURCES;
 const sources = sourcesPath ? JSON.parse(await readFile(sourcesPath, "utf8")) : undefined;
 if (sources !== undefined && !Array.isArray(sources))
   throw new Error("HONUA_CORPUS_SOURCES must name a JSON array of trusted source descriptors.");
+let styleObserver;
+const styleRequirementsPath = process.env.HONUA_CORPUS_STYLE_REQUIREMENTS;
+if (styleRequirementsPath) {
+  const { createBrowserStyleObserver } = await import("./browser-style-observer.mjs");
+  styleObserver = await createBrowserStyleObserver({
+    baseUrl,
+    tokenProvider,
+    sources,
+    requirements: JSON.parse(await readFile(styleRequirementsPath, "utf8")),
+    directory: resolve(directory, "browser-styles"),
+  });
+}
 const server = await createServer({ configFile: false, server: { middlewareMode: true }, appType: "custom" });
 try {
   const { runServerCorpus } = await server.ssrLoadModule("/src/evals/server-corpus.ts");
@@ -46,6 +58,8 @@ try {
     tokenProvider,
     model,
     sources,
+    styleRequirements: styleObserver?.requirements,
+    observeStyles: styleObserver?.observe,
     runId: crypto.randomUUID(),
   });
   receipt.sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -71,5 +85,6 @@ try {
   if (!receipt.passed || receipt.semanticSummary?.failed > 0 || receipt.semanticSummary?.prerequisiteUnmet > 0)
     process.exitCode = 1;
 } finally {
+  await styleObserver?.close();
   await server.close();
 }

@@ -265,6 +265,7 @@ export async function runServerCorpus(options: {
     baseUrl,
     observedAt: new Date().toISOString(),
     sources: options.sources,
+    styleRequirements: options.styleRequirements,
     passed: cases.every((entry) => entry.passed),
     ...(options.model
       ? {
