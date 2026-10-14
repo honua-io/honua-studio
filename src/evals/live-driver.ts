@@ -24,10 +24,17 @@ export class LiveTurnDriver implements EvalTurnDriver {
       if (!this.#dispatch) return Promise.reject(new Error("No active eval turn."));
       return this.#dispatch(name, args);
     };
+    const currentDraft = () => this.session.draft;
     class BridgeClient extends SdkMcpClient {
       public override callTool(name: string, args: Record<string, unknown> = {}): Promise<McpToolsCallResult> {
         // StudioAgentSession reaches this method only AFTER verifying the signed provider transcript.
         // Discovery still uses the real inherited tools/list HTTP path.
+        if (name === "honua_studio_get_draft") {
+          const draft = currentDraft();
+          if (!draft) return Promise.reject(new Error("No owned draft is attached."));
+          // Model-provided identifiers never select a different tenant's or case's draft.
+          return super.callTool(name, { draftId: draft.draftId });
+        }
         return dispatch(name, args);
       }
     }
@@ -41,7 +48,7 @@ export class LiveTurnDriver implements EvalTurnDriver {
       }),
       maxToolRounds: 8,
       system: () =>
-        `Compose the requested map using the discovered composition tools. Available sources from the trusted server catalog: ${JSON.stringify(options.sourceCatalog ?? [])}. The current app projection is ${JSON.stringify(this.#context?.state)}. Preserve pinned layers. Do not publish, approve, save versions, create, delete or replace drafts. Publication needs a separate human gate. Apply only the requested changes; explain unsupported actions.`,
+        `Compose the requested map using the discovered composition tools. Your existing owned draft binding is ${JSON.stringify(currentDraft())}; use its actual draftId and generation for tool calls. Available sources from the trusted server catalog: ${JSON.stringify(options.sourceCatalog ?? [])}. The current app projection is ${JSON.stringify(this.#context?.state)}. Preserve pinned layers. Do not publish, approve, save versions, create, delete or replace drafts. Publication needs a separate human gate. Apply only the requested changes; explain unsupported actions.`,
       onEvent: (event) => {
         this.events.push(event);
         options.onEvent?.(event);

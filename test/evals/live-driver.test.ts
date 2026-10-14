@@ -23,10 +23,10 @@ const task: EvalTask = {
 };
 
 describe("live driver dispatch boundary", () => {
-  for (const tampered of [false, true]) {
-    it(tampered
-      ? "rejects invalid provenance before any draft mutation"
-      : "dispatches a verified call exactly once through the real bridge", async () => {
+  for (const scenario of ["valid", "tampered-mutation", "owned-read", "tampered-read"]) {
+    const tampered = scenario.startsWith("tampered");
+    const readFirst = scenario.endsWith("read");
+    it(`routes verified calls through the owned draft boundary: ${scenario}`, async () => {
       const server = await startMockServer();
       try {
         const auth = { getAccessToken: async () => mintFixtureAccessToken() };
@@ -57,22 +57,35 @@ describe("live driver dispatch boundary", () => {
           }),
           transport: {
             async *streamChat(request) {
+              expect(JSON.stringify(request.system)).toContain(draft.draftId);
+              const currentRound = round++;
               const events: StudioAiChatEvent[] =
-                round++ === 0
+                readFirst && currentRound === 0
                   ? [
-                      { type: "toolCallStart", toolCallId: "model-call", toolName: "honua_studio_add_layer" },
+                      { type: "toolCallStart", toolCallId: "read-call", toolName: "honua_studio_get_draft" },
                       {
                         type: "toolCallStop",
-                        toolCallId: "model-call",
-                        toolName: "honua_studio_add_layer",
-                        toolArguments: { layer: { id: "hi-parcels", sourceId: "hi-parcels" } },
+                        toolCallId: "read-call",
+                        toolName: "honua_studio_get_draft",
+                        toolArguments: { draftId: "must-not-read-another-draft" },
                       },
                       { type: "messageStop", stopReason: "toolCall" },
                     ]
-                  : [
-                      { type: "textDelta", text: "Added." },
-                      { type: "messageStop", stopReason: "endTurn" },
-                    ];
+                  : currentRound === (readFirst ? 1 : 0)
+                    ? [
+                        { type: "toolCallStart", toolCallId: "model-call", toolName: "honua_studio_add_layer" },
+                        {
+                          type: "toolCallStop",
+                          toolCallId: "model-call",
+                          toolName: "honua_studio_add_layer",
+                          toolArguments: { layer: { id: "hi-parcels", sourceId: "hi-parcels" } },
+                        },
+                        { type: "messageStop", stopReason: "toolCall" },
+                      ]
+                    : [
+                        { type: "textDelta", text: "Added." },
+                        { type: "messageStop", stopReason: "endTurn" },
+                      ];
               for (const event of events) yield event;
               const envelope = signer.sign(request, events);
               yield tampered ? { ...envelope, provenance: { ...envelope.provenance, signature: "AAAA" } } : envelope;
@@ -87,7 +100,9 @@ describe("live driver dispatch boundary", () => {
         const stored = await tools.getDraft(draft.draftId);
         expect(run.toolCalls).toHaveLength(tampered ? 0 : 1);
         expect(stored.generation).toBe(draft.generation + (tampered ? 0 : 1));
-        expect(driver.session.messages.filter((message) => message.role === "tool")).toHaveLength(tampered ? 0 : 1);
+        expect(driver.session.messages.filter((message) => message.role === "tool")).toHaveLength(
+          tampered ? 0 : readFirst ? 2 : 1,
+        );
       } finally {
         await server.close();
       }

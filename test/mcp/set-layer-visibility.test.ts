@@ -50,6 +50,19 @@ async function liveSession() {
 }
 
 describe("honua_studio_set_layer_visibility delegation (honua-studio#31)", () => {
+  it("accepts the actual discovered server tool name and persists its result", async () => {
+    server = await startMockServer();
+    const { controller, orchestrator } = await liveSession();
+    const result = await orchestrator.handleToolCall({
+      toolName: "honua_studio_set_layer_visibility",
+      arguments: { layerId: "parcels", visible: false },
+    });
+    expect(result).toMatchObject({ ok: true, mode: "server" });
+    const tools = new StudioMcpToolClient(new McpClient({ baseUrl: server.url, auth: auth() }));
+    const stored = await tools.getDraft(orchestrator.draftId as string);
+    expect(applyStudioDraft(stored, controller.state).layers[0]?.visible).toBe(false);
+  });
+
   it("a visibility toggle advances the server draft, and the client re-reads the returned generation", async () => {
     server = await startMockServer();
     const { controller, orchestrator } = await liveSession();
