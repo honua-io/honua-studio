@@ -257,3 +257,13 @@ configure the SDK verifier, or inject their own verifier via `agentCertification
 The manifest must come from the host's authenticated, trusted server identity.
 The preview mock signs with an ephemeral fixture-only Ed25519 key; it is never a
 production trust source or proof of a hosted model.
+
+
+The owned browser observer also inspects actual chart/table cards on each observed
+data-widget turn. It records SVG mark values, chart summaries, grid row counts and
+cell values; missing, loading, empty or failed data cards do not qualify as
+rendered data in this nonempty synthetic corpus. Visible card failures now fail
+the supplemental browser-observation check even if console errors are empty.
+These observations supplement authoritative state checks; they do not rewrite
+historical scorecards or change the strict fixture scorer. Bounded real widget
+proofs additionally compare rendered values to the captured FeatureCollection.
