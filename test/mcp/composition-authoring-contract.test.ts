@@ -68,6 +68,35 @@ describe("model composition authoring contract", () => {
     ).toBeUndefined();
   });
 
+  for (const [kind, expected] of [
+    ["compare", "two layers"],
+    ["time", "config.steps"],
+    ["table", "sourceId"],
+  ] as const) {
+    it(`refuses unrenderable ${kind} before durable dispatch`, async () => {
+      const fetchImpl = vi.fn();
+      const client = new StudioAuthoringMcpClient({ baseUrl: "https://example.test", fetchImpl });
+      const error = await client.callTool("honua_studio_add_widget", { widget: { id: "w", kind } });
+      expect(error.isError).toBe(true);
+      expect(JSON.stringify(error.content)).toContain(expected);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const widget of [
+    { id: "w", kind: "compare", config: { left: "layer-a", right: "layer-b" } },
+    { id: "w", kind: "time", config: { steps: [{ label: "First", layerId: "layer-a" }] } },
+    { id: "w", kind: "table", sourceId: "catalog-source" },
+    { id: "w", kind: "toc" },
+    { id: "w", kind: "legend" },
+  ]) {
+    it(`preserves valid ${widget.kind} rendering configuration`, () => {
+      const before = JSON.stringify(widget);
+      expect(compositionAuthoringError("honua_studio_add_widget", { widget })).toBeUndefined();
+      expect(JSON.stringify(widget)).toBe(before);
+    });
+  }
+
   for (const sourceId of [undefined, "", "   "]) {
     it(`refuses a chart without an actual source identifier: ${JSON.stringify(sourceId)}`, () => {
       const error = compositionAuthoringError("honua_studio_add_widget", {

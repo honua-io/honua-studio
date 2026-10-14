@@ -138,7 +138,11 @@ after adding the control. The declared target uses a layer ID and `args.field`, 
 `value: "$event.value"`; `args.attribute` does not execute a filter in the SDK.
 
 At the verified model MCP dispatch boundary, Studio rejects unknown widget/control
-kinds and chart/control configuration that its existing renderer cannot interpret.
+kinds and widget/control configuration that its existing renderer cannot interpret.
+All widget readers participate: compare needs a layer pair, time needs visibility
+steps, and charts/tables need a source. Controls with a fully declared domain may
+use a later explicit target binding without sourceId; a select without options
+requires a source from which to discover its domain.
 Failures return actionable tool results before a durable mutation. This host admission
 does not rewrite signed arguments, replace discovery, or change imported draft admission.
 It does not infer source fields or fabricate an interaction on the user's behalf.
