@@ -21,7 +21,7 @@ const request: StudioAiChatRequest = {
 };
 
 async function collect(transport: VerifiedRoundTransport) {
-  const events: StudioAiChatEvent[] = [{ type: "messageStart", model: "fixture" }];
+  const events: StudioAiChatEvent[] = [];
   for await (const event of transport.streamChat(request, new AbortController().signal)) events.push(event);
   return events;
 }

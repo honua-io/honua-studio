@@ -42,7 +42,7 @@ real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
 Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
-808 unit tests across 86 files and 29 Playwright browser journeys, including four accessibility checks.
+852 unit tests across 88 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -161,7 +161,7 @@ instantly and the fixture conversation drives the canvas without a model.
 Against a real server:
 
 ```bash
-HONUA_BASE_URL=http://localhost:8080 npm run dev:live
+HONUA_BASE_URL=http://localhost:8520 npm run dev:live
 ```
 
 Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
@@ -204,7 +204,7 @@ IdP (the same `Authority` honua-server validates bearer tokens against).
 Development accepts environment variables:
 
 ```bash
-HONUA_BASE_URL=http://localhost:8080 \
+HONUA_BASE_URL=http://localhost:8520 \
 HONUA_OIDC_ISSUER=https://idp.example.com/realms/honua \
 HONUA_OIDC_CLIENT_ID=honua-studio \
 npm run dev:live

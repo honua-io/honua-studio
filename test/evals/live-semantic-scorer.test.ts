@@ -12,11 +12,7 @@ import { StudioMcpToolClient } from "../../src/mcp/studio-tools.js";
 import { applyStudioDraft, toStudioCompositionBody } from "../../src/mcp/tool-bridge.js";
 
 type Input = Parameters<typeof scoreLiveSemanticRun>[0];
-type Mutable<T> = T extends readonly (infer Value)[]
-  ? Mutable<Value>[]
-  : T extends object
-    ? { -readonly [Key in keyof T]: Mutable<T[Key]> }
-    : T;
+type Mutable<T> = T extends object ? { -readonly [Key in keyof T]: Mutable<T[Key]> } : T;
 const baselines = new Map<string, Input>();
 
 beforeAll(async () => {
