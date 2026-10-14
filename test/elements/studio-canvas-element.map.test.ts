@@ -122,6 +122,7 @@ describe("<honua-studio-canvas> map surface (honua-studio#23)", () => {
     });
     const { factoryCalls } = await mountWithMap();
     expect(factoryCalls[0]?.sourceBaseUrl).toBe("https://data.test/honua");
+    expect(factoryCalls[0]?.legacySourceBaseUrl).toBe("https://api.test/admin/api");
   });
 
   it("restarts failed sources when a direct host session arrives and respects a custom data root", async () => {

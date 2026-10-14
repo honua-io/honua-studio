@@ -4,6 +4,8 @@ import { type Mock, afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "../../src/auth/types.js";
 import { installAuthenticatedSourceProtocol, trustedSourceUrl } from "../../src/map/authenticated-source-protocol.js";
 
+import { isCompositionSourceResolution, resolveCompositionSource } from "../../src/map/source-resolution.js";
+
 const documentUrl = "https://studio.test/app/";
 const sourceBaseUrl = "https://honua.test/deployment/api";
 const source = "https://honua.test/deployment/rest/services/Maps/Roads/FeatureServer/7/query?f=geojson";
@@ -12,7 +14,7 @@ const collection = {
   features: [{ type: "Feature", geometry: null, properties: { id: 1 } }],
 };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-function setup(fetchImpl = vi.fn(async () => response(collection))) {
+function setup(fetchImpl = vi.fn(async () => response(collection)), legacySourceBaseUrl?: string) {
   let handler: AddProtocolAction | undefined;
   let protocol = "";
   let auth: { getAccessToken: Mock<AuthSession["getAccessToken"]> } | undefined = {
@@ -28,6 +30,7 @@ function setup(fetchImpl = vi.fn(async () => response(collection))) {
   const onError = vi.fn();
   const transport = installAuthenticatedSourceProtocol(registry, {
     sourceBaseUrl,
+    legacySourceBaseUrl,
     documentUrl,
     getAuth: () => auth,
     fetchImpl,
@@ -51,6 +54,47 @@ function setup(fetchImpl = vi.fn(async () => response(collection))) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("trusted authenticated map sources", () => {
+  it.each([
+    ["ogc-features", "/api"],
+    ["geoservices-feature-service", "/api"],
+    ["ogc-features", "/honua/api"],
+    ["geoservices-feature-service", "/honua/api"],
+    ["ogc-features", "https://legacy.test/honua/api"],
+    ["geoservices-feature-service", "https://legacy.test/honua/api"],
+  ])("authenticates actual no-locator %s resolution under %s", async (protocol, baseUrl) => {
+    const resolved = resolveCompositionSource(
+      { id: "roads", sourceId: "roads", visible: true },
+      {
+        baseUrl,
+        catalog: [{ id: "roads", title: "Roads", protocol, geometryType: "LineString" }],
+      },
+    );
+    expect(isCompositionSourceResolution(resolved)).toBe(true);
+    if (!isCompositionSourceResolution(resolved)) throw new Error("Expected source resolution");
+    const url = String(resolved.source.data);
+    const context = setup(undefined, baseUrl);
+    const transformed = context.transport.transformRequest(url, "Source" as ResourceType);
+    expect(transformed?.url).toMatch(/^honua-session-\d+:\/\//);
+    expect(await context.run(url)).toEqual({ data: collection });
+    expect(context.fetchImpl).toHaveBeenCalledWith(
+      new URL(url, documentUrl).href,
+      expect.objectContaining({ headers: { Authorization: "Bearer fresh-token" } }),
+    );
+  });
+  it.each([
+    "https://foreign.test/honua/api/rest/services/Roads/FeatureServer/0/query",
+    "https://legacy.test/honua/api-other/rest/services/Roads/FeatureServer/0/query",
+    "https://legacy.test/honua/rest/services/Roads/FeatureServer/0/query",
+    "https://legacy.test/honua/api/admin",
+    "https://legacy.test/honua/api/rest/services/%252fadmin/FeatureServer/0/query",
+  ])("refuses untrusted legacy URL before accessing auth: %s", async (url) => {
+    const context = setup(undefined, "https://legacy.test/honua/api");
+    expect(context.transport.transformRequest(url, "Source" as ResourceType)).toEqual({ url });
+    await expect(context.run(url)).rejects.toThrow("outside the trusted");
+    expect(context.auth?.getAccessToken).not.toHaveBeenCalled();
+    expect(context.fetchImpl).not.toHaveBeenCalled();
+  });
+
   it.each([
     source,
     "https://honua.test/deployment/rest/services/City%20Maps/Roads/FeatureServer/7/query",

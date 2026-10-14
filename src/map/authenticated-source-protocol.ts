@@ -8,6 +8,8 @@ export interface SourceProtocolRegistry {
 
 export interface AuthenticatedSourceOptions {
   readonly sourceBaseUrl: string;
+  /** Older host catalogs resolve feature routes beneath this API root verbatim. */
+  readonly legacySourceBaseUrl?: string;
   readonly documentUrl: string;
   readonly getAuth: () => Pick<AuthSession, "getAccessToken"> | undefined;
   readonly onError?: (error: Error) => void;
@@ -17,22 +19,32 @@ export interface AuthenticatedSourceOptions {
 let nextProtocol = 0;
 
 /** Credentials belong only to bounded Honua feature endpoints under the configured deployment root. */
-export function trustedSourceUrl(url: string, sourceBaseUrl: string, documentUrl: string): URL | undefined {
+export function trustedSourceUrl(
+  url: string,
+  sourceBaseUrl: string,
+  documentUrl: string,
+  legacySourceBaseUrl?: string,
+): URL | undefined {
   try {
-    const base = new URL(sourceBaseUrl || "/", documentUrl);
     const target = new URL(url, documentUrl);
-    if (!/^https?:$/.test(base.protocol) || target.origin !== base.origin || target.username || target.password) return;
+    if (!/^https?:$/.test(target.protocol) || target.username || target.password) return;
     // Proxies may decode a path before the router does. Never forward credentials
     // through encoded separators or a percent escape that permits another decode.
     if (/%(?:2f|5c|25)/i.test(target.pathname)) return;
-    const prefix = base.pathname.replace(/\/api\/?$/, "").replace(/\/$/, "");
-    if (!target.pathname.startsWith(`${prefix}/`)) return;
-    const route = target.pathname.slice(prefix.length);
-    if (
-      /^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(route) ||
-      /^\/ogc\/collections\/[^/]+\/items$/.test(route)
-    )
-      return target;
+    const roots = [{ value: sourceBaseUrl || "/", stripApi: true }];
+    if (legacySourceBaseUrl !== undefined) roots.push({ value: legacySourceBaseUrl, stripApi: false });
+    for (const root of roots) {
+      const base = new URL(root.value, documentUrl);
+      if (!/^https?:$/.test(base.protocol) || target.origin !== base.origin) continue;
+      const prefix = (root.stripApi ? base.pathname.replace(/\/api\/?$/, "") : base.pathname).replace(/\/$/, "");
+      if (!target.pathname.startsWith(`${prefix}/`)) continue;
+      const route = target.pathname.slice(prefix.length);
+      if (
+        /^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(route) ||
+        /^\/ogc\/collections\/[^/]+\/items$/.test(route)
+      )
+        return target;
+    }
   } catch {
     // Malformed or non-network URLs are never credential destinations.
   }
@@ -58,6 +70,7 @@ export function installAuthenticatedSourceProtocol(
         decodeURIComponent(request.url.slice(prefix.length)),
         options.sourceBaseUrl,
         options.documentUrl,
+        options.legacySourceBaseUrl,
       );
       if (!target) throw new Error("Map source is outside the trusted Honua feature endpoints.");
       pending.add(controller);
@@ -103,7 +116,9 @@ export function installAuthenticatedSourceProtocol(
   };
   registry.addProtocol(scheme, handler);
   const transformRequest: RequestTransformFunction = (url, resourceType) => {
-    const trusted = resourceType === "Source" && trustedSourceUrl(url, options.sourceBaseUrl, options.documentUrl);
+    const trusted =
+      resourceType === "Source" &&
+      trustedSourceUrl(url, options.sourceBaseUrl, options.documentUrl, options.legacySourceBaseUrl);
     return { url: trusted ? `${prefix}${encodeURIComponent(trusted.href)}` : url };
   };
   return {

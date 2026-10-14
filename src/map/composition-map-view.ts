@@ -93,6 +93,7 @@ export interface CompositionMapFactoryOptions {
   readonly attributionText: string;
   readonly getAuth?: () => AuthSession | undefined;
   readonly sourceBaseUrl?: string;
+  readonly legacySourceBaseUrl?: string;
   readonly onSourceError?: (error: Error) => void;
 }
 
@@ -171,6 +172,7 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
     ? installAuthenticatedSourceProtocol(registry, {
         getAuth: options.getAuth,
         sourceBaseUrl: options.sourceBaseUrl ?? "/api",
+        legacySourceBaseUrl: options.legacySourceBaseUrl,
         documentUrl: document.baseURI,
         onError: options.onSourceError,
       })
@@ -343,6 +345,7 @@ export class CompositionMapView {
         attributionText: "Honua Studio",
         getAuth: this.#options.getAuth,
         sourceBaseUrl: this.#options.sourceAuthBaseUrl ?? this.#options.projection?.baseUrl,
+        legacySourceBaseUrl: this.#options.projection?.baseUrl ?? "/api",
         onSourceError: (error) => {
           this.#statusDetail = `Map source could not load: ${error.message}`;
           this.#notify();
