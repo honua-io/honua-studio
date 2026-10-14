@@ -313,6 +313,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#session = session;
     if (!this.isConnected) return;
     this.resetAuth();
+    // A host-owned catalog does not reload on session replacement. Invalidate
+    // its widget rows explicitly rather than leaving another session's data visible.
+    for (const canvas of this.querySelectorAll<HonuaStudioCanvasElement>("honua-studio-canvas")) {
+      canvas.widgetDeck?.refreshSession();
+    }
     // Both live clients capture the AuthSession supplied at construction.
     // Replace them explicitly when an embedding host swaps credentials;
     // a host-owned catalog intentionally does not refresh and therefore

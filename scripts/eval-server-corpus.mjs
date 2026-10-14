@@ -49,7 +49,11 @@ if (styleRequirementsPath) {
     directory: resolve(directory, "browser-styles"),
   });
 }
-const server = await createServer({ configFile: false, server: { middlewareMode: true }, appType: "custom" });
+const server = await createServer({
+  configFile: false,
+  server: { middlewareMode: true, ws: false },
+  appType: "custom",
+});
 try {
   const { runServerCorpus } = await server.ssrLoadModule("/src/evals/server-corpus.ts");
   const receipt = await runServerCorpus({
