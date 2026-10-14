@@ -68,6 +68,42 @@ describe("model composition authoring contract", () => {
     ).toBeUndefined();
   });
 
+  for (const config of [
+    { kind: "filterSlider", field: "height", min: 0, max: 10, step: 0 },
+    { kind: "filterSlider", field: "height", min: 0, max: 10, step: -1 },
+    { kind: "timeSlider", field: "date", from: "2026-99-99", to: "2027-01-01" },
+    { kind: "timeSlider", field: "date", from: "2026-02-29", to: "2026-03-01" },
+    { kind: "timeSlider", field: "date", from: "2024-02-30", to: "2024-03-01" },
+    { kind: "timeSlider", field: "date", from: "2026-01-02", to: "2026-01-01" },
+  ]) {
+    it(`rejects the invalid authored control domain before dispatch: ${JSON.stringify(config)}`, async () => {
+      const fetchImpl = vi.fn();
+      const client = new StudioAuthoringMcpClient({ baseUrl: "https://example.test", fetchImpl });
+      const { kind, ...domain } = config;
+      const result = await client.callTool("honua_studio_add_control", {
+        control: { id: "domain", kind, config: domain },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain(kind === "filterSlider" ? "positive" : "calendar dates");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const config of [
+    { kind: "filterSlider", field: "height", min: 0, max: 10, step: 0.5 },
+    { kind: "timeSlider", field: "date", from: "2024-02-29", to: "2024-03-01" },
+    { kind: "timeSlider", field: "date", from: "2024-02-29", to: "2024-02-29" },
+    { kind: "timeSlider", field: "date", start: "2024-02-29T12:00:00Z", end: "2024-03-01T12:00:00Z" },
+  ]) {
+    it(`preserves valid normalized control domains: ${JSON.stringify(config)}`, () => {
+      const { kind, ...domain } = config;
+      const args = { control: { id: "domain", kind, config: domain } };
+      const before = JSON.stringify(args);
+      expect(compositionAuthoringError("honua_studio_add_control", args)).toBeUndefined();
+      expect(JSON.stringify(args)).toBe(before);
+    });
+  }
+
   for (const [kind, expected] of [
     ["compare", "two layers"],
     ["time", "config.steps"],

@@ -153,6 +153,25 @@ describe("interactions/declarative (@honua/sdk-js)", () => {
   });
 
   describe("compile", () => {
+    it("defaults an omitted authored operator to equality even when the actual control event uses >=", async () => {
+      const compiled = compileHonuaInteractions(
+        [
+          binding({
+            do: { ref: "layer:parcels", verb: "setFilter", args: { field: "year_built", value: "$event.value" } },
+          }),
+        ],
+        { view: compilerView(), components: components() },
+      );
+      try {
+        expect(compiled.ok).toBe(true);
+        gesture("district", { field: "year_built", operator: ">=", value: 2000 });
+        await flush();
+        expect(setFilter).toHaveBeenCalledWith({ field: "year_built", operator: "=", value: 2000 });
+      } finally {
+        compiled.dispose();
+      }
+    });
+
     for (const spelling of ["field", "attribute"] as const) {
       it(`executes only the SDK field grammar, not ${spelling === "field" ? "an invented alias" : "attribute-only arguments"}`, async () => {
         const compiled = compileHonuaInteractions(

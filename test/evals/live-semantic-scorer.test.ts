@@ -206,6 +206,29 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
     fails(input, "final.slider.target");
   });
 
+  it("rejects an omitted binding operator because the installed SDK defaults to equality, not the slider event", async () => {
+    const input = renderableFilterInput();
+    for (const state of states(input)) {
+      state.controls[0].sourceId = undefined;
+      state.interactions[0].do.args = { field: "year_built", value: "$event.value" };
+    }
+    const controller = new CompositionController(input.run.state);
+    const runtime = new StudioInteractionRuntime({ controller });
+    try {
+      runtime.publishControlChange(input.run.state.controls[0].id, {
+        field: "year_built",
+        operator: ">=",
+        value: 2000,
+      });
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(JSON.stringify(runtime.appearance.filters["hi-parcels"])).toContain('["==",["get","year_built"],2000]');
+      fails(input, "final.filterBinding.matches");
+    } finally {
+      runtime.dispose();
+    }
+  });
+
   it("rejects duplicate matching components", () => {
     const input = inputFor("add-then-remove-widgets");
     for (const state of [input.run.state, input.observations[1].localState, input.observations[1].serverState]) {
