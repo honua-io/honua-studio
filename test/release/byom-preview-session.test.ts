@@ -1,4 +1,8 @@
-import { createStudioAgentSession } from "@honua/sdk-js/studio-agent";
+import {
+  InMemoryStudioAiReplayStore,
+  StudioAiTranscriptVerifier,
+  createStudioAgentSession,
+} from "@honua/sdk-js/studio-agent";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
@@ -29,7 +33,21 @@ describe("byom preview session", () => {
       schemaVersion: "1.0",
     });
     const draft = created.result.structuredContent;
+    const capabilities = await fetch(`${server.url}/v1/studio/ai/capabilities`, {
+      headers: { authorization: `Bearer ${token}` },
+    }).then((response) => response.json());
     const session = createStudioAgentSession({
+      certification: {
+        candidateId: "fixture",
+        releaseId: "preview",
+        endpointIdentity: server.url,
+        actionId: "byom-preview",
+        runNonce: crypto.randomUUID(),
+      },
+      transcriptVerifier: new StudioAiTranscriptVerifier({
+        manifest: capabilities.data.transcriptSigning,
+        replayStore: new InMemoryStudioAiReplayStore(),
+      }),
       baseUrl: server.url,
       auth: { getAccessToken: async () => token },
       draft: { draftId: draft.draftId, generation: draft.generation },
@@ -39,7 +57,7 @@ describe("byom preview session", () => {
     const turn = await session.chat(
       "Add the Hawaii parcels layer, zoom the map, save a version, reopen it, and propose sharing it.",
     );
-    expect(turn.status).toBe("completed");
+    expect(turn.status, JSON.stringify(turn)).toBe("completed");
     expect(turn.toolCalls.map((call) => call.toolName)).toEqual([
       "honua_studio_add_layer",
       "honua_studio_set_view",

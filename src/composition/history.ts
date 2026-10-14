@@ -104,6 +104,15 @@ export class CompositionHistory {
     return this.#redoStack.length > 0;
   }
 
+  /** Inspect a history target before an authoritative server accepts the change. */
+  public peekUndo(): CompositionState | undefined {
+    return this.#undoStack.at(-2)?.state;
+  }
+
+  public peekRedo(): CompositionState | undefined {
+    return this.#redoStack.at(-1)?.state;
+  }
+
   public revisions(): readonly CompositionRevision[] {
     return [...this.#undoStack];
   }

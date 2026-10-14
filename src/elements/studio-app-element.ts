@@ -35,7 +35,13 @@
  * the same public properties/events any embedder could use.
  */
 import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
-import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
+import {
+  InMemoryStudioAiReplayStore,
+  type StudioAgentSession,
+  type StudioAiTranscriptCertification,
+  type StudioAiTranscriptSigningManifest,
+  StudioAiTranscriptVerifier,
+} from "@honua/sdk-js/studio-agent";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import {
@@ -191,6 +197,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #currentPath = "/";
   #chromeBuilt = false;
   #composition: CompositionController | undefined;
+  #historyUnsubscribe: (() => void) | undefined;
+  #historyBusy = false;
   #orchestrator: ToolCallOrchestrator | undefined;
   #liveCompositionPackageKey: string | undefined;
   #aiMapKit: HonuaAiMapKit | undefined;
@@ -236,6 +244,45 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public set agentCertification(options: StudioAgentCertificationOptions | undefined) {
     this.#agentCertification = options;
     if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
+  }
+
+  /** Undo/redo in the authoritative draft before advancing the visible history. */
+  public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
+    if (this.#historyBusy) return false;
+    this.#historyBusy = true;
+    this.paintHistoryControls();
+    try {
+      const applied = await this.toolCallOrchestrator.applyHistoryAction(action);
+      const { draftId, generation } = this.toolCallOrchestrator;
+      if (applied && draftId && generation !== undefined) {
+        this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.agentSession?.attachDraft({
+          draftId,
+          generation,
+        });
+      }
+      const status = this.shadowRoot?.querySelector('[data-testid="history-status"]');
+      if (status)
+        status.textContent = applied
+          ? action === "undo"
+            ? "Undone"
+            : "Redone"
+          : `Unable to ${action}. Review the activity log.`;
+      return applied;
+    } finally {
+      this.#historyBusy = false;
+      this.paintHistoryControls();
+    }
+  }
+
+  /** Configure the SDK verifier with verification keys explicitly trusted by the host. */
+  public configureAgentTranscriptVerification(
+    certification: StudioAiTranscriptCertification,
+    manifest: StudioAiTranscriptSigningManifest,
+  ): void {
+    this.agentCertification = {
+      certification,
+      transcriptVerifier: new StudioAiTranscriptVerifier({ manifest, replayStore: new InMemoryStudioAiReplayStore() }),
+    };
   }
 
   /**
@@ -713,6 +760,31 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // onConnect returns. renderChrome() is idempotent, so the base class's
     // own post-onConnect render() call is a cheap no-op sync, not a rebuild.
     this.renderChrome();
+    this.listen(this, "keydown", (event) => {
+      const key = event as KeyboardEvent;
+      if (!(key.ctrlKey || key.metaKey) || key.altKey) return;
+      if (
+        key
+          .composedPath()
+          .some(
+            (target) =>
+              target instanceof HTMLElement &&
+              (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)),
+          )
+      )
+        return;
+      const action =
+        key.key.toLowerCase() === "z"
+          ? key.shiftKey
+            ? "redo"
+            : "undo"
+          : key.key.toLowerCase() === "y"
+            ? "redo"
+            : undefined;
+      if (!action || !(action === "undo" ? this.composition.canUndo() : this.composition.canRedo())) return;
+      key.preventDefault();
+      void this.applyHistoryAction(action);
+    });
 
     const loader = this.ensureThemeLoader();
     // A host that already stamped data-theme-set/data-theme (markup, or a
@@ -932,6 +1004,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   protected onDisconnect(): void {
+    this.#historyUnsubscribe?.();
+    this.#historyUnsubscribe = undefined;
     this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     this.#agentSetupGeneration += 1;
     this.#hashRouter?.stop();
@@ -1030,6 +1104,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
                opening a console. -->
           <div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Composition mode">
             <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
+            <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
+            <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
+            <span class="hn-muted" data-testid="history-status" role="status"></span>
             <button
               type="button"
               class="hn-btn hn-btn--sm"
@@ -1137,6 +1214,18 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
 
     this.bindLiveCompositionControls();
+    for (const action of ["undo", "redo"] as const) {
+      root?.querySelector(`[data-testid="history-${action}"]`)?.addEventListener(
+        "click",
+        () => {
+          void this.applyHistoryAction(action);
+        },
+        { signal },
+      );
+    }
+    this.#historyUnsubscribe?.();
+    this.#historyUnsubscribe = this.composition.subscribe(() => this.paintHistoryControls());
+    this.paintHistoryControls();
 
     this.syncThemeControls();
     this.syncNavCurrent();
@@ -1212,6 +1301,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const form = root.querySelector<HTMLFormElement>('[data-testid="live-composition-form"]');
       if (form) form.hidden = true;
       toggle?.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  private paintHistoryControls(): void {
+    for (const action of ["undo", "redo"] as const) {
+      const button = this.shadowRoot?.querySelector<HTMLButtonElement>(`[data-testid="history-${action}"]`);
+      if (button)
+        button.disabled =
+          this.#historyBusy || !(action === "undo" ? this.composition.canUndo() : this.composition.canRedo());
     }
   }
 

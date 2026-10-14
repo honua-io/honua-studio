@@ -20,17 +20,17 @@ before claiming a capability, and update them (test counts included) when you ch
 ## Tech Stack
 
 - **Language:** TypeScript 5.9 (`strict`, `verbatimModuleSyntax`, `isolatedModules`, `moduleResolution: Bundler`, target `ES2022`, `noEmit`), ESM only.
-- **Node:** `>=20.19.0`; `.nvmrc` and CI pin `20.19.0`.
+- **Node:** `>=22.12.0`; `.nvmrc` and CI pin `22.23.3`.
 - **Bundler/dev server:** Vite 8 — multi-page build (the shell plus `harness/bare/`).
 - **Tests:** Vitest 4 (`environment: node`, `test/**/*.test.ts`) + Playwright 1.58 (chromium only, `test/playwright/*.spec.mjs`).
 - **Lint/format:** Biome 1.9.4 (`biome.json`), 2-space indent, 120 cols.
-- **Map runtime:** `maplibre-gl` 6.11.2 (its worker is bundled via `?worker&url`, see `src/map/composition-map-view.ts`); SDK pin `@honua/sdk-js` 0.1.9-beta.0.
+- **Map runtime:** `maplibre-gl` 6.11.2 (its worker is bundled via `?worker&url`, see `src/map/composition-map-view.ts`); SDK pin `@honua/sdk-js` 0.2.2.
 - **Blazor embed harness:** .NET 10 SDK (`harness/blazor-host/`), needed only for the `@blazor` lane.
 
 ## Setup
 
 ```bash
-nvm use            # Node 20.19.0 (.nvmrc)
+nvm use            # Node 22.23.3 (.nvmrc)
 npm ci             # lockfile present; use npm ci
 npm run dev        # http://localhost:5173 — mock fixture, no network, no model
 ```

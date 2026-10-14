@@ -38,6 +38,7 @@
 import type { StudioAiChatEvent, StudioAiChatMessage } from "../chat/ai-contract.js";
 import { FixtureChatTransport } from "../chat/fixture-transport.js";
 import type { CompositionState } from "../composition/model.js";
+import type { ToolCallOrchestrationResult } from "../mcp/orchestrator.js";
 import type { EvalTask, FixtureAssistantScript } from "./types.js";
 
 /** The outcome of one executed tool call, as reported back to the driver. */
@@ -47,6 +48,8 @@ export interface EvalToolResult {
   readonly ok: boolean;
   /** Human-readable outcome — the content a live driver puts in the `{ role: "tool" }` message. */
   readonly detail: string;
+  /** Actual bridge result, used to return the server draft to a verified live-model session. */
+  readonly outcome?: ToolCallOrchestrationResult;
 }
 
 /** Everything a driver needs to produce one assistant turn. */

@@ -42,7 +42,7 @@ real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
 Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
-796 unit tests across 83 files and 29 Playwright browser journeys, including four accessibility checks.
+804 unit tests across 86 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -95,14 +95,16 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   → canvas loop now runs through `StudioAgentSession`, while the eval corpus
   ([#46](https://github.com/honua-io/honua-studio/issues/46),
   [`docs/evals.md`](docs/evals.md)) scores fixture transcripts in PR CI today
-  and keeps its live-model lane behind the same driver seam.
+  and can run scripted or signature-verified model turns against an owned real
+  server with `npm run evals:server`. The scheduled model-quality gate remains
+  follow-up work.
 - **The GP panel talks to a fixture, not a server**
   ([#35](https://github.com/honua-io/honua-studio/issues/35)). `src/gp/job-client.ts`
   posts to `mock-server.mjs`'s job store, shaped to match `@honua/sdk-js`'s
   `IJobRun`/`JobStatus` so the swap to real OGC API Processes is a client
   substitution, not a rewrite.
 - **Fixture chat and MCP clients remain local.** The
-  `@honua/sdk-js` pin is `0.1.9-beta.0`
+  `@honua/sdk-js` pin is `0.2.2`
   ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
   the SDK's declarative interaction compiler and Studio lifecycle client —
   both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
@@ -147,7 +149,7 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
 ## Run it
 
 ```bash
-nvm use           # Node 20.19.0 (.nvmrc)
+nvm use           # Node 22.23.3 (.nvmrc)
 npm ci
 npm run dev       # http://localhost:5173 — mock honua-server fixture, no network, no model
 ```
