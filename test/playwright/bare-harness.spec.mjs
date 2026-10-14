@@ -41,7 +41,7 @@ test.describe("bare embed harness (harness/bare)", () => {
       await expect(page.getByTestId("app-shell")).toBeVisible();
       await expect(page.getByTestId("catalog-error")).toHaveCount(0);
       await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
-      await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");
+      await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
 
       // Default composition: chat + canvas placeholders are present and session-aware.
       await expect(page.getByTestId("studio-chat")).toBeVisible();

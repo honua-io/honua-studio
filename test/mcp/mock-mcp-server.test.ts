@@ -65,6 +65,7 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       "honua_studio_save_version",
       "honua_studio_reopen_version",
       "honua_studio_propose_publication",
+      "honua_list_layers",
     ]);
   });
 

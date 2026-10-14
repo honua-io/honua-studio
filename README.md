@@ -42,7 +42,7 @@ real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
 Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
-808 unit tests across 86 files and 29 Playwright browser journeys, including four accessibility checks.
+830 unit tests across 87 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -163,6 +163,14 @@ Against a real server:
 ```bash
 HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 ```
+
+The catalog reads the authenticated, paged `honua_list_layers` MCP tool and
+keeps each service/layer identity in an explicit map locator. **Add to map** uses
+the normal composition command path with that identity. The home package
+list reads `/api/v1/studio/content-items`: labels are package keys and badges
+are actual `draft`, `current`, or `published` item states. Empty content stores
+show an empty list. Unknown geometry and ambiguous older bare-service references
+remain visibly unrenderable rather than becoming a guessed polygon or layer zero.
 
 Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
 package lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the

@@ -46,7 +46,7 @@ test("host-adapter mode loads the catalog with the host's token and never render
 
     await expect(page.getByTestId("catalog-error")).toHaveCount(0);
     await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
-    await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");
+    await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
 
     // The one navigation is the initial page load — never a redirect to an
     // OIDC authorize endpoint (which would show up as a second navigation).
