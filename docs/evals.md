@@ -184,6 +184,41 @@ Inspect the named failures rather than treating every failed check as a model
 capability failure. The scheduled credentialed lane and formally validated
 scorecard artifact in #46 remain follow-up work.
 
+Live runs also report `liveSemanticScore` (`honua.studio.live-semantic-score.v1`)
+beside the unchanged strict scores. This separate profile covers the existing
+eight tasks. New component IDs may differ from fixture IDs, but each required
+role must match exactly one component by kind, source, and required config;
+duplicate roles, wrong sources, wrong chart fields, and extra components fail.
+Interaction references must resolve to the observed slider ID and the actual
+seeded parcels layer, with the requested field and event value. Existing layer
+identities, unrelated state, pins, and annotations remain protected.
+
+Every turn has an independent server readback. Thus adding then removing a
+legend requires observing the legend before its removal, and undo requires
+observing the chart before the server returns to its initial composition.
+Local-only changes, absent readbacks, unsuccessful turns, lifecycle writes,
+and unconfirmed cleanup fail independently of the final component match.
+Negative controls cover each boundary; valid renamed IDs are a positive
+control while their original strict score remains a failure.
+
+The two styling scenarios currently report `prerequisite-unmet` when all their
+other checks pass: this runner has no authoritative style-definition provider.
+An invented `district` or `presentation` reference does not prove the requested
+attribute or palette. Missing style evidence never counts as a pass. The HTML
+report displays strict and semantic results separately; the CLI exits nonzero
+on a strict failure, semantic failure, or unmet prerequisite. Historical raw
+receipts and scores are not rewritten.
+
+The diagnostic's `VerifiedRoundTransport` additionally verifies action-free
+terminal text using the same trusted SDK verifier, exact request, and complete
+event sequence. SDK 0.2.2 itself verifies action rounds before dispatch; the
+wrapper leaves those replay nonces for the SDK to consume once. Incomplete or
+malformed tool rounds cannot fall through as successful text. Tampered text,
+missing provenance, truncation, and replay are negative controls; provider
+errors still fail completion even when an earlier mutation succeeded. This
+extra text verification is a diagnostic requirement, not a claim that the
+published SDK verifies text-only rounds by itself.
+
 ## Scripted corpus against an owned server
 
 `npm run evals:server` runs the eight existing tasks through Studio's MCP

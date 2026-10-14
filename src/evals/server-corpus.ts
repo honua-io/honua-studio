@@ -11,7 +11,8 @@ import { applyStudioDraft, toStudioCompositionBody } from "../mcp/tool-bridge.js
 import { EVAL_CORPUS } from "./corpus.js";
 import { FixtureTurnDriver } from "./driver.js";
 import { LiveTurnDriver } from "./live-driver.js";
-import { runEvalTask } from "./runner.js";
+import { type LiveSemanticScore, type LiveTurnObservation, scoreLiveSemanticRun } from "./live-semantic-scorer.js";
+import { type EvalRunResult, runEvalTask } from "./runner.js";
 import { scoreEvalRun } from "./scorer.js";
 
 /** Scripted intents through the actual Studio MCP bridge; this does not evaluate a model. */
@@ -28,10 +29,21 @@ export async function runServerCorpus(options: {
   const baseUrl = options.baseUrl.replace(/\/$/, "");
   const apiBaseUrl = (options.apiBaseUrl ?? baseUrl).replace(/\/$/, "");
   const transport = options.fetchImpl ?? fetch;
-  const cases: Array<Record<string, unknown> & { taskId: string; passed: boolean; cleanup: Record<string, unknown> }> =
-    [];
+  const cases: Array<
+    Record<string, unknown> & {
+      taskId: string;
+      passed: boolean;
+      cleanup: Record<string, unknown>;
+      liveSemanticScore?: LiveSemanticScore;
+    }
+  > = [];
   for (const originalTask of EVAL_CORPUS) {
-    const transcript: unknown[] = [];
+    const transcript: CorpusExchange[] = [];
+    const perTurnReadbacks: LiveTurnObservation[] = [];
+    let semanticRun: EvalRunResult | undefined;
+    let semanticInitial: ReturnType<typeof createEmptyCompositionState> | undefined;
+    let modelTrafficStart: number | undefined;
+    let modelTraffic: readonly CorpusExchange[] = [];
     // The fixture declares a local bridge event. In this lane that same operation must be server-backed.
     const task = {
       ...originalTask,
@@ -72,6 +84,7 @@ export async function runServerCorpus(options: {
     let cleanup: Record<string, unknown> = { passed: false, reason: "draft creation not confirmed" };
     try {
       const initial = applyCompositionCommands(createEmptyCompositionState(), task.setup ?? []).state;
+      semanticInitial = initial;
       const created = await tools.createDraft({
         packageKey,
         family: "map",
@@ -108,10 +121,30 @@ export async function runServerCorpus(options: {
             }),
           })
         : new FixtureTurnDriver();
+      modelTrafficStart = transcript.length;
       const run = await runEvalTask(task, {
         driver,
         live: { client, packageKey, draftId, generation: seeded.generation },
+        observeTurn: async (turn, localState) => {
+          try {
+            const observed = await tools.getDraft(created.draftId);
+            perTurnReadbacks.push({
+              turnIndex: turn.turnIndex,
+              localState,
+              serverState: applyStudioDraft(observed),
+              generation: observed.generation,
+            });
+          } catch (error) {
+            perTurnReadbacks.push({
+              turnIndex: turn.turnIndex,
+              localState,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        },
       });
+      semanticRun = run;
+      modelTraffic = transcript.slice(modelTrafficStart);
       const stored = await tools.getDraft(draftId);
       const localScore = scoreEvalRun(run);
       // No previous composition is supplied: absent server controls/interactions cannot inherit local success.
@@ -138,6 +171,7 @@ export async function runServerCorpus(options: {
       };
     } catch (error) {
       observation.error = error instanceof Error ? error.message : String(error);
+      if (modelTrafficStart !== undefined) modelTraffic = transcript.slice(modelTrafficStart);
     } finally {
       if (draftId) {
         try {
@@ -160,6 +194,34 @@ export async function runServerCorpus(options: {
       passed: observation.passed === true && cleanup.passed === true,
       cleanup,
       transcript,
+      perTurnReadbacks,
+      ...(options.model
+        ? {
+            liveSemanticScore:
+              semanticRun && semanticInitial
+                ? scoreLiveSemanticRun({
+                    run: semanticRun,
+                    initial: semanticInitial,
+                    observations: perTurnReadbacks,
+                    cleanupPassed: cleanup.passed === true,
+                    lifecycleWrites: modelTraffic.filter(isLifecycleWrite),
+                  })
+                : {
+                    schemaVersion: "honua.studio.live-semantic-score.v1",
+                    taskId: task.id,
+                    status: "fail",
+                    passed: false,
+                    checks: [
+                      {
+                        path: "execution.completed",
+                        status: "fail",
+                        expected: true,
+                        actual: observation.error ?? "No run result",
+                      },
+                    ],
+                  },
+          }
+        : {}),
     });
   }
   return {
@@ -175,6 +237,38 @@ export async function runServerCorpus(options: {
     observedAt: new Date().toISOString(),
     sources: options.sources,
     passed: cases.every((entry) => entry.passed),
+    ...(options.model
+      ? {
+          semanticSummary: {
+            passed: cases.filter((entry) => entry.liveSemanticScore?.status === "pass").length,
+            failed: cases.filter((entry) => entry.liveSemanticScore?.status === "fail").length,
+            prerequisiteUnmet: cases.filter((entry) => entry.liveSemanticScore?.status === "prerequisite-unmet").length,
+            total: cases.length,
+          },
+        }
+      : {}),
     cases,
   };
+}
+
+interface CorpusExchange {
+  url: string;
+  method: string;
+  request?: unknown;
+  status: number;
+  response: string;
+}
+
+/** Audits only the model-turn window: owned setup/deletion are outside it. */
+function isLifecycleWrite(exchange: CorpusExchange): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(exchange.method)) return false;
+  const path = new URL(exchange.url).pathname;
+  if (path.includes("/v1/studio/") && !path.endsWith("/ai/chat")) return true;
+  const request = exchange.request as { method?: string; params?: { name?: string } } | undefined;
+  return (
+    request?.method === "tools/call" &&
+    /^honua_studio_(?:create_draft|update_draft|save_version|publish|request_publish|approve|rollback|delete)/.test(
+      request.params?.name ?? "",
+    )
+  );
 }

@@ -59,12 +59,17 @@ try {
     );
   await writeFile(
     `${directory}/scorecard.html`,
-    `<!doctype html><meta charset="utf-8"><title>Studio server corpus</title><h1>${escapeHtml(receipt.mode)}</h1><p>${receipt.modelQualityEvaluated ? "Live model with verified transcripts." : "Scripted intents; model quality is not evaluated."} Release qualification is not evaluated.</p><table><tr><th>Scenario</th><th>Result</th><th>Cleanup</th></tr>${receipt.cases.map((entry) => `<tr><td>${escapeHtml(entry.taskId)}</td><td>${entry.passed ? "PASS" : "FAIL"}</td><td>${entry.cleanup.passed ? "PASS" : "FAIL"}</td></tr>`).join("")}</table><p><a href="scorecard.json">Raw requests, responses and typed scores</a></p>`,
+    `<!doctype html><meta charset="utf-8"><title>Studio server corpus</title><h1>${escapeHtml(receipt.mode)}</h1><p>${receipt.modelQualityEvaluated ? "Live model with verified transcripts. Semantic scores supplement the unchanged strict fixture scores; unmet style prerequisites cannot pass." : "Scripted intents; model quality is not evaluated."} Release qualification is not evaluated.</p><table><tr><th>Scenario</th><th>Strict result</th><th>Live semantics</th><th>Cleanup</th></tr>${receipt.cases.map((entry) => `<tr><td>${escapeHtml(entry.taskId)}</td><td>${entry.passed ? "PASS" : "FAIL"}</td><td>${escapeHtml(entry.liveSemanticScore?.status ?? "not evaluated")}</td><td>${entry.cleanup.passed ? "PASS" : "FAIL"}</td></tr>`).join("")}</table><p><a href="scorecard.json">Raw requests, responses, per-turn readback, and both typed scores</a></p>`,
   );
   console.log(
     `${receipt.cases.filter((entry) => entry.passed).length}/${receipt.cases.length} scenarios passed; ${directory}/scorecard.json`,
   );
-  if (!receipt.passed) process.exitCode = 1;
+  if (receipt.semanticSummary)
+    console.log(
+      `Live semantics: ${receipt.semanticSummary.passed} pass, ${receipt.semanticSummary.failed} fail, ${receipt.semanticSummary.prerequisiteUnmet} prerequisite unmet.`,
+    );
+  if (!receipt.passed || receipt.semanticSummary?.failed > 0 || receipt.semanticSummary?.prerequisiteUnmet > 0)
+    process.exitCode = 1;
 } finally {
   await server.close();
 }
