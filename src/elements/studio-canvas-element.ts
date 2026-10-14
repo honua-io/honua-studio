@@ -133,7 +133,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
   public get auth(): AuthSession | undefined {
-    return this.#auth;
+    return this.#auth ?? this.closest<HTMLElement & { auth?: AuthSession }>("honua-studio-app")?.auth;
   }
 
   public set auth(auth: AuthSession | undefined) {
@@ -293,8 +293,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     HonuaStudioCanvasElement.instanceCount += 1;
     if (!this.#auth) {
       const inherited = resolveInjectedAuth(this);
-      if (inherited) this.#auth = inherited;
-      else this.dispatchTypedEvent("honua-studio-session-required", { reason: "honua-studio-canvas has no session" });
+      if (!inherited)
+        this.dispatchTypedEvent("honua-studio-session-required", { reason: "honua-studio-canvas has no session" });
     }
     if (this.#composition && !this.#compositionUnsubscribe) {
       this.#compositionUnsubscribe = this.#composition.subscribe(() => this.#syncComposition());
@@ -663,6 +663,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       const view = new MapViewClass({
         container,
         controller,
+        getAuth: () => resolveInjectedAuth(this),
         projection: {
           baseUrl: this.#sourceBaseUrl,
           ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),

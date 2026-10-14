@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AuthSession } from "../../src/auth/types.js";
 import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
@@ -90,6 +91,21 @@ afterEach(() => {
 });
 
 describe("<honua-studio-canvas> map surface (honua-studio#23)", () => {
+  it("resolves the latest inherited session while preserving a direct override", () => {
+    const element = document.createElement("honua-studio-canvas") as HonuaStudioCanvasElement;
+    const first = { getAccessToken: async () => "first" } as AuthSession;
+    const next = { getAccessToken: async () => "next" } as AuthSession;
+    const host = { auth: first };
+    vi.spyOn(element, "closest").mockReturnValue(host as unknown as Element);
+    expect(element.auth).toBe(first);
+    host.auth = next;
+    expect(element.auth).toBe(next);
+    element.auth = first;
+    expect(element.auth).toBe(first);
+    element.auth = undefined;
+    expect(element.auth).toBe(next);
+  });
+
   it("renders a map container and starts a map view when one can be constructed", async () => {
     const { element, map } = await mountWithMap();
     expect(element.shadowRoot?.querySelector('[data-testid="studio-canvas-map"]')).toBeTruthy();

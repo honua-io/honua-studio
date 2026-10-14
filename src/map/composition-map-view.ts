@@ -38,8 +38,10 @@ import { composeStyle } from "@honua/sdk-js/runtime";
 import type { HonuaMapPackage } from "@honua/sdk-js/runtime";
 import type { HonuaStyleSpecification } from "@honua/sdk-js/style";
 
+import type { AuthSession } from "../auth/types.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
+import { installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
 import type { BasemapStyle } from "./basemap.js";
 import {
   type CompositionLayerAppearance,
@@ -89,6 +91,9 @@ export interface CompositionMapFactoryOptions {
   readonly center: readonly [number, number];
   readonly zoom: number;
   readonly attributionText: string;
+  readonly getAuth?: () => AuthSession | undefined;
+  readonly sourceBaseUrl?: string;
+  readonly onSourceError?: (error: Error) => void;
 }
 
 export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => Promise<CompositionMapLike>;
@@ -99,6 +104,7 @@ export interface CompositionMapViewOptions {
   readonly container: HTMLElement;
   readonly controller: CompositionController;
   readonly projection?: CompositionMapProjectionOptions;
+  readonly getAuth?: () => AuthSession | undefined;
   /** Overrides the dynamic `maplibre-gl` import — the seam unit tests use. */
   readonly mapFactory?: CompositionMapFactory;
   /** Camera animation duration in ms. `0` jumps (what the browser suite uses so assertions are not racing an easing curve). Default 700. */
@@ -153,13 +159,29 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
   if (typeof MapConstructor !== "function") {
     throw new Error("maplibre-gl did not export a Map constructor.");
   }
-  return new MapConstructor({
-    container: options.container,
-    style: options.style,
-    center: [...options.center],
-    zoom: options.zoom,
-    attributionControl: { compact: false, customAttribution: options.attributionText },
-  });
+  const transport = options.getAuth
+    ? installAuthenticatedSourceProtocol(maplibre, {
+        getAuth: options.getAuth,
+        sourceBaseUrl: options.sourceBaseUrl ?? "/api",
+        documentUrl: document.baseURI,
+        onError: options.onSourceError,
+      })
+    : undefined;
+  try {
+    const map = new MapConstructor({
+      container: options.container,
+      style: options.style,
+      center: [...options.center],
+      zoom: options.zoom,
+      attributionControl: { compact: false, customAttribution: options.attributionText },
+      ...(transport ? { transformRequest: transport.transformRequest } : {}),
+    });
+    if (transport) map.on("remove", () => transport.dispose());
+    return map;
+  } catch (error) {
+    transport?.dispose();
+    throw error;
+  }
 };
 
 /**
@@ -311,6 +333,12 @@ export class CompositionMapView {
         center: (initialView?.center ?? WORLD_VIEW.center) as readonly [number, number],
         zoom: initialView?.zoom ?? WORLD_VIEW.zoom,
         attributionText: "Honua Studio",
+        getAuth: this.#options.getAuth,
+        sourceBaseUrl: this.#options.projection?.baseUrl,
+        onSourceError: (error) => {
+          this.#statusDetail = `Map source could not load: ${error.message}`;
+          this.#notify();
+        },
       });
     } catch (error) {
       this.#status = "unavailable";

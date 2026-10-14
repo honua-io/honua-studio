@@ -199,6 +199,14 @@ See [Run it](#run-it) above for the dev-server commands.
 
 ### Authentication (honua-studio#4)
 
+Map feature requests use the current Studio session through an asynchronous MapLibre
+protocol scoped to each map. Only configured Honua GeoServices query and OGC items
+routes receive bearer credentials; external sources, metadata and other resources do
+not. The transport rejects redirects, refreshes once after an authorization failure,
+and cancels pending requests when the map is removed. Tokens are never stored in
+styles, compositions or source URLs.
+
+
 Studio signs in to honua-server with OIDC Authorization Code + PKCE for a
 public client — never a client secret, and tokens live in memory only (no
 localStorage/sessionStorage persistence of credentials; see `src/auth/` and
