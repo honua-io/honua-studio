@@ -41,7 +41,7 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The current tree contains 123 files in `src/` and 114 in `test/`, with
+The current tree contains 123 files in `src/` and 115 in `test/`, with
 1030 unit tests across 97 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser

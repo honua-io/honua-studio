@@ -10,6 +10,10 @@ export async function bindOwnedDeployment(path, endpoint) {
   if (!path) throw new Error("Style proof requires HONUA_CORPUS_DEPLOYMENT_RECEIPT.");
   const raw = await readFile(path, "utf8");
   const identity = JSON.parse(raw);
+  if (identity.schemaVersion === "honua.owned-managed-diagnostic.v1") {
+    const { bindManagedDeployment } = await import("./owned-managed-deployment-binding.mjs");
+    return bindManagedDeployment(path, endpoint, raw, identity);
+  }
   const url = new URL(endpoint);
   if (
     identity.schemaVersion !== "honua.owned-native-diagnostic.v1" ||
