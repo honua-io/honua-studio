@@ -105,7 +105,7 @@ export async function createBrowserStyleObserver({
       };
     });
     await page.goto(preview.url);
-    await page.waitForFunction(() => Boolean(window.__honuaStudioApp?.studioClient));
+    await page.waitForFunction(() => Boolean(window.__honuaStudioApp?.sourceCatalog?.length));
     const discovered = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
     receipt.discoveredCatalog = discovered;
     const catalog = bindObservedSources(sources, discovered, baseUrl, preview.url);

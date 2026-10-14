@@ -148,6 +148,7 @@ export function startBlazorHost() {
 
 /** The recorded fixture conversation uses host aliases; preserve actual discovered locator bytes. */
 export async function bindFixtureSourceAliases(page) {
+  await page.waitForFunction(() => Boolean(window.__honuaStudioApp?.sourceCatalog?.length));
   await page.evaluate(async () => {
     const app = window.__honuaStudioApp;
     const actual = await app.studioClient.listCatalog();
