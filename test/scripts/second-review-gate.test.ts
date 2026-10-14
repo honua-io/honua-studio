@@ -292,6 +292,8 @@ describe("sequential review mode admission", () => {
     expect(workflow).toContain("timeout-minutes: 20");
     expect(workflow).toContain("github.workflow_sha");
     const reviewJob = workflow.split("\n  review:\n")[1];
+    expect(reviewJob).toMatch(/allowed_bots: chatgpt-codex-connector\[bot\]\n/);
+    expect(reviewJob.match(/allowed_bots:/g)).toHaveLength(1);
     expect(reviewJob).toContain("additional_permissions: |\n            contents: read\n");
     expect(reviewJob).toContain("ref: ${{ github.workflow_sha }}");
     expect(reviewJob).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
