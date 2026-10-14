@@ -73,7 +73,7 @@ describe("trusted authenticated map sources", () => {
     if (!isCompositionSourceResolution(resolved)) throw new Error("Expected source resolution");
     const url = String(resolved.source.data);
     const context = setup(undefined, baseUrl);
-    const transformed = context.transport.transformRequest(url, "Source" as ResourceType);
+    const transformed = await context.transport.transformRequest(url, "Source" as ResourceType);
     expect(transformed?.url).toMatch(/^honua-session-\d+:\/\//);
     expect(await context.run(url)).toEqual({ data: collection });
     expect(context.fetchImpl).toHaveBeenCalledWith(
@@ -89,7 +89,7 @@ describe("trusted authenticated map sources", () => {
     "https://legacy.test/honua/api/rest/services/%252fadmin/FeatureServer/0/query",
   ])("refuses untrusted legacy URL before accessing auth: %s", async (url) => {
     const context = setup(undefined, "https://legacy.test/honua/api");
-    expect(context.transport.transformRequest(url, "Source" as ResourceType)).toEqual({ url });
+    expect(await context.transport.transformRequest(url, "Source" as ResourceType)).toEqual({ url });
     await expect(context.run(url)).rejects.toThrow("outside the trusted");
     expect(context.auth?.getAccessToken).not.toHaveBeenCalled();
     expect(context.fetchImpl).not.toHaveBeenCalled();
