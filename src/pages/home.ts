@@ -1,9 +1,18 @@
 import type { AuthSession, AuthState, Unsubscribe } from "../auth/index.js";
-import type { StudioClient } from "../client/studio-client.js";
+import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import { StudioSessionExpiredError } from "../client/studio-client.js";
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return escapeHtml(error instanceof Error ? error.message : String(error));
 }
 
 function renderGate(list: HTMLElement, testId: string, message: string): void {
@@ -17,7 +26,12 @@ function renderGate(list: HTMLElement, testId: string, message: string): void {
  * reports a fresh session, and a session that expires mid-view is reported
  * distinctly from a generic fetch failure.
  */
-export function renderHome(root: HTMLElement, client: StudioClient, auth: AuthSession): void {
+export function renderHome(
+  root: HTMLElement,
+  client: StudioClient,
+  auth: AuthSession,
+  onAddSource?: (dataset: CatalogDataset) => Promise<void>,
+): void {
   root.innerHTML = `
     <section class="hn-panel view-section" aria-labelledby="catalog-heading" data-testid="catalog-section">
       <h2 id="catalog-heading" class="hn-panel-title">Catalog</h2>
@@ -62,11 +76,26 @@ export function renderHome(root: HTMLElement, client: StudioClient, auth: AuthSe
         catalogList.innerHTML = datasets.length
           ? datasets
               .map(
-                (dataset) =>
-                  `<li><span class="hn-badge">${dataset.protocol}</span> ${dataset.title} <span class="hn-muted">(${dataset.geometryType})</span></li>`,
+                (dataset, index) =>
+                  `<li><span class="hn-badge">${escapeHtml(dataset.protocol)}</span> ${escapeHtml(dataset.title)} <span class="hn-muted">(${escapeHtml(dataset.geometryType)})</span> ${onAddSource ? `<button type="button" class="hn-btn hn-btn--sm" data-catalog-index="${index}" aria-label="Add ${escapeHtml(dataset.title)} to map">Add to map</button><span role="status"></span>` : ""}</li>`,
               )
               .join("")
           : '<li class="hn-muted" data-testid="catalog-empty">No datasets yet.</li>';
+        for (const button of catalogList.querySelectorAll<HTMLButtonElement>("button[data-catalog-index]")) {
+          const dataset = datasets[Number(button.dataset.catalogIndex)];
+          if (!dataset || !onAddSource) continue;
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            const status = button.nextElementSibling;
+            try {
+              await onAddSource(dataset);
+              if (status) status.textContent = "Added to map.";
+            } catch (error) {
+              button.disabled = false;
+              if (status) status.textContent = error instanceof Error ? error.message : String(error);
+            }
+          });
+        }
       })
       .catch((error: unknown) => {
         loaded = false;
@@ -84,7 +113,7 @@ export function renderHome(root: HTMLElement, client: StudioClient, auth: AuthSe
           ? packages
               .map(
                 (pkg) =>
-                  `<li><span class="hn-badge hn-badge--status">${pkg.status}</span> ${pkg.title} <span class="hn-muted">${pkg.family}/${pkg.format}</span></li>`,
+                  `<li><span class="hn-badge hn-badge--status">${escapeHtml(pkg.state)}</span> ${escapeHtml(pkg.title)} <span class="hn-muted">${escapeHtml(pkg.family)}</span></li>`,
               )
               .join("")
           : '<li class="hn-muted" data-testid="packages-empty">No packages yet.</li>';

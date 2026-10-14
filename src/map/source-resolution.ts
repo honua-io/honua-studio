@@ -16,10 +16,10 @@
  *     `./index.ts`'s note), or any future server-authored binding uses to
  *     hand us a fully-formed source without teaching this module a new
  *     protocol.
- *  2. **The catalog says so.** The `protocol`/`geometryType` a
- *     {@link CompositionSourceDescriptor} advertises (in practice
- *     `StudioClient.listCatalog()`'s `CatalogDataset`) is projected onto the
- *     server route that protocol is served at.
+ *  2. **The catalog says so.** A discovered descriptor's explicit locator
+ *     supplies the real service/layer or collection identity; geometry
+ *     selects its renderer. Older host catalogs without locators retain
+ *     their existing route convention. Unknown geometry is a visible failure.
  *  3. **Nothing says so.** The layer resolves to `undefined` with a reason.
  *     It is NOT silently dropped: the projection records it in
  *     `unresolved[]`, the canvas surfaces it, and the readout still lists
@@ -68,6 +68,8 @@ export interface CompositionSourceDescriptor {
   /** Kebab-case SDK protocol id as the Studio catalog serves it (`ogc-features`, `geoservices-feature-service`, …). */
   readonly protocol?: string;
   readonly geometryType?: string;
+  /** Explicit server-advertised identity; sourceId is a catalog key, not a route. */
+  readonly locator?: Readonly<Record<string, unknown>>;
 }
 
 /** The MapLibre layer archetype a source's geometry calls for. */
@@ -156,7 +158,12 @@ export function resolveCompositionSource(
     return { source: inlineSource, layerType: layerType ?? "fill" };
   }
 
-  const descriptor = options.catalog?.find((entry) => entry.id === layer.sourceId);
+  // Older saved drafts used a bare service id. Resolve it only when the
+  // actual catalog advertises exactly one layer for that service.
+  const serviceMatches = options.catalog?.filter((entry) => entry.locator?.serviceId === layer.sourceId) ?? [];
+  const descriptor =
+    options.catalog?.find((entry) => entry.id === layer.sourceId) ??
+    (serviceMatches.length === 1 ? serviceMatches[0] : undefined);
   if (!descriptor) {
     return {
       reason: `Source "${layer.sourceId}" is not in the catalog, and the layer carries no metadata.honua.source override.`,
@@ -170,34 +177,60 @@ export function resolveCompositionSource(
     };
   }
 
+  if (!geometryLayerType) {
+    return { reason: `Source "${layer.sourceId}" has no supported geometry type in the catalog.` };
+  }
+
+  const locator = descriptor.locator;
+  if (locator && (typeof locator.url !== "string" || !/^(?:https?:\/\/|\/)/.test(locator.url))) {
+    return { reason: `Source "${layer.sourceId}" has an invalid catalog locator URL.` };
+  }
   const protocol = descriptor.protocol;
   if (protocol === "ogc-features") {
+    if (locator && (typeof locator.collectionId !== "string" || !locator.collectionId)) {
+      return { reason: `Source "${layer.sourceId}" has no collection id in its catalog locator.` };
+    }
+    const collectionId = locator ? String(locator.collectionId) : layer.sourceId;
+    const collectionRoot = locator ? trimTrailingSlash(String(locator.url)) : `${baseUrl}/ogc`;
     return {
       binding: {
         sourceId: layer.sourceId,
         protocol: "ogc_features",
-        locator: { url: `${baseUrl}/ogc`, collectionId: layer.sourceId },
+        locator: { url: collectionRoot, collectionId },
       },
       source: {
         type: "geojson",
-        data: `${baseUrl}/ogc/collections/${encodeURIComponent(layer.sourceId)}/items?f=json&limit=${limit}`,
+        data: `${collectionRoot}/collections/${encodeURIComponent(collectionId)}/items?f=json&limit=${limit}`,
       },
-      layerType: geometryLayerType ?? "fill",
+      layerType: geometryLayerType,
     };
   }
   if (protocol === "geoservices-feature-service") {
-    const serviceUrl = `${baseUrl}/rest/services/${encodeURIComponent(layer.sourceId)}/FeatureServer/0`;
+    if (locator && (!Number.isSafeInteger(locator.layerId) || Number(locator.layerId) < 0)) {
+      return { reason: `Source "${layer.sourceId}" has no valid layer id in its catalog locator.` };
+    }
+    const layerId = locator ? Number(locator.layerId) : 0;
+    const advertisedUrl = locator ? trimTrailingSlash(String(locator.url)) : undefined;
+    const advertisedLayer = advertisedUrl?.match(/\/FeatureServer\/(\d+)$/i);
+    if (advertisedLayer && Number(advertisedLayer[1]) !== layerId) {
+      return { reason: `Source "${layer.sourceId}" has conflicting layer identities in its catalog locator.` };
+    }
+    const serviceUrl = advertisedUrl
+      ? advertisedLayer
+        ? advertisedUrl
+        : `${advertisedUrl}/${layerId}`
+      : `${baseUrl}/rest/services/${encodeURIComponent(layer.sourceId)}/FeatureServer/${layerId}`;
     return {
       binding: {
         sourceId: layer.sourceId,
         protocol: "geoservices_feature_service",
-        locator: { url: serviceUrl, layerId: 0 },
+        locator: { url: serviceUrl, layerId },
       },
       source: {
         type: "geojson",
         data: `${serviceUrl}/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=${limit}`,
       },
-      layerType: geometryLayerType ?? "fill",
+      layerType: geometryLayerType,
     };
   }
 

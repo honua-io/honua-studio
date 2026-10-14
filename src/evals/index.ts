@@ -43,3 +43,6 @@ export { createEvalClock, runEvalTask, withKnownBadVariant } from "./runner.js";
 export { failingPaths, formatEvalScore, scoreEvalRun } from "./scorer.js";
 
 export { EVAL_CORPUS, evalTaskById } from "./corpus.js";
+
+export type { LiveSemanticCheck, LiveSemanticScore, LiveTurnObservation } from "./live-semantic-scorer.js";
+export { scoreLiveSemanticRun } from "./live-semantic-scorer.js";
