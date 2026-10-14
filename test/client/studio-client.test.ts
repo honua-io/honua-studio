@@ -266,3 +266,22 @@ describe("real discovery contract against the authenticated fixture", () => {
     }
   });
 });
+
+it("the real Studio API prefix also reaches authenticated AI streaming routes", async () => {
+  const { startMockServer, mintFixtureAccessToken } = await import("../../mock-server.mjs");
+  const server = await startMockServer();
+  try {
+    const response = await fetch(`${server.url}/api/v1/studio/ai/chat`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${mintFixtureAccessToken()}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Add the Hawai'i statewide parcels layer and style it by district." }],
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(await response.text()).toContain("add_layer");
+  } finally {
+    await server.close();
+  }
+});

@@ -2366,7 +2366,9 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
 
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
-    const pathname = requestUrl.pathname;
+    // The real REST API keeps /api; direct fixture callers historically
+    // used /v1. Normalize the alias before every Studio route, including AI.
+    const pathname = requestUrl.pathname.replace(/^\/api(?=\/v1\/studio(?:\/|$))/, "");
     const issuer = `http://${req.headers.host}/oidc`;
 
     if (req.method === "OPTIONS") {
@@ -2642,9 +2644,8 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
     }
 
     // ── Studio package lifecycle REST + enumeration (honua-studio#9) ────
-    const studioPath = pathname.replace(/^\/api(?=\/v1\/studio(?:\/|$))/, "");
-    if (studioPath.startsWith("/v1/studio/") || studioPath === "/v1/studio") {
-      const subPath = studioPath.slice("/v1/studio".length) || "/";
+    if (pathname.startsWith("/v1/studio/") || pathname === "/v1/studio") {
+      const subPath = pathname.slice("/v1/studio".length) || "/";
       // Every lifecycle route requires the same bearer the rest of this
       // fixture's protected routes require (doc: "require admin
       // authorization in the MVP") — checked ONCE here rather than in every
