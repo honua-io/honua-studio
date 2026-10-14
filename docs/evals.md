@@ -193,6 +193,11 @@ admin key. `HONUA_CORPUS_OUTPUT` optionally selects the output directory
 (default `.tmp/server-corpus`). This command fails when configuration is absent,
 when any scenario fails, or when cleanup cannot be proved.
 
+The server origin supplies `/mcp`; REST cleanup and AI requests use
+`/api/v1/studio/...` on the actual server. `HONUA_CORPUS_API_BASE_URL` can override
+the default `${HONUA_CORPUS_BASE_URL}/api` for a same-origin proxy deployment.
+The fixture Vite proxy's prefix rewrite is not the direct server route contract.
+
 The runner creates a separate draft per task, seeds its setup through
 `honua_studio_create_draft`, independently reads it back, executes the scripted
 intents through the real tool bridge, and scores both the local projection and a

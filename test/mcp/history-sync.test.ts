@@ -8,6 +8,39 @@ import { StudioMcpToolClient } from "../../src/mcp/studio-tools.js";
 import { applyStudioDraft } from "../../src/mcp/tool-bridge.js";
 
 describe("authoritative history synchronization", () => {
+  it("coalesces initial and repeated server snapshots without creating phantom undo or clearing redo", async () => {
+    const server = await startMockServer();
+    try {
+      const client = new McpClient({
+        baseUrl: server.url,
+        auth: { getAccessToken: async () => mintFixtureAccessToken() },
+      });
+      const controller = new CompositionController(createEmptyCompositionState());
+      const orchestrator = new ToolCallOrchestrator({ controller, live: { client, packageKey: "no-phantom-history" } });
+      const binding = await orchestrator.ensureLiveDraft();
+      expect(controller.canUndo()).toBe(false);
+      expect(await orchestrator.applyHistoryAction("undo")).toBe(false);
+      await orchestrator.handleToolCall({
+        toolName: "addWidget",
+        arguments: { widget: { id: "chart", kind: "chart" } },
+      });
+      const tools = new StudioMcpToolClient(client);
+      orchestrator.acceptServerDraft(await tools.getDraft(binding.draftId));
+      expect(await orchestrator.applyHistoryAction("undo")).toBe(true);
+      expect(controller.state.widgets).toHaveLength(0);
+      expect(controller.canUndo()).toBe(false);
+      expect(await orchestrator.applyHistoryAction("undo")).toBe(false);
+      orchestrator.acceptServerDraft(await tools.getDraft(binding.draftId));
+      expect(controller.canRedo()).toBe(true);
+      expect(await orchestrator.applyHistoryAction("redo")).toBe(true);
+      expect(applyStudioDraft(await tools.getDraft(binding.draftId)).widgets.map((widget) => widget.id)).toEqual([
+        "chart",
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
   for (const mode of ["roundtrip", "external-edit", "session-replaced"] as const) {
     it(mode, async () => {
       const server = await startMockServer();

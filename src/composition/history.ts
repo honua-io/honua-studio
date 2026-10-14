@@ -42,7 +42,7 @@
  */
 
 import type { CompositionCommand } from "./commands.js";
-import type { CompositionState } from "./model.js";
+import { type CompositionState, canonicalCompositionJson } from "./model.js";
 import { type CompositionApplyResult, type CompositionDiff, applyCompositionCommand } from "./reducer.js";
 
 // ---------------------------------------------------------------------------
@@ -164,9 +164,11 @@ export class CompositionHistory {
    * MCP tool call the caller just made directly — reports the resulting
    * state, and the local stack needs to reflect it without re-deriving or
    * re-syncing something that IS the sync target. Clears the redo stack,
-   * exactly like `apply()`.
+   * exactly like `apply()`. Identical snapshots preserve both stacks: a
+   * readback or draft creation is not a new edit and must not consume redo.
    */
   public replaceState(state: CompositionState): void {
+    if (canonicalCompositionJson(state) === canonicalCompositionJson(this.current)) return;
     this.#redoStack = [];
     this.#pushRevision({ state, timestamp: this.#now() });
   }
