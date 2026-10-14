@@ -41,7 +41,7 @@ import type { HonuaStyleSpecification } from "@honua/sdk-js/style";
 import type { AuthSession } from "../auth/types.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
-import { installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
+import { type SourceProtocolRegistry, installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
 import type { BasemapStyle } from "./basemap.js";
 import {
   type CompositionLayerAppearance,
@@ -160,8 +160,15 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
   if (typeof MapConstructor !== "function") {
     throw new Error("maplibre-gl did not export a Map constructor.");
   }
+  const registry = namespace as unknown as SourceProtocolRegistry;
+  if (
+    options.getAuth &&
+    (typeof registry.addProtocol !== "function" || typeof registry.removeProtocol !== "function")
+  ) {
+    throw new Error("maplibre-gl did not export the source protocol registry.");
+  }
   const transport = options.getAuth
-    ? installAuthenticatedSourceProtocol(maplibre, {
+    ? installAuthenticatedSourceProtocol(registry, {
         getAuth: options.getAuth,
         sourceBaseUrl: options.sourceBaseUrl ?? "/api",
         documentUrl: document.baseURI,
