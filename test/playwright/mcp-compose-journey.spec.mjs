@@ -95,6 +95,23 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         window.__honuaStudioChat.activityLog.entries().filter((entry) => entry.type === "composition_command_rejected"),
       );
       expect(rejectedEntries).toEqual([]);
+
+      await page.getByTestId("history-undo").click();
+      await expect(page.getByTestId("history-status")).toHaveText("Undone");
+      const draftUrl = `${mock.url}/v1/studio/package-drafts/${afterFirstCall.draftId}`;
+      const readDraft = async () =>
+        (await fetch(draftUrl, { headers: { authorization: `Bearer ${token}` } }).then((response) => response.json()))
+          .data;
+      expect((await readDraft()).envelope.body.widgets).toEqual([]);
+      await page.getByTestId("history-redo").click();
+      await expect(page.getByTestId("history-status")).toHaveText("Redone");
+      expect((await readDraft()).envelope.body.widgets.map((widget) => widget.id)).toEqual([
+        "chart-hi-parcels-zoning_code",
+      ]);
+      await page.getByTestId("live-composition-toggle").focus();
+      await page.keyboard.press("Control+z");
+      await expect(page.getByTestId("history-status")).toHaveText("Undone");
+      expect((await readDraft()).envelope.body.widgets).toEqual([]);
     } finally {
       await preview.close();
       await mock.close();

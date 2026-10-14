@@ -121,6 +121,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 
 import { planByomPreviewTurn } from "./scripts/lib/byom-preview-model.mjs";
+import { createFixtureTranscriptSigner } from "./scripts/lib/fixture-transcript-signer.mjs";
 
 // Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
 // file's module doc for why it's a duplicate, not an import.
@@ -2300,6 +2301,7 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
     throw new Error('Mock model must be "fixture" or "byom-preview".');
   }
   // Pending authorization codes -> { codeChallenge, redirectUri, expiresAt }.
+  const transcriptSigner = createFixtureTranscriptSigner();
   const pendingCodes = new Map();
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
   // spent, so replaying a rotated-out refresh token always 400s.
@@ -2459,7 +2461,13 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
         unauthorized(res);
         return;
       }
-      json(res, 200, { success: true, data: model === "byom-preview" ? BYOM_CAPABILITIES : AI_CAPABILITIES });
+      json(res, 200, {
+        success: true,
+        data: {
+          ...(model === "byom-preview" ? BYOM_CAPABILITIES : AI_CAPABILITIES),
+          transcriptSigning: transcriptSigner.manifest,
+        },
+      });
       return;
     }
     // ── Studio AI proxy: fixture chat SSE stream (honua-studio#6) ──
@@ -2516,7 +2524,10 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
         res.end();
         return;
       }
-      for (const event of turn.assistant.events) {
+      const events = requestBody.certification
+        ? [...turn.assistant.events, transcriptSigner.sign(requestBody, turn.assistant.events)]
+        : turn.assistant.events;
+      for (const event of events) {
         if (clientDisconnected) break; // client disconnected/aborted mid-stream — matches the real proxy's cancellation convention
         writeSseEvent(res, event);
       }

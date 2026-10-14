@@ -46,6 +46,7 @@ const readMapState = () => {
  * (correctly) report the source as unresolvable.
  */
 async function signIn(page) {
+  await page.waitForFunction(() => Boolean(window.__honuaStudioApp));
   const token = mintFixtureAccessToken();
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
@@ -223,6 +224,10 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
       // REQ-005: fixture/offline is the default, and it says so.
       await expect(page.getByTestId("live-composition-status")).toHaveText("Fixture mode");
       await expect(page.getByTestId("live-composition-form")).toBeHidden();
+
+      // Live draft creation is authenticated, including the setup/discovery performed on connect.
+      await page.getByTestId("auth-signin").click();
+      await expect(page.getByTestId("auth-status")).toHaveText("Signed in");
 
       // REQ-004: no window.__honuaStudioApp anywhere in this flow.
       await page.getByTestId("live-composition-toggle").click();

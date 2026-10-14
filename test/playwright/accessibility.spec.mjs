@@ -28,6 +28,33 @@ for (const themeSet of ["standalone", "console"]) {
             }, mintFixtureAccessToken());
           }
           await expect(page.getByTestId("studio-canvas-readout")).toBeVisible();
+          await expect(page.getByTestId("studio-canvas-mode-map")).toBeEnabled();
+          for (const surface of ["details", "map"]) {
+            const ratios = await page.getByTestId(`studio-canvas-mode-${surface}`).evaluate((button) => {
+              const luminance = (color) => {
+                const channels = color
+                  .match(/[\d.]+/g)
+                  .slice(0, 3)
+                  .map(Number)
+                  .map((channel) => {
+                    const value = channel / 255;
+                    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+                  });
+                return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+              };
+              button.click();
+              // Sample immediately: waiting for an animation to finish hides
+              // the low-contrast frame users see when map readiness changes.
+              return [...button.getRootNode().querySelectorAll("[data-surface-option]")].map((control) => {
+                const style = getComputedStyle(control);
+                const foreground = luminance(style.color);
+                const background = luminance(style.backgroundColor);
+                return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+              });
+            });
+            expect(ratios).toHaveLength(2);
+            for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+          }
           const results = await new AxeBuilder({ page })
             .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
             .analyze();

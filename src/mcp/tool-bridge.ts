@@ -271,6 +271,16 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       return finalizeCommand("setLayerStyleRef", fields);
     },
   },
+  honua_studio_set_layer_visibility: {
+    vocabulary: "server-mcp",
+    serverToolName: "honua_studio_set_layer_visibility",
+    build: (args) => {
+      if (!isNonEmptyString(args.layerId) || typeof args.visible !== "boolean") {
+        return { ok: false, reason: 'honua_studio_set_layer_visibility requires "layerId" and boolean "visible".' };
+      }
+      return finalizeCommand("setVisibility", { target: { kind: "layer", id: args.layerId }, visible: args.visible });
+    },
+  },
   honua_studio_set_view: {
     vocabulary: "server-mcp",
     serverToolName: "honua_studio_set_view",

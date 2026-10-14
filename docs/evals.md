@@ -7,8 +7,7 @@ works in isolation. Neither says anything about whether an instruction like
 "add the parcels layer and style it by district" produces the right map.
 
 The corpus (`src/evals/`) is that measurement, and it is built so the same
-tasks score a scripted fixture transcript today and a live model turn after
-honua-studio#40 lands.
+tasks score both scripted fixture transcripts and verified live model turns.
 
 ```bash
 npm test                      # the corpus runs in the default PR-safe suite
@@ -145,7 +144,7 @@ itself. `test/evals/corpus.test.ts` runs, in the default suite:
 That second half is the induced-regression test #46's Validation section asks
 for: a scorer that cannot catch a wrong composition measures nothing.
 
-## The live-model lane (blocked on honua-studio#40)
+## The live-model driver
 
 Everything above is lane-agnostic except one interface, `EvalTurnDriver`
 (`src/evals/driver.ts`):
@@ -161,24 +160,65 @@ export interface EvalTurnDriver {
 }
 ```
 
-The seam yields the *wire* event type rather than resolved tool calls, because
-that is exactly what both `FixtureChatTransport` and the live SSE transport
-emit — so the live lane needs no translation shim. `runTurn` receives the
-instruction, the conversation history, and the composition state at the start
-of the turn (what a live driver summarizes into its system prompt), and
-`reportToolResult` hands each executed tool call's outcome back, which is what
-an agent loop must feed the model as the next `{ role: "tool" }` message
-before it continues generating. `test/evals/runner.test.ts` exercises that
-round trip with a fake agent driver whose second tool call depends on the
-first one's result.
+`LiveTurnDriver` wraps `StudioAgentSession`: tools are discovered from the
+real server, and model-selected calls enter the shared runner only after the
+SDK verifies the signed transcript. Each call executes once through Studio's
+real orchestrator. The resulting server draft is returned to the SDK and then
+to the model. Raw provider events are retained as evidence, never forwarded to
+the bridge before verification. Tests require a valid signature to mutate a
+draft exactly once and a tampered signature to leave it untouched.
 
-What is still missing is the model turn itself: `<honua-studio-chat>` does not
-yet declare tools to the proxy or feed results back
-([#40](https://github.com/honua-io/honua-studio/issues/40)). Once it does, a
-`LiveTurnDriver` wrapping `StudioAgentSession` — creating and deleting a
-disposable draft in `beginTask`/`endTask`, per #46's "no shared mutable state
-between tasks" — drops into the same runner, scored by the same expectations
-against the same corpus. Nothing in `types.ts`, `runner.ts`, `scorer.ts`, or
-`corpus.ts` changes. The scheduled credentialed lane and the schema-validated
-scorecard artifact (#46 REQ-002) follow from there, and `formatEvalScore` /
-`EvalScore` are already the shape a scorecard serializes.
+Set `HONUA_CORPUS_MODEL`, `HONUA_CORPUS_PROVIDER`, and
+`HONUA_CORPUS_SIGNING_MANIFEST` for this mode. The manifest file must contain
+trusted signing keys or the authenticated AI capabilities response. The runner
+creates and deletes a separate draft per scenario. If bearer authentication is
+required, `HONUA_CORPUS_AUTH_MODULE` names a local module exporting async
+`getAccessToken()`; it is called for every HTTP request and its output is never
+recorded. An API key is optional when that provider is configured.
+
+Model mode records the actual signed events and model/tool messages beside the
+same typed scores and independently fetched server state. It retains the
+corpus's strict activity assertions; different valid model plans can therefore
+fail a fixture-specific count or tool-name assertion even when state matches.
+Inspect the named failures rather than treating every failed check as a model
+capability failure. The scheduled credentialed lane and formally validated
+scorecard artifact in #46 remain follow-up work.
+
+## Scripted corpus against an owned server
+
+`npm run evals:server` runs the eight existing tasks through Studio's MCP
+orchestrator against an **owned disposable loopback honua-server**. Set
+`HONUA_CORPUS_BASE_URL` to the server origin and `HONUA_CORPUS_API_KEY` to its
+admin key. `HONUA_CORPUS_OUTPUT` optionally selects the output directory
+(default `.tmp/server-corpus`). This command fails when configuration is absent,
+when any scenario fails, or when cleanup cannot be proved.
+
+The server origin supplies `/mcp`; REST cleanup and AI requests use
+`/api/v1/studio/...` on the actual server. `HONUA_CORPUS_API_BASE_URL` can override
+the default `${HONUA_CORPUS_BASE_URL}/api` for a same-origin proxy deployment.
+The fixture Vite proxy's prefix rewrite is not the direct server route contract.
+
+The runner creates a separate draft per task, seeds its setup through
+`honua_studio_create_draft`, independently reads it back, executes the scripted
+intents through the real tool bridge, and scores both the local projection and a
+fresh `honua_studio_get_draft` result. It deletes each owned draft and requires a
+404 readback. It never publishes. Pins and annotations remain explicitly local;
+server readback cannot inherit missing controls or interactions from the local
+projection. The fixture's one local dispatch expectation becomes a server
+expectation in this lane. Other expected state and activity assertions remain
+unchanged. Local-only undo is therefore a failure if the server draft does not
+follow it.
+
+`scorecard.json` records each typed score, request/response transcript, setup and
+final draft, cleanup, and source identity. `scorecard.html` summarizes the same
+results. Authentication headers are not recorded. A passing run proves scripted
+MCP/tooling behavior, **not live-model quality, rendered map fidelity, or release
+qualification**. The scheduled scorecard required by #46 remains follow-up work.
+
+The SDK 0.2.2 live agent rejects model-selected tool calls without verified signed
+transcripts. Hosts can call
+`app.configureAgentTranscriptVerification(binding, trustedSigningManifest)` to
+configure the SDK verifier, or inject their own verifier via `agentCertification`.
+The manifest must come from the host's authenticated, trusted server identity.
+The preview mock signs with an ephemeral fixture-only Ed25519 key; it is never a
+production trust source or proof of a hosted model.

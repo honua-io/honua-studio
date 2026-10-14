@@ -127,7 +127,23 @@ async function main() {
     await page.getByTestId("auth-signin").click();
     await page.getByTestId("auth-status").filter({ hasText: "Signed in" }).waitFor({ timeout: 20_000 });
     const packageKey = `self-hosted-preview-${Date.now()}`;
-    await page.evaluate((key) => {
+    await page.evaluate(async (key) => {
+      const app = window.__honuaStudioApp;
+      const token = await app.auth.getAccessToken();
+      const baseUrl = window.__honuaStudioRuntimeConfig.serverBaseUrl;
+      const capabilities = await fetch(`${baseUrl}/v1/studio/ai/capabilities`, {
+        headers: { authorization: `Bearer ${token}` },
+      }).then((response) => response.json());
+      app.configureAgentTranscriptVerification(
+        {
+          candidateId: "fixture",
+          releaseId: "self-hosted-preview",
+          endpointIdentity: baseUrl,
+          actionId: key,
+          runNonce: crypto.randomUUID(),
+        },
+        capabilities.data.transcriptSigning,
+      );
       window.__honuaStudioApp.enableLiveComposition({
         baseUrl: window.__honuaStudioRuntimeConfig.mcpBaseUrl,
         packageKey: key,

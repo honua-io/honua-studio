@@ -73,6 +73,11 @@ export function baseElementStyles(): string {
         border-color var(--hn-motion-fast, 120ms) var(--hn-ease, ease);
     }
     .hn-btn:hover { border-color: var(--hn-accent, #0b6b4d); }
+    .hn-btn[aria-pressed] {
+      /* Text and fill must switch together: animating only the fill briefly
+       * puts the new foreground on the old, low-contrast background. */
+      transition: border-color var(--hn-motion-fast, 120ms) var(--hn-ease, ease);
+    }
     .hn-btn[aria-pressed="true"] {
       background: var(--hn-accent, #0b6b4d);
       border-color: var(--hn-accent, #0b6b4d);

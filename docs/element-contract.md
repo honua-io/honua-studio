@@ -544,3 +544,21 @@ framework, which is precisely the class of hazard a synthetic unit test
 cannot fully stand in for (see that harness's README for what a naive
 "persistent DOM region" integration actually does under Blazor Web App's
 navigation, and why the shipped integration pattern looks the way it does).
+
+### Authoritative history and transcript verification
+
+The composition toolbar exposes Undo and Redo. Ctrl/Cmd+Z and
+Ctrl/Cmd+Shift+Z (or Ctrl+Y) use the same path when focus is outside a text
+input. `app.applyHistoryAction("undo" | "redo")` returns a promise for whether
+the operation completed. In live mode it reads the current draft, refuses
+external edits or a changed session, proves a single bounded inverse through
+the reducer, and calls the corresponding server tool with the observed
+generation before moving the local history cursor. Unsupported multi-operation
+inverses remain unchanged and show a visible failure status. The synchronous
+`CompositionController` history remains available for local compositions.
+
+`app.configureAgentTranscriptVerification(binding, trustedSigningManifest)`
+constructs the SDK's signature and replay verifier behind `agentCertification`.
+The host owns the binding and trust decision; Studio does not automatically
+trust an arbitrary remote signing manifest. Model-selected actions without
+valid terminal provenance remain refused by SDK 0.2.2.

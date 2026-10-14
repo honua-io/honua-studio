@@ -71,6 +71,8 @@
 import type { ActivityLog } from "../chat/activity-log.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
+import { historyCommand } from "../composition/history-command.js";
+import { canonicalCompositionJson } from "../composition/model.js";
 import { applyCompositionCommand, isCompositionCommandError } from "../composition/reducer.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
 import type { McpClient } from "./client.js";
@@ -175,6 +177,73 @@ export class ToolCallOrchestrator {
   public async ensureLiveDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
     if (!this.#live) throw new Error("No live Studio composition session is attached.");
     return this.#ensureDraft();
+  }
+
+  /** Commit undo/redo to the current server generation before advancing the local history cursor. */
+  public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
+    const execute = async () => {
+      const tools = this.#studioTools;
+      const live = this.#live;
+      if (!live || !tools) return action === "undo" ? this.#controller.undo() : this.#controller.redo();
+      const history = this.#controller.history;
+      const target = action === "undo" ? history.peekUndo() : history.peekRedo();
+      if (!target) return false;
+      const before = this.#controller.state;
+      const sessionGeneration = this.#draftSetupGeneration;
+      try {
+        const { draftId } = await this.#ensureDraft();
+        const current = await tools.getDraft(draftId);
+        if (
+          sessionGeneration !== this.#draftSetupGeneration ||
+          this.#live !== live ||
+          this.#controller.state !== before
+        )
+          return false;
+        if (
+          canonicalCompositionJson(toStudioCompositionBody(applyStudioDraft(current))) !==
+          canonicalCompositionJson(toStudioCompositionBody(before))
+        ) {
+          throw new Error("The server draft changed outside this history; reload before undo or redo.");
+        }
+        if (
+          canonicalCompositionJson(toStudioCompositionBody(before)) ===
+          canonicalCompositionJson(toStudioCompositionBody(target))
+        ) {
+          return action === "undo" ? this.#controller.undo() : this.#controller.redo();
+        }
+        const command = historyCommand(before, target);
+        if (!command)
+          throw new Error("This history revision has no single bounded inverse tool; no state was changed.");
+        const { name, ...arguments_ } = command;
+        const resolution = resolveToolCall({ toolName: name, arguments: arguments_ });
+        const invocation = resolution.ok
+          ? buildServerToolInvocation(resolution, { draftId, generation: current.generation })
+          : undefined;
+        if (!invocation) throw new Error("This history revision has no server mutation tool.");
+        const draft = parseStudioDraftResult(await live.client.callTool(invocation.name, invocation.arguments));
+        if (sessionGeneration !== this.#draftSetupGeneration) return false;
+        this.#generation = draft.generation;
+        if (
+          this.#controller.state !== before ||
+          canonicalCompositionJson(toStudioCompositionBody(applyStudioDraft(draft))) !==
+            canonicalCompositionJson(toStudioCompositionBody(target))
+        ) {
+          this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
+          throw new Error("History changed during synchronization; showing the authoritative server draft.");
+        }
+        return action === "undo" ? this.#controller.undo() : this.#controller.redo();
+      } catch (error) {
+        this.#activityLog?.append("assistant_turn_error", {
+          phase: "history-sync",
+          action,
+          errorMessage: errorMessage(error),
+        });
+        return false;
+      }
+    };
+    const run = this.#serverQueue.then(execute);
+    this.#serverQueue = run.catch(() => undefined);
+    return run;
   }
 
   /** Refreshes local composition from a draft returned by StudioAgentSession. */

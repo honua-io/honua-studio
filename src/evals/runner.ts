@@ -157,7 +157,7 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   try {
     for (const [turnIndex, turn] of task.turns.entries()) {
       if (turn.kind === "user-action") {
-        const applied = turn.action === "undo" ? controller.undo() : controller.redo();
+        const applied = await orchestrator.applyHistoryAction(turn.action);
         turns.push({ turnIndex, kind: turn.kind, action: turn.action, applied });
         continue;
       }
@@ -299,6 +299,7 @@ async function runAssistantTurn(args: AssistantTurnArgs): Promise<AssistantTurnO
         toolCallId: event.toolCallId,
         toolName,
         ok: outcome.ok,
+        outcome,
         detail: outcome.ok ? `applied ${outcome.command.name} (${outcome.mode})` : `${outcome.code}: ${outcome.reason}`,
       };
       recordAssistantMessage();
