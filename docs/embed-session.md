@@ -176,5 +176,7 @@ policy as the map. The current host session supplies each outgoing bearer, with
 one refresh on HTTP 401 or GeoServices error 499. Credentials are never forwarded
 to external catalog origins, redirects are refused, and browser credentials are
 omitted. Replacing or expiring a session clears displayed widget rows and aborts
-pending loads; removing the deck also cancels its requests. Widgets retain the
+pending loads; removing the deck also cancels its requests. Public external and
+host-provided loaders continue to decide their own authorization, including when
+the Honua session is unavailable. Widgets retain the
 500-feature request bound and report truncation.

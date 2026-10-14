@@ -678,11 +678,6 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   /** Reads cached rows, kicking off one bounded load the first time a source is asked for. */
   #requireData(sourceId: string): DeckDataState {
-    if (this.#sessionUnavailable)
-      return {
-        status: "done",
-        result: { ok: false, reason: "The Studio session is unavailable. Sign in to load widget data." },
-      };
     const existing = this.#data.get(sourceId);
     if (existing) return existing;
     const loading: DeckDataState = { status: "loading" };
