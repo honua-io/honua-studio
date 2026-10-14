@@ -167,10 +167,11 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
     expect(score.passed).toBe(true);
   });
 
-  for (const mode of ["intrinsic", "explicit", "clause"] as const) {
+  for (const mode of ["intrinsic", "explicit", "clause", "explicit-no-source"] as const) {
     it(`scores executable ${mode} own-source filtering and drives the actual runtime`, async () => {
       const input = renderableFilterInput();
       for (const state of states(input)) {
+        if (mode === "explicit-no-source") state.controls[0].sourceId = undefined;
         if (mode === "intrinsic") state.interactions = [];
         else if (mode === "clause")
           state.interactions[0].do.args = { clause: { field: "year_built", operator: ">=", value: "$event.value" } };
@@ -195,6 +196,15 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
       }
     });
   }
+
+  it("rejects an unbound numeric control with no source target", () => {
+    const input = renderableFilterInput();
+    for (const state of states(input)) {
+      state.controls[0].sourceId = undefined;
+      state.interactions = [];
+    }
+    fails(input, "final.slider.target");
+  });
 
   it("rejects duplicate matching components", () => {
     const input = inputFor("add-then-remove-widgets");

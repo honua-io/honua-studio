@@ -160,7 +160,7 @@ export function scoreLiveSemanticRun(input: {
       const control = unique(
         "final.slider",
         final?.controls,
-        (entry) => entry.kind === "filterSlider" && entry.sourceId === "hi-parcels",
+        (entry) => entry.kind === "filterSlider" && (entry.sourceId === "hi-parcels" || entry.sourceId === undefined),
       );
       const resolved = control ? readControlConfig(control) : undefined;
       const slider = resolved?.ok && resolved.config.kind === "filterSlider" ? resolved.config.config : undefined;
@@ -179,34 +179,35 @@ export function scoreLiveSemanticRun(input: {
       );
       // A valid control filters its own source intrinsically. An authored binding
       // is optional, but must not silently clear or redirect that filter.
-      check(
-        "final.slider.target",
-        true,
-        Boolean(final?.layers.some((layer) => layer.id === "hi-parcels" && layer.sourceId === control?.sourceId)),
+      const validBinding = (entry: NonNullable<typeof final>["interactions"][number]) => {
+        const args = entry.do.args;
+        const clause = args?.clause;
+        const effective =
+          clause &&
+          typeof clause === "object" &&
+          !Array.isArray(clause) &&
+          typeof (clause as Record<string, unknown>).field === "string"
+            ? (clause as Record<string, unknown>)
+            : args;
+        return (
+          Boolean(control) &&
+          entry.on.ref === `control:${control?.id}` &&
+          entry.on.event === "change" &&
+          entry.do.ref === "layer:hi-parcels" &&
+          entry.do.verb === "setFilter" &&
+          effective?.field === "year_built" &&
+          effective?.value === "$event.value" &&
+          (effective?.operator ?? "=") === slider?.operator &&
+          !entry.disabled
+        );
+      };
+      const intrinsic = Boolean(
+        control?.sourceId &&
+          final?.layers.some((layer) => layer.id === "hi-parcels" && layer.sourceId === control.sourceId),
       );
-      if (final?.interactions.length)
-        unique("final.filterBinding", final.interactions, (entry) => {
-          const args = entry.do.args;
-          const clause = args?.clause;
-          const effective =
-            clause &&
-            typeof clause === "object" &&
-            !Array.isArray(clause) &&
-            typeof (clause as Record<string, unknown>).field === "string"
-              ? (clause as Record<string, unknown>)
-              : args;
-          return (
-            Boolean(control) &&
-            entry.on.ref === `control:${control?.id}` &&
-            entry.on.event === "change" &&
-            entry.do.ref === "layer:hi-parcels" &&
-            entry.do.verb === "setFilter" &&
-            effective?.field === "year_built" &&
-            effective?.value === "$event.value" &&
-            (effective?.operator ?? "=") === slider?.operator &&
-            !entry.disabled
-          );
-        });
+      const explicit = Boolean(final?.interactions.some(validBinding));
+      check("final.slider.target", true, intrinsic || explicit);
+      if (final?.interactions.length) unique("final.filterBinding", final.interactions, validBinding);
       break;
     }
     case "hide-parcels-keeps-layer": {

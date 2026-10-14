@@ -44,6 +44,30 @@ describe("model composition authoring contract", () => {
     });
   }
 
+  it("rejects a select without either source discovery or explicit options", () => {
+    expect(
+      compositionAuthoringError("honua_studio_add_control", {
+        control: { id: "c", kind: "filterSelect", config: { field: "district" } },
+      })?.isError,
+    ).toBe(true);
+    expect(
+      compositionAuthoringError("honua_studio_add_control", {
+        control: { id: "c", kind: "filterSelect", config: { field: "district", options: ["North"] } },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("admits a declared numeric domain without a source for a later explicit binding", () => {
+    expect(
+      compositionAuthoringError("honua_studio_add_control", {
+        control: { id: "c", kind: "filterSlider", config: { field: "height", min: 0, max: 100 } },
+      }),
+    ).toBeUndefined();
+    expect(
+      compositionAuthoringError("honua_studio_add_control", { control: { id: "nav", kind: "navigation" } }),
+    ).toBeUndefined();
+  });
+
   for (const sourceId of [undefined, "", "   "]) {
     it(`refuses a chart without an actual source identifier: ${JSON.stringify(sourceId)}`, () => {
       const error = compositionAuthoringError("honua_studio_add_widget", {
