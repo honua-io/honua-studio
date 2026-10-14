@@ -153,6 +153,50 @@ describe("interactions/declarative (@honua/sdk-js)", () => {
   });
 
   describe("compile", () => {
+    it("defaults an omitted authored operator to equality even when the actual control event uses >=", async () => {
+      const compiled = compileHonuaInteractions(
+        [
+          binding({
+            do: { ref: "layer:parcels", verb: "setFilter", args: { field: "year_built", value: "$event.value" } },
+          }),
+        ],
+        { view: compilerView(), components: components() },
+      );
+      try {
+        expect(compiled.ok).toBe(true);
+        gesture("district", { field: "year_built", operator: ">=", value: 2000 });
+        await flush();
+        expect(setFilter).toHaveBeenCalledWith({ field: "year_built", operator: "=", value: 2000 });
+      } finally {
+        compiled.dispose();
+      }
+    });
+
+    for (const spelling of ["field", "attribute"] as const) {
+      it(`executes only the SDK field grammar, not ${spelling === "field" ? "an invented alias" : "attribute-only arguments"}`, async () => {
+        const compiled = compileHonuaInteractions(
+          [
+            binding({
+              do: {
+                ref: "layer:parcels",
+                verb: "setFilter",
+                args: { [spelling]: "year_built", operator: ">=", value: "$event.value" },
+              },
+            }),
+          ],
+          { view: compilerView(), components: components() },
+        );
+        expect(compiled.ok).toBe(true);
+        gesture("district", { field: "unrelated_source_field", operator: "=", value: 2000 });
+        await flush();
+        expect(setFilter).toHaveBeenCalledTimes(1);
+        expect(setFilter).toHaveBeenCalledWith(
+          spelling === "field" ? { field: "year_built", operator: ">=", value: 2000 } : undefined,
+        );
+        compiled.dispose();
+      });
+    }
+
     it("binds nothing at all when a ref resolves to no declared component", async () => {
       const compiled = compileHonuaInteractions([binding({ on: { ref: "control:missing", event: "change" } })], {
         view: compilerView(),

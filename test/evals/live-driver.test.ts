@@ -11,6 +11,7 @@ import { runEvalTask } from "../../src/evals/runner.js";
 import { scoreEvalRun } from "../../src/evals/scorer.js";
 import type { EvalTask } from "../../src/evals/types.js";
 import { McpClient } from "../../src/mcp/client.js";
+import { compositionAuthoringGuidance } from "../../src/mcp/composition-authoring-contract.js";
 import { StudioMcpToolClient } from "../../src/mcp/studio-tools.js";
 
 const task: EvalTask = {
@@ -58,6 +59,7 @@ describe("live driver dispatch boundary", () => {
           transport: {
             async *streamChat(request) {
               expect(JSON.stringify(request.system)).toContain(draft.draftId);
+              expect(request.system).toContain(compositionAuthoringGuidance());
               const currentRound = round++;
               const events: StudioAiChatEvent[] =
                 readFirst && currentRound === 0

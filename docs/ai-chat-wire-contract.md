@@ -136,3 +136,26 @@ provider seam: today it returns the published SDK's static schemas, and can
 switch to sdk-js#1397 discovery without changing the chat loop. Assigning an
 explicit `ChatTransport` detaches the live session, keeping fixture playback
 network- and model-free.
+
+
+### Host composition guidance and admission
+
+Studio supplements discovered tools with shared host rendering guidance in the normal
+app and real-model driver. A layer list is a `toc` widget; charts conventionally use
+`config.groupBy` and `config.chartType`. Documented renderer aliases such as
+`categoryField` remain accepted and are sent unchanged. Numeric thresholds use
+`filterSlider` with an actual numeric domain; `timeSlider` needs temporal dates.
+A valid filter control intrinsically filters its own source layers. Explicit filtering
+bindings and cross-layer behavior use a separate `change` to `setFilter` interaction
+after adding the control. The declared target uses a layer ID and `args.field`, with
+`value: "$event.value"`; `args.attribute` does not execute a filter in the SDK.
+
+At the verified model MCP dispatch boundary, Studio rejects unknown widget/control
+kinds and widget/control configuration that its existing renderer cannot interpret.
+All widget readers participate: compare needs a layer pair, time needs visibility
+steps, and charts/tables need a source. Controls with a fully declared domain may
+use a later explicit target binding without sourceId; a select without options
+requires a source from which to discover its domain.
+Failures return actionable tool results before a durable mutation. This host admission
+does not rewrite signed arguments, replace discovery, or change imported draft admission.
+It does not infer source fields or fabricate an interaction on the user's behalf.
