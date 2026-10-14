@@ -1,9 +1,32 @@
+import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
-import { evaluateSecondReview } from "./lib/second-review-gate.mjs";
+import { completedFirstPassCommit, evaluateSecondReview } from "./lib/second-review-gate.mjs";
+
+const comments = JSON.parse(readFileSync("comments.json", "utf8")).flat();
+const completedCommit = completedFirstPassCommit(comments, process.env.FIRST_PASS_REVIEWER);
+const resolvedFirstPassCommits = {};
+if (completedCommit) {
+  try {
+    // GitHub rejects ambiguous short SHAs. Never treat a prefix match as exact-head evidence.
+    const resolved = execFileSync(
+      "gh",
+      ["api", `repos/${process.env.REPOSITORY}/commits/${completedCommit}`, "--jq", ".sha"],
+      {
+        encoding: "utf8",
+        timeout: 15000,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
+    if (/^[a-f0-9]{40}$/.test(resolved)) resolvedFirstPassCommits[completedCommit] = resolved;
+  } catch {
+    console.log("first_pass_summary_commit_resolution=failed");
+  }
+}
 
 const result = evaluateSecondReview({
   pr: JSON.parse(readFileSync("pull-request.json", "utf8")).data.repository.pullRequest,
-  comments: JSON.parse(readFileSync("comments.json", "utf8")).flat(),
+  comments,
+  resolvedFirstPassCommits,
   repository: process.env.REPOSITORY,
   eventName: process.env.EVENT_NAME,
   postMergeAudit: process.env.POST_MERGE_AUDIT === "true",
