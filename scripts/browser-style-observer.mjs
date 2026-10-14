@@ -86,7 +86,7 @@ export async function createBrowserStyleObserver({
     modules = await createServer({
       root: process.cwd(),
       configFile: false,
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: "custom",
     });
     const pipelinePaths = [
