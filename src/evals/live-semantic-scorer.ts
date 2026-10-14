@@ -55,6 +55,7 @@ export function scoreLiveSemanticRun(input: {
   }
   for (const observation of observations) {
     const path = `turns[${observation.turnIndex}]`;
+    check(`${path}.browser.observation`, undefined, observation.styleObservationError);
     check(`${path}.readback`, true, Boolean(observation.serverState) && !observation.error);
     check(`${path}.generation`, true, Number.isInteger(observation.generation) && (observation.generation ?? 0) > 0);
     check(`${path}.pins`, initial.pins, observation.localState.pins);

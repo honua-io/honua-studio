@@ -51,6 +51,51 @@ export function trustedSourceUrl(
   return undefined;
 }
 
+/** Shared credential boundary for the map and data widgets; signed URLs and durable state stay token-free. */
+export async function fetchAuthenticatedFeatureCollection(
+  url: string,
+  options: AuthenticatedSourceOptions,
+  signal: AbortSignal,
+  label = "Map source",
+): Promise<Record<string, unknown>> {
+  const target = trustedSourceUrl(url, options.sourceBaseUrl, options.documentUrl, options.legacySourceBaseUrl);
+  if (!target) throw new Error(`${label} is outside the trusted Honua feature endpoints.`);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    signal.throwIfAborted();
+    const auth = options.getAuth();
+    const token = await auth?.getAccessToken(attempt === 1 ? { forceRefresh: true } : undefined);
+    signal.throwIfAborted();
+    if (auth !== options.getAuth())
+      throw new Error(`The Studio session changed during the ${label.toLowerCase()} request.`);
+    const response = await fetchImpl(target.href, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: signal,
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+    });
+    if (response.redirected) throw new Error(`${label} redirects are not allowed.`);
+    const body: unknown = response.ok ? await response.json() : undefined;
+    signal.throwIfAborted();
+    if (auth !== options.getAuth())
+      throw new Error(`The Studio session changed during the ${label.toLowerCase()} request.`);
+    const record = body && typeof body === "object" ? (body as Record<string, unknown>) : undefined;
+    const error = record?.error as { code?: unknown } | undefined;
+    if (response.status === 401 || error?.code === 499) {
+      if (attempt === 0 && auth) continue;
+      throw new Error(`The Studio session cannot authorize this ${label.toLowerCase()}.`);
+    }
+    if (!response.ok) throw new Error(`${label} request failed (${response.status}).`);
+    if (record?.type !== "FeatureCollection" || !Array.isArray(record.features)) {
+      throw new Error(`${label} did not return a GeoJSON FeatureCollection.`);
+    }
+    return record;
+  }
+  throw new Error(`${label} authorization failed.`);
+}
+
 /** Per-map async transport: credentials never enter a style, durable URL, or worker message. */
 export function installAuthenticatedSourceProtocol(
   registry: SourceProtocolRegistry,
@@ -59,7 +104,6 @@ export function installAuthenticatedSourceProtocol(
   const scheme = `honua-session-${++nextProtocol}`;
   const prefix = `${scheme}://`;
   const pending = new Set<AbortController>();
-  const fetchImpl = options.fetchImpl ?? fetch;
   let disposed = false;
   const handler: AddProtocolAction = async (request, controller) => {
     try {
@@ -74,38 +118,9 @@ export function installAuthenticatedSourceProtocol(
       );
       if (!target) throw new Error("Map source is outside the trusted Honua feature endpoints.");
       pending.add(controller);
-      for (let attempt = 0; attempt < 2; attempt++) {
-        controller.signal.throwIfAborted();
-        const auth = options.getAuth();
-        const token = await auth?.getAccessToken(attempt === 1 ? { forceRefresh: true } : undefined);
-        controller.signal.throwIfAborted();
-        if (disposed) throw new Error("Map source transport is disposed.");
-        if (auth !== options.getAuth()) throw new Error("The Studio session changed during the map request.");
-        const response = await fetchImpl(target.href, {
-          method: "GET",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          signal: controller.signal,
-          redirect: "error",
-          credentials: "omit",
-          cache: "no-store",
-        });
-        if (response.redirected) throw new Error("Map source redirects are not allowed.");
-        const body: unknown = response.ok ? await response.json() : undefined;
-        controller.signal.throwIfAborted();
-        if (auth !== options.getAuth()) throw new Error("The Studio session changed during the map request.");
-        const record = body && typeof body === "object" ? (body as Record<string, unknown>) : undefined;
-        const error = record?.error as { code?: unknown } | undefined;
-        if (response.status === 401 || error?.code === 499) {
-          if (attempt === 0 && auth) continue;
-          throw new Error("The Studio session cannot authorize this map source.");
-        }
-        if (!response.ok) throw new Error(`Map source request failed (${response.status}).`);
-        if (record?.type !== "FeatureCollection" || !Array.isArray(record.features)) {
-          throw new Error("Map source did not return a GeoJSON FeatureCollection.");
-        }
-        return { data: record };
-      }
-      throw new Error("Map source authorization failed.");
+      const data = await fetchAuthenticatedFeatureCollection(target.href, options, controller.signal);
+      if (disposed) throw new Error("Map source transport is disposed.");
+      return { data };
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       if (!controller.signal.aborted && !disposed) options.onError?.(failure);

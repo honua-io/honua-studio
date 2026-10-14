@@ -29,6 +29,7 @@
 // Type-only, so nothing from `../map/` enters this module's static graph.
 // The implementation is reached through a dynamic import inside `load()` —
 // see the note on {@link createCatalogWidgetDataLoader}.
+import type { AuthSession } from "../auth/types.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 
 /** One feature, flattened to what a grid or a chart needs: its attributes, and the id a `selectFeature` target is built from. */
@@ -60,6 +61,10 @@ export interface CatalogWidgetDataLoaderOptions {
   readonly baseUrl?: string;
   /** Bounded page size — the same value the map's source URL carries. */
   readonly featureLimit?: number;
+  /** Explicit credential trust root, which can differ from the legacy API resolution root. */
+  readonly sourceAuthBaseUrl?: string;
+  readonly documentUrl?: string;
+  readonly getAuth?: () => Pick<AuthSession, "getAccessToken"> | undefined;
   /** Replaces `globalThis.fetch`. The seam a node test (or an auth-decorating host) uses. */
   readonly fetchImpl?: typeof fetch;
 }
@@ -73,7 +78,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** Flattens a GeoJSON FeatureCollection body to rows. Geometry is deliberately dropped — no widget here plots it, and keeping it would multiply the deck's memory for nothing. */
 export function rowsFromFeatureCollection(body: unknown): { rows: WidgetFeatureRow[]; total?: number } | undefined {
-  if (!isPlainObject(body)) return undefined;
+  if (!isPlainObject(body) || body.type !== "FeatureCollection") return undefined;
   const features = body.features;
   if (!Array.isArray(features)) return undefined;
   const rows: WidgetFeatureRow[] = [];
@@ -111,7 +116,14 @@ export function createCatalogWidgetDataLoader(options: CatalogWidgetDataLoaderOp
   const cache = new Map<string, Promise<WidgetDataResult>>();
   const featureLimit = options.featureLimit ?? DEFAULT_WIDGET_FEATURE_LIMIT;
 
+  let cachedAuth = options.getAuth?.();
   return (sourceId, loadOptions) => {
+    const auth = options.getAuth?.();
+    if (auth !== cachedAuth) {
+      cache.clear();
+      cachedAuth = auth;
+    }
+    if (loadOptions?.signal?.aborted) return Promise.resolve({ ok: false, reason: "Widget data request was aborted." });
     const cached = cache.get(sourceId);
     if (cached) return cached;
     const pending = load(sourceId, loadOptions).catch((error: unknown) => ({
@@ -147,14 +159,40 @@ export function createCatalogWidgetDataLoader(options: CatalogWidgetDataLoaderOp
     const fetchImpl = options.fetchImpl ?? (typeof fetch === "function" ? fetch : undefined);
     if (!fetchImpl) return { ok: false, reason: "No fetch implementation is available to load widget data." };
 
-    const response = await fetchImpl(url, {
-      headers: { accept: "application/geo+json, application/json" },
-      ...(loadOptions?.signal ? { signal: loadOptions.signal } : {}),
-    });
-    if (!response.ok) {
-      return { ok: false, reason: `Source "${sourceId}" returned HTTP ${response.status} for its features.` };
+    const { trustedSourceUrl, fetchAuthenticatedFeatureCollection } = await import(
+      "../map/authenticated-source-protocol.js"
+    );
+    const documentUrl = options.documentUrl ?? globalThis.document?.baseURI;
+    const authOptions = {
+      sourceBaseUrl: options.sourceAuthBaseUrl ?? options.baseUrl ?? "/api",
+      legacySourceBaseUrl: options.baseUrl ?? "/api",
+      documentUrl: documentUrl ?? "",
+      getAuth: options.getAuth ?? (() => undefined),
+      fetchImpl,
+    };
+    const signal = loadOptions?.signal ?? new AbortController().signal;
+    let body: unknown;
+    if (
+      options.getAuth &&
+      documentUrl &&
+      trustedSourceUrl(url, authOptions.sourceBaseUrl, documentUrl, authOptions.legacySourceBaseUrl)
+    ) {
+      body = await fetchAuthenticatedFeatureCollection(url, authOptions, signal, "Widget source");
+    } else {
+      // External/legacy sources remain usable, but never receive the Honua bearer or browser credentials.
+      const response = await fetchImpl(url, {
+        headers: { accept: "application/geo+json, application/json" },
+        signal,
+        credentials: "omit",
+        redirect: "error",
+      });
+      if (response.redirected) return { ok: false, reason: "Widget source redirects are not allowed." };
+      if (!response.ok)
+        return { ok: false, reason: `Source "${sourceId}" returned HTTP ${response.status} for its features.` };
+      body = await response.json();
+      signal.throwIfAborted();
     }
-    const parsed = rowsFromFeatureCollection(await response.json());
+    const parsed = rowsFromFeatureCollection(body);
     if (!parsed) return { ok: false, reason: `Source "${sourceId}" did not return a GeoJSON FeatureCollection.` };
     return {
       ok: true,

@@ -235,6 +235,12 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
     fails(input, "final.layers");
   });
 
+  it("fails a real browser card error even when authoritative composition is otherwise correct", () => {
+    const input = inputFor("add-then-remove-widgets");
+    input.observations[0].styleObservationError = "Widget data did not render: chart: Unauthorized";
+    fails(input, "turns[0].browser.observation");
+  });
+
   it("fails provider errors after a successful partial mutation", () => {
     const input = inputFor("hide-parcels-keeps-layer");
     input.run.turns[0].completed = false;

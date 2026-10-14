@@ -134,3 +134,147 @@ describe("widgets/widget-data", () => {
     expect(formatCellValue({ a: 1 })).toBe('{"a":1}');
   });
 });
+
+describe("authenticated widget feature transport", () => {
+  const documentUrl = "https://studio.test/";
+  const baseUrl = "https://honua.test/deployment/api";
+  const url = "https://honua.test/deployment/rest/services/Parcels/FeatureServer/1";
+  const catalog = (sourceUrl = url) => [
+    {
+      id: "parcels",
+      title: "Parcels",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { url: sourceUrl, layerId: 1 },
+    },
+  ];
+  const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+  it.each([401, 499])("refreshes once after %s and renders bounded rows from the real query shape", async (code) => {
+    const auth = { getAccessToken: vi.fn().mockResolvedValueOnce("old").mockResolvedValueOnce("new") };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response({ error: { code } }, code === 401 ? 401 : 200))
+      .mockResolvedValueOnce(response(featureCollection(2)));
+    const loader = createCatalogWidgetDataLoader({
+      catalog: catalog(),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl,
+    });
+    expect(await loader("parcels")).toMatchObject({ ok: true, rows: expect.any(Array) });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [target, init] = fetchImpl.mock.calls[1];
+    expect(new URL(target).searchParams.get("resultRecordCount")).toBe("500");
+    expect(init).toMatchObject({
+      headers: { Authorization: "Bearer new" },
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+    });
+    expect(auth.getAccessToken.mock.calls).toEqual([[undefined], [{ forceRefresh: true }]]);
+  });
+
+  it.each([
+    "https://external.test/deployment/rest/services/Parcels/FeatureServer/1",
+    "https://honua.test/deployment-other/rest/services/Parcels/FeatureServer/1",
+    "https://honua.test/deployment/rest/services/%252fadmin/FeatureServer/1",
+  ])("never forwards Honua credentials to %s", async (sourceUrl) => {
+    const auth = { getAccessToken: vi.fn(async () => "secret") };
+    const fetchImpl = vi.fn(async () => response(featureCollection(1)));
+    const loader = createCatalogWidgetDataLoader({
+      catalog: catalog(sourceUrl),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl,
+    });
+    expect(await loader("parcels")).toMatchObject({ ok: true });
+    expect(auth.getAccessToken).not.toHaveBeenCalled();
+    expect((fetchImpl.mock.calls as unknown[][])[0]?.[1]).toMatchObject({ credentials: "omit", redirect: "error" });
+    expect(JSON.stringify(fetchImpl.mock.calls)).not.toContain("secret");
+  });
+
+  it("rejects an observed redirect and never retries it with a bearer", async () => {
+    const fetchImpl = vi.fn(
+      async () => ({ redirected: true, ok: true, json: async () => featureCollection(1) }) as Response,
+    );
+    const auth = { getAccessToken: async () => "secret" };
+    const stableLoader = createCatalogWidgetDataLoader({
+      catalog: catalog(),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl,
+    });
+    expect(await stableLoader("parcels")).toMatchObject({ ok: false, reason: expect.stringContaining("redirect") });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("partitions row caches by current session and rejects a response from the old session", async () => {
+    let auth = { getAccessToken: vi.fn(async () => "one") };
+    const fetchImpl = vi.fn(async () => response(featureCollection(1)));
+    const loader = createCatalogWidgetDataLoader({
+      catalog: catalog(),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl,
+    });
+    expect(await loader("parcels")).toMatchObject({ ok: true });
+    auth = { getAccessToken: vi.fn(async () => "two") };
+    expect(await loader("parcels")).toMatchObject({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const pendingFetch = vi.fn(async () => {
+      auth = { getAccessToken: vi.fn(async () => "three") };
+      return response(featureCollection(1));
+    });
+    const pendingLoader = createCatalogWidgetDataLoader({
+      catalog: catalog(),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl: pendingFetch,
+    });
+    expect(await pendingLoader("parcels")).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("session changed"),
+    });
+  });
+
+  it("rejects cancellation during token resolution without sending a request", async () => {
+    const controller = new AbortController();
+    const auth = {
+      getAccessToken: vi.fn(async () => {
+        controller.abort();
+        return "secret";
+      }),
+    };
+    const fetchImpl = vi.fn(async () => response(featureCollection(1)));
+    const loader = createCatalogWidgetDataLoader({
+      catalog: catalog(),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl,
+    });
+    expect(await loader("parcels", { signal: controller.signal })).toMatchObject({ ok: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("bounds exhausted authorization and refuses malformed successful bodies", async () => {
+    const auth = { getAccessToken: vi.fn(async () => "expired") };
+    const fetchImpl = vi.fn(async () => response({ error: { code: 499 } }));
+    const loader = createCatalogWidgetDataLoader({
+      catalog: catalog(),
+      baseUrl,
+      documentUrl,
+      getAuth: () => auth,
+      fetchImpl,
+    });
+    expect(await loader("parcels")).toMatchObject({ ok: false, reason: expect.stringContaining("cannot authorize") });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(rowsFromFeatureCollection({ features: [] })).toBeUndefined();
+  });
+});
