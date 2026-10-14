@@ -13,6 +13,8 @@ name: Claude second-pass review
 # precondition cheaply (no model) and the review job runs only when it holds.
 
 on:
+  issue_comment:
+    types: [created, edited]
   pull_request_review:
     types: [submitted]
   pull_request_review_comment:
@@ -42,12 +44,12 @@ permissions:
 concurrency:
   # Never cancel in flight: a cancelled review job can leave the PR without the
   # comment that carries its dedupe marker, which would re-arm it forever.
-  group: claude-second-review-${{ github.event.pull_request.number || inputs.pull_request_number }}
+  group: claude-second-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number }}
   cancel-in-progress: false
 
 env:
   FIRST_PASS_REVIEWER: chatgpt-codex-connector
-  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+  PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number }}
 
 jobs:
   gate:
@@ -57,8 +59,13 @@ jobs:
     # Fork PRs never reach a job that can see secrets. workflow_dispatch has no
     # head-repository metadata in the payload, so the gate script re-checks the
     # head repository it resolves from the API before allowing the review job.
+    # Connector summaries are top-level PR comments. Their events only admit
+    # this read-only gate; app identity, completion and head are checked afresh.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.comment.user.login == 'chatgpt-codex-connector[bot]') ||
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read

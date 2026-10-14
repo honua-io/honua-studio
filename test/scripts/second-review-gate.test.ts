@@ -277,6 +277,12 @@ describe("sequential review mode admission", () => {
   it("wires the tested policy and bounded retrospective review into the workflow", () => {
     const workflow = readFileSync(new URL("../../.github/workflows/claude-second-review.yml", import.meta.url), "utf8");
     expect(workflow).toContain("node scripts/evaluate-second-review.mjs");
+    expect(workflow).toContain("issue_comment:\n    types: [created, edited]");
+    expect(workflow).toContain(
+      "github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number",
+    );
+    expect(workflow).toContain("github.event.issue.pull_request &&");
+    expect(workflow).toContain("github.event.comment.user.login == 'chatgpt-codex-connector[bot]'");
     expect(workflow).toContain("--max-turns 80");
     expect(workflow).toContain("timeout-minutes: 20");
     expect(workflow).toContain("github.workflow_sha");
