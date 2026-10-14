@@ -29,6 +29,8 @@ export async function bindManagedDeployment(path, endpoint, raw, identity) {
     identity.sourceDirty !== false ||
     identity.releaseQualification !== false ||
     identity.securityQualification !== false ||
+    identity.nativeQualification !== false ||
+    identity.health?.status !== 200 ||
     identity.syntheticData !== true ||
     identity.runtimeKind !== "managed-jit" ||
     identity.nativeBinarySha256 !== undefined ||

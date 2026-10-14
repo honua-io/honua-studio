@@ -83,7 +83,8 @@ The browser observer also requires `HONUA_CORPUS_DEPLOYMENT_RECEIPT`, naming the
 Native receipts retain the `honua.owned-native-diagnostic.v1` schema and native
 binary checks. A separate `honua.owned-managed-diagnostic.v1` receipt identifies
 an explicitly synthetic `managed-jit` functional deployment. It requires
-`releaseQualification: false` and `securityQualification: false`; it has no
+`releaseQualification: false`, `securityQualification: false`,
+`nativeQualification: false` and an actual `health.status: 200` receipt; it has no
 native binary identity and establishes no NativeAOT qualification. Keep its
 endpoint, configuration and result directories separate from native runs.
 

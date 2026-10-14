@@ -50,6 +50,8 @@ async function fixture() {
     sourceDirty: false,
     releaseQualification: false,
     securityQualification: false,
+    nativeQualification: false,
+    health: { status: 200 },
     syntheticData: true,
     runtimeKind: "managed-jit",
     sourceSha: "a".repeat(40),
@@ -198,7 +200,7 @@ describe("owned managed functional deployment binding", () => {
     await expect(bindOwnedDeployment(path, endpoint)).rejects.toThrow("Invalid owned managed");
     expect(docker).not.toHaveBeenCalled();
   });
-  it.each(["releaseQualification", "securityQualification", "sourceDirty"] as const)(
+  it.each(["releaseQualification", "securityQualification", "nativeQualification", "sourceDirty"] as const)(
     "rejects an affirmative %s claim before Docker access",
     async (field) => {
       const { path, identity } = await fixture();
@@ -208,6 +210,13 @@ describe("owned managed functional deployment binding", () => {
       expect(docker).not.toHaveBeenCalled();
     },
   );
+  it("rejects a failed readiness receipt before Docker access", async () => {
+    const { path, identity } = await fixture();
+    identity.health.status = 503;
+    await writeFile(path, JSON.stringify(identity));
+    await expect(bindOwnedDeployment(path, endpoint)).rejects.toThrow("Invalid owned managed");
+    expect(docker).not.toHaveBeenCalled();
+  });
   it("rejects a non-loopback endpoint before Docker access", async () => {
     const { path, identity } = await fixture();
     identity.endpoint = "https://foreign.example";
