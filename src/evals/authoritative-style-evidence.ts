@@ -102,8 +102,8 @@ export async function applyAuthoritativeStyleEvidence(
         check("rendered.minzoom", expected.minzoom ?? 0, renderedLayer.minzoom ?? 0);
         check("rendered.maxzoom", expected.maxzoom ?? 24, renderedLayer.maxzoom ?? 24);
         const paint = renderedLayer.paint as Record<string, unknown> | undefined;
-        for (const [key, expected] of Object.entries(expected.paint ?? {}))
-          check(`rendered.paint.${key}`, expected, paint?.[key]);
+        for (const [key, expectedValue] of Object.entries(expected.paint ?? {}))
+          check(`rendered.paint.${key}`, expectedValue, paint?.[key]);
         if (requirement.classificationField) {
           const descriptor = JSON.parse(binding.descriptorBody) as { fields?: Array<{ name?: string }> };
           check(
@@ -130,7 +130,7 @@ export async function applyAuthoritativeStyleEvidence(
             true,
             ["match", "step", "interpolate"].includes(String(method)) &&
               canonicalCompositionJson(input) === canonicalCompositionJson(["get", requirement.classificationField]) &&
-              new Set(outputs.map(canonicalCompositionJson)).size >= 2,
+              new Set(outputs.map((value) => canonicalCompositionJson(value))).size >= 2,
           );
         }
         for (const [key, expected] of Object.entries(requirement.palette ?? {}))

@@ -389,6 +389,26 @@ describe("authoritative style interaction bindings", () => {
     expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#ddaa22");
     view.dispose();
   });
+  it("does not repopulate bindings across a refresh requested while a read is pending", async () => {
+    const { view, map, bind, changeRevision } = await styledView();
+    const oldBinding = await bind.mock.results[0].value;
+    let complete!: () => void;
+    bind.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = () => resolve(oldBinding);
+        }),
+    );
+    const firstRefresh = view.refreshAuthoritativeStyles();
+    await vi.waitFor(() => expect(bind).toHaveBeenCalledTimes(2));
+    changeRevision();
+    const secondRefresh = view.refreshAuthoritativeStyles();
+    complete();
+    await Promise.all([firstRefresh, secondRefresh]);
+    expect(bind).toHaveBeenCalledTimes(3);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#ddaa22");
+    view.dispose();
+  });
   it("rebinds when style, actual descriptor, session or bounded freshness changes", async () => {
     const { controller, view, bind, descriptor, replaceSession } = await styledView();
     controller.apply({

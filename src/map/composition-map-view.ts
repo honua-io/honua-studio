@@ -203,6 +203,7 @@ export class CompositionMapView {
   #basemap: BasemapStyle | undefined;
   #disposed = false;
   #styleSession: unknown;
+  #styleRefreshEpoch = 0;
   #styleBindings = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
   #authoritativeStyles?: Record<string, BoundAuthoritativeStyle | { reason: string }>;
 
@@ -393,6 +394,7 @@ export class CompositionMapView {
 
   /** Revalidates current stylesheet revisions; proof observers always call this before reading the map. */
   public async refreshAuthoritativeStyles(): Promise<void> {
+    this.#styleRefreshEpoch++;
     this.#styleBindings.clear();
     this.#scheduleUpdate();
     await this.settled();
@@ -404,6 +406,7 @@ export class CompositionMapView {
     const bindings: Record<string, BoundAuthoritativeStyle | { reason: string }> = {};
     const state = this.#options.controller.state;
     const session = provider.sessionIdentity;
+    const refreshEpoch = this.#styleRefreshEpoch;
     if (session !== this.#styleSession) this.#styleBindings.clear();
     this.#styleSession = session;
     const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
@@ -425,7 +428,10 @@ export class CompositionMapView {
       }
       if (this.#disposed) return;
     }
-    this.#styleBindings = session === provider.sessionIdentity && !this.#disposed ? retained : new Map();
+    this.#styleBindings =
+      session === provider.sessionIdentity && refreshEpoch === this.#styleRefreshEpoch && !this.#disposed
+        ? retained
+        : new Map();
     // Results never apply to a different composition snapshot.
     this.#authoritativeStyles =
       state === this.#options.controller.state && session === provider.sessionIdentity ? bindings : {};

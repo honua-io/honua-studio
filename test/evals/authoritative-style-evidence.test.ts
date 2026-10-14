@@ -72,7 +72,14 @@ async function fixture() {
   };
   const composition = {
     ...createEmptyCompositionState(),
-    layers: [{ id: "parcels", sourceId: "service/0", visible: true, styleRef: { styleId: "district" } }],
+    layers: [
+      {
+        id: "parcels",
+        sourceId: "service/0",
+        visible: true,
+        styleRef: { kind: "style-ref" as const, styleId: "district" },
+      },
+    ],
   };
   return { observation, composition };
 }

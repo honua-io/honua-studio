@@ -97,7 +97,14 @@ describe("authoritative style provider", () => {
     };
     const state = {
       ...createEmptyCompositionState(),
-      layers: [{ id: "composed", sourceId: source.id, visible: false, styleRef: { styleId: "district" } }],
+      layers: [
+        {
+          id: "composed",
+          sourceId: source.id,
+          visible: false,
+          styleRef: { kind: "style-ref" as const, styleId: "district" },
+        },
+      ],
     };
     const projected = compositionToMapPackage(state, {
       catalog: [source],
@@ -120,7 +127,14 @@ describe("authoritative style provider", () => {
     const binding = await fixture().provider.bind("district", source);
     const state = {
       ...createEmptyCompositionState(),
-      layers: [{ id: "composed", sourceId: source.id, visible: true, styleRef: { styleId: "district" } }],
+      layers: [
+        {
+          id: "composed",
+          sourceId: source.id,
+          visible: true,
+          styleRef: { kind: "style-ref" as const, styleId: "district" },
+        },
+      ],
     };
     const projected = compositionToMapPackage(state, { catalog: [source], authoritativeStyles: { composed: binding } });
     expect(projected.mapPackage.styleRefs?.[0]?.body?.composed?.paint).toEqual(sheet.layers[0]?.paint);
