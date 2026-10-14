@@ -122,7 +122,7 @@ describe("StudioClient auth wiring", () => {
 
 const publishedLayer = {
   serviceId: "service-uuid",
-  serviceName: "Road inventory",
+  serviceName: "Transportation/Road inventory",
   layerId: 7,
   name: "Roads",
   type: "Feature Layer",
@@ -159,7 +159,7 @@ describe("StudioClient real discovery", () => {
     const catalog = await new StudioClient("https://host/api", auth).listCatalog();
     expect(catalog.map((entry) => entry.id)).toEqual(["service-uuid/7", "service-uuid/8"]);
     expect(catalog[0]?.locator).toEqual({
-      url: "https://host/rest/services/Road%20inventory/FeatureServer",
+      url: "https://host/rest/services/Transportation/Road%20inventory/FeatureServer",
       layerId: 7,
       serviceId: "service-uuid",
     });

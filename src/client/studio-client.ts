@@ -163,7 +163,7 @@ export class StudioClient {
             protocol: "geoservices-feature-service",
             geometryType: layer.geometryType,
             locator: {
-              url: `${this.dataBaseUrl}/rest/services/${encodeURIComponent(layer.serviceName)}/FeatureServer`,
+              url: `${this.dataBaseUrl}/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`,
               layerId: layer.layerId,
               serviceId: layer.serviceId,
             },
