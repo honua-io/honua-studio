@@ -44,7 +44,8 @@ permissions:
 concurrency:
   # Never cancel in flight: a cancelled review job can leave the PR without the
   # comment that carries its dedupe marker, which would re-arm it forever.
-  group: claude-second-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number }}
+  # Skipped comment events must not replace a legitimate pending evaluation.
+  group: claude-second-review-${{ github.event_name == 'issue_comment' && (!github.event.issue.pull_request || github.event.comment.user.login != 'chatgpt-codex-connector[bot]') && github.run_id || github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number }}
   cancel-in-progress: false
 
 env:
@@ -178,6 +179,10 @@ jobs:
         uses: anthropics/claude-code-action@1f291e1cfe0f5fc21db2aef19af844591600ade7 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The action exchanges its own App token; job GITHUB_TOKEN permissions
+          # do not constrain that token's default contents:write permission.
+          additional_permissions: |
+            contents: read
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
