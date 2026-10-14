@@ -2,11 +2,18 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+import { createServer } from "vite";
 import { startPreviewServer } from "../test/playwright/helpers.mjs";
 import { observedGeoJsonBounds } from "./lib/observed-geojson-bounds.mjs";
 import { bindObservedSources } from "./lib/observer-source-bindings.mjs";
 import { bindOwnedDeployment } from "./lib/owned-deployment-binding.mjs";
 import { collectRenderedWidgetObservations, requireRenderedWidgetData } from "./lib/rendered-widget-observations.mjs";
+import {
+  bindWidgetFeatureResponse,
+  expectedChartValues,
+  expectedWidgetData,
+  requireMatchingWidgetData,
+} from "./lib/widget-data-expectations.mjs";
 
 async function buildHashes() {
   const root = resolve("dist");
@@ -51,6 +58,8 @@ export async function createBrowserStyleObserver({
   };
   let preview;
   let browser;
+  let modules;
+  let requestSequence = 0;
   const captures = [];
   await mkdir(directory, { recursive: true });
   const close = async () => {
@@ -69,10 +78,39 @@ export async function createBrowserStyleObserver({
     }
     await browser?.close();
     await preview?.close();
+    await modules?.close();
     await writeFile(resolve(directory, "browser-style-observer.json"), `${JSON.stringify(receipt, null, 2)}\n`);
     if (receipt.deploymentChanged) throw new Error("Owned deployment changed during browser style observation.");
   };
   try {
+    modules = await createServer({
+      root: process.cwd(),
+      configFile: false,
+      server: { middlewareMode: true },
+      appType: "custom",
+    });
+    const pipelinePaths = [
+      "src/widgets/widget-config.ts",
+      "src/widgets/widget-data.ts",
+      "src/widgets/chart-spec.ts",
+      "src/widgets/chart-data.ts",
+      "src/widgets/chart-render.ts",
+      "src/map/source-resolution.ts",
+    ];
+    const pipeline = Object.assign(
+      {},
+      ...(await Promise.all(pipelinePaths.map((path) => modules.ssrLoadModule(`/${path}`)))),
+    );
+    receipt.expectedPipelineSourceHashes = Object.fromEntries(
+      await Promise.all(
+        pipelinePaths.map(async (path) => [
+          path,
+          createHash("sha256")
+            .update(await readFile(resolve(path)))
+            .digest("hex"),
+        ]),
+      ),
+    );
     preview = await startPreviewServer({ HONUA_BASE_URL: baseUrl }, ["--port", "0"]);
     receipt.browserOrigin = preview.url;
     browser = await chromium.launch({ headless: true, args: ["--use-angle=swiftshader"] });
@@ -84,10 +122,12 @@ export async function createBrowserStyleObserver({
     page.on("response", (response) => {
       const url = new URL(response.url());
       if (!["/api/", "/mcp", "/rest/", "/ogc/"].some((prefix) => url.pathname.startsWith(prefix))) return;
+      const sequence = requestSequence++;
       captures.push(
         (async () => {
           const request = response.request();
           receipt.requests.push({
+            sequence,
             browserUrl: response.url(),
             upstreamUrl: `${baseUrl}${url.pathname}${url.search}`,
             method: request.method(),
@@ -216,6 +256,82 @@ export async function createBrowserStyleObserver({
           } while (Date.now() < widgetDeadline);
           requireRenderedWidgetData(turn.widgets);
           await Promise.all(captures);
+          turn.widgetDataBindings = [];
+          for (const widget of state.widgets.filter((entry) => entry.kind === "chart" || entry.kind === "table")) {
+            const resolved = pipeline.resolveCompositionSource(
+              { id: widget.sourceId, sourceId: widget.sourceId, visible: true },
+              { catalog, baseUrl: `${preview.url}/api`, featureLimit: 500 },
+            );
+            if (!pipeline.isCompositionSourceResolution(resolved) || typeof resolved.source.data !== "string")
+              throw new Error("Widget source did not resolve to a captured feature query.");
+            const queryUrl = new URL(resolved.source.data, preview.url).href;
+            const bound = bindWidgetFeatureResponse(
+              queryUrl,
+              [...receipt.requests].sort((a, b) => a.sequence - b.sequence),
+            );
+            const expected = expectedWidgetData(widget, bound.collection, pipeline);
+            if (expected.kind === "chart")
+              expected.renderedValues = await page.evaluate(expectedChartValues, expected.svg);
+            const actual = turn.widgets.find((entry) => entry.widgetId === widget.id);
+            requireMatchingWidgetData(actual, expected);
+            const { svg: _svg, ...retainedExpected } = expected;
+            turn.widgetDataBindings.push({
+              widgetId: widget.id,
+              sourceId: widget.sourceId,
+              config: widget.config,
+              query: queryUrl,
+              upstreamQuery: bound.request.upstreamUrl,
+              responseSequence: bound.request.sequence,
+              responseSha256: createHash("sha256").update(bound.request.response).digest("hex"),
+              featureCount: bound.collection.features.length,
+              expected: retainedExpected,
+              actual,
+            });
+            const visible = await page.evaluate(async (id) => {
+              const root = document.querySelector("honua-studio-canvas")?.widgetDeck?.shadowRoot;
+              const card = [...(root?.querySelectorAll('[data-testid="studio-widget"]') ?? [])].find(
+                (entry) => entry.dataset.widgetId === id,
+              );
+              if (!card) throw new Error("Rendered widget disappeared.");
+              card.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const body = card.querySelector(
+                '[data-testid="studio-widget-chart"] svg, [data-testid="studio-widget-grid"]',
+              );
+              if (!body) throw new Error("Widget visualization disappeared.");
+              const rect = body.getBoundingClientRect();
+              return {
+                visible: body.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }),
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                viewportWidth: innerWidth,
+                viewportHeight: innerHeight,
+              };
+            }, widget.id);
+            if (
+              !visible.visible ||
+              visible.width <= 0 ||
+              visible.height <= 0 ||
+              visible.x >= visible.viewportWidth ||
+              visible.y >= visible.viewportHeight ||
+              visible.x + visible.width <= 0 ||
+              visible.y + visible.height <= 0
+            )
+              throw new Error("Widget body is not visibly painted in the viewport.");
+            actual.visibility = visible;
+            await page.screenshot({
+              path: resolve(
+                directory,
+                `${taskId.replace(/[^a-z0-9-]/gi, "_")}-${turnIndex}-widget-${widget.id.replace(/[^a-z0-9-]/gi, "_")}.png`,
+              ),
+            });
+            // Re-read the real DOM after paint; never rely on the pre-scroll snapshot alone.
+            const afterPaint = (await page.evaluate(collectRenderedWidgetObservations, [widget]))[0];
+            requireRenderedWidgetData([afterPaint]);
+            requireMatchingWidgetData(afterPaint, expected);
+          }
           if (receipt.errors.length) throw new Error("Browser errors occurred; inspect retained observer receipt.");
           if (JSON.stringify(receipt.buildFiles) !== JSON.stringify(await buildHashes()))
             throw new Error("Production build changed during style observation.");

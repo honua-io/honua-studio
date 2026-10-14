@@ -431,7 +431,65 @@ describe("<honua-studio-widget-deck> — chart, legend, compare, time (REQ-001/R
 });
 
 describe("widget deck session lifecycle", () => {
+  it("loads public external catalog data with an expired session but refuses the protected Honua source", async () => {
+    const auth = {
+      subscribe: (listener: AuthSessionListener) => {
+        listener({ status: "expired" });
+        return () => {};
+      },
+      getAccessToken: vi.fn(async () => undefined),
+    } as unknown as AuthSession;
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify(
+            String(input).startsWith("https://public.test/")
+              ? {
+                  type: "FeatureCollection",
+                  features: PARCEL_ROWS.map((row) => ({
+                    type: "Feature",
+                    id: row.featureId,
+                    properties: row.properties,
+                  })),
+                }
+              : { error: { code: 499 } },
+          ),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const el = document.createElement("honua-studio-widget-deck") as HonuaStudioWidgetDeckElement;
+    el.sourceBaseUrl = "https://honua.test/deployment/api";
+    const descriptor = {
+      id: "parcels",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { url: "https://public.test/rest/services/Parcels/FeatureServer/1", layerId: 1 },
+    };
+    el.sourceCatalog = [descriptor];
+    el.getAuth = () => auth;
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addWidget", widget: { id: "grid", kind: "table", sourceId: "parcels" } });
+    el.composition = controller;
+    document.body.append(el);
+    await settle(() => Boolean(query(el, '[data-testid="studio-widget-grid-row"]')));
+    expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')).toHaveLength(3);
+    expect(auth.getAccessToken).not.toHaveBeenCalled();
+    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ credentials: "omit", redirect: "error" });
+    expect(fetchImpl.mock.calls[0]?.[1]?.headers).not.toHaveProperty("Authorization");
+    el.sourceCatalog = [
+      {
+        ...descriptor,
+        locator: { ...descriptor.locator, url: "https://honua.test/deployment/rest/services/Parcels/FeatureServer/1" },
+      },
+    ];
+    await settle(() => Boolean(el.shadowRoot?.textContent?.includes("cannot authorize")));
+    expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')).toHaveLength(0);
+    expect(el.shadowRoot?.textContent).toContain("cannot authorize");
+    expect(auth.getAccessToken).toHaveBeenCalledTimes(2);
+  });
+
   afterEach(() => {
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
   it("clears displayed rows on expiry, aborts pending work, and reloads on a replacement session", async () => {
@@ -458,7 +516,9 @@ describe("widget deck session lifecycle", () => {
     listener?.({ status: "expired" });
     expect(firstSignal?.aborted).toBe(true);
     expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')).toHaveLength(0);
-    expect(el.shadowRoot?.textContent).toContain("session is unavailable");
+    // Expiry clears old rows, but public/custom loaders still choose their own authentication.
+    await settle(() => Boolean(query(el, '[data-testid="studio-widget-grid-row"]')));
+    expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')).toHaveLength(3);
     auth = { subscribe: () => unsubscribe, getAccessToken: async () => "two" } as unknown as AuthSession;
     el.refreshSession();
     await settle(() => Boolean(query(el, '[data-testid="studio-widget-grid-row"]')));

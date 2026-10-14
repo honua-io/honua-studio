@@ -26,6 +26,7 @@ export function collectRenderedWidgetObservations(widgets) {
             ".widget-chart-bar title, .widget-chart-vertex title, .widget-chart-slice title",
           ) ?? []),
         ].map((entry) => entry.textContent),
+        tableColumns: [...(card?.querySelectorAll("thead th") ?? [])].map((entry) => entry.textContent),
         tableCells: [...(card?.querySelectorAll('[role="gridcell"]') ?? [])].map((entry) => entry.textContent),
       };
     });

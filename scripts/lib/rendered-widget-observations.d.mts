@@ -8,6 +8,7 @@ export interface RenderedWidgetObservation {
   renderedRowCount: number;
   chartSummary?: string;
   renderedValues: (string | null)[];
+  tableColumns: (string | null)[];
   tableCells: (string | null)[];
 }
 export function collectRenderedWidgetObservations(
