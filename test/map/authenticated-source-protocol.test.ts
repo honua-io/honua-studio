@@ -51,12 +51,13 @@ function setup(fetchImpl = vi.fn(async () => response(collection))) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("trusted authenticated map sources", () => {
-  it.each([source, "https://honua.test/deployment/ogc/collections/parcels/items?limit=20"])(
-    "accepts actual feature endpoint %s",
-    (url) => {
-      expect(trustedSourceUrl(url, sourceBaseUrl, documentUrl)?.href).toBe(url);
-    },
-  );
+  it.each([
+    source,
+    "https://honua.test/deployment/rest/services/City%20Maps/Roads/FeatureServer/7/query",
+    "https://honua.test/deployment/ogc/collections/parcels/items?limit=20",
+  ])("accepts actual feature endpoint %s", (url) => {
+    expect(trustedSourceUrl(url, sourceBaseUrl, documentUrl)?.href).toBe(url);
+  });
   it.each([
     "https://evil.test/deployment/rest/services/Roads/FeatureServer/7/query",
     "https://honua.test/deployment-other/rest/services/Roads/FeatureServer/7/query",
