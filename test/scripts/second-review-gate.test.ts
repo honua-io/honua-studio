@@ -289,7 +289,7 @@ describe("sequential review mode admission", () => {
     const reviewJob = workflow.split("\n  review:\n")[1];
     expect(reviewJob).toContain("ref: ${{ github.workflow_sha }}");
     expect(reviewJob).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
-    expect(reviewJob).toContain("contents/PATH?ref=${{ needs.gate.outputs.head_sha }}");
+    expect(reviewJob).toContain("contents/PATH --method GET -f ref=${{ needs.gate.outputs.head_sha }}");
     expect(reviewJob).toContain("Never execute PR code");
     expect(workflow).toContain("does not\n            establish historical pre-merge clearance");
     expect(workflow).not.toContain("--max-turns 40");
