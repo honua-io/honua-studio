@@ -283,10 +283,18 @@ describe("sequential review mode admission", () => {
     );
     expect(workflow).toContain("github.event.issue.pull_request &&");
     expect(workflow).toContain("github.event.comment.user.login == 'chatgpt-codex-connector[bot]'");
+    const concurrency = workflow.match(/concurrency:\n([\s\S]*?)\nenv:/)?.[1];
+    expect(concurrency).toContain(
+      "github.event_name == 'issue_comment' && (!github.event.issue.pull_request || github.event.comment.user.login != 'chatgpt-codex-connector[bot]') && github.run_id || github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number",
+    );
+    expect(concurrency).toContain("cancel-in-progress: false");
     expect(workflow).toContain("--max-turns 80");
     expect(workflow).toContain("timeout-minutes: 20");
     expect(workflow).toContain("github.workflow_sha");
     const reviewJob = workflow.split("\n  review:\n")[1];
+    expect(reviewJob).toMatch(/allowed_bots: chatgpt-codex-connector\[bot\]\n/);
+    expect(reviewJob.match(/allowed_bots:/g)).toHaveLength(1);
+    expect(reviewJob).toContain("additional_permissions: |\n            contents: read\n");
     expect(reviewJob).toContain("ref: ${{ github.workflow_sha }}");
     expect(reviewJob).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
     expect(reviewJob).toContain("contents/PATH --method GET -f ref=${{ needs.gate.outputs.head_sha }}");
