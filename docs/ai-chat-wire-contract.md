@@ -123,3 +123,20 @@ provider seam: today it returns the published SDK's static schemas, and can
 switch to sdk-js#1397 discovery without changing the chat loop. Assigning an
 explicit `ChatTransport` detaches the live session, keeping fixture playback
 network- and model-free.
+
+
+### Host composition guidance and admission
+
+Studio supplements discovered tools with shared host rendering guidance in the normal
+app and real-model driver. A layer list is a `toc` widget; charts conventionally use
+`config.groupBy` and `config.chartType`. Documented renderer aliases such as
+`categoryField` remain accepted and are sent unchanged. Numeric thresholds use
+`filterSlider` with an actual numeric domain; `timeSlider` needs temporal dates.
+Filtering requires a separate `change` to `setFilter` interaction after adding the
+control. An unbound control remains intentionally inert.
+
+At the verified model MCP dispatch boundary, Studio rejects unknown widget/control
+kinds and chart/control configuration that its existing renderer cannot interpret.
+Failures return actionable tool results before a durable mutation. This host admission
+does not rewrite signed arguments, replace discovery, or change imported draft admission.
+It does not infer source fields or fabricate an interaction on the user's behalf.
