@@ -145,3 +145,20 @@ export function startBlazorHost() {
     });
   });
 }
+
+/** The recorded fixture conversation uses host aliases; preserve actual discovered locator bytes. */
+export async function bindFixtureSourceAliases(page) {
+  await page.evaluate(async () => {
+    const app = window.__honuaStudioApp;
+    const actual = await app.studioClient.listCatalog();
+    const aliases = actual
+      .filter(
+        (entry) =>
+          entry.locator?.layerId === 0 && ["hi-parcels", "hi-roads", "hi-wells"].includes(entry.locator?.serviceId),
+      )
+      .map((entry) => ({ ...entry, id: entry.locator.serviceId }));
+    if (!aliases.some((entry) => entry.id === "hi-parcels"))
+      throw new Error("Actual fixture parcel discovery is unavailable.");
+    app.sourceCatalog = [...actual, ...aliases];
+  });
+}

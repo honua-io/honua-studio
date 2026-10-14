@@ -375,7 +375,7 @@ describe("authoritative style interaction bindings", () => {
     expect(bind).toHaveBeenCalledTimes(1);
     controller.select([{ kind: "layer", id: "parcels" }]);
     await view.settled();
-    view.setAppearance({ parcels: { opacity: 0.5 } });
+    view.setAppearance({ opacity: { parcels: 0.5 } });
     await view.settled();
     expect(bind).toHaveBeenCalledTimes(1);
     view.dispose();

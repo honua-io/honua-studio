@@ -25,7 +25,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { bindFixtureSourceAliases, startPreviewServer } from "./helpers.mjs";
 
 /** Live MapLibre layout state for one composed layer — the ground truth a TOC toggle has to move. */
 const readLayerVisibility = (layerId) => {
@@ -52,6 +52,7 @@ async function bootComposedStudio(page, preview) {
   }, "compose-districts-map");
   await page.goto(preview.url);
   await signIn(page);
+  await bindFixtureSourceAliases(page);
   await expect.poll(() => page.evaluate(mapStatus), { timeout: 20_000 }).toBe("ready");
 }
 

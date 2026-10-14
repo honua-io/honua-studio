@@ -20,7 +20,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { bindFixtureSourceAliases, startPreviewServer } from "./helpers.mjs";
 
 /**
  * A fixed, non-default preview port. Several agents run Playwright against
@@ -62,6 +62,7 @@ async function bootComposedStudio(page, preview) {
   }, "compose-districts-map");
   await page.goto(preview.url);
   await signIn(page);
+  await bindFixtureSourceAliases(page);
   await expect.poll(() => page.evaluate(mapStatus), { timeout: 20_000 }).toBe("ready");
 }
 

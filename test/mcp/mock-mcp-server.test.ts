@@ -65,6 +65,8 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       "honua_studio_save_version",
       "honua_studio_reopen_version",
       "honua_studio_propose_publication",
+      "honua_describe_layer",
+      "honua_get_style",
       "honua_list_layers",
     ]);
   });
@@ -249,4 +251,34 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     });
     expect(response.status).toBe(404);
   });
+});
+
+it("serves canonical fixture style and actual property descriptors, rejecting unknown names", async () => {
+  server = await startMockServer();
+  const token = mintFixtureAccessToken();
+  const descriptor = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_describe_layer", arguments: { serviceId: "hi-parcels", layerId: 0 } },
+    token,
+  );
+  expect(
+    descriptor.body.result.structuredContent.fields.some((field: { name: string }) => field.name === "district"),
+  ).toBe(true);
+  const style = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_get_style", arguments: { styleId: "district", includeStylesheet: true, encoding: "mapbox-style" } },
+    token,
+  );
+  const definition = style.body.result.structuredContent;
+  expect(definition.styleVersion).toBe(1);
+  expect(JSON.parse(definition.encodings[0].inlineBody).layers[0].paint["fill-color"][1]).toEqual(["get", "district"]);
+  const unknown = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_get_style", arguments: { styleId: "unknown" } },
+    token,
+  );
+  expect(unknown.body.result.isError).toBe(true);
 });

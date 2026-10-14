@@ -488,6 +488,53 @@ function createMcpDispatcher(store, catalogDatasets) {
         layers,
       });
     },
+    honua_describe_layer(args) {
+      const dataset = catalogDatasets.find((entry) => entry.id === args.serviceId);
+      const features = FIXTURE_FEATURES[args.serviceId];
+      if (!dataset || args.layerId !== 0 || !features) return toolError("not_found", "Fixture layer not found.");
+      const fields = Object.entries(features[0]?.properties ?? {}).map(([name, value]) => ({
+        name,
+        type: typeof value === "number" ? "Double" : "String",
+      }));
+      return toolSuccess({
+        serviceId: dataset.id,
+        serviceName: dataset.id,
+        layerId: 0,
+        name: dataset.title,
+        geometryType: dataset.geometryType,
+        srid: 4326,
+        fieldCount: fields.length,
+        fields,
+      });
+    },
+    honua_get_style(args) {
+      if (!args.styleId)
+        return toolSuccess({ styles: [{ styleId: "district", title: "Fixture district classification" }] });
+      if (args.styleId !== "district") return toolError("not_found", "Fixture style not found.");
+      const body = {
+        version: 8,
+        name: "Fixture district classification",
+        metadata: { "honua:description": "Synthetic fixture districts, classified by the district property." },
+        sources: { fixture: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+        layers: [
+          {
+            id: "fixture-districts",
+            type: "fill",
+            source: "fixture",
+            paint: {
+              "fill-color": ["match", ["get", "district"], "Honolulu", "#003366", "ʻEwa", "#ddaa22", "#559966"],
+              "fill-opacity": 1,
+            },
+          },
+        ],
+      };
+      return toolSuccess({
+        styleId: "district",
+        title: body.name,
+        styleVersion: 1,
+        encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(body) }],
+      });
+    },
     honua_studio_create_draft(args) {
       if (!args || typeof args.packageKey !== "string" || !args.packageKey) {
         return toolError("invalid_argument", "'packageKey' is required.");
@@ -932,6 +979,12 @@ function createMcpDispatcher(store, catalogDatasets) {
                 description: name,
                 inputSchema: { type: "object", additionalProperties: true },
                 _meta: STUDIO_TOOL_CLASSIFICATION,
+              })),
+              ...["honua_describe_layer", "honua_get_style"].map((name) => ({
+                name,
+                description: "Read authoritative synthetic fixture metadata.",
+                inputSchema: { type: "object", additionalProperties: true },
+                annotations: { readOnlyHint: true },
               })),
               {
                 name: "honua_list_layers",
