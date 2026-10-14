@@ -223,7 +223,12 @@ export interface CompositionDraftCreateRequest {
   readonly envelope: CompositionDraftEnvelope;
 }
 
-/** Mirrors `StudioPackageDraftReplaceRequest` — omitting `generation` means last-write-wins; passing the last-seen value gets strict optimistic-concurrency checking. */
+/**
+ * Passing the last-seen generation requests strict optimistic concurrency.
+ * When omitted, a store starts from its current generation. A network adapter
+ * that reads metadata before replacement must guard that observed generation,
+ * so a concurrent edit during the read/write gap can still report a conflict.
+ */
 export interface CompositionDraftReplaceRequest {
   readonly packageKey: string;
   readonly envelope: CompositionDraftEnvelope;
@@ -436,6 +441,10 @@ export interface FixtureDraftStoreOptions {
  * `replace` with a stale `generation` throws
  * {@link CompositionDraftError} with `code: "generation-conflict"` — the
  * same optimistic-concurrency contract `HonuaStudioLifecycleClient` documents.
+ * An omitted generation uses the current in-memory revision atomically here.
+ * The real adapter reads authoritative metadata over HTTP before replacing;
+ * it guards that observed generation and can detect a race in the intervening
+ * network gap, which this synchronous fixture does not have.
  */
 export class FixtureDraftStore implements CompositionDraftStore {
   readonly #now: () => string;

@@ -6,6 +6,7 @@ import {
 import { canonicalCompositionJson, createEmptyCompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
 import { McpClient } from "../mcp/client.js";
+import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import { StudioMcpToolClient } from "../mcp/studio-tools.js";
 import { applyStudioDraft, toStudioCompositionBody } from "../mcp/tool-bridge.js";
 import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
@@ -100,8 +101,8 @@ export async function runServerCorpus(options: {
       const created = await tools.createDraft({
         packageKey,
         family: "map",
-        schemaVersion: "1.0",
-        body: toStudioCompositionBody(initial),
+        schemaVersion: MAP_COMPOSITION_ENVELOPE.schemaVersion,
+        body: toCompositionDraftBody(initial, packageKey),
       });
       draftId = created.draftId;
       const seeded = await tools.getDraft(draftId);
