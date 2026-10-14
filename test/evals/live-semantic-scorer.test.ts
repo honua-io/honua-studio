@@ -194,6 +194,16 @@ describe("supplemental live semantics over independently read HTTP drafts", () =
     fails(input, "final.pinnedLayer");
   });
 
+  it("fails a pin-restyle no-op instead of attributing it only to missing styles", () => {
+    const input = inputFor("pin-protects-flood-risk");
+    input.run.toolCalls = [];
+    input.run.state = structuredClone(input.initial);
+    input.observations[0].localState = structuredClone(input.initial);
+    input.observations[0].serverState = structuredClone(input.initial);
+    fails(input, "effects.serverMutation");
+    fails(input, "final.developmentLayer.styleChanged");
+  });
+
   it("does not pass a text-only no-effect response", () => {
     const input = inputFor("hide-parcels-keeps-layer");
     input.run.toolCalls = [];

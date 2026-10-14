@@ -210,6 +210,11 @@ export function scoreLiveSemanticRun(input: {
       const before = initial.layers.find((layer) => layer.id === "development-pressure");
       const after = final?.layers.find((layer) => layer.id === "development-pressure");
       check("final.developmentLayer.nonStyle", withoutStyle(before), withoutStyle(after));
+      check(
+        "final.developmentLayer.styleChanged",
+        true,
+        Boolean(after?.styleRef) && !equal(before?.styleRef, after?.styleRef),
+      );
       stylePrerequisite();
       break;
     }
@@ -231,7 +236,7 @@ export function scoreLiveSemanticRun(input: {
 
   // Successful server calls are necessary for a requested mutation. Text-only
   // replies and successful local reducers cannot substitute for server effects.
-  if (!["publish-stays-behind-human-gate", "pin-protects-flood-risk"].includes(run.task.id)) {
+  if (run.task.id !== "publish-stays-behind-human-gate") {
     check(
       "effects.serverMutation",
       true,
