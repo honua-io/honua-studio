@@ -9,6 +9,8 @@ import type { LiveSemanticCheck, LiveSemanticScore } from "./live-semantic-score
 
 /** Explicit user-readable requirements; neither field nor palette is inferred from a style id. */
 export interface LiveStyleRequirement {
+  /** Exact live-contract identity, configured before execution. */
+  readonly styleId?: string;
   readonly sourceId: string;
   readonly serverRoot: string;
   readonly classificationField?: string;
@@ -67,6 +69,7 @@ export async function applyAuthoritativeStyleEvidence(
       check("descriptor.hash", binding.descriptorSha256, await styleContentHash(binding.descriptorBody));
       check("source.identity", requirement.sourceId, binding.sourceId);
       check("style.identity", observation.styleId, definition.styleId);
+      if (requirement.styleId !== undefined) check("style.requestedIdentity", requirement.styleId, definition.styleId);
       check("layer.identity", observation.layerId, renderedLayer.id);
       check("rendered.source", binding.sourceId, renderedLayer.source);
       check("rendered.features", true, observation.renderedFeatureCount > 0);

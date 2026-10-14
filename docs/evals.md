@@ -6,8 +6,9 @@ works when the tool calls are already correct; unit tests prove each module
 works in isolation. Neither says anything about whether an instruction like
 "add the parcels layer and style it by district" produces the right map.
 
-The corpus (`src/evals/`) is that measurement, and it is built so the same
-tasks score both scripted fixture transcripts and verified live model turns.
+The corpus (`src/evals/`) measures those scenarios through deterministic fixture
+tasks and a separately versioned exact live contract. Both use the same typed
+structural scorer; the live contract declares requested identities before execution.
 
 ```bash
 npm test                      # the corpus runs in the default PR-safe suite
@@ -176,38 +177,51 @@ required, `HONUA_CORPUS_AUTH_MODULE` names a local module exporting async
 `getAccessToken()`; it is called for every HTTP request and its output is never
 recorded. An API key is optional when that provider is configured.
 
-Model mode records the actual signed events and model/tool messages beside the
-same typed scores and independently fetched server state. It retains the
-corpus's strict activity assertions; different valid model plans can therefore
-fail a fixture-specific count or tool-name assertion even when state matches.
-Inspect the named failures rather than treating every failed check as a model
-capability failure. The scheduled credentialed lane and formally validated
-scorecard artifact in #46 remain follow-up work.
+Model mode records actual signed events and model/tool messages beside exact
+local scores and independently fetched server-state scores. Its contract is
+`honua.studio.live-exact-contract.v1`: instructions explicitly request stable
+component IDs, exact configured source/style identities, and executable control
+configuration before any turn runs. Activity expectations name the real native
+MCP tools. No expectation is learned from model outputs, and no recorded name,
+ID, event, or signature is normalized for scoring.
 
-Live runs also report `liveSemanticScore` (`honua.studio.live-semantic-score.v1`)
-beside the unchanged strict scores. This separate profile covers the existing
-eight tasks. New component IDs may differ from fixture IDs, but each required
-role must match exactly one component by kind, source, and required config;
-duplicate roles, wrong sources, wrong chart fields, and extra components fail.
-Interaction references must resolve to the observed slider ID and the actual
-seeded parcels layer, with the requested field and event value. Existing layer
-identities, unrelated state, pins, and annotations remain protected.
+The four adapted scenarios are district composition/charting, adding/removing
+widgets, year-built filtering, and pin protection. The pin scenario explicitly
+requests attempted styling while retaining pins: exactly one native call must
+target `flood-risk` and be rejected for its pin. A generic failure is insufficient.
+The slider requires executable `args.field`, not the obsolete fixture-only
+`args.attribute`. Existing deterministic tasks and `scorer.ts` remain unchanged.
+Their scores against each new live run are retained separately in
+`fixtureComparison`; these are comparisons, not a rerun of the historical task.
+Historical 4/8 receipts remain immutable and are not directly comparable to the
+new explicitly constrained instructions.
 
-Every turn has an independent server readback. Thus adding then removing a
-legend requires observing the legend before its removal, and undo requires
-observing the chart before the server returns to its initial composition.
-Local-only changes, absent readbacks, unsuccessful turns, lifecycle writes,
-and unconfirmed cleanup fail independently of the final component match.
-Negative controls cover each boundary; valid renamed IDs are a positive
-control while their original strict score remains a failure.
+Model mode requires trusted source descriptors for `hi-parcels`, `hi-districts`,
+`src-flood-risk`, and `src-dev-pressure`. Before model execution, same-origin
+MCP descriptions bind opaque service identities to advertised service-name paths;
+FeatureServer metadata must match those locators and the required parcel field
+types. Both canonical `locator` descriptors and historical top-level descriptors
+are supported. Canonical catalogs may omit fields; when configured fields are
+supplied they must match metadata exactly. The
+sample fixture's `hi-parcels/0` identity is not substituted for a live alias.
+Both style-requirement entries (`compose-districts-map` and
+`pin-protects-flood-risk`) must include an explicit `styleId` as well as their
+existing source, server, classification/palette, and description requirements.
+The real style provider must resolve those configured definitions before a turn.
+The browser observer independently verifies their hashes, source bindings,
+rendered properties, and actual rendered features; invented style IDs cannot pass.
 
-The two styling scenarios currently report `prerequisite-unmet` when all their
-other checks pass: this runner has no authoritative style-definition provider.
-An invented `district` or `presentation` reference does not prove the requested
-attribute or palette. Missing style evidence never counts as a pass. The HTML
-report displays strict and semantic results separately; the CLI exits nonzero
-on a strict failure, semantic failure, or unmet prerequisite. Historical raw
-receipts and scores are not rewritten.
+Live runs also retain `liveSemanticScore` (`honua.studio.live-semantic-score.v1`).
+Every turn has an independent server readback: the legend must be observed before
+removal, and undo must restore the server composition. Unique roles, component
+configuration, unrelated state, pins, annotations, and lifecycle boundaries remain
+checked. Local-only changes, absent readbacks, incomplete/provider-error turns,
+lifecycle writes, and unconfirmed cleanup fail independently. A scenario passes
+only when exact local and remote scores, live semantics including style evidence,
+and owned-draft cleanup all pass. Missing prerequisites never count as success.
+
+The scheduled credentialed lane and formally validated scorecard aggregation in
+#46 remain follow-up work. This diagnostic is not release or NativeAOT qualification.
 
 The diagnostic's `VerifiedRoundTransport` additionally verifies action-free
 terminal text using the same trusted SDK verifier, exact request, and complete
@@ -289,3 +303,15 @@ These corrections affect newly produced live semantic scores. They do not rewrit
 historical receipts or change the strict fixture scorer/corpus. Structural readback
 checks and runtime unit regressions are not claims that an earlier live browser run
 operated a slider. Browser gesture evidence must be recorded separately when claimed.
+
+Style prerequisites are scoped to the live task that uses them: the district
+composition requires only its district style, and pin protection requires only
+its council style. A missing or unreadable style fails that styling task; the
+other six tasks neither require nor fetch those unrelated style definitions.
+
+Source-catalog admission is intentionally corpus-wide: every model turn receives
+exactly the same four predeclared, unique source aliases; extra or unexpected
+entries are refused before any network/model call. All four advertised identities
+and their metadata must be verified before any turn. A source preflight failure
+is a diagnostic setup failure, not evidence of model capability. Style context,
+in contrast, contains only the verified definition required by the current task.

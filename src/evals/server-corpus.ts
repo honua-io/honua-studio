@@ -18,11 +18,19 @@ import {
 import { EVAL_CORPUS } from "./corpus.js";
 import { FixtureTurnDriver } from "./driver.js";
 import { LiveTurnDriver } from "./live-driver.js";
+import {
+  LIVE_EXACT_CONTRACT,
+  createLiveExactTask,
+  readLiveExactStyles,
+  scoreLiveExactRun,
+} from "./live-exact-contract.js";
+import { verifyLiveExactSources } from "./live-exact-prerequisites.js";
 import { type LiveSemanticScore, type LiveTurnObservation, scoreLiveSemanticRun } from "./live-semantic-scorer.js";
 import { type EvalRunResult, runEvalTask } from "./runner.js";
 import { scoreEvalRun } from "./scorer.js";
+import type { EvalTask } from "./types.js";
 
-/** Scripted intents through the actual Studio MCP bridge; this does not evaluate a model. */
+/** Fixture scripts or predeclared exact live tasks through the actual Studio MCP bridge. */
 export async function runServerCorpus(options: {
   baseUrl: string;
   apiBaseUrl?: string;
@@ -58,7 +66,7 @@ export async function runServerCorpus(options: {
     let modelTrafficStart: number | undefined;
     let modelTraffic: readonly CorpusExchange[] = [];
     // The fixture declares a local bridge event. In this lane that same operation must be server-backed.
-    const task = {
+    const fixtureTask: EvalTask = {
       ...originalTask,
       expected: {
         ...originalTask.expected,
@@ -71,6 +79,7 @@ export async function runServerCorpus(options: {
         },
       },
     };
+    let task = fixtureTask;
     const fetchImpl: typeof fetch = async (input, init) => {
       const headers = new Headers(init?.headers);
       if (options.apiKey) headers.set("X-API-Key", options.apiKey);
@@ -95,7 +104,17 @@ export async function runServerCorpus(options: {
     let draftId: string | undefined;
     let observation: Record<string, unknown> = { taskId: task.id, title: task.title, passed: false };
     let cleanup: Record<string, unknown> = { passed: false, reason: "draft creation not confirmed" };
+    const exactBindings = {
+      districtStyleId: options.styleRequirements?.["compose-districts-map"]?.styleId ?? "",
+      councilStyleId: options.styleRequirements?.["pin-protects-flood-risk"]?.styleId ?? "",
+    };
     try {
+      if (options.model) {
+        task = createLiveExactTask(fixtureTask, exactBindings);
+        observation.contractTask = task;
+        observation.sourceAdmission = await verifyLiveExactSources(options.sources, baseUrl, fetchImpl);
+      }
+      observation.contractTask = task;
       const initial = applyCompositionCommands(createEmptyCompositionState(), task.setup ?? []).state;
       semanticInitial = initial;
       const created = await tools.createDraft({
@@ -113,7 +132,7 @@ export async function runServerCorpus(options: {
         throw new Error("Independent draft readback does not preserve the scenario setup.");
       }
       const authoritativeStyles: unknown[] = [];
-      if (options.model && options.styleRequirements) {
+      if (options.model) {
         const provider = new AuthoritativeStyleProvider({
           baseUrl,
           documentUrl: baseUrl,
@@ -121,26 +140,19 @@ export async function runServerCorpus(options: {
           fetchImpl,
           signal: AbortSignal.timeout(8000),
         });
-        try {
-          for (const summary of (await provider.list()).slice(0, 10)) {
-            try {
-              const definition = await provider.read(summary.styleId);
-              authoritativeStyles.push({
-                styleId: definition.styleId,
-                title: definition.title,
-                description: definition.description,
-                styleVersion: definition.styleVersion,
-                sha256: definition.sha256,
-                serverRoot: definition.serverRoot,
-              });
-            } catch {
-              /* Unsupported definitions are unavailable, not inferred from their identifiers. */
-            }
-          }
-        } catch {
-          /* The independent style observer retains an unmet prerequisite if discovery fails. */
+        const definitions = await readLiveExactStyles(task.id, exactBindings, (styleId) => provider.read(styleId));
+        for (const definition of definitions) {
+          authoritativeStyles.push({
+            styleId: definition.styleId,
+            title: definition.title,
+            description: definition.description,
+            styleVersion: definition.styleVersion,
+            sha256: definition.sha256,
+            serverRoot: definition.serverRoot,
+          });
         }
       }
+      observation.styleAdmission = authoritativeStyles;
       const driver = options.model
         ? new LiveTurnDriver({
             baseUrl: apiBaseUrl,
@@ -202,14 +214,16 @@ export async function runServerCorpus(options: {
       semanticRun = run;
       modelTraffic = transcript.slice(modelTrafficStart);
       const stored = await tools.getDraft(draftId);
-      const localScore = scoreEvalRun(run);
+      const score = options.model ? scoreLiveExactRun : scoreEvalRun;
+      const localScore = score(run);
       // No previous composition is supplied: absent server controls/interactions cannot inherit local success.
       // Pins and annotations are explicitly app-only and are never claimed as durable server state.
       const remoteState = { ...applyStudioDraft(stored), pins: run.state.pins, annotations: run.state.annotations };
-      const remoteScore = scoreEvalRun({ ...run, state: remoteState });
+      const remoteScore = score({ ...run, state: remoteState });
       const serverCalls = run.toolCalls.filter((call) => call.outcome.ok && call.outcome.mode === "server").length;
       const toolCoverage = run.toolCalls.length === 0 || serverCalls > 0;
       observation = {
+        ...observation,
         taskId: task.id,
         title: task.title,
         passed: localScore.passed && remoteScore.passed && toolCoverage,
@@ -219,6 +233,16 @@ export async function runServerCorpus(options: {
         stored,
         localScore,
         remoteScore,
+        ...(options.model
+          ? {
+              fixtureComparison: {
+                description:
+                  "Unchanged deterministic fixture oracle applied to this new live contract; historical runs remain separate.",
+                localScore: scoreEvalRun({ ...run, task: fixtureTask }),
+                remoteScore: scoreEvalRun({ ...run, task: fixtureTask, state: remoteState }),
+              },
+            }
+          : {}),
         serverCalls,
         toolCoverage,
         run,
@@ -284,10 +308,13 @@ export async function runServerCorpus(options: {
           }
         : {}),
     });
+    const entry = cases.at(-1);
+    if (entry && options.model) entry.passed = entry.passed && entry.liveSemanticScore?.passed === true;
   }
   return {
     schemaVersion: "honua.studio.server-corpus.v1",
     mode: options.model ? "live-model-real-mcp" : "scripted-real-mcp",
+    taskContract: options.model ? LIVE_EXACT_CONTRACT : "deterministic-fixture",
     modelQualityEvaluated: Boolean(options.model),
     model: options.model
       ? { provider: options.model.provider, model: options.model.model, manifest: options.model.manifest }
