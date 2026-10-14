@@ -92,6 +92,7 @@ export function createLifecycleCompositionDraftStore(
                 current.packageKey,
                 current.envelope.family,
                 current.envelope.body,
+                current.envelope.format,
               ),
             },
           }),
@@ -129,7 +130,7 @@ function toWireEnvelope(
     family: metadata.family,
     schemaVersion: metadata.schemaVersion,
     ...(metadata.format !== undefined ? { format: metadata.format } : {}),
-    body: toCompositionDraftBody(state, packageKey, metadata.family),
+    body: toCompositionDraftBody(state, packageKey, metadata.family, {}, metadata.format),
   } as StudioPackageEnvelope;
 }
 

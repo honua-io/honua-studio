@@ -21,6 +21,7 @@ import { type CompositionState, createEmptyCompositionState } from "../../src/co
 import { applyCompositionCommand } from "../../src/composition/reducer.js";
 import {
   COMPOSITION_DRAFT_ENVELOPE,
+  type CompositionDraftEnvelopeMetadata,
   createLifecycleCompositionDraftStore,
 } from "../../src/lifecycle/composition-draft-store.js";
 import { McpClient } from "../../src/mcp/client.js";
@@ -33,7 +34,7 @@ afterEach(async () => {
   server = undefined;
 });
 
-function store(fetchFn?: typeof fetch) {
+function store(fetchFn?: typeof fetch, envelope?: CompositionDraftEnvelopeMetadata) {
   const token = mintFixtureAccessToken();
   const lifecycle = createHonuaStudioLifecycleClient({
     client: new HonuaClient({ baseUrl: server?.url ?? "", auth: async () => token, fetchFn }),
@@ -42,7 +43,7 @@ function store(fetchFn?: typeof fetch) {
     // deployment puts in front of it.
     basePath: "/v1/studio",
   });
-  return createLifecycleCompositionDraftStore({ drafts: lifecycle.drafts });
+  return createLifecycleCompositionDraftStore({ drafts: lifecycle.drafts, envelope });
 }
 
 /** The raw stored envelope, straight off the REST surface — the mock never validates a map body, so only the literal shape is evidence. */
@@ -148,6 +149,34 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     for (const key of ["status", "initialView", "mapSpec", "sourceBindings"])
       expect(stored.body).not.toHaveProperty(key);
     expect(stored.schemaVersion).toBe(COMPOSITION_DRAFT_ENVELOPE.schemaVersion);
+  });
+
+  it("honors an explicitly configured deployment format in both envelope and map body", async () => {
+    server = await startMockServer();
+    const custom = store(undefined, {
+      family: "map",
+      schemaVersion: "deployment-version",
+      format: "deployment-map-format",
+    });
+    const created = await custom.create({
+      packageKey: "custom-format",
+      envelope: { body: createEmptyCompositionState() },
+    });
+    const initial = await storedEnvelope(created.draftId);
+    expect(initial).toMatchObject({
+      schemaVersion: "deployment-version",
+      format: "deployment-map-format",
+      body: { mapPackageId: "custom-format", format: "deployment-map-format" },
+    });
+    await store().replace(created.draftId, {
+      packageKey: created.packageKey,
+      generation: created.generation,
+      envelope: { body: withLayer(createEmptyCompositionState(), "parcels") },
+    });
+    const replaced = await storedEnvelope(created.draftId);
+    expect(replaced.schemaVersion).toBe(initial.schemaVersion);
+    expect(replaced.format).toBe(initial.format);
+    expect(replaced.body.format).toBe(initial.body.format);
   });
 
   it("preserves authoritative identity and foreign metadata while removing optional composition blocks", async () => {

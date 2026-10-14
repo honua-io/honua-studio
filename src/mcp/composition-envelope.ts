@@ -14,12 +14,13 @@ export function toCompositionDraftBody(
   packageKey: string,
   family = "map",
   previous: Readonly<Record<string, unknown>> = {},
+  format: string = MAP_COMPOSITION_ENVELOPE.format,
 ): Record<string, unknown> {
   const body = { ...previous };
   // Omitted optional composition blocks mean removal, not retention.
   for (const key of ["layers", "view", "widgets", "controls", "interactions"]) delete body[key];
   return {
-    ...(family === "map" ? { mapPackageId: packageKey, format: MAP_COMPOSITION_ENVELOPE.format } : {}),
+    ...(family === "map" ? { mapPackageId: packageKey, format } : {}),
     ...body,
     ...toStudioCompositionBody(state),
   };
