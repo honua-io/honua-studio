@@ -106,3 +106,107 @@ describe("resolveCompositionSource (honua-studio#23)", () => {
     expect(layerTypeForGeometry(undefined)).toBeUndefined();
   });
 });
+
+describe("explicit discovered locators", () => {
+  it("uses actual GeoServices service URL and layer 7 instead of guessing layer zero", () => {
+    const result = resolveCompositionSource(layer({ id: "roads", sourceId: "service/7" }), {
+      catalog: [
+        {
+          id: "service/7",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "https://host/rest/services/ActualName/FeatureServer", layerId: 7, serviceId: "service" },
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      layerType: "line",
+      binding: { locator: { layerId: 7 } },
+      source: {
+        data: "https://host/rest/services/ActualName/FeatureServer/7/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+      },
+    });
+  });
+
+  it("uses an explicit OGC collection identity at the actual /ogc/features route", () => {
+    const result = resolveCompositionSource(layer({ id: "points", sourceId: "catalog-key" }), {
+      catalog: [
+        {
+          id: "catalog-key",
+          protocol: "ogc-features",
+          geometryType: "Point",
+          locator: { url: "/ogc/features/", collectionId: "real collection" },
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      layerType: "circle",
+      source: { data: "/ogc/features/collections/real%20collection/items?f=json&limit=2000" },
+    });
+  });
+
+  it.each([undefined, "Geometry", "Unknown"])("does not invent polygon geometry for %s", (geometryType) => {
+    expect(
+      resolveCompositionSource(layer({ id: "x", sourceId: "x" }), {
+        catalog: [{ id: "x", protocol: "ogc-features", geometryType }],
+      }),
+    ).toMatchObject({ reason: expect.stringContaining("no supported geometry") });
+  });
+
+  it("resolves older bare service references only when exactly one real layer matches", () => {
+    const entry = {
+      id: "service/7",
+      protocol: "geoservices-feature-service",
+      geometryType: "Point",
+      locator: { url: "/rest/services/Actual/FeatureServer", layerId: 7, serviceId: "service" },
+    };
+    expect(
+      isCompositionSourceResolution(
+        resolveCompositionSource(layer({ id: "old", sourceId: "service" }), { catalog: [entry] }),
+      ),
+    ).toBe(true);
+    expect(
+      isCompositionSourceResolution(
+        resolveCompositionSource(layer({ id: "old", sourceId: "service" }), {
+          catalog: [entry, { ...entry, id: "service/8", locator: { ...entry.locator, layerId: 8 } }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses an explicit locator missing its layer identity instead of guessing", () => {
+    expect(
+      resolveCompositionSource(layer({ id: "x", sourceId: "x" }), {
+        catalog: [
+          {
+            id: "x",
+            protocol: "geoservices-feature-service",
+            geometryType: "Point",
+            locator: { url: "/rest/services/x/FeatureServer" },
+          },
+        ],
+      }),
+    ).toMatchObject({ reason: expect.stringContaining("no valid layer id") });
+  });
+});
+
+describe("layer URL identity", () => {
+  it("accepts a layer URL without appending the layer id twice and rejects a contradiction", () => {
+    const catalog = [
+      {
+        id: "layer",
+        protocol: "geoservices-feature-service",
+        geometryType: "Point",
+        locator: { url: "/rest/services/Actual/FeatureServer/7", layerId: 7 },
+      },
+    ];
+    expect(resolveCompositionSource(layer({ id: "layer", sourceId: "layer" }), { catalog })).toMatchObject({
+      source: { data: expect.stringContaining("/FeatureServer/7/query?") },
+    });
+    expect(
+      resolveCompositionSource(layer({ id: "layer", sourceId: "layer" }), {
+        catalog: [{ ...catalog[0], locator: { ...catalog[0]?.locator, layerId: 8 } }],
+      }),
+    ).toMatchObject({ reason: expect.stringContaining("conflicting layer identities") });
+  });
+});

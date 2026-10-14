@@ -20,6 +20,7 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 // here exists purely so `npm run dev` / the Playwright fixture builds can
 // swap issuers per run without rebaking the bundle, exactly like /api.
 const honuaBaseUrl = process.env.HONUA_BASE_URL;
+const honuaServerRoot = honuaBaseUrl?.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
 // Optional admin API key for LIVE runs against a real honua-server (e.g. the
 // demo environment): when set, the dev/preview PROXY attaches it server-side
@@ -44,26 +45,31 @@ export default defineConfig(({ mode }) => {
   const proxy = honuaBaseUrl
     ? {
         "/api": {
-          target: honuaBaseUrl,
+          target: honuaServerRoot,
           changeOrigin: true,
-          rewrite: (requestPath: string) => requestPath.replace(/^\/api/, ""),
+          rewrite: (requestPath: string) =>
+            requestPath.startsWith("/api/v1/studio") ? requestPath : requestPath.replace(/^\/api/, ""),
+          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
+        },
+        // Feature locators come from MCP discovery at the server origin.
+        "/rest": {
+          target: honuaServerRoot,
+          changeOrigin: true,
+          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
+        },
+        "/ogc": {
+          target: honuaServerRoot,
+          changeOrigin: true,
           ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
         },
         "/oidc": {
           target: honuaBaseUrl,
           changeOrigin: true,
         },
-        // MCP lives at the server ORIGIN's /mcp (honua-server#3002 serves it
-        // at the root, not under the REST /api prefix). Against the mock
-        // fixture HONUA_BASE_URL has no path, so this target is identical to
-        // the base itself (and the fixture's /mcp is also reachable via the
-        // /api rewrite above — both paths keep working); against a real
-        // deployment whose HONUA_BASE_URL carries an /api path (e.g.
-        // https://demo.honua.io/api) this strips the path so /mcp resolves
-        // at the origin. Used by live MCP journeys via
-        // `enableLiveComposition({ baseUrl: "" })`.
+        // MCP and feature protocols live at the deployment root, outside
+        // the REST /api prefix. Preserve a reverse proxy's deployment path.
         "/mcp": {
-          target: new URL(honuaBaseUrl).origin,
+          target: honuaServerRoot,
           changeOrigin: true,
           ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
         },

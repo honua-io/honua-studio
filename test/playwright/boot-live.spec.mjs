@@ -29,7 +29,7 @@ test("app boots against a server selected purely via HONUA_BASE_URL", async ({ p
 
     await expect(page.getByTestId("catalog-error")).toHaveCount(0);
     await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
-    await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");
+    await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
   } finally {
     await preview.close();
     await liveStandIn.close();

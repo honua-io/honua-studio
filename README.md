@@ -42,7 +42,7 @@ real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
 Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
-853 unit tests across 88 files and 29 Playwright browser journeys, including four accessibility checks.
+879 unit tests across 88 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -164,6 +164,14 @@ Against a real server:
 HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 ```
 
+The catalog reads the authenticated, paged `honua_list_layers` MCP tool and
+keeps each service/layer identity in an explicit map locator. **Add to map** uses
+the normal composition command path with that identity. The home package
+list reads `/api/v1/studio/content-items`: labels are package keys and badges
+are actual `draft`, `current`, or `published` item states. Empty content stores
+show an empty list. Unknown geometry and ambiguous older bare-service references
+remain visibly unrenderable rather than becoming a guessed polygon or layer zero.
+
 Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
 package lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the
 same composition controller the canvas renders, then its structured result is
@@ -227,7 +235,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 853 tests across 88 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 879 tests across 88 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

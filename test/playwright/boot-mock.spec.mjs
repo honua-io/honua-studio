@@ -37,7 +37,28 @@ test("app boots against the mock honua-server fixture; sign-in unlocks the authe
     await expect(page.getByTestId("catalog-error")).toHaveCount(0);
     await expect(page.getByTestId("packages-error")).toHaveCount(0);
     await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
-    await expect(page.getByTestId("packages-list")).toContainText("Statewide roads condition dashboard");
+    await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
+
+    // The normal UI uses the discovered identity and locator, without a
+    // test-installed source catalog or metadata.honua.source override.
+    const featureResponse = page.waitForResponse((response) =>
+      response.url().includes("/rest/services/hi-parcels/FeatureServer/0/query"),
+    );
+    await page.getByRole("button", { name: "Add Hawai'i statewide parcels to map", exact: true }).click();
+    expect((await featureResponse).status()).toBe(200);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const layer = window.__honuaStudioApp.composition.state.layers[0];
+          return { sourceId: layer?.sourceId, override: layer?.metadata?.honua?.source };
+        }),
+      )
+      .toEqual({ sourceId: "hi-parcels/0", override: undefined });
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector("honua-studio-canvas")?.mapView?.projection?.renderedLayerIds ?? []),
+      )
+      .toContain("hi-parcels/0");
 
     // The redirect's code/state never linger in the address bar.
     expect(new URL(page.url()).search).toBe("");
