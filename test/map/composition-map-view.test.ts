@@ -370,6 +370,69 @@ describe("authoritative style interaction bindings", () => {
       },
     };
   }
+  it("keeps unrelated OGC and GeoServices presets without authoritative provenance", async () => {
+    const ogc = {
+      id: "external",
+      protocol: "ogc-features",
+      geometryType: "Polygon",
+      locator: { url: "https://external.test/ogc", collectionId: "parcels" },
+    };
+    const honua = {
+      id: "honua",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { serviceId: "service", layerId: 0, url: "https://honua.test/rest/services/Parcels/FeatureServer" },
+    };
+    const arcgis = {
+      id: "arcgis",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { url: "https://external.test/rest/services/Parcels/FeatureServer", layerId: 0 },
+    };
+    const legacy = { id: "legacy", protocol: "geoservices-feature-service", geometryType: "Polygon" };
+    const bind = vi.fn(async () => {
+      throw new Error("Unknown authoritative style.");
+    });
+    const { controller, view, map } = await startView({
+      projection: { catalog: [ogc, honua, arcgis, legacy] },
+      styleProvider: { bind, sessionIdentity: undefined },
+    });
+    for (const sourceId of [ogc.id, honua.id, arcgis.id, legacy.id])
+      controller.apply({
+        name: "addLayer",
+        layer: { id: sourceId, sourceId, styleRef: { kind: "style-ref", styleId: "unknown" } },
+      });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledWith("unknown", honua);
+    expect(view.projection?.renderedLayerIds).toEqual(["external", "arcgis", "legacy"]);
+    expect(view.projection?.unresolved).toMatchObject([{ layerId: "honua", reason: "Unknown authoritative style." }]);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "external")?.paint).toBeDefined();
+    for (const id of ["external", "arcgis", "legacy"]) {
+      const rendered = map.latestStyle?.layers.find((layer) => layer.id === id);
+      expect(rendered?.paint).toBeDefined();
+      expect(rendered).not.toHaveProperty("metadata.honua:styleSha256");
+    }
+    map.getStyle = () => ({ layers: map.latestStyle?.layers ?? [] });
+    map.setRenderedFeatures([{ layer: { id: "external" }, properties: { district: "East" } }]);
+    expect(view.observeAuthoritativeStyles()).toEqual([]);
+    view.dispose();
+  });
+
+  it("binds a unique legacy service alias to its rendered id and actual discovered locator", async () => {
+    const { controller, view, map, bind, descriptor } = await styledView();
+    controller.apply({
+      name: "addLayer",
+      layer: { id: "legacy", sourceId: "service", styleRef: { kind: "style-ref", styleId: "district" } },
+    });
+    await view.settled();
+    expect(bind).toHaveBeenLastCalledWith("district", { ...descriptor, id: "service" });
+    expect(view.projection?.unresolved).toEqual([]);
+    expect(view.projection?.renderedLayerIds).toEqual(["parcels", "legacy"]);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "legacy")?.paint?.["fill-color"]).toBe("#003366");
+    view.dispose();
+  });
+
   it("refuses a renderer source override before fetching catalog-bound definitions", async () => {
     const { controller, view, bind } = await styledView();
     const previous = bind.mock.calls.length;

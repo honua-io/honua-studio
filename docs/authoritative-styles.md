@@ -18,6 +18,10 @@ filters are unsupported; use expression syntax with explicit `get`/`has` field
 references. Ambiguous or unavailable styles produce visible
 unresolved layers rather than a certified fallback preset. Older host catalogs
 without authoritative locators retain the existing fixture projection behavior.
+Eligibility is per discovered Honua service identity: unrelated OGC and external
+GeoServices sources in a mixed catalog retain their
+existing preset projection, without authoritative observations or provenance.
+Honua service sources still reject unknown or unverifiable styles visibly.
 
 Discovery uses only the configured MCP endpoint, fresh session tokens, one 401
 refresh and redirect refusal. It never follows advertised encoding URLs and

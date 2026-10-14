@@ -43,9 +43,11 @@ import { BASEMAP_ID_PREFIX, DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX } from 
 import {
   type CompositionLayerType,
   type CompositionSourceDescriptor,
+  findCompositionSourceDescriptor,
   hasCompositionSourceOverride,
   isCompositionSourceResolution,
   resolveCompositionSource,
+  usesHonuaStyleCatalog,
 } from "./source-resolution.js";
 import {
   defaultPaintFor,
@@ -178,7 +180,12 @@ export function compositionToMapPackage(
       continue;
     }
 
-    if (layer.styleRef && options.authoritativeStyles !== undefined && hasCompositionSourceOverride(layer)) {
+    const authoritative = options.authoritativeStyles?.[layer.id];
+    const requiresAuthoritative =
+      options.authoritativeStyles !== undefined &&
+      (authoritative !== undefined ||
+        usesHonuaStyleCatalog(findCompositionSourceDescriptor(layer.sourceId, options.catalog)));
+    if (layer.styleRef && requiresAuthoritative && hasCompositionSourceOverride(layer)) {
       unresolved.push({
         layerId: layer.id,
         sourceId: layer.sourceId,
@@ -186,10 +193,9 @@ export function compositionToMapPackage(
       });
       continue;
     }
-    const authoritative = options.authoritativeStyles?.[layer.id];
     if (
       layer.styleRef &&
-      options.authoritativeStyles !== undefined &&
+      requiresAuthoritative &&
       (!authoritative ||
         "reason" in authoritative ||
         authoritative.definition.styleId !== layer.styleRef.styleId ||

@@ -218,6 +218,23 @@ describe("authoritative style provider", () => {
     expect(missing.unresolved[0]?.reason).toContain("unavailable");
   });
 
+  it("does not bypass required authority through a legacy Honua service alias", () => {
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: [
+        {
+          id: "legacy",
+          sourceId: "service",
+          visible: true,
+          styleRef: { kind: "style-ref" as const, styleId: "unknown" },
+        },
+      ],
+    };
+    const projected = compositionToMapPackage(state, { catalog: [source], authoritativeStyles: {} });
+    expect(projected.renderedLayerIds).toEqual([]);
+    expect(projected.unresolved[0]?.reason).toContain("unavailable");
+  });
+
   it("reads actual MCP catalog, exact revision zero and byte hash, then binds actual descriptor fields", async () => {
     const context = fixture();
     expect(await context.provider.list()).toEqual([{ styleId: "district", title: "District colors" }]);

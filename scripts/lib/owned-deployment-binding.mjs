@@ -21,6 +21,7 @@ export async function bindOwnedDeployment(path, endpoint) {
     !/^sha256:[a-f0-9]{64}$/.test(identity.imageId) ||
     !/^[a-f0-9]{64}$/.test(identity.nativeBinarySha256) ||
     !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+    !["http:", "https:"].includes(url.protocol) ||
     url.username ||
     url.password
   )
@@ -45,7 +46,9 @@ export async function bindOwnedDeployment(path, endpoint) {
       imageId !== identity.imageId ||
       running !== true ||
       !bindings.some(
-        (binding) => ["127.0.0.1", "::1"].includes(binding.HostIp) && binding.HostPort === (url.port || "80"),
+        (binding) =>
+          ["127.0.0.1", "::1"].includes(binding.HostIp) &&
+          binding.HostPort === (url.port || (url.protocol === "https:" ? "443" : "80")),
       )
     )
       throw new Error("Actual owned container/image/endpoint differs from deployment receipt.");

@@ -53,7 +53,11 @@ import {
   compositionToMapPackage,
   isBasemapLayerId,
 } from "./map-package-projection.js";
-import { hasCompositionSourceOverride } from "./source-resolution.js";
+import {
+  findCompositionSourceDescriptor,
+  hasCompositionSourceOverride,
+  usesHonuaStyleCatalog,
+} from "./source-resolution.js";
 
 /**
  * The structural slice of `maplibre-gl`'s `Map` this module uses. Declared
@@ -452,17 +456,21 @@ export class CompositionMapView {
     const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
     for (const layer of state.layers) {
       if (!layer.styleRef) continue;
-      const source = this.#options.projection?.catalog?.find((entry) => entry.id === layer.sourceId);
+      const source = findCompositionSourceDescriptor(layer.sourceId, this.#options.projection?.catalog);
+      if (source && !usesHonuaStyleCatalog(source)) continue;
       try {
         if (hasCompositionSourceOverride(layer))
           throw new Error("Authoritative styles cannot certify a renderer source override.");
         if (!source) throw new Error("An authoritative source descriptor is required for styles.");
-        const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source });
+        // The renderer may use a supported legacy alias; keep the actual
+        // discovered locator while binding provenance to that rendered id.
+        const bindingSource = source.id === layer.sourceId ? source : { ...source, id: layer.sourceId };
+        const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source: bindingSource });
         const cached = this.#styleBindings.get(key);
         const entry =
           cached && Date.now() - cached.readAt < 30000
             ? cached
-            : { binding: await provider.bind(layer.styleRef.styleId, source), readAt: Date.now() };
+            : { binding: await provider.bind(layer.styleRef.styleId, bindingSource), readAt: Date.now() };
         bindings[layer.id] = entry.binding;
         retained.set(key, entry);
       } catch (error) {
