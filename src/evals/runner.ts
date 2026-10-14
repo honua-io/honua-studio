@@ -101,6 +101,8 @@ export interface EvalRunOptions {
    * reducer. Fixture runs leave it undefined.
    */
   readonly live?: ToolCallOrchestratorLiveOptions;
+  /** Optional independent observation after each completed instruction or user action. Never sent to the driver. */
+  readonly observeTurn?: (turn: EvalTurnRecord, state: CompositionState) => Promise<void>;
 }
 
 /** A monotonic, wall-clock-free ISO clock — fixture runs must never depend on real time (NFR-001). */
@@ -158,7 +160,9 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
     for (const [turnIndex, turn] of task.turns.entries()) {
       if (turn.kind === "user-action") {
         const applied = await orchestrator.applyHistoryAction(turn.action);
-        turns.push({ turnIndex, kind: turn.kind, action: turn.action, applied });
+        const record: EvalTurnRecord = { turnIndex, kind: turn.kind, action: turn.action, applied };
+        turns.push(record);
+        await options.observeTurn?.(record, controller.state);
         continue;
       }
 
@@ -185,7 +189,7 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
         toolCalls,
       });
 
-      turns.push({
+      const record: EvalTurnRecord = {
         turnIndex,
         kind: turn.kind,
         instruction: turn.instruction,
@@ -193,7 +197,9 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
         completed: outcome.completed,
         ...(outcome.stopReason !== undefined ? { stopReason: outcome.stopReason } : {}),
         ...(outcome.errorMessage !== undefined ? { errorMessage: outcome.errorMessage } : {}),
-      });
+      };
+      turns.push(record);
+      await options.observeTurn?.(record, controller.state);
       instructionIndex += 1;
     }
   } finally {

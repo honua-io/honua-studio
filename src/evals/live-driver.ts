@@ -1,12 +1,14 @@
 import {
   type McpToolsCallResult,
   McpClient as SdkMcpClient,
+  SseChatTransport,
   type StudioAgentSession,
   type StudioAgentSessionOptions,
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
 import type { StudioAiChatEvent } from "../chat/ai-contract.js";
 import type { EvalToolResult, EvalTurnContext, EvalTurnDriver } from "./driver.js";
+import { VerifiedRoundTransport } from "./verified-round-transport.js";
 
 /** Routes only SDK-verified model calls into the same bridge the fixture corpus exercises. */
 export class LiveTurnDriver implements EvalTurnDriver {
@@ -40,6 +42,11 @@ export class LiveTurnDriver implements EvalTurnDriver {
     }
     this.session = createStudioAgentSession({
       ...options,
+      transport: new VerifiedRoundTransport(
+        options.transport ??
+          new SseChatTransport({ baseUrl: options.baseUrl, fetchImpl: options.fetchImpl, auth: options.auth }),
+        options.transcriptVerifier,
+      ),
       mcpClient: new BridgeClient({
         baseUrl: options.mcpBaseUrl ?? options.baseUrl,
         fetchImpl: options.fetchImpl,

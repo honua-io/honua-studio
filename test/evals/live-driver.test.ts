@@ -86,6 +86,7 @@ describe("live driver dispatch boundary", () => {
                         { type: "textDelta", text: "Added." },
                         { type: "messageStop", stopReason: "endTurn" },
                       ];
+              events.unshift({ type: "messageStart", model: "fixture" });
               for (const event of events) yield event;
               const envelope = signer.sign(request, events);
               yield tampered ? { ...envelope, provenance: { ...envelope.provenance, signature: "AAAA" } } : envelope;
