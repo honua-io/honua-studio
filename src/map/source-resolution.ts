@@ -72,6 +72,21 @@ export interface CompositionSourceDescriptor {
   readonly locator?: Readonly<Record<string, unknown>>;
 }
 
+export function findCompositionSourceDescriptor(
+  sourceId: string,
+  catalog: readonly CompositionSourceDescriptor[] = [],
+): CompositionSourceDescriptor | undefined {
+  const exact = catalog.find((entry) => entry.id === sourceId);
+  if (exact) return exact;
+  const matches = catalog.filter((entry) => entry.locator?.serviceId === sourceId);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+/** Only Honua service descriptors participate in the server style-catalog contract. */
+export function usesHonuaStyleCatalog(source: CompositionSourceDescriptor | undefined): boolean {
+  return source?.locator?.serviceId !== undefined;
+}
+
 /** The MapLibre layer archetype a source's geometry calls for. */
 export type CompositionLayerType = "fill" | "line" | "circle" | "raster";
 
@@ -107,6 +122,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function honuaMetadata(layer: CompositionLayer): Record<string, unknown> | undefined {
   const honua = layer.metadata?.honua;
   return isPlainObject(honua) ? honua : undefined;
+}
+
+/** An explicit renderer source cannot inherit provenance from an unrelated catalog locator. */
+export function hasCompositionSourceOverride(layer: CompositionLayer): boolean {
+  return honuaMetadata(layer)?.source !== undefined;
 }
 
 /**
@@ -160,10 +180,7 @@ export function resolveCompositionSource(
 
   // Older saved drafts used a bare service id. Resolve it only when the
   // actual catalog advertises exactly one layer for that service.
-  const serviceMatches = options.catalog?.filter((entry) => entry.locator?.serviceId === layer.sourceId) ?? [];
-  const descriptor =
-    options.catalog?.find((entry) => entry.id === layer.sourceId) ??
-    (serviceMatches.length === 1 ? serviceMatches[0] : undefined);
+  const descriptor = findCompositionSourceDescriptor(layer.sourceId, options.catalog);
   if (!descriptor) {
     return {
       reason: `Source "${layer.sourceId}" is not in the catalog, and the layer carries no metadata.honua.source override.`,

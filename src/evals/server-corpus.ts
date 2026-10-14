@@ -9,6 +9,12 @@ import { McpClient } from "../mcp/client.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import { StudioMcpToolClient } from "../mcp/studio-tools.js";
 import { applyStudioDraft, toStudioCompositionBody } from "../mcp/tool-bridge.js";
+import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
+import {
+  type LiveStyleObservation,
+  type LiveStyleRequirement,
+  applyAuthoritativeStyleEvidence,
+} from "./authoritative-style-evidence.js";
 import { EVAL_CORPUS } from "./corpus.js";
 import { FixtureTurnDriver } from "./driver.js";
 import { LiveTurnDriver } from "./live-driver.js";
@@ -23,6 +29,12 @@ export async function runServerCorpus(options: {
   apiKey?: string;
   tokenProvider?: () => Promise<string>;
   runId: string;
+  styleRequirements?: Readonly<Record<string, LiveStyleRequirement>>;
+  observeStyles?: (context: {
+    taskId: string;
+    turnIndex: number;
+    state: ReturnType<typeof createEmptyCompositionState>;
+  }) => Promise<readonly LiveStyleObservation[]>;
   fetchImpl?: typeof fetch;
   sources?: readonly unknown[];
   model?: { provider: string; model: string; manifest: StudioAiTranscriptSigningManifest };
@@ -100,11 +112,41 @@ export async function runServerCorpus(options: {
       ) {
         throw new Error("Independent draft readback does not preserve the scenario setup.");
       }
+      const authoritativeStyles: unknown[] = [];
+      if (options.model && options.styleRequirements) {
+        const provider = new AuthoritativeStyleProvider({
+          baseUrl,
+          documentUrl: baseUrl,
+          getAuth: () => undefined,
+          fetchImpl,
+          signal: AbortSignal.timeout(8000),
+        });
+        try {
+          for (const summary of (await provider.list()).slice(0, 10)) {
+            try {
+              const definition = await provider.read(summary.styleId);
+              authoritativeStyles.push({
+                styleId: definition.styleId,
+                title: definition.title,
+                description: definition.description,
+                styleVersion: definition.styleVersion,
+                sha256: definition.sha256,
+                serverRoot: definition.serverRoot,
+              });
+            } catch {
+              /* Unsupported definitions are unavailable, not inferred from their identifiers. */
+            }
+          }
+        } catch {
+          /* The independent style observer retains an unmet prerequisite if discovery fails. */
+        }
+      }
       const driver = options.model
         ? new LiveTurnDriver({
             baseUrl: apiBaseUrl,
             mcpBaseUrl: baseUrl,
             sourceCatalog: options.sources,
+            authoritativeStyles,
             fetchImpl,
             provider: options.model.provider,
             model: options.model.model,
@@ -129,7 +171,20 @@ export async function runServerCorpus(options: {
         observeTurn: async (turn, localState) => {
           try {
             const observed = await tools.getDraft(created.draftId);
+            let styles: readonly LiveStyleObservation[] | undefined;
+            let styleObservationError: string | undefined;
+            try {
+              styles = await options.observeStyles?.({
+                taskId: task.id,
+                turnIndex: turn.turnIndex,
+                state: applyStudioDraft(observed),
+              });
+            } catch (error) {
+              styleObservationError = error instanceof Error ? error.message : String(error);
+            }
             perTurnReadbacks.push({
+              styles,
+              styleObservationError,
               turnIndex: turn.turnIndex,
               localState,
               serverState: applyStudioDraft(observed),
@@ -200,13 +255,18 @@ export async function runServerCorpus(options: {
         ? {
             liveSemanticScore:
               semanticRun && semanticInitial
-                ? scoreLiveSemanticRun({
-                    run: semanticRun,
-                    initial: semanticInitial,
-                    observations: perTurnReadbacks,
-                    cleanupPassed: cleanup.passed === true,
-                    lifecycleWrites: modelTraffic.filter(isLifecycleWrite),
-                  })
+                ? await applyAuthoritativeStyleEvidence(
+                    scoreLiveSemanticRun({
+                      run: semanticRun,
+                      initial: semanticInitial,
+                      observations: perTurnReadbacks,
+                      cleanupPassed: cleanup.passed === true,
+                      lifecycleWrites: modelTraffic.filter(isLifecycleWrite),
+                    }),
+                    options.styleRequirements?.[task.id],
+                    perTurnReadbacks.at(-1)?.styles,
+                    semanticRun.state,
+                  )
                 : {
                     schemaVersion: "honua.studio.live-semantic-score.v1",
                     taskId: task.id,
@@ -237,6 +297,7 @@ export async function runServerCorpus(options: {
     baseUrl,
     observedAt: new Date().toISOString(),
     sources: options.sources,
+    styleRequirements: options.styleRequirements,
     passed: cases.every((entry) => entry.passed),
     ...(options.model
       ? {

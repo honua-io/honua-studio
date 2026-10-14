@@ -172,7 +172,7 @@ test.describe("the agent composes chrome around the map (honua-studio#24)", () =
         widget: {
           id: "grid",
           kind: "table",
-          sourceId: "hi-parcels",
+          sourceId: "hi-parcels/0",
           title: "Parcels",
           config: { fields: ["parcel_id", "district", "zoning_code"], pageSize: 10 },
         },
@@ -199,10 +199,10 @@ test.describe("the agent composes chrome around the map (honua-studio#24)", () =
       await page.getByTestId("studio-widget-grid-row").first().click();
 
       expect(await page.evaluate(() => window.__honuaWidgetSelections)).toEqual([
-        [{ kind: "feature", sourceId: "hi-parcels", featureId: 11 }],
+        [{ kind: "feature", sourceId: "hi-parcels/0", featureId: 11 }],
       ]);
       expect(await page.evaluate(() => window.__honuaStudioApp.composition.selection)).toEqual([
-        { kind: "feature", sourceId: "hi-parcels", featureId: 11 },
+        { kind: "feature", sourceId: "hi-parcels/0", featureId: 11 },
       ]);
       await expect(page.getByTestId("studio-widget-grid-row").first()).toHaveAttribute("aria-selected", "true");
     } finally {
@@ -217,7 +217,7 @@ test.describe("the agent composes chrome around the map (honua-studio#24)", () =
     try {
       await bootComposedStudio(page, preview);
       for (const layer of [
-        { id: "hi-parcels", sourceId: "hi-parcels", title: "Parcels" },
+        { id: "hi-parcels", sourceId: "hi-parcels/0", title: "Parcels" },
         { id: "hi-wells", sourceId: "hi-wells", title: "Wells" },
       ]) {
         await page.evaluate(applyCommand, { name: "addLayer", layer });

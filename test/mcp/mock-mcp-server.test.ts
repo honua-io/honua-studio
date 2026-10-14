@@ -7,6 +7,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
+import { composeDistrictsMapConversation } from "../../src/chat/fixtures/index.js";
+import { StudioClient } from "../../src/client/studio-client.js";
+import { resolveToolCall } from "../../src/mcp/tool-bridge.js";
 
 let server: Awaited<ReturnType<typeof startMockServer>> | undefined;
 
@@ -65,6 +68,8 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
       "honua_studio_save_version",
       "honua_studio_reopen_version",
       "honua_studio_propose_publication",
+      "honua_describe_layer",
+      "honua_get_style",
       "honua_list_layers",
     ]);
   });
@@ -249,4 +254,63 @@ describe("mock-server.mjs /mcp (honua-studio#7)", () => {
     });
     expect(response.status).toBe(404);
   });
+});
+
+it("serves canonical fixture style and actual property descriptors, rejecting unknown names", async () => {
+  server = await startMockServer();
+  const token = mintFixtureAccessToken();
+  const descriptor = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_describe_layer", arguments: { serviceId: "hi-parcels", layerId: 0 } },
+    token,
+  );
+  expect(
+    descriptor.body.result.structuredContent.fields.some((field: { name: string }) => field.name === "district"),
+  ).toBe(true);
+  const style = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_get_style", arguments: { styleId: "district", includeStylesheet: true, encoding: "mapbox-style" } },
+    token,
+  );
+  const definition = style.body.result.structuredContent;
+  expect(definition.styleVersion).toBe(1);
+  expect(JSON.parse(definition.encodings[0].inlineBody).layers[0].paint["fill-color"][1]).toEqual(["get", "district"]);
+  const unknown = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_get_style", arguments: { styleId: "unknown" } },
+    token,
+  );
+  expect(unknown.body.result.isError).toBe(true);
+});
+
+it("the shipped recorded conversation binds to normal discovery without injected aliases", async () => {
+  server = await startMockServer();
+  const catalog = await new StudioClient(`${server.url}/api`, {
+    getAccessToken: async () => mintFixtureAccessToken(),
+  }).listCatalog();
+  for (const [index, toolName] of ["add_layer", "add_chart"].entries()) {
+    const event = composeDistrictsMapConversation.turns[index].assistant.events.find(
+      (event) => event.type === "toolCallStop",
+    );
+    if (!event || event.type !== "toolCallStop") throw new Error("Missing fixture tool arguments.");
+    if (!event.toolArguments || typeof event.toolArguments !== "object" || Array.isArray(event.toolArguments))
+      throw new Error("Invalid fixture tool arguments.");
+    const result = resolveToolCall({ toolName, arguments: event.toolArguments as Readonly<Record<string, unknown>> });
+    if (!result.ok) throw new Error(result.reason);
+    const command = result.command;
+    const sourceId =
+      command.name === "addLayer"
+        ? command.layer.sourceId
+        : command.name === "addWidget"
+          ? command.widget.sourceId
+          : undefined;
+    expect(sourceId).toBe("hi-parcels/0");
+    expect(catalog.find((entry) => entry.id === sourceId)?.locator).toMatchObject({
+      serviceId: "hi-parcels",
+      layerId: 0,
+    });
+  }
 });

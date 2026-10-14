@@ -1,3 +1,5 @@
+import type { LiveStyleObservation } from "../evals/authoritative-style-evidence.js";
+import type { AuthoritativeStyleProvider, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 /**
  * The live MapLibre surface (honua-studio#23 REQ-001) — the thing that makes
  * "the agent composes a running application" literally true instead of
@@ -40,6 +42,7 @@ import type { HonuaStyleSpecification } from "@honua/sdk-js/style";
 
 import type { AuthSession } from "../auth/types.js";
 import type { CompositionController } from "../composition/controller.js";
+import { canonicalCompositionJson } from "../composition/model.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
 import { type SourceProtocolRegistry, installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
 import type { BasemapStyle } from "./basemap.js";
@@ -50,6 +53,11 @@ import {
   compositionToMapPackage,
   isBasemapLayerId,
 } from "./map-package-projection.js";
+import {
+  findCompositionSourceDescriptor,
+  hasCompositionSourceOverride,
+  usesHonuaStyleCatalog,
+} from "./source-resolution.js";
 
 /**
  * The structural slice of `maplibre-gl`'s `Map` this module uses. Declared
@@ -59,6 +67,7 @@ import {
  */
 export interface CompositionMapLike {
   setStyle(style: unknown, options?: { diff?: boolean }): unknown;
+  getStyle?(): { layers?: readonly Readonly<Record<string, unknown>>[] };
   jumpTo(options: Record<string, unknown>): unknown;
   easeTo(options: Record<string, unknown>): unknown;
   fitBounds(bounds: readonly [number, number, number, number], options?: Record<string, unknown>): unknown;
@@ -102,6 +111,7 @@ export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => P
 export type CompositionMapStatus = "idle" | "starting" | "ready" | "unavailable";
 
 export interface CompositionMapViewOptions {
+  readonly styleProvider?: Pick<AuthoritativeStyleProvider, "bind" | "sessionIdentity">;
   readonly container: HTMLElement;
   readonly controller: CompositionController;
   readonly projection?: CompositionMapProjectionOptions;
@@ -229,6 +239,10 @@ export class CompositionMapView {
   #appearance: CompositionLayerAppearance | undefined;
   #basemap: BasemapStyle | undefined;
   #disposed = false;
+  #styleSession: unknown;
+  #styleRefreshEpoch = 0;
+  #styleBindings = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
+  #authoritativeStyles?: Record<string, BoundAuthoritativeStyle | { reason: string }>;
 
   public constructor(options: CompositionMapViewOptions) {
     this.#options = options;
@@ -319,6 +333,28 @@ export class CompositionMapView {
     return this.#projection;
   }
 
+  /** Actual runtime snapshot for external proof harnesses; no renderer means no evidence. */
+  public observeAuthoritativeStyles(): readonly LiveStyleObservation[] {
+    const style = this.#map?.getStyle?.();
+    if (!style?.layers || !this.#map?.queryRenderedFeatures) return [];
+    const observations: LiveStyleObservation[] = [];
+    for (const layer of this.#options.controller.state.layers) {
+      const binding = this.#authoritativeStyles?.[layer.id];
+      const renderedLayer = style.layers.find((entry) => entry.id === layer.id);
+      if (!binding || "reason" in binding || !renderedLayer || !layer.styleRef) continue;
+      observations.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        styleId: layer.styleRef.styleId,
+        binding,
+        renderedLayer: structuredClone(renderedLayer),
+        appearance: { filter: this.#appearance?.filters?.[layer.id], opacity: this.#appearance?.opacity?.[layer.id] },
+        renderedFeatureCount: this.#map.queryRenderedFeatures(undefined, { layers: [layer.id] }).length,
+      });
+    }
+    return observations;
+  }
+
   public get mapPackage(): HonuaMapPackage | undefined {
     return this.#projection?.mapPackage;
   }
@@ -332,6 +368,9 @@ export class CompositionMapView {
   public async start(): Promise<void> {
     if (this.#disposed || this.#status !== "idle") return;
     this.#status = "starting";
+    const startingState = this.#options.controller.state;
+    await this.#resolveStyles();
+    if (this.#disposed) return;
     const projection = this.#project();
     const initialView = projection.mapPackage.initialView;
     const style = await this.#composeSafely(projection.mapPackage);
@@ -369,6 +408,7 @@ export class CompositionMapView {
     this.#applyView(this.#map, this.#options.controller.state.view, true);
     this.#status = "ready";
     this.#unsubscribe = this.#options.controller.subscribe(() => this.#scheduleUpdate());
+    if (startingState !== this.#options.controller.state) this.#scheduleUpdate();
     this.#notify();
   }
 
@@ -384,6 +424,7 @@ export class CompositionMapView {
 
   public dispose(): void {
     this.#disposed = true;
+    this.#styleBindings.clear();
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
     try {
@@ -395,9 +436,61 @@ export class CompositionMapView {
     this.#status = "idle";
   }
 
+  /** Revalidates current stylesheet revisions; proof observers always call this before reading the map. */
+  public async refreshAuthoritativeStyles(): Promise<void> {
+    this.#styleRefreshEpoch++;
+    this.#styleBindings.clear();
+    this.#scheduleUpdate();
+    await this.settled();
+  }
+
+  async #resolveStyles(): Promise<void> {
+    const provider = this.#options.styleProvider;
+    if (!provider) return;
+    const bindings: Record<string, BoundAuthoritativeStyle | { reason: string }> = {};
+    const state = this.#options.controller.state;
+    const session = provider.sessionIdentity;
+    const refreshEpoch = this.#styleRefreshEpoch;
+    if (session !== this.#styleSession) this.#styleBindings.clear();
+    this.#styleSession = session;
+    const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
+    for (const layer of state.layers) {
+      if (!layer.styleRef) continue;
+      const source = findCompositionSourceDescriptor(layer.sourceId, this.#options.projection?.catalog);
+      if (source && !usesHonuaStyleCatalog(source)) continue;
+      try {
+        if (hasCompositionSourceOverride(layer))
+          throw new Error("Authoritative styles cannot certify a renderer source override.");
+        if (!source) throw new Error("An authoritative source descriptor is required for styles.");
+        // The renderer may use a supported legacy alias; keep the actual
+        // discovered locator while binding provenance to that rendered id.
+        const bindingSource = source.id === layer.sourceId ? source : { ...source, id: layer.sourceId };
+        const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source: bindingSource });
+        const cached = this.#styleBindings.get(key);
+        const entry =
+          cached && Date.now() - cached.readAt < 30000
+            ? cached
+            : { binding: await provider.bind(layer.styleRef.styleId, bindingSource), readAt: Date.now() };
+        bindings[layer.id] = entry.binding;
+        retained.set(key, entry);
+      } catch (error) {
+        bindings[layer.id] = { reason: error instanceof Error ? error.message : String(error) };
+      }
+      if (this.#disposed) return;
+    }
+    this.#styleBindings =
+      session === provider.sessionIdentity && refreshEpoch === this.#styleRefreshEpoch && !this.#disposed
+        ? retained
+        : new Map();
+    // Results never apply to a different composition snapshot.
+    this.#authoritativeStyles =
+      state === this.#options.controller.state && session === provider.sessionIdentity ? bindings : {};
+  }
+
   #project(): CompositionMapProjection {
     const projection = compositionToMapPackage(this.#options.controller.state, {
       ...(this.#options.projection ?? {}),
+      ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
       ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
     });
@@ -465,6 +558,8 @@ export class CompositionMapView {
   async #update(): Promise<void> {
     const map = this.#map;
     if (!map) return;
+    await this.#resolveStyles();
+    if (this.#disposed) return;
     const projection = this.#project();
     const style = await this.#composeSafely(projection.mapPackage);
     if (this.#disposed) return;

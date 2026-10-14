@@ -112,11 +112,11 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
         .poll(() => page.evaluate(readMapState).then((state) => state.styleLayerIds), { timeout: 20_000 })
         .toContain("hi-parcels");
       const afterAdd = await page.evaluate(readMapState);
-      expect(afterAdd.styleSourceIds).toContain("hi-parcels");
+      expect(afterAdd.styleSourceIds).toContain("hi-parcels/0");
       expect(afterAdd.unresolved).toEqual([]);
 
-      // Features actually painted — the source resolved to the fixture's OGC
-      // Features route and MapLibre drew what came back. The camera starts at
+      // Features actually painted — the source resolved to the fixture's discovered
+      // FeatureServer route and MapLibre drew what came back. The camera starts at
       // the whole world, where 300 m parcels are sub-pixel, so frame Oʻahu
       // first: a `setView` through the same composition reducer any "zoom to
       // the parcels" utterance would use.

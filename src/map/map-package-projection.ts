@@ -1,3 +1,4 @@
+import { compositionStyleOverride } from "../styles/composition-style-override.js";
 /**
  * `CompositionState` → `HonuaMapPackage` (honua-studio#23 REQ-001/REQ-002).
  *
@@ -36,13 +37,17 @@ import type { HonuaMapPackage, HonuaMapPackageSourceBinding, HonuaStyleRefBody }
 import type { HonuaLayerSpecification, HonuaStyleSpecification } from "@honua/sdk-js/style";
 
 import type { CompositionLayer, CompositionState } from "../composition/model.js";
+import type { BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 import { type BasemapStyle, createOfflineBasemapStyle } from "./basemap.js";
 import { BASEMAP_ID_PREFIX, DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import {
   type CompositionLayerType,
   type CompositionSourceDescriptor,
+  findCompositionSourceDescriptor,
+  hasCompositionSourceOverride,
   isCompositionSourceResolution,
   resolveCompositionSource,
+  usesHonuaStyleCatalog,
 } from "./source-resolution.js";
 import {
   defaultPaintFor,
@@ -66,6 +71,8 @@ export interface CompositionMapProjectionOptions {
   /** Real style-ref bodies keyed by `styleId`, when the caller could fetch them. A styleId absent here falls back to a deterministic preset — see `./style-presets.ts`. */
   readonly styleRefBodies?: Readonly<Record<string, HonuaStyleRefBody>>;
   readonly mapPackageId?: string;
+  /** When supplied, a missing/failed canonical style is visible instead of a preset fallback. */
+  readonly authoritativeStyles?: Readonly<Record<string, BoundAuthoritativeStyle | { reason: string }>>;
   /**
    * Runtime appearance a control produced (honua-studio#25): per composition
    * layer id, a MapLibre filter expression and/or an opacity multiplier.
@@ -173,6 +180,38 @@ export function compositionToMapPackage(
       continue;
     }
 
+    const authoritative = options.authoritativeStyles?.[layer.id];
+    const requiresAuthoritative =
+      options.authoritativeStyles !== undefined &&
+      (authoritative !== undefined ||
+        usesHonuaStyleCatalog(findCompositionSourceDescriptor(layer.sourceId, options.catalog)));
+    if (layer.styleRef && requiresAuthoritative && hasCompositionSourceOverride(layer)) {
+      unresolved.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        reason: "Authoritative styles cannot certify a renderer source override.",
+      });
+      continue;
+    }
+    if (
+      layer.styleRef &&
+      requiresAuthoritative &&
+      (!authoritative ||
+        "reason" in authoritative ||
+        authoritative.definition.styleId !== layer.styleRef.styleId ||
+        authoritative.sourceId !== layer.sourceId)
+    ) {
+      unresolved.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        reason:
+          authoritative && "reason" in authoritative
+            ? authoritative.reason
+            : "Authoritative style binding is unavailable or stale.",
+      });
+      continue;
+    }
+
     // Several composition layers may share one catalog source (the same
     // dataset styled two ways); the source is materialized once.
     const styleSourceId = layer.sourceId;
@@ -204,7 +243,30 @@ export function compositionToMapPackage(
     renderedLayerIds.push(layer.id);
 
     if (layer.styleRef) {
-      const supplied = options.styleRefBodies?.[layer.styleRef.styleId];
+      const effective =
+        authoritative && !("reason" in authoritative)
+          ? compositionStyleOverride(authoritative.override, resolution.layerType, layer.visible, {
+              filter: options.appearance?.filters?.[layer.id],
+              opacity: options.appearance?.opacity?.[layer.id],
+            })
+          : undefined;
+      const supplied = effective
+        ? {
+            [layer.id]: effective,
+            ...(resolution.layerType === "fill"
+              ? {
+                  [`${layer.id}${OUTLINE_LAYER_SUFFIX}`]: {
+                    ...(effective.filter !== undefined ? { filter: effective.filter } : {}),
+                    ...(effective.layout?.visibility !== undefined
+                      ? { layout: { visibility: effective.layout.visibility } }
+                      : {}),
+                    ...(effective.minzoom !== undefined ? { minzoom: effective.minzoom } : {}),
+                    ...(effective.maxzoom !== undefined ? { maxzoom: effective.maxzoom } : {}),
+                  },
+                }
+              : {}),
+          }
+        : options.styleRefBodies?.[layer.styleRef.styleId];
       const body: HonuaStyleRefBody = supplied ?? {
         [layer.id]: styleRefFallbackOverride(
           layer.styleRef.styleId,

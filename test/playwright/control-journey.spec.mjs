@@ -51,6 +51,7 @@ const controlBar = () =>
 
 async function signIn(page) {
   const token = mintFixtureAccessToken();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__honuaStudioApp))).toBe(true);
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
   }, token);
@@ -170,7 +171,7 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
           id: "zoning",
           kind: "filterSelect",
           title: "Zoning",
-          sourceId: "hi-parcels",
+          sourceId: "hi-parcels/0",
           config: { field: "zoning_code", options: ["R-5", "B-2"] },
         },
       });
@@ -219,7 +220,7 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
         .poll(() => page.evaluate(readLayerPaint, { layerId: "hi-parcels", property: "fill-opacity" }), {
           timeout: 10_000,
         })
-        .toBeCloseTo(0.18, 2);
+        .toBeCloseTo(0.4, 2);
 
       // ---- the readout lists controls too -----------------------------------
       await expect(page.getByTestId("studio-canvas-controls")).toContainText("Zoning");

@@ -313,3 +313,215 @@ describe("compositionTargetsFromFeatures", () => {
     expect(compositionTargetsFromFeatures([])).toEqual([]);
   });
 });
+
+describe("authoritative style interaction bindings", () => {
+  async function styledView() {
+    const descriptor = {
+      id: "hi-parcels",
+      title: "Parcels",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { serviceId: "service", layerId: 1, url: "https://honua.test/rest/services/Parcels/FeatureServer" },
+    };
+    let session = { getAccessToken: async () => "token" };
+    let revision = 1;
+    const bind = vi.fn(async (styleId: string, source: CompositionSourceDescriptor) => ({
+      sourceId: source.id,
+      fields: [],
+      descriptorSha256: "hash",
+      descriptorBody: "{}",
+      stylesheetLayerId: "canonical",
+      definition: {
+        styleId,
+        title: "Style",
+        description: "Navy polygons",
+        styleVersion: revision,
+        sha256: "hash",
+        inlineBody: "{}",
+        serverRoot: "https://honua.test",
+        observedAt: "2026-10-14T00:00:00Z",
+        layers: [],
+      },
+      override: { paint: { "fill-color": revision === 1 ? "#003366" : "#ddaa22" } },
+    }));
+    const result = await startView({
+      projection: { catalog: [descriptor] },
+      styleProvider: {
+        bind,
+        get sessionIdentity() {
+          return session;
+        },
+      },
+    });
+    result.controller.apply({
+      name: "addLayer",
+      layer: { id: "parcels", sourceId: "hi-parcels", styleRef: { kind: "style-ref", styleId: "district" } },
+    });
+    await result.view.settled();
+    return {
+      ...result,
+      bind,
+      changeRevision: () => {
+        revision++;
+      },
+      descriptor,
+      replaceSession: () => {
+        session = { getAccessToken: async () => "replacement" };
+      },
+    };
+  }
+  it("keeps unrelated OGC and GeoServices presets without authoritative provenance", async () => {
+    const ogc = {
+      id: "external",
+      protocol: "ogc-features",
+      geometryType: "Polygon",
+      locator: { url: "https://external.test/ogc", collectionId: "parcels" },
+    };
+    const honua = {
+      id: "honua",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { serviceId: "service", layerId: 0, url: "https://honua.test/rest/services/Parcels/FeatureServer" },
+    };
+    const arcgis = {
+      id: "arcgis",
+      protocol: "geoservices-feature-service",
+      geometryType: "Polygon",
+      locator: { url: "https://external.test/rest/services/Parcels/FeatureServer", layerId: 0 },
+    };
+    const legacy = { id: "legacy", protocol: "geoservices-feature-service", geometryType: "Polygon" };
+    const bind = vi.fn(async () => {
+      throw new Error("Unknown authoritative style.");
+    });
+    const { controller, view, map } = await startView({
+      projection: { catalog: [ogc, honua, arcgis, legacy] },
+      styleProvider: { bind, sessionIdentity: undefined },
+    });
+    for (const sourceId of [ogc.id, honua.id, arcgis.id, legacy.id])
+      controller.apply({
+        name: "addLayer",
+        layer: { id: sourceId, sourceId, styleRef: { kind: "style-ref", styleId: "unknown" } },
+      });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledWith("unknown", honua);
+    expect(view.projection?.renderedLayerIds).toEqual(["external", "arcgis", "legacy"]);
+    expect(view.projection?.unresolved).toMatchObject([{ layerId: "honua", reason: "Unknown authoritative style." }]);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "external")?.paint).toBeDefined();
+    for (const id of ["external", "arcgis", "legacy"]) {
+      const rendered = map.latestStyle?.layers.find((layer) => layer.id === id);
+      expect(rendered?.paint).toBeDefined();
+      expect(rendered).not.toHaveProperty("metadata.honua:styleSha256");
+    }
+    map.getStyle = () => ({ layers: map.latestStyle?.layers ?? [] });
+    map.setRenderedFeatures([{ layer: { id: "external" }, properties: { district: "East" } }]);
+    expect(view.observeAuthoritativeStyles()).toEqual([]);
+    view.dispose();
+  });
+
+  it("binds a unique legacy service alias to its rendered id and actual discovered locator", async () => {
+    const { controller, view, map, bind, descriptor } = await styledView();
+    controller.apply({
+      name: "addLayer",
+      layer: { id: "legacy", sourceId: "service", styleRef: { kind: "style-ref", styleId: "district" } },
+    });
+    await view.settled();
+    expect(bind).toHaveBeenLastCalledWith("district", { ...descriptor, id: "service" });
+    expect(view.projection?.unresolved).toEqual([]);
+    expect(view.projection?.renderedLayerIds).toEqual(["parcels", "legacy"]);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "legacy")?.paint?.["fill-color"]).toBe("#003366");
+    view.dispose();
+  });
+
+  it("refuses a renderer source override before fetching catalog-bound definitions", async () => {
+    const { controller, view, bind } = await styledView();
+    const previous = bind.mock.calls.length;
+    controller.apply({
+      name: "addLayer",
+      layer: {
+        id: "override",
+        sourceId: "hi-parcels",
+        styleRef: { kind: "style-ref", styleId: "district" },
+        metadata: {
+          honua: {
+            source: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+            geometryType: "Polygon",
+          },
+        },
+      },
+    });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(previous);
+    expect(view.projection?.unresolved.find((layer) => layer.layerId === "override")?.reason).toMatch(
+      /source override/,
+    );
+    view.dispose();
+  });
+  it("reuses live bindings for selection and control repaint without extra MCP requests", async () => {
+    const { controller, view, bind } = await styledView();
+    expect(bind).toHaveBeenCalledTimes(1);
+    controller.select([{ kind: "layer", id: "parcels" }]);
+    await view.settled();
+    view.setAppearance({ opacity: { parcels: 0.5 } });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(1);
+    view.dispose();
+  });
+  it("explicit refresh reads a changed revision under the same style and source identity", async () => {
+    const { view, map, bind, changeRevision } = await styledView();
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#003366");
+    changeRevision();
+    await view.refreshAuthoritativeStyles();
+    expect(bind).toHaveBeenCalledTimes(2);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#ddaa22");
+    view.dispose();
+  });
+  it("does not repopulate bindings across a refresh requested while a read is pending", async () => {
+    const { view, map, bind, changeRevision } = await styledView();
+    const oldBinding = await bind.mock.results[0].value;
+    let complete!: () => void;
+    bind.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = () => resolve(oldBinding);
+        }),
+    );
+    const firstRefresh = view.refreshAuthoritativeStyles();
+    await vi.waitFor(() => expect(bind).toHaveBeenCalledTimes(2));
+    changeRevision();
+    const secondRefresh = view.refreshAuthoritativeStyles();
+    complete();
+    await Promise.all([firstRefresh, secondRefresh]);
+    expect(bind).toHaveBeenCalledTimes(3);
+    expect(map.latestStyle?.layers.find((layer) => layer.id === "parcels")?.paint?.["fill-color"]).toBe("#ddaa22");
+    view.dispose();
+  });
+  it("rebinds when style, actual descriptor, session or bounded freshness changes", async () => {
+    const { controller, view, bind, descriptor, replaceSession } = await styledView();
+    controller.apply({
+      name: "setLayerStyleRef",
+      target: { kind: "layer", id: "parcels" },
+      styleRef: { kind: "style-ref", styleId: "council" },
+    });
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(2);
+    descriptor.locator.layerId = 2;
+    view.setAppearance(undefined);
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(3);
+    replaceSession();
+    view.setAppearance(undefined);
+    await view.settled();
+    expect(bind).toHaveBeenCalledTimes(4);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 30001);
+    try {
+      view.setAppearance(undefined);
+      await view.settled();
+      expect(bind).toHaveBeenCalledTimes(5);
+    } finally {
+      clock.mockRestore();
+      view.dispose();
+    }
+  });
+});

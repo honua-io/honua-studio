@@ -41,8 +41,8 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-Fourteen pull requests are merged; `src/` holds 113 files and `test/` 100, with
-931 unit tests across 91 files and 29 Playwright browser journeys, including four accessibility checks.
+The current tree contains 123 files in `src/` and 113 in `test/`, with
+1006 unit tests across 96 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -96,7 +96,7 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   ([#46](https://github.com/honua-io/honua-studio/issues/46),
   [`docs/evals.md`](docs/evals.md)) scores fixture transcripts in PR CI today
   and can run scripted or signature-verified model turns against an owned real
-  server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
+  server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. The [authoritative style provider](docs/authoritative-styles.md) resolves real server definitions for supported vector layers and accepts actual browser observations for hash-bound semantic verification. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
   follow-up work.
 - **The GP panel talks to a fixture, not a server**
   ([#35](https://github.com/honua-io/honua-studio/issues/35)). `src/gp/job-client.ts`
@@ -243,7 +243,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 931 tests across 91 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 1006 tests across 96 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

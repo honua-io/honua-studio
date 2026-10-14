@@ -42,6 +42,10 @@ import {
   type StudioAiTranscriptSigningManifest,
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
+import {
+  type AuthoritativeStyleDefinition,
+  AuthoritativeStyleProvider,
+} from "../styles/authoritative-style-provider.js";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import {
@@ -914,6 +918,27 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
     chat.agentSessionPending = false;
     const kit = this.aiMapKit;
+    const styleAuth = this.auth;
+    const styleProvider = new AuthoritativeStyleProvider({
+      baseUrl: runtimeMcpBaseUrl(),
+      documentUrl: document.baseURI,
+      getAuth: () => this.auth,
+      signal: AbortSignal.timeout(8000),
+    });
+    const styles: AuthoritativeStyleDefinition[] = [];
+    try {
+      for (const entry of (await styleProvider.list()).slice(0, 10)) {
+        try {
+          styles.push(await styleProvider.read(entry.styleId));
+        } catch {
+          /* Unsupported definitions are not advertised as usable. */
+        }
+      }
+    } catch {
+      /* The prompt explicitly reports unavailable styles; names never substitute for definitions. */
+    }
+    if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
+    if (this.auth !== styleAuth) return;
     const sessionRef: { current?: StudioAgentSession } = {};
     const certification = this.#agentCertification;
     sessionRef.current = chat.attachAgentSession({
@@ -952,6 +977,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           draftId: this.toolCallOrchestrator.draftId,
           generation: this.toolCallOrchestrator.generation,
           catalog: this.#sourceCatalog,
+          styles: styles.map(({ styleId, title, description, styleVersion, sha256 }) => ({
+            styleId,
+            title,
+            description,
+            styleVersion,
+            sha256,
+          })),
           composition: this.composition.state,
         }),
       onEvent: (event) => {
