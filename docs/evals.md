@@ -274,3 +274,12 @@ These corrections affect newly produced live semantic scores. They do not rewrit
 historical receipts or change the strict fixture scorer/corpus. Structural readback
 checks and runtime unit regressions are not claims that an earlier live browser run
 operated a slider. Browser gesture evidence must be recorded separately when claimed.
+
+The owned browser observer also inspects actual chart/table cards on each observed
+data-widget turn. It records SVG mark values, chart summaries, grid row counts and
+cell values; missing, loading, empty or failed data cards do not qualify as
+rendered data in this nonempty synthetic corpus. Visible card failures now fail
+the supplemental browser-observation check even if console errors are empty.
+These observations supplement authoritative state checks; they do not rewrite
+historical scorecards or change the strict fixture scorer. Bounded real widget
+proofs additionally compare rendered values to the captured FeatureCollection.

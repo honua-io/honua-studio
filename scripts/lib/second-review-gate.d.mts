@@ -1,6 +1,12 @@
 export interface ReviewAuthor {
   readonly login: string;
 }
+export interface ReviewComment {
+  readonly user: ReviewAuthor & { readonly type?: string };
+  readonly body: string;
+  readonly updated_at?: string;
+  readonly performed_via_github_app?: { readonly id: number; readonly slug: string } | null;
+}
 export interface ReviewThread {
   readonly isResolved: boolean;
   readonly isOutdated?: boolean;
@@ -19,13 +25,18 @@ export interface ReviewPullRequest {
 }
 export interface ReviewGateInput {
   readonly pr: ReviewPullRequest;
-  readonly comments: readonly { readonly user: ReviewAuthor; readonly body: string }[];
+  readonly comments: readonly ReviewComment[];
+  readonly resolvedFirstPassCommits?: Readonly<Record<string, string>>;
   readonly repository: string;
   readonly eventName: string;
   readonly postMergeAudit?: boolean;
   readonly expectedHead?: string;
   readonly firstPassReviewer?: string;
 }
+export function completedFirstPassCommit(
+  comments: readonly ReviewComment[],
+  firstPassReviewer?: string,
+): string | undefined;
 export function evaluateSecondReview(input: ReviewGateInput): {
   headSha: string;
   mode: string;

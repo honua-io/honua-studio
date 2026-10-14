@@ -105,6 +105,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   static instanceCount = 0;
 
   #auth: AuthSession | undefined;
+  readonly #widgetAuth = () => resolveInjectedAuth(this);
   #resizeObserver: ResizeObserver | undefined;
   #composition: CompositionController | undefined;
   #commandDispatch: HonuaStudioCommandDispatch | undefined;
@@ -438,6 +439,9 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     // `<honua-studio-canvas>` through some path registry.ts does not cover
     // still gets the map and the readout, which lists every widget.
     if (!("composition" in deck)) return;
+    deck.getAuth = this.#widgetAuth;
+    deck.refreshSession();
+    deck.sourceAuthBaseUrl = this.#sourceAuthBaseUrl;
     deck.sourceBaseUrl = this.#sourceBaseUrl;
     deck.sourceCatalog = this.#sourceCatalog;
     deck.dataLoader = this.#widgetDataLoader;

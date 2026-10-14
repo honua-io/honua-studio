@@ -6,6 +6,7 @@ import { startPreviewServer } from "../test/playwright/helpers.mjs";
 import { observedGeoJsonBounds } from "./lib/observed-geojson-bounds.mjs";
 import { bindObservedSources } from "./lib/observer-source-bindings.mjs";
 import { bindOwnedDeployment } from "./lib/owned-deployment-binding.mjs";
+import { collectRenderedWidgetObservations, requireRenderedWidgetData } from "./lib/rendered-widget-observations.mjs";
 
 async function buildHashes() {
   const root = resolve("dist");
@@ -125,82 +126,95 @@ export async function createBrowserStyleObserver({
       requirements: boundRequirements,
       async observe({ taskId, turnIndex, state }) {
         const requirement = boundRequirements[taskId];
-        if (!requirement) return [];
+        if (!requirement && !state.widgets.some((widget) => widget.kind === "chart" || widget.kind === "table"))
+          return [];
         if (state.layers.some((layer) => layer.metadata?.honua?.source))
           throw new Error("Source metadata overrides are not style proof inputs.");
         const turn = { taskId, turnIndex, authoritativeState: state, passed: false };
         receipt.turns.push(turn);
         try {
           await page.evaluate((state) => window.__honuaStudioApp.composition.replaceState(state), state);
-          await page.waitForFunction(
-            () => {
-              const view = document.querySelector("honua-studio-canvas")?.mapView;
-              return view?.status === "ready" && typeof view.observeAuthoritativeStyles === "function";
-            },
-            undefined,
-            { timeout: 30000 },
-          );
-          await page.evaluate(async () => {
-            const view = document.querySelector("honua-studio-canvas").mapView;
-            await view.settled();
-            await view.refreshAuthoritativeStyles();
-          });
-          if (Object.keys(state.view).length === 0) {
+          if (requirement) {
             await page.waitForFunction(
               () => {
-                const map = document.querySelector("honua-studio-canvas")?.mapView?.map;
-                return map?.isStyleLoaded() && map.areTilesLoaded();
+                const view = document.querySelector("honua-studio-canvas")?.mapView;
+                return view?.status === "ready" && typeof view.observeAuthoritativeStyles === "function";
               },
               undefined,
               { timeout: 30000 },
             );
-            await Promise.all(captures);
-            const descriptor = await page.evaluate((sourceId) => {
+            await page.evaluate(async () => {
               const view = document.querySelector("honua-studio-canvas").mapView;
-              const observed = view.observeAuthoritativeStyles().find((entry) => entry.sourceId === sourceId);
-              return observed && JSON.parse(observed.binding.descriptorBody);
-            }, requirement.sourceId);
-            if (!descriptor || descriptor.srid !== 4326)
-              throw new Error("Actual source CRS is not verified EPSG:4326.");
-            const queryPath = `/rest/services/${descriptor.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${descriptor.layerId}/query`;
-            const observed = receipt.requests.findLast((entry) => {
-              const url = new URL(entry.browserUrl);
-              return url.pathname === queryPath && url.searchParams.get("f") === "geojson" && entry.status === 200;
+              await view.settled();
+              await view.refreshAuthoritativeStyles();
             });
-            if (!observed) throw new Error("No actual authenticated GeoJSON response for the style target.");
-            const bounds = observedGeoJsonBounds(JSON.parse(observed.response));
-            turn.diagnosticViewport = {
-              reason: "Authoritative composition leaves view unspecified",
-              crs: "EPSG:4326",
-              query: observed.upstreamUrl,
-              responseSha256: createHash("sha256").update(observed.response).digest("hex"),
-              featureBounds: bounds,
-            };
-            await page.evaluate(
-              (bounds) =>
-                document
-                  .querySelector("honua-studio-canvas")
-                  .mapView.map.fitBounds(bounds, { duration: 0, padding: 40 }),
-              bounds,
+            if (Object.keys(state.view).length === 0) {
+              await page.waitForFunction(
+                () => {
+                  const map = document.querySelector("honua-studio-canvas")?.mapView?.map;
+                  return map?.isStyleLoaded() && map.areTilesLoaded();
+                },
+                undefined,
+                { timeout: 30000 },
+              );
+              await Promise.all(captures);
+              const descriptor = await page.evaluate((sourceId) => {
+                const view = document.querySelector("honua-studio-canvas").mapView;
+                const observed = view.observeAuthoritativeStyles().find((entry) => entry.sourceId === sourceId);
+                return observed && JSON.parse(observed.binding.descriptorBody);
+              }, requirement.sourceId);
+              if (!descriptor || descriptor.srid !== 4326)
+                throw new Error("Actual source CRS is not verified EPSG:4326.");
+              const queryPath = `/rest/services/${descriptor.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${descriptor.layerId}/query`;
+              const observed = receipt.requests.findLast((entry) => {
+                const url = new URL(entry.browserUrl);
+                return url.pathname === queryPath && url.searchParams.get("f") === "geojson" && entry.status === 200;
+              });
+              if (!observed) throw new Error("No actual authenticated GeoJSON response for the style target.");
+              const bounds = observedGeoJsonBounds(JSON.parse(observed.response));
+              turn.diagnosticViewport = {
+                reason: "Authoritative composition leaves view unspecified",
+                crs: "EPSG:4326",
+                query: observed.upstreamUrl,
+                responseSha256: createHash("sha256").update(observed.response).digest("hex"),
+                featureBounds: bounds,
+              };
+              await page.evaluate(
+                (bounds) =>
+                  document
+                    .querySelector("honua-studio-canvas")
+                    .mapView.map.fitBounds(bounds, { duration: 0, padding: 40 }),
+                bounds,
+              );
+            }
+            await page.waitForFunction(
+              (sourceId) => {
+                const view = document.querySelector("honua-studio-canvas")?.mapView;
+                return (
+                  view?.map?.isStyleLoaded() &&
+                  view.map.areTilesLoaded() &&
+                  view
+                    .observeAuthoritativeStyles()
+                    .some((entry) => entry.sourceId === sourceId && entry.renderedFeatureCount > 0)
+                );
+              },
+              requirement.sourceId,
+              { timeout: 30000 },
             );
           }
-          await page.waitForFunction(
-            (sourceId) => {
-              const view = document.querySelector("honua-studio-canvas")?.mapView;
-              return (
-                view?.map?.isStyleLoaded() &&
-                view.map.areTilesLoaded() &&
-                view
-                  .observeAuthoritativeStyles()
-                  .some((entry) => entry.sourceId === sourceId && entry.renderedFeatureCount > 0)
-              );
-            },
-            requirement.sourceId,
-            { timeout: 30000 },
-          );
-          const observations = await page.evaluate(() =>
-            document.querySelector("honua-studio-canvas").mapView.observeAuthoritativeStyles(),
-          );
+          const observations = requirement
+            ? await page.evaluate(() =>
+                document.querySelector("honua-studio-canvas").mapView.observeAuthoritativeStyles(),
+              )
+            : [];
+          // Observe the real rendered card, including visible data errors which never reach console.error.
+          const widgetDeadline = Date.now() + 30000;
+          do {
+            turn.widgets = await page.evaluate(collectRenderedWidgetObservations, state.widgets);
+            if (!turn.widgets.some((entry) => entry.state === "loading")) break;
+            await page.waitForTimeout(50);
+          } while (Date.now() < widgetDeadline);
+          requireRenderedWidgetData(turn.widgets);
           await Promise.all(captures);
           if (receipt.errors.length) throw new Error("Browser errors occurred; inspect retained observer receipt.");
           if (JSON.stringify(receipt.buildFiles) !== JSON.stringify(await buildHashes()))
@@ -213,6 +227,10 @@ export async function createBrowserStyleObserver({
           return observations;
         } catch (error) {
           turn.error = String(error);
+          await page.screenshot({
+            path: resolve(directory, `${taskId.replace(/[^a-z0-9-]/gi, "_")}-${turnIndex}-failed.png`),
+            fullPage: true,
+          });
           throw error;
         }
       },

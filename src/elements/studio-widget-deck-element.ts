@@ -1,3 +1,4 @@
+import type { AuthSession } from "../auth/types.js";
 /**
  * `<honua-studio-widget-deck>` — the chrome the agent composes around the map
  * (honua-studio#24).
@@ -142,6 +143,12 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #sourceBaseUrl = runtimeServerBaseUrl();
   #dataLoader: WidgetDataLoader | undefined;
   #defaultLoader: WidgetDataLoader | undefined;
+  #getAuth: (() => AuthSession | undefined) | undefined;
+  #activeAuth: AuthSession | undefined;
+  #authUnsubscribe: (() => void) | undefined;
+  #sessionUnavailable = false;
+  #dataAbort = new AbortController();
+  #sourceAuthBaseUrl: string | undefined;
   #onSelection: ((targets: readonly CompositionTarget[]) => void) | undefined;
   #commandDispatch: HonuaStudioCommandDispatch | undefined;
   #unrenderable: readonly UnrenderableLayerNote[] = [];
@@ -191,6 +198,35 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   public set sourceBaseUrl(baseUrl: string) {
     if (this.#sourceBaseUrl === baseUrl) return;
     this.#sourceBaseUrl = baseUrl;
+    this.#resetData();
+  }
+
+  /** Live host resolver: a request cannot finish under a session that has been replaced. */
+  public set getAuth(getAuth: (() => AuthSession | undefined) | undefined) {
+    if (this.#getAuth === getAuth) return;
+    this.#getAuth = getAuth;
+    this.refreshSession();
+  }
+
+  public set sourceAuthBaseUrl(baseUrl: string | undefined) {
+    if (this.#sourceAuthBaseUrl === baseUrl) return;
+    this.#sourceAuthBaseUrl = baseUrl;
+    this.#resetData();
+  }
+
+  /** Called by the host on session replacement, including host-owned catalogs. */
+  public refreshSession(): void {
+    const auth = this.#getAuth?.();
+    if (this.#activeAuth === auth && (this.#authUnsubscribe || !auth)) return;
+    this.#authUnsubscribe?.();
+    this.#activeAuth = auth;
+    this.#sessionUnavailable = false;
+    this.#authUnsubscribe = auth?.subscribe?.((state) => {
+      const unavailable = state.status === "expired" || state.status === "signed-out";
+      if (unavailable === this.#sessionUnavailable || (!unavailable && state.status !== "fresh")) return;
+      this.#sessionUnavailable = unavailable;
+      this.#resetData();
+    });
     this.#resetData();
   }
 
@@ -253,6 +289,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   protected onConnect(): void {
     HonuaStudioWidgetDeckElement.instanceCount += 1;
+    if (this.#dataAbort.signal.aborted) this.#dataAbort = new AbortController();
+    this.refreshSession();
     if (this.#composition && !this.#compositionUnsubscribe) {
       this.#compositionUnsubscribe = this.#composition.subscribe(() => this.render());
     }
@@ -265,6 +303,11 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   protected onDisconnect(): void {
     HonuaStudioWidgetDeckElement.instanceCount -= 1;
+    this.#authUnsubscribe?.();
+    this.#authUnsubscribe = undefined;
+    this.#dataAbort.abort();
+    this.#data.clear();
+    this.#defaultLoader = undefined;
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
   }
@@ -635,12 +678,17 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   /** Reads cached rows, kicking off one bounded load the first time a source is asked for. */
   #requireData(sourceId: string): DeckDataState {
+    if (this.#sessionUnavailable)
+      return {
+        status: "done",
+        result: { ok: false, reason: "The Studio session is unavailable. Sign in to load widget data." },
+      };
     const existing = this.#data.get(sourceId);
     if (existing) return existing;
     const loading: DeckDataState = { status: "loading" };
     this.#data.set(sourceId, loading);
     const loader = this.#resolveLoader();
-    void loader(sourceId)
+    void loader(sourceId, { signal: this.#dataAbort.signal })
       .then((result) => {
         if (!this.isConnected || this.#data.get(sourceId) !== loading) return;
         this.#data.set(sourceId, { status: "done", result });
@@ -661,6 +709,9 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (this.#dataLoader) return this.#dataLoader;
     this.#defaultLoader ??= createCatalogWidgetDataLoader({
       baseUrl: this.#sourceBaseUrl,
+      sourceAuthBaseUrl: this.#sourceAuthBaseUrl,
+      documentUrl: this.ownerDocument.baseURI,
+      getAuth: () => this.#getAuth?.(),
       ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),
     });
     return this.#defaultLoader;
@@ -668,6 +719,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   /** A loader input changed; everything already fetched was fetched against the old one. */
   #resetData(): void {
+    this.#dataAbort.abort();
+    this.#dataAbort = new AbortController();
     this.#data.clear();
     this.#defaultLoader = undefined;
     if (this.isConnected) this.render();
