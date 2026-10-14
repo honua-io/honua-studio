@@ -303,19 +303,127 @@ function sources() {
     serviceId: "owned",
     layerId: index + 1,
     url: `http://localhost:19929/rest/services/owned/FeatureServer/${index + 1}`,
-    fields: ["district", "zoning_code", "year_built"].map((name) => ({ name, type: "esriFieldTypeInteger" })),
+    fields: ["district", "zoning_code", "year_built"].map((name) => ({
+      name,
+      type: name === "year_built" ? "esriFieldTypeInteger" : "esriFieldTypeString",
+    })),
   }));
 }
 const metadataFetch: typeof fetch = async (input, init) => {
   expect(init?.redirect).toBe("error");
   expect(init?.signal).toBeInstanceOf(AbortSignal);
+  if (new URL(String(input)).pathname === "/mcp") {
+    const request = JSON.parse(String(init?.body));
+    const result =
+      request.method === "initialize"
+        ? { protocolVersion: "2025-03-26", capabilities: {} }
+        : {
+            structuredContent: {
+              serviceId: "opaque-service-42",
+              serviceName: "owned",
+              layerId: request.params.arguments.layerId,
+              geometryType: "Polygon",
+            },
+          };
+    if (request.method !== "initialize") expect(request.params.name).toBe("honua_describe_layer");
+    return Response.json({ jsonrpc: "2.0", id: request.id, result });
+  }
   const id = Number(new URL(String(input)).pathname.split("/").at(-1));
   return Response.json({ id, geometryType: "esriGeometryPolygon", fields: sources()[id - 1].fields });
 };
+function canonicalSources(layerUrl = false) {
+  return sources().map(({ id, layerId, url }) => ({
+    id,
+    title: id,
+    protocol: "geoservices-feature-service",
+    geometryType: "Polygon",
+    locator: { serviceId: "opaque-service-42", layerId, url: layerUrl ? url : url.replace(/\/\d+$/, "") },
+  }));
+}
+function changingResponse(change: (body: Record<string, unknown>, url: string) => void): typeof fetch {
+  return async (input, init) => {
+    const response = await metadataFetch(input, init);
+    const body = await response.json();
+    change(body, String(input));
+    return Response.json(body);
+  };
+}
+function described(body: Record<string, unknown>): Record<string, unknown> | undefined {
+  return (body.result as { structuredContent?: Record<string, unknown> } | undefined)?.structuredContent;
+}
 describe("live source admission before model execution", () => {
   it("binds configured aliases to independent metadata", async () => {
     expect(await verifyLiveExactSources(sources(), "http://localhost:19929", metadataFetch)).toHaveLength(4);
   });
+  for (const layerUrl of [false, true])
+    it(`accepts canonical ${layerUrl ? "layer" : "service-root"} locators without supplied fields`, async () => {
+      const evidence = await verifyLiveExactSources(
+        canonicalSources(layerUrl),
+        "http://localhost:19929",
+        metadataFetch,
+      );
+      expect(evidence).toHaveLength(4);
+      expect(evidence[0].descriptor.serviceId).toBe("opaque-service-42");
+      expect(evidence[0].url).toBe("http://localhost:19929/rest/services/owned/FeatureServer/1");
+    });
+  it("uses the actual segment-encoded serviceName rather than opaque serviceId", async () => {
+    const configured = canonicalSources();
+    for (const source of configured)
+      source.locator.url = source.locator.url.replace("/owned/", "/folder/owned%20parcels/");
+    const evidence = await verifyLiveExactSources(
+      configured,
+      "http://localhost:19929",
+      changingResponse((body) => {
+        const descriptor = described(body);
+        if (descriptor) descriptor.serviceName = "folder/owned parcels";
+      }),
+    );
+    expect(evidence[0].url).toBe("http://localhost:19929/rest/services/folder/owned%20parcels/FeatureServer/1");
+  });
+  for (const defect of ["opaque-id", "published-path", "layer-id", "geometry"] as const)
+    it(`rejects conflicting described ${defect}`, async () => {
+      await expect(
+        verifyLiveExactSources(
+          canonicalSources(),
+          "http://localhost:19929",
+          changingResponse((body) => {
+            const descriptor = described(body);
+            if (!descriptor) return;
+            if (defect === "opaque-id") descriptor.serviceId = "other-service";
+            if (defect === "published-path") descriptor.serviceName = "other-path";
+            if (defect === "layer-id") descriptor.layerId = 99;
+            if (defect === "geometry") descriptor.geometryType = "Point";
+          }),
+        ),
+      ).rejects.toThrow();
+    });
+  for (const field of ["district", "zoning_code", "year_built"] as const)
+    it(`rejects wrong actual ${field} type when configured fields are omitted`, async () => {
+      await expect(
+        verifyLiveExactSources(
+          canonicalSources(),
+          "http://localhost:19929",
+          changingResponse((body, url) => {
+            if (url.endsWith("/mcp")) return;
+            const fields = body.fields as { name: string; type: string }[];
+            const selected = fields.find((entry) => entry.name === field);
+            if (selected) selected.type = field === "year_built" ? "esriFieldTypeString" : "esriFieldTypeInteger";
+          }),
+        ),
+      ).rejects.toThrow("required corpus fields");
+    });
+  for (const defect of ["top-level-id", "top-level-url", "url-layer-suffix", "declared-fields"] as const)
+    it(`rejects conflicting canonical ${defect}`, async () => {
+      const configured: Record<string, unknown>[] = canonicalSources();
+      if (defect === "top-level-id") configured[0].serviceId = "different";
+      if (defect === "top-level-url") configured[0].url = "http://localhost:19929/rest/services/other/FeatureServer";
+      if (defect === "url-layer-suffix") {
+        const locator = configured[0].locator as Record<string, unknown>;
+        locator.url = `${String(locator.url)}/99`;
+      }
+      if (defect === "declared-fields") configured[0].fields = sources()[0].fields.slice(1);
+      await expect(verifyLiveExactSources(configured, "http://localhost:19929", metadataFetch)).rejects.toThrow();
+    });
   for (const mutation of ["missing", "duplicate", "foreign", "wrong-path", "wrong-fields", "fixture-alias"] as const)
     it(`refuses ${mutation}`, async () => {
       const configured = sources();
@@ -343,17 +451,21 @@ describe("live source admission before model execution", () => {
       return controller.signal;
     };
     try {
-      const pending = verifyLiveExactSources(
-        sources(),
-        "http://localhost:19929",
-        async (_input, init) =>
-          new Promise((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
-          }),
-      );
+      let reachedMetadata: () => void = () => {};
+      const waiting = new Promise<void>((resolve) => {
+        reachedMetadata = resolve;
+      });
+      const pending = verifyLiveExactSources(sources(), "http://localhost:19929", async (input, init) => {
+        if (new URL(String(input)).pathname === "/mcp") return metadataFetch(input, init);
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+          reachedMetadata();
+        });
+      });
+      await waiting;
       controller.abort(new Error("bounded metadata timeout"));
       await expect(pending).rejects.toThrow("bounded metadata timeout");
-      expect(calls).toEqual([8000]);
+      expect(calls).toEqual([8000, 8000, 8000]);
     } finally {
       AbortSignal.timeout = original;
     }

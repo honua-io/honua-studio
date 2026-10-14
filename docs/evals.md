@@ -198,7 +198,11 @@ new explicitly constrained instructions.
 
 Model mode requires trusted source descriptors for `hi-parcels`, `hi-districts`,
 `src-flood-risk`, and `src-dev-pressure`. Before model execution, same-origin
-server metadata must match their unique service/layer locators and fields. The
+MCP descriptions bind opaque service identities to advertised service-name paths;
+FeatureServer metadata must match those locators and the required parcel field
+types. Both canonical `locator` descriptors and historical top-level descriptors
+are supported. Canonical catalogs may omit fields; when configured fields are
+supplied they must match metadata exactly. The
 sample fixture's `hi-parcels/0` identity is not substituted for a live alias.
 Both style-requirement entries (`compose-districts-map` and
 `pin-protects-flood-risk`) must include an explicit `styleId` as well as their
