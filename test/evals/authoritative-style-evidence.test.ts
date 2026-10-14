@@ -28,9 +28,15 @@ const requirement: LiveStyleRequirement = {
   classificationField: "district",
   description: "Classify by actual district field.",
 };
-async function fixture() {
+async function fixture(canonicalVisibility?: "none" | "visible") {
   const paint = { "fill-color": ["match", ["get", "district"], "North", "#003366", "#ddaa22"] };
-  const layer = { id: "canonical", type: "fill", source: "parcels", paint };
+  const layer = {
+    id: "canonical",
+    type: "fill",
+    source: "parcels",
+    paint,
+    ...(canonicalVisibility ? { layout: { visibility: canonicalVisibility } } : {}),
+  };
   const inlineBody = JSON.stringify({
     version: 8,
     sources: { parcels: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
@@ -55,7 +61,7 @@ async function fixture() {
       fields: ["district"],
       descriptorBody,
       descriptorSha256: await styleContentHash(descriptorBody),
-      override: { paint, metadata },
+      override: { paint, metadata, ...(layer.layout ? { layout: layer.layout } : {}) },
       definition: {
         styleId: "district",
         title: "District",
@@ -68,7 +74,14 @@ async function fixture() {
         layers: [layer],
       },
     },
-    renderedLayer: { id: "parcels", type: "fill", source: "service/0", paint, metadata },
+    renderedLayer: {
+      id: "parcels",
+      type: "fill",
+      source: "service/0",
+      paint,
+      metadata,
+      layout: { visibility: "visible" },
+    },
   };
   const composition = {
     ...createEmptyCompositionState(),
@@ -94,10 +107,17 @@ describe("actual style semantics supplement", () => {
       prerequisite,
     );
   });
-  it("accepts hash-bound definition, actual descriptor field and corresponding runtime paint", async () => {
-    const { observation, composition } = await fixture();
+  it("checks effective composition visibility without rewriting the hash-bound canonical definition", async () => {
+    const { observation, composition } = await fixture("none");
+    const raw = observation.binding.definition.inlineBody;
+    expect(JSON.parse(raw).layers[0].layout.visibility).toBe("none");
     expect((await applyAuthoritativeStyleEvidence(prerequisite, requirement, [observation], composition)).status).toBe(
       "pass",
+    );
+    expect(observation.binding.definition.inlineBody).toBe(raw);
+    const hidden = { ...observation, renderedLayer: { ...observation.renderedLayer, layout: { visibility: "none" } } };
+    expect((await applyAuthoritativeStyleEvidence(prerequisite, requirement, [hidden], composition)).status).toBe(
+      "fail",
     );
   });
   it.each([

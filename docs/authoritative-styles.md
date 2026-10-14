@@ -72,7 +72,8 @@ requests, per-turn runtime observations and screenshots. Browser origin and
 upstream server identity remain distinct.
 
 Explicit visibility, active filters and opacity controls remain authoritative:
-hidden layers stay hidden, control filters are combined with canonical filters,
+composition visibility overrides canonical visibility in both directions; control
+filters are combined with canonical filters,
 and control opacity multiplies canonical opacity. Derived polygon outlines use
 the same effective filter, visibility and zoom limits. Evidence compares the effective rendered properties
 while checking requested palette values against the canonical definition.

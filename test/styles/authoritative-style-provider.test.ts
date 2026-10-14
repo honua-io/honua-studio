@@ -123,17 +123,24 @@ describe("authoritative style provider", () => {
     ]);
   });
 
-  it.each(["none", "visible"])(
-    "mirrors canonical %s visibility and zoom limits onto polygon outlines",
-    async (visibility) => {
+  it.each([true, false])(
+    "applies composition visibility %s to fill and outline while preserving canonical zoom and layout",
+    async (visible) => {
       const binding = await fixture().provider.bind("district", source);
+      const canonicalVisibility = visible ? "none" : "visible";
+      const canonical = {
+        ...binding.override,
+        layout: { visibility: canonicalVisibility, "fill-sort-key": 7 },
+        minzoom: 8,
+        maxzoom: 14,
+      };
       const state = {
         ...createEmptyCompositionState(),
         layers: [
           {
             id: "composed",
             sourceId: source.id,
-            visible: true,
+            visible,
             styleRef: { kind: "style-ref" as const, styleId: "district" },
           },
         ],
@@ -141,17 +148,19 @@ describe("authoritative style provider", () => {
       const projected = compositionToMapPackage(state, {
         catalog: [source],
         authoritativeStyles: {
-          composed: { ...binding, override: { ...binding.override, layout: { visibility }, minzoom: 8, maxzoom: 14 } },
+          composed: { ...binding, override: canonical },
         },
       });
       const actual = await composeStyle(projected.mapPackage, projected.mapPackage.mapSpec, {});
       for (const id of ["composed", "composed__outline"]) {
         expect(actual.layers.find((layer) => layer.id === id)).toMatchObject({
-          layout: { visibility },
+          layout: { visibility: visible ? "visible" : "none" },
           minzoom: 8,
           maxzoom: 14,
         });
       }
+      expect(actual.layers.find((layer) => layer.id === "composed")?.layout?.["fill-sort-key"]).toBe(7);
+      expect(canonical.layout.visibility).toBe(canonicalVisibility);
     },
   );
 
