@@ -1,7 +1,16 @@
 # Sharing: Preview and graduation posture
 
-Studio sharing in 2026.1 is Preview. It is not GA. Agent-controlled chat and
-MCP paths may submit a canonical publication proposal for an already-saved
+Studio sharing in 2026.1 is Preview. It is not GA. This page describes the
+**browser Preview adapter and its non-admin fixture journey**, not every server
+MCP outcome. The current server's
+[publication tool](https://github.com/honua-io/honua-server/blob/trunk/docs/studio/mcp-tools.md)
+can publish directly for an authorized admin and return `Published` with a
+`shareUrl`. The browser's `ProposeStudioPublicationOutput` and share-preview
+handler currently model `AwaitingApproval` only; support for the direct result
+remains an implementation gap. Do not infer universal server policy from this
+fixture or report an unhandled result as a pending proposal.
+
+Within this browser adapter, agent-controlled chat and MCP paths submit a canonical publication proposal for an already-saved
 immutable version, but they must never execute publish, share, or embed.
 Private and public visibility both stay `AwaitingApproval` until a different
 principal decides. There is no agent-executable private-link exception.

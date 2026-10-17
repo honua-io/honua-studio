@@ -130,7 +130,8 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   fixture smoke submits a canonical immutable-version proposal, keeps the
   handle across a reload boundary, shows pending, rejected, and failed in
   the conversation, and copies a server-issued link only after a different
-  principal approves. Private and public both wait. This is not a GA claim
+  principal approves. In this browser adapter, private and public both wait;
+  it does not yet model the server's admin direct-publication response. This is not a GA claim
   ([posture](docs/share-preview-posture.md)).
 
 ### Not started

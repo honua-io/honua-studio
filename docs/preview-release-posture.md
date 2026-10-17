@@ -54,7 +54,8 @@ does not gate 2026.1:
   separation-of-duties parity with the terminal client;
 - real browser-model execution that selects tools, mutates a live server draft,
   saves an immutable version, survives restart, and reopens exact content;
-- complete propose/poll/human-approval/final-link user experience;
+- complete publication-result handling: direct `Published` results for authorized
+  admins and propose/poll/separate-principal-approval/final-link for other callers;
 - standalone/embedded parity and package round trips with Console, followed by
   parity-gated retirement of the superseded Console editors;
 - versioned release receipts binding the Studio, server, SDK, model, and tool
