@@ -147,6 +147,51 @@ describe("composition/history DraftSync + FixtureDraftStore", () => {
     const result = await store.get(initial.draftId);
     expect(result.generation).toBe(2);
     expect(result.envelope.body.view).toEqual({ zoom: 99 });
+    expect(sync.needsReconciliation).toBe(true);
+    await expect(
+      sync.apply({ ...localState, layers: [{ id: "roads", sourceId: "s", visible: true }] }),
+    ).rejects.toMatchObject({
+      code: "generation-conflict",
+    });
+    expect((await store.get(initial.draftId)).generation).toBe(2);
+
+    const reconciled = await sync.reconcile((server) => ({
+      ...server,
+      layers: [{ id: "roads", sourceId: "s", visible: true }],
+    }));
+    expect(reconciled.envelope.body.view).toEqual({ zoom: 99 });
+    expect(sync.needsReconciliation).toBe(false);
+    const next = await sync.apply({ ...reconciled.envelope.body, layers: [] });
+    expect(next.envelope.body.view).toEqual({ zoom: 99 });
+  });
+
+  it("keeps writes blocked if the conflict refresh fails, then reconciles against a fresh read", async () => {
+    const store = new FixtureDraftStore();
+    const sync = new DraftSync({ store, packageKey: "test-package" });
+    const initial = await sync.apply(createEmptyCompositionState());
+    store.simulateExternalWrite(initial.draftId, { body: { ...createEmptyCompositionState(), view: { zoom: 99 } } });
+    vi.spyOn(store, "get").mockRejectedValueOnce(new Error("offline"));
+    await expect(sync.apply(createEmptyCompositionState())).rejects.toThrow("offline");
+    await expect(sync.apply(createEmptyCompositionState())).rejects.toMatchObject({ code: "generation-conflict" });
+    expect(sync.needsReconciliation).toBe(true);
+    const result = await sync.reconcile((server) => server);
+    expect(result.envelope.body.view).toEqual({ zoom: 99 });
+  });
+
+  it("keeps writes blocked when another writer races explicit reconciliation", async () => {
+    const store = new FixtureDraftStore();
+    const sync = new DraftSync({ store, packageKey: "test-package" });
+    const initial = await sync.apply(createEmptyCompositionState());
+    store.simulateExternalWrite(initial.draftId, { body: { ...createEmptyCompositionState(), view: { zoom: 99 } } });
+    await expect(sync.apply(createEmptyCompositionState())).rejects.toMatchObject({ code: "generation-conflict" });
+    await expect(
+      sync.reconcile((server) => {
+        store.simulateExternalWrite(initial.draftId, { body: { ...server, view: { zoom: 100 } } });
+        return server;
+      }),
+    ).rejects.toMatchObject({ code: "generation-conflict" });
+    await expect(sync.apply(createEmptyCompositionState())).rejects.toMatchObject({ code: "generation-conflict" });
+    expect((await store.get(initial.draftId)).envelope.body.view).toEqual({ zoom: 100 });
   });
 
   it("a custom rebase strategy can prefer the server state instead of local intent", async () => {
