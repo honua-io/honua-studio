@@ -72,6 +72,7 @@ describe("governed preview share smoke", () => {
       visibility: "private",
     };
     const proposal = await tools.proposePublication(submitted);
+    if (proposal.status !== "AwaitingApproval") throw new Error("Expected governed fixture publication");
     const replay = await tools.proposePublication(submitted);
     expect(replay.proposalId).toBe(proposal.proposalId);
     expect(proposal).not.toHaveProperty("publicationUrl");
@@ -136,6 +137,7 @@ describe("governed preview share smoke", () => {
         route: `/maps/${packageKey}`,
         visibility,
       });
+      if (proposal.status !== "AwaitingApproval") throw new Error("Expected governed fixture publication");
       return { version, proposal };
     }
 

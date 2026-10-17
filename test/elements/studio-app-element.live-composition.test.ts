@@ -314,6 +314,34 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     expect(element.toolCallOrchestrator.generation).not.toBe(99);
   });
 
+  it("shows direct publication and approval receipts from the active agent session", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ packageKey: "pkg-live-publication" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    const onEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
+    const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
+    const receipt = (result: unknown) => ({
+      type: "toolResult",
+      result: {
+        ok: true,
+        toolName: "honua_studio_propose_publication",
+        content: JSON.stringify({ status: "ok", result }),
+      },
+    });
+    onEvent(receipt({ status: "Published", humanConfirmationRequired: false, shareUrl: "/apps/parcels" }));
+    expect(chat.shareNote).toContain("Shared —");
+    expect(chat.shareNote).toContain("/apps/parcels");
+    onEvent(receipt({ status: "AwaitingApproval", humanConfirmationRequired: true }));
+    expect(chat.shareNote).toContain("awaiting separate human approval");
+
+    element.agentToolDefinitions = () => [];
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(2));
+    onEvent(receipt({ status: "Published", humanConfirmationRequired: false, shareUrl: "/apps/stale" }));
+    expect(chat.shareNote).not.toContain("/apps/stale");
+  });
+
   it("hands an assigned catalog straight to the auto-composed canvas", () => {
     const element = mount();
     element.sourceCatalog = [{ id: "hi-parcels", title: "Parcels", protocol: "ogc-features", geometryType: "Polygon" }];

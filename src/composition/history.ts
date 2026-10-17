@@ -80,6 +80,8 @@ export class CompositionHistory {
   #undoStack: CompositionRevision[];
   #redoStack: CompositionRevision[] = [];
   #pendingSync: Promise<unknown> = Promise.resolve();
+  #syncError: unknown;
+  #reconciling = false;
 
   public constructor(initialState: CompositionState, options: CompositionHistoryOptions = {}) {
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -94,6 +96,30 @@ export class CompositionHistory {
 
   public get draftSync(): DraftSync | undefined {
     return this.#draftSync;
+  }
+
+  /** Last persistence error; flush settles normally so hosts can render this state. */
+  public get syncError(): unknown {
+    return this.#syncError;
+  }
+
+  /** Reconcile and adopt one authoritative snapshot, discarding stale undo targets. */
+  public async reconcile(resolve: CompositionDraftRebase): Promise<void> {
+    this.#assertNotReconciling();
+    if (!this.#draftSync) throw new CompositionDraftError("generation-conflict", "No draft sync is attached.");
+    this.#reconciling = true;
+    try {
+      await this.flush();
+      const draft = await this.#draftSync.reconcile((server) => resolve(this.current, server));
+      this.#undoStack = [{ state: draft.envelope.body, timestamp: this.#now() }];
+      this.#redoStack = [];
+      this.#syncError = undefined;
+    } catch (error) {
+      this.#syncError = error;
+      throw error;
+    } finally {
+      this.#reconciling = false;
+    }
   }
 
   public canUndo(): boolean {
@@ -119,6 +145,7 @@ export class CompositionHistory {
 
   /** Applies `input` through the reducer, pushes the resulting revision, and returns the diff. Throws {@link CompositionCommandError} on rejection — the stack is untouched on failure. */
   public apply(input: CompositionCommand | unknown): CompositionDiff {
+    this.#assertNotReconciling();
     const result: CompositionApplyResult = applyCompositionCommand(this.current, input);
     this.#redoStack = [];
     this.#pushRevision({
@@ -133,6 +160,7 @@ export class CompositionHistory {
 
   /** Moves one revision back, syncing the restored state to the draft. Returns the restored state, or `undefined` if already at the initial revision. */
   public undo(): CompositionState | undefined {
+    this.#assertNotReconciling();
     if (!this.canUndo()) return undefined;
     const revision = this.#undoStack.pop();
     if (!revision) return undefined;
@@ -144,6 +172,7 @@ export class CompositionHistory {
 
   /** Moves one revision forward. Returns the restored state, or `undefined` if there is nothing to redo. */
   public redo(): CompositionState | undefined {
+    this.#assertNotReconciling();
     const revision = this.#redoStack.pop();
     if (!revision) return undefined;
     this.#undoStack.push(revision);
@@ -168,6 +197,7 @@ export class CompositionHistory {
    * readback or draft creation is not a new edit and must not consume redo.
    */
   public replaceState(state: CompositionState): void {
+    this.#assertNotReconciling();
     if (canonicalCompositionJson(state) === canonicalCompositionJson(this.current)) return;
     this.#redoStack = [];
     this.#pushRevision({ state, timestamp: this.#now() });
@@ -177,6 +207,12 @@ export class CompositionHistory {
     const revision = this.#undoStack[this.#undoStack.length - 1];
     if (!revision) throw new Error("CompositionHistory: undo stack is unexpectedly empty");
     return revision;
+  }
+
+  #assertNotReconciling(): void {
+    if (this.#reconciling) {
+      throw new CompositionDraftError("generation-conflict", "Draft reconciliation is in progress.");
+    }
   }
 
   #pushRevision(revision: CompositionRevision): void {
@@ -191,10 +227,14 @@ export class CompositionHistory {
     // Chained onto the existing pending-sync promise (not fired independently)
     // so `flush()` observes every sync call in order, and a rejected sync
     // never becomes an unhandled rejection.
-    this.#pendingSync = this.#pendingSync.then(
-      () => this.#draftSync?.apply(state),
-      () => this.#draftSync?.apply(state),
-    );
+    this.#pendingSync = this.#pendingSync.then(async () => {
+      try {
+        await this.#draftSync?.apply(state);
+        this.#syncError = undefined;
+      } catch (error) {
+        this.#syncError = error;
+      }
+    });
   }
 }
 
@@ -285,7 +325,7 @@ export interface DraftSyncConflict {
   readonly serverState: CompositionState;
 }
 
-/** Given the state that failed to apply (`local`) and the freshly reloaded server state (`server`), returns the state to retry with. Default: `local` wins outright (the client's intent is retried against the fresh generation) — see the module doc's rebase note for why a smarter merge is a future extension, not this module's job. */
+/** Explicit host reconciliation of local intent with the current server state. Omit to refuse stale writes after refreshing. */
 export type CompositionDraftRebase = (local: CompositionState, server: CompositionState) => CompositionState;
 
 export interface DraftSyncOptions {
@@ -295,8 +335,6 @@ export interface DraftSyncOptions {
   readonly onConflict?: (conflict: DraftSyncConflict) => void;
   readonly rebase?: CompositionDraftRebase;
 }
-
-const defaultRebase: CompositionDraftRebase = (local) => local;
 
 /**
  * Keeps a {@link CompositionState} synced to one {@link CompositionDraftStore}
@@ -314,28 +352,28 @@ const defaultRebase: CompositionDraftRebase = (local) => local;
  *    sequence of reducer commands (e.g. an agent's multi-step refinement)
  *    produces one draft write, not N.
  *  - On a `generation-conflict` (409): reloads the draft (`store.get`),
- *    invokes `onConflict` with the server's state/generation, computes a
- *    retry state via `rebase` (default: local intent wins, replayed against
- *    the fresh generation), and retries automatically — the caller's
- *    `apply()` promise does not reject for a conflict it already recovered
- *    from.
+ *    invokes `onConflict` with the server's state/generation and rejects.
+ *    Only an explicitly supplied `rebase` strategy may reconcile the edit.
+ *    Queued stale whole-state writes are discarded. Subsequent writes stay
+ *    blocked until the host explicitly reconciles with the current server.
  */
 export class DraftSync {
   readonly #store: CompositionDraftStore;
   readonly #packageKey: string;
   readonly #itemId: string | undefined;
   readonly #onConflict: ((conflict: DraftSyncConflict) => void) | undefined;
-  readonly #rebase: CompositionDraftRebase;
+  readonly #rebase: CompositionDraftRebase | undefined;
   #draft: CompositionDraft | undefined;
   #pendingState: CompositionState | undefined;
   #flushLoop: Promise<CompositionDraft> | undefined;
+  #needsReconciliation = false;
 
   public constructor(options: DraftSyncOptions) {
     this.#store = options.store;
     this.#packageKey = options.packageKey;
     this.#itemId = options.itemId;
     this.#onConflict = options.onConflict;
-    this.#rebase = options.rebase ?? defaultRebase;
+    this.#rebase = options.rebase;
   }
 
   public get draftId(): string | undefined {
@@ -346,7 +384,45 @@ export class DraftSync {
     return this.#draft?.generation;
   }
 
+  public get needsReconciliation(): boolean {
+    return this.#needsReconciliation;
+  }
+
+  /**
+   * Explicitly resolves a conflict against a fresh server snapshot. The host
+   * must adopt the returned state before resuming local edits. Ordinary apply
+   * calls remain blocked during reconciliation and after any failed attempt.
+   */
+  public reconcile(resolve: (server: CompositionState) => CompositionState): Promise<CompositionDraft> {
+    if (!this.#needsReconciliation || this.#flushLoop || !this.#draft) {
+      return Promise.reject(new CompositionDraftError("generation-conflict", "No settled conflict to reconcile."));
+    }
+    this.#flushLoop = this.#reconcileWithServer(this.#draft.draftId, resolve).finally(() => {
+      this.#flushLoop = undefined;
+    });
+    return this.#flushLoop;
+  }
+
+  async #reconcileWithServer(
+    draftId: string,
+    resolve: (server: CompositionState) => CompositionState,
+  ): Promise<CompositionDraft> {
+    const server = await this.#store.get(draftId);
+    this.#draft = await this.#store.replace(draftId, {
+      packageKey: this.#packageKey,
+      envelope: { body: resolve(server.envelope.body) },
+      generation: server.generation,
+    });
+    this.#needsReconciliation = false;
+    return this.#draft;
+  }
+
   public apply(state: CompositionState): Promise<CompositionDraft> {
+    if (this.#needsReconciliation) {
+      return Promise.reject(
+        new CompositionDraftError("generation-conflict", "Reconcile the unresolved draft conflict before editing."),
+      );
+    }
     this.#pendingState = state;
     if (!this.#flushLoop) {
       this.#flushLoop = this.#runFlushLoop().finally(() => {
@@ -392,9 +468,11 @@ export class DraftSync {
         envelope: { body: state },
         generation: this.#draft.generation,
       });
+      this.#needsReconciliation = false;
       return this.#draft;
     } catch (error) {
       if (!isCompositionDraftConflict(error)) throw error;
+      this.#needsReconciliation = true;
       return this.#reloadAndRebase(state);
     }
   }
@@ -402,6 +480,8 @@ export class DraftSync {
   async #reloadAndRebase(state: CompositionState): Promise<CompositionDraft> {
     const draftId = this.#draft?.draftId;
     if (!draftId) throw new Error("DraftSync: generation conflict reported before a draft existed — this is a bug.");
+    const latestState = this.#pendingState ?? state;
+    this.#pendingState = undefined;
     const server = await this.#store.get(draftId);
     const conflict: DraftSyncConflict = {
       draftId: server.draftId,
@@ -411,13 +491,16 @@ export class DraftSync {
     };
     this.#draft = server;
     this.#onConflict?.(conflict);
-    const retryState = this.#rebase(state, server.envelope.body);
-    // Queue the rebased retry as the next flush-loop iteration rather than
-    // recursing directly — if a newer `apply()` call already queued a
-    // fresher `#pendingState` while this reload was in flight, that fresher
-    // intent wins (still against the now-current generation); only fall
-    // back to the rebased retry when nothing newer is waiting.
-    this.#pendingState = this.#pendingState ?? retryState;
+    if (!this.#rebase) {
+      this.#pendingState = undefined;
+      throw new CompositionDraftError(
+        "generation-conflict",
+        "Draft changed in another session. Refresh and reconcile the edit before applying it again.",
+      );
+    }
+    // Every queued snapshot needs reconciliation; none may bypass the host's
+    // strategy just because it arrived after the original conflicting write.
+    this.#pendingState = this.#rebase(latestState, server.envelope.body);
     return server;
   }
 }
