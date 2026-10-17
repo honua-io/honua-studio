@@ -221,7 +221,7 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     expect(log.entries().map((e) => e.type)).toEqual(["composition_command_applied"]);
   });
 
-  it("a failed_precondition (stale generation) triggers exactly one reload + retry, then succeeds", async () => {
+  it("a stale command refreshes the draft and fails without replaying against changed state", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
     let addLayerAttempts = 0;
     const fetchImpl = fetchRouter({
@@ -272,13 +272,13 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
       arguments: { layer: { id: "roads", sourceId: "s" } },
     });
 
-    expect(result.ok).toBe(true);
-    expect(addLayerAttempts).toBe(2);
-    expect(orchestrator.generation).toBe(6);
-    expect(controller.state.layers.map((l) => l.id)).toEqual(["roads"]);
+    expect(result.ok).toBe(false);
+    expect(addLayerAttempts).toBe(1);
+    expect(orchestrator.generation).toBe(5);
+    expect(controller.state.layers.map((l) => l.id)).toEqual([]);
   });
 
-  it("a SECOND failed_precondition after the one retry is surfaced as a failure, not retried again", async () => {
+  it("a persistent generation conflict is reported after one attempted mutation", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
     let addLayerAttempts = 0;
     const fetchImpl = fetchRouter({
@@ -312,7 +312,7 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     });
 
     expect(result).toMatchObject({ ok: false, code: "server-error" });
-    expect(addLayerAttempts).toBe(2); // one original + exactly one retry
+    expect(addLayerAttempts).toBe(1); // the original attempt only
   });
 
   it("server-bound calls are queued in order (no two in flight racing the same draft generation)", async () => {

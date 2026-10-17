@@ -285,7 +285,7 @@ export interface DraftSyncConflict {
   readonly serverState: CompositionState;
 }
 
-/** Given the state that failed to apply (`local`) and the freshly reloaded server state (`server`), returns the state to retry with. Default: `local` wins outright (the client's intent is retried against the fresh generation) — see the module doc's rebase note for why a smarter merge is a future extension, not this module's job. */
+/** Explicit host reconciliation of local intent with the current server state. Omit to refuse stale writes after refreshing. */
 export type CompositionDraftRebase = (local: CompositionState, server: CompositionState) => CompositionState;
 
 export interface DraftSyncOptions {
@@ -295,8 +295,6 @@ export interface DraftSyncOptions {
   readonly onConflict?: (conflict: DraftSyncConflict) => void;
   readonly rebase?: CompositionDraftRebase;
 }
-
-const defaultRebase: CompositionDraftRebase = (local) => local;
 
 /**
  * Keeps a {@link CompositionState} synced to one {@link CompositionDraftStore}
@@ -314,18 +312,17 @@ const defaultRebase: CompositionDraftRebase = (local) => local;
  *    sequence of reducer commands (e.g. an agent's multi-step refinement)
  *    produces one draft write, not N.
  *  - On a `generation-conflict` (409): reloads the draft (`store.get`),
- *    invokes `onConflict` with the server's state/generation, computes a
- *    retry state via `rebase` (default: local intent wins, replayed against
- *    the fresh generation), and retries automatically — the caller's
- *    `apply()` promise does not reject for a conflict it already recovered
- *    from.
+ *    invokes `onConflict` with the server's state/generation and rejects.
+ *    Only an explicitly supplied `rebase` strategy may reconcile the edit.
+ *    Queued stale whole-state writes are discarded rather than replacing
+ *    another writer's work against the freshly read generation.
  */
 export class DraftSync {
   readonly #store: CompositionDraftStore;
   readonly #packageKey: string;
   readonly #itemId: string | undefined;
   readonly #onConflict: ((conflict: DraftSyncConflict) => void) | undefined;
-  readonly #rebase: CompositionDraftRebase;
+  readonly #rebase: CompositionDraftRebase | undefined;
   #draft: CompositionDraft | undefined;
   #pendingState: CompositionState | undefined;
   #flushLoop: Promise<CompositionDraft> | undefined;
@@ -335,7 +332,7 @@ export class DraftSync {
     this.#packageKey = options.packageKey;
     this.#itemId = options.itemId;
     this.#onConflict = options.onConflict;
-    this.#rebase = options.rebase ?? defaultRebase;
+    this.#rebase = options.rebase;
   }
 
   public get draftId(): string | undefined {
@@ -411,6 +408,13 @@ export class DraftSync {
     };
     this.#draft = server;
     this.#onConflict?.(conflict);
+    if (!this.#rebase) {
+      this.#pendingState = undefined;
+      throw new CompositionDraftError(
+        "generation-conflict",
+        "Draft changed in another session. Refresh and reconcile the edit before applying it again.",
+      );
+    }
     const retryState = this.#rebase(state, server.envelope.body);
     // Queue the rebased retry as the next flush-loop iteration rather than
     // recursing directly — if a newer `apply()` call already queued a

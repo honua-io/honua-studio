@@ -120,7 +120,7 @@ describe("composition/history DraftSync + FixtureDraftStore", () => {
     expect(replaceSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("on a generation conflict, reloads, invokes onConflict, and retries automatically", async () => {
+  it("on a generation conflict, reloads and refuses to overwrite the external edit", async () => {
     const store = new FixtureDraftStore();
     const conflicts: DraftSyncConflict[] = [];
     const sync = new DraftSync({
@@ -136,16 +136,17 @@ describe("composition/history DraftSync + FixtureDraftStore", () => {
     store.simulateExternalWrite(initial.draftId, { body: { ...createEmptyCompositionState(), view: { zoom: 99 } } });
 
     const localState = { ...createEmptyCompositionState(), view: { zoom: 7 } };
-    const result = await sync.apply(localState);
+    await expect(sync.apply(localState)).rejects.toMatchObject({ code: "generation-conflict" });
 
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0]?.staleGeneration).toBe(1);
     expect(conflicts[0]?.serverGeneration).toBe(2);
     expect(conflicts[0]?.serverState.view).toEqual({ zoom: 99 });
 
-    // Default rebase: local intent wins, replayed against the fresh generation.
-    expect(result.generation).toBe(3);
-    expect(result.envelope.body.view).toEqual({ zoom: 7 });
+    // The failed local write must leave the external writer's state intact.
+    const result = await store.get(initial.draftId);
+    expect(result.generation).toBe(2);
+    expect(result.envelope.body.view).toEqual({ zoom: 99 });
   });
 
   it("a custom rebase strategy can prefer the server state instead of local intent", async () => {

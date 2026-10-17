@@ -98,7 +98,7 @@ describe("honua_studio_set_layer_visibility delegation (honua-studio#31)", () =>
     expect(controller.state.layers[0]?.visible).toBe(false);
   });
 
-  it("a stale generation comes back failed_precondition and is recovered by one reload + retry", async () => {
+  it("a stale visibility edit refreshes the draft without applying the rejected toggle", async () => {
     server = await startMockServer();
     const { controller, orchestrator } = await liveSession();
 
@@ -118,13 +118,14 @@ describe("honua_studio_set_layer_visibility delegation (honua-studio#31)", () =>
       arguments: { target: { kind: "layer", id: "parcels" }, visible: false },
     });
 
-    expect(result.ok).toBe(true);
-    // The retry ran against the reloaded generation, so both the concurrent
-    // layer and this toggle are in the draft — neither clobbered the other.
+    expect(result.ok).toBe(false);
+    // The UI observes the other writer's layer; the stale toggle is not replayed.
     expect(controller.state.layers.map((layer) => [layer.id, layer.visible])).toEqual([
-      ["parcels", false],
+      ["parcels", true],
       ["roads", true],
     ]);
+    const stored = await otherTools.getDraft(draftId);
+    expect(stored.generation).toBe(current.generation + 1);
   });
 
   it("an unknown layer id comes back not_found rather than a silent no-op", async () => {

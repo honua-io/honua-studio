@@ -25,12 +25,9 @@
  * ```
  *
  * The generation-conflict path (path (a) above): a `failed_precondition`
- * from the server tool call triggers exactly one reload
- * (`honua_studio_get_draft`) + retry with the fresh generation — "rebase"
- * here is the same default `CompositionDraftRebase` semantics
- * `composition/history.ts`'s `DraftSync` uses (the client's own intent is
- * retried as-is against the fresh generation, not merged); a second failure
- * is surfaced rather than retried again.
+ * from the server tool call reloads the draft, refreshes the visible state,
+ * and reports the failed action. The agent or human must reconsider the
+ * intent against the observed state; this layer does not retry it blindly.
  *
  * Never throws from {@link ToolCallOrchestrator.handleToolCall} — every
  * outcome (bridge failure, local reducer rejection, server tool failure) is
@@ -50,9 +47,8 @@
  *
  *  - **Superseded.** The turn loop itself — streaming a turn, routing each
  *    tool call to the tool plane, feeding the result back, and deciding when
- *    the turn is done. `StudioAgentSession` owns that, with the same
- *    `failed_precondition` reload-and-retry-once semantics this module
- *    implements below (`parseStudioDraftResult` is the SDK's counterpart to
+ *    the turn is done. `StudioAgentSession` owns that, with its own
+ *    generation-conflict policy; this host refuses blind retries (`parseStudioDraftResult` is the SDK's counterpart to
  *    `studio-tools.ts`'s draft parsing).
  *  - **Not superseded.** Everything that makes a tool call land in *this*
  *    app: `tool-bridge.ts`'s command→tool translation and its
@@ -395,26 +391,22 @@ export class ToolCallOrchestrator {
     }
   }
 
-  /** One generation-conflict reload+retry, per the module doc. */
-  async #callServerTool(
-    invocation: { readonly name: StudioMcpToolName; readonly arguments: Record<string, unknown> },
-    retried = false,
-  ): Promise<StudioMcpDraft> {
+  /** Refresh a stale draft, but do not replay an intent against changed state. */
+  async #callServerTool(invocation: {
+    readonly name: StudioMcpToolName;
+    readonly arguments: Record<string, unknown>;
+  }): Promise<StudioMcpDraft> {
     const live = this.#live;
     if (!live) throw new Error("ToolCallOrchestrator: no live session attached.");
     try {
       const result = await live.client.callTool(invocation.name, invocation.arguments);
       return parseStudioDraftResult(result);
     } catch (error) {
-      if (retried || !isMcpGenerationConflict(error) || !this.#draftId || !this.#studioTools) throw error;
+      if (!isMcpGenerationConflict(error) || !this.#draftId || !this.#studioTools) throw error;
       const refreshed = await this.#studioTools.getDraft(this.#draftId);
       this.#generation = refreshed.generation;
       this.#controller.replaceState(applyStudioDraft(refreshed, this.#controller.state));
-      const retryInvocation = {
-        ...invocation,
-        arguments: { ...invocation.arguments, generation: refreshed.generation },
-      };
-      return this.#callServerTool(retryInvocation, true);
+      throw error;
     }
   }
 

@@ -267,7 +267,7 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     }
   });
 
-  it("translates the SDK's 409 into the seam's conflict discriminant, and DraftSync recovers", async () => {
+  it("refreshes on SDK 409 and preserves the other client's layer", async () => {
     server = await startMockServer();
     const shared = store();
     const conflicts: number[] = [];
@@ -287,10 +287,13 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
       generation: first.generation,
     });
 
-    const recovered = await sync.apply(withLayer(first.envelope.body, "roads"));
+    await expect(sync.apply(withLayer(first.envelope.body, "roads"))).rejects.toMatchObject({
+      code: "generation-conflict",
+    });
+    const recovered = await shared.get(first.draftId);
     expect(conflicts).toEqual([2]);
-    expect(recovered.generation).toBe(3);
-    expect(recovered.envelope.body.layers.map((layer) => layer.id)).toEqual(["parcels", "roads"]);
+    expect(recovered.generation).toBe(2);
+    expect(recovered.envelope.body.layers.map((layer) => layer.id)).toEqual(["parcels", "someone-elses-layer"]);
   });
 
   it("surfaces a stale generation as a conflict rather than a bare error", async () => {
