@@ -1,10 +1,17 @@
 # Sharing: Preview and graduation posture
 
 Studio sharing in 2026.1 is Preview. It is not GA. Agent-controlled chat and
-MCP paths may submit a canonical publication proposal for an already-saved
-immutable version, but they must never execute publish, share, or embed.
-Private and public visibility both stay `AwaitingApproval` until a different
-principal decides. There is no agent-executable private-link exception.
+MCP paths submit a canonical publication request for an already-saved
+immutable version. The server decides whether the caller and configured policy
+permit immediate publication (`Published`, `humanConfirmationRequired: false`,
+`shareUrl`) or require separate approval (`AwaitingApproval`,
+`humanConfirmationRequired: true`, proposal references). The client recognizes
+both receipts; it does not impose an extra approval step or approve its own request.
+
+Direct publication notes resolve server-relative links against the configured
+server and accept only HTTP(S) URLs without embedded credentials. Unknown or
+inconsistent receipts do not establish publication. This receipt handling does
+not qualify the full live model-to-publication journey.
 
 The lifecycle panel's typed confirmation remains a separate human path for
 `requestPublish` / `requestRollback`. The preview share smoke does not use
@@ -13,7 +20,7 @@ that immediate path.
 ## 2026.1 Preview smoke
 
 The self-hosted fixture (`mock-server.mjs`, `test/lifecycle/share-preview-smoke.test.ts`)
-qualifies the governed preview:
+tests a policy requiring separate approval for private and public publication:
 
 1. `honua_studio_propose_publication` accepts `itemId`, `versionId`,
    `contentHash`, `route`, and `visibility` for the current saved version

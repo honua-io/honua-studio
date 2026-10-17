@@ -41,8 +41,8 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The current tree contains 124 files in `src/` and 122 in `test/`, with
-1185 unit tests across 102 files and 29 Playwright browser journeys, including four accessibility checks.
+The current tree contains 124 files in `src/` and 123 in `test/`, with
+1196 unit tests across 103 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -119,12 +119,15 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   use the landed `honua_studio_*` tools, following visibility delegation in
   [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
   static `serverToolName` table until sdk-js#1397 supplies discovery.
-- **Governed sharing stays Preview**
+- **Sharing follows server policy and stays Preview**
   ([#26](https://github.com/honua-io/honua-studio/issues/26)). The self-hosted
   fixture smoke submits a canonical immutable-version proposal, keeps the
   handle across a reload boundary, shows pending, rejected, and failed in
   the conversation, and copies a server-issued link only after a different
-  principal approves. Private and public both wait. This is not a GA claim
+  principal approves. In that configured fixture, private and public both wait.
+  The client also recognizes the server's direct `Published` receipt and displays
+  its verified share URL. This is receipt handling, not a qualified live
+  agent publication journey. This is not a GA claim
   ([posture](docs/share-preview-posture.md)).
 
 ### Not started
@@ -243,7 +246,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 1185 tests across 102 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 1196 tests across 103 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

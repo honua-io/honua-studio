@@ -1,31 +1,9 @@
 /**
- * THE HUMAN GATE — spec REQ-009 (honua-studio#9 build item 3).
- *
- * "Publish, share, embed, and any action that widens exposure are
- * HUMAN-CONFIRMED gates the agent can propose but never invoke."
- *
- * Two independent proofs, because neither alone is sufficient:
- *
- *  1. STATIC: no source file under `src/mcp/**`, `src/chat/**`, or
- *     `src/composition/**` — the entire chat/tool-call/composition-engine
- *     surface an agent's actions flow through — contains a call to
- *     `.requestPublish(` or `.requestRollback(` (the two
- *     `StudioLifecycleClient` methods that widen exposure), and none of
- *     them import `lifecycle-client.js` at all. `studio-lifecycle-panel-element.ts`
- *     is the sole file anywhere in `src/` that calls either method — this
- *     is checked by asserting the set of matching files is exactly
- *     `{ lifecycle-client.ts (the declaration), studio-lifecycle-panel-element.ts (the one caller) }`.
- *
- *     A static check alone is gameable (an agent path could reach the
- *     panel's public methods through some other route this grep can't see,
- *     e.g. a chat-driven `document.querySelector(...).requestPublish...`
- *     escape hatch) — hence proof 2.
- *
- *  2. RUNTIME: drives `honua_studio_propose_publication` — the ONLY
- *     publish-adjacent MCP tool an agent can call — through the REAL MCP
- *     client + REAL mock-server `/mcp` dispatcher, and asserts, against the
- *     REAL REST lifecycle store, that the call records an `AwaitingApproval`
- *     proposal and does not move the published pointer.
+ * Configured approval-policy coverage. The fixture requires a separate human
+ * decision for private and public publication. Production policy can also
+ * return Published directly; these tests do not mandate approval globally.
+ * Composition code delegates publication to the canonical server tool rather
+ * than calling the lifecycle panel's human-only methods.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -61,7 +39,7 @@ function listSourceFiles(dir: string): string[] {
 const GATED_METHOD_CALL_PATTERN = /\.(requestPublish|requestRollback)\(/;
 const LIFECYCLE_CLIENT_IMPORT_PATTERN = /from\s+["'][^"']*lifecycle-client\.js["']/;
 
-describe("THE HUMAN GATE — spec REQ-009 (static analysis)", () => {
+describe("Publication routing boundaries", () => {
   const allSourceFiles = listSourceFiles(srcRoot);
 
   it("the only file anywhere under src/ that calls .requestPublish(/.requestRollback( is the lifecycle panel element", () => {
@@ -102,8 +80,8 @@ afterEach(async () => {
   server = undefined;
 });
 
-describe("THE HUMAN GATE — spec REQ-009 (runtime proof against the real mock server)", () => {
-  it("honua_studio_propose_publication (the agent's ONLY publish-adjacent tool) never moves the published pointer", async () => {
+describe("Configured approval policy against the mock server", () => {
+  it("a governed publication remains pending until separate approval", async () => {
     server = await startMockServer();
     const token = mintFixtureAccessToken();
 

@@ -80,6 +80,8 @@ export class CompositionHistory {
   #undoStack: CompositionRevision[];
   #redoStack: CompositionRevision[] = [];
   #pendingSync: Promise<unknown> = Promise.resolve();
+  #syncError: unknown;
+  #reconciling = false;
 
   public constructor(initialState: CompositionState, options: CompositionHistoryOptions = {}) {
     this.#now = options.now ?? (() => new Date().toISOString());
@@ -94,6 +96,30 @@ export class CompositionHistory {
 
   public get draftSync(): DraftSync | undefined {
     return this.#draftSync;
+  }
+
+  /** Last persistence error; flush settles normally so hosts can render this state. */
+  public get syncError(): unknown {
+    return this.#syncError;
+  }
+
+  /** Reconcile and adopt one authoritative snapshot, discarding stale undo targets. */
+  public async reconcile(resolve: CompositionDraftRebase): Promise<void> {
+    this.#assertNotReconciling();
+    if (!this.#draftSync) throw new CompositionDraftError("generation-conflict", "No draft sync is attached.");
+    this.#reconciling = true;
+    try {
+      await this.flush();
+      const draft = await this.#draftSync.reconcile((server) => resolve(this.current, server));
+      this.#undoStack = [{ state: draft.envelope.body, timestamp: this.#now() }];
+      this.#redoStack = [];
+      this.#syncError = undefined;
+    } catch (error) {
+      this.#syncError = error;
+      throw error;
+    } finally {
+      this.#reconciling = false;
+    }
   }
 
   public canUndo(): boolean {
@@ -119,6 +145,7 @@ export class CompositionHistory {
 
   /** Applies `input` through the reducer, pushes the resulting revision, and returns the diff. Throws {@link CompositionCommandError} on rejection — the stack is untouched on failure. */
   public apply(input: CompositionCommand | unknown): CompositionDiff {
+    this.#assertNotReconciling();
     const result: CompositionApplyResult = applyCompositionCommand(this.current, input);
     this.#redoStack = [];
     this.#pushRevision({
@@ -133,6 +160,7 @@ export class CompositionHistory {
 
   /** Moves one revision back, syncing the restored state to the draft. Returns the restored state, or `undefined` if already at the initial revision. */
   public undo(): CompositionState | undefined {
+    this.#assertNotReconciling();
     if (!this.canUndo()) return undefined;
     const revision = this.#undoStack.pop();
     if (!revision) return undefined;
@@ -144,6 +172,7 @@ export class CompositionHistory {
 
   /** Moves one revision forward. Returns the restored state, or `undefined` if there is nothing to redo. */
   public redo(): CompositionState | undefined {
+    this.#assertNotReconciling();
     const revision = this.#redoStack.pop();
     if (!revision) return undefined;
     this.#undoStack.push(revision);
@@ -168,6 +197,7 @@ export class CompositionHistory {
    * readback or draft creation is not a new edit and must not consume redo.
    */
   public replaceState(state: CompositionState): void {
+    this.#assertNotReconciling();
     if (canonicalCompositionJson(state) === canonicalCompositionJson(this.current)) return;
     this.#redoStack = [];
     this.#pushRevision({ state, timestamp: this.#now() });
@@ -177,6 +207,12 @@ export class CompositionHistory {
     const revision = this.#undoStack[this.#undoStack.length - 1];
     if (!revision) throw new Error("CompositionHistory: undo stack is unexpectedly empty");
     return revision;
+  }
+
+  #assertNotReconciling(): void {
+    if (this.#reconciling) {
+      throw new CompositionDraftError("generation-conflict", "Draft reconciliation is in progress.");
+    }
   }
 
   #pushRevision(revision: CompositionRevision): void {
@@ -191,10 +227,14 @@ export class CompositionHistory {
     // Chained onto the existing pending-sync promise (not fired independently)
     // so `flush()` observes every sync call in order, and a rejected sync
     // never becomes an unhandled rejection.
-    this.#pendingSync = this.#pendingSync.then(
-      () => this.#draftSync?.apply(state),
-      () => this.#draftSync?.apply(state),
-    );
+    this.#pendingSync = this.#pendingSync.then(async () => {
+      try {
+        await this.#draftSync?.apply(state);
+        this.#syncError = undefined;
+      } catch (error) {
+        this.#syncError = error;
+      }
+    });
   }
 }
 

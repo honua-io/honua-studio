@@ -225,6 +225,34 @@ describe("composition/history DraftSync + FixtureDraftStore", () => {
 });
 
 describe("composition/history CompositionHistory wired to DraftSync", () => {
+  it("exposes a conflict without rejecting flush and recovers with a reconciled history", async () => {
+    const store = new FixtureDraftStore();
+    const sync = new DraftSync({ store, packageKey: "history-conflict" });
+    const history = new CompositionHistory(createEmptyCompositionState(), { draftSync: sync });
+    history.apply({ name: "addLayer", layer: { id: "roads", sourceId: "s" } });
+    await history.flush();
+    store.simulateExternalWrite(sync.draftId!, { body: { ...history.current, view: { zoom: 99 } } });
+    history.apply({ name: "addLayer", layer: { id: "buildings", sourceId: "s" } });
+    await expect(history.flush()).resolves.toBeUndefined();
+    expect(history.syncError).toMatchObject({ code: "generation-conflict" });
+    history.apply({ name: "addLayer", layer: { id: "parks", sourceId: "s" } });
+    await history.flush();
+    expect((await store.get(sync.draftId!)).envelope.body.layers).toHaveLength(1);
+
+    const recovery = history.reconcile((local, server) => ({ ...server, layers: local.layers }));
+    expect(() => history.undo()).toThrow("reconciliation is in progress");
+    await recovery;
+    expect(history.syncError).toBeUndefined();
+    expect(history.current.view).toEqual({ zoom: 99 });
+    expect(history.current.layers).toHaveLength(3);
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(false);
+    history.apply({ name: "addLayer", layer: { id: "rivers", sourceId: "s" } });
+    await history.flush();
+    expect((await store.get(sync.draftId!)).envelope.body).toEqual(history.current);
+    expect(history.syncError).toBeUndefined();
+  });
+
   it("apply()/undo() fire draft syncs that flush() can be awaited", async () => {
     const store = new FixtureDraftStore();
     const sync = new DraftSync({ store, packageKey: "test-package" });

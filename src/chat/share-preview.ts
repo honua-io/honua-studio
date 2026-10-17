@@ -1,8 +1,7 @@
 /**
- * Preview conversation projection for a governed publication proposal
- * (honua-studio#26). This module records a proposal handle and turns a
- * status read into the line the chat shows. It cannot approve, publish,
- * or invent a link: a URL is copied only from an `Active` status payload.
+ * Conversation projections for server publication receipts and governed
+ * proposal status. This module cannot approve or publish. Links come only
+ * from a Published receipt or an Active proposal status, never model prose.
  */
 
 export const SHARE_PROPOSAL_STORAGE_KEY = "honua.studio.preview.share-proposal";
@@ -37,6 +36,30 @@ export interface ShareConversationNote {
   readonly text: string;
   /** Present only when the note is the server-issued Active URL. */
   readonly publicationUrl?: string;
+}
+
+/** Projects a server tool receipt, never assistant prose or a proposed URL. */
+export function projectPublicationReceipt(receipt: unknown, serverBaseUrl: string): ShareConversationNote | undefined {
+  if (!receipt || typeof receipt !== "object") return undefined;
+  const value = receipt as Record<string, unknown>;
+  if (value.status === "AwaitingApproval" && value.humanConfirmationRequired === true) {
+    return { text: "Publication is awaiting separate human approval. Nothing has been published." };
+  }
+  if (value.status !== "Published" || value.humanConfirmationRequired !== false) return undefined;
+  let candidate = value.shareUrl;
+  if (typeof candidate === "string" && /^\/(?![\\/])/.test(candidate)) {
+    try {
+      const base = new URL(serverBaseUrl);
+      const resolved = new URL(candidate, base);
+      candidate = resolved.origin === base.origin ? resolved.href : undefined;
+    } catch {
+      candidate = undefined;
+    }
+  }
+  const publicationUrl = verifiedPublicationUrl(candidate, "");
+  return publicationUrl
+    ? { text: `Shared — ${publicationUrl}`, publicationUrl }
+    : { text: "Published, but the server did not return a verified link." };
 }
 
 export interface ShareProposalSubmission {
