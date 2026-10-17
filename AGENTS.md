@@ -17,6 +17,15 @@ Features or a GeoServices FeatureServer); anything else resolves to a visible "u
 reason — raster is #36, 3D is #37–#39. `README.md` is the truth-checked status surface (#44): read its tables
 before claiming a capability, and update them (test counts included) when you change one.
 
+## Product direction
+
+Studio means realtime conversational composition: ask, see the canvas change,
+refine, undo/redo, and save a version. The former Console approval-first builders
+are retired as a product direction; do not restore them as an alternate authoring
+mode or add a proposal/approval step to ordinary composition. Publication and
+operational policies are separate contracts. Describe implementation gaps against
+this realtime direction rather than reviving the old workflow.
+
 ## Tech Stack
 
 - **Language:** TypeScript 5.9 (`strict`, `verbatimModuleSyntax`, `isolatedModules`, `moduleResolution: Bundler`, target `ES2022`, `noEmit`), ESM only.

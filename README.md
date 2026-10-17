@@ -1,6 +1,6 @@
 # Honua Studio
 
-**Natural language to map app.**
+**Realtime conversation to map app.**
 
 Honua Studio is an open-source, model-agnostic builder
 for geospatial applications: describe the app you want in conversation, and an
@@ -9,6 +9,12 @@ charts, analysis — through typed, bounded, auditable commands over the
 [Honua JS SDK](https://github.com/honua-io/honua-sdk-js)'s package, style, and
 agent-tool contracts. No license seats, no platform lock-in, self-hostable end
 to end.
+
+Studio's authoring loop is **ask → see the composition change → refine → undo/redo**.
+The SDK-owned live agent loop applies typed tools while the canvas updates. This
+is the replacement for the former approval-first Console builders; those builders
+are legacy, not an alternate Studio experience. Publishing and operations have
+separate policies, described below, and do not define ordinary composition.
 
 - **BYOM** — bring your own model: Studio talks to honua-server's Studio AI
   proxy, so the provider is the operator's choice (Bedrock, any hosted API, or
