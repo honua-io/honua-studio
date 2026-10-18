@@ -30,6 +30,7 @@ export default defineConfig({
         const integrationFiles = [
           "scripts/maputnik/host-store.ts",
           "scripts/maputnik/host-entry.jsx",
+          "scripts/maputnik/host-layout.css",
           "scripts/maputnik/dependency-overlay.json",
           "scripts/vendor-maputnik.mjs",
         ];
