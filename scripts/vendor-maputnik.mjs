@@ -96,7 +96,7 @@ writeFileSync(
 
 writeFileSync(
   join(root, "vite.honua.config.mjs"),
-  `import {defineConfig} from 'vite'; import react from '@vitejs/plugin-react'; export default defineConfig({publicDir:false,plugins:[react()],define:{global:'window'},build:{outDir:'dist-honua',cssCodeSplit:false,lib:{entry:'src/host-entry.jsx',name:'HonuaMaputnik',formats:['iife'],fileName:()=>'editor.js'},rollupOptions:{output:{inlineDynamicImports:true,assetFileNames:'[name][extname]'}}}});\n`,
+  `import {defineConfig} from 'vite'; import react from '@vitejs/plugin-react'; export default defineConfig({publicDir:false,plugins:[react()],define:{global:'window','process.env.NODE_ENV':JSON.stringify('production')},build:{outDir:'dist-honua',cssCodeSplit:false,lib:{entry:'src/host-entry.jsx',name:'HonuaMaputnik',formats:['iife'],fileName:()=>'editor.js'},rollupOptions:{output:{inlineDynamicImports:true,assetFileNames:'[name][extname]'}}}});\n`,
 );
 run("npm", ["ci", "--ignore-scripts"], { cwd: root });
 run("npm", ["audit", "--omit=dev", "--audit-level=low"], { cwd: root });
