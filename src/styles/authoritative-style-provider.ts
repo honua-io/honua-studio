@@ -54,7 +54,7 @@ function rejectLegacyFilter(value: unknown): void {
   const [operator, operand] = value;
   if (
     ["!has", "!in", "none"].includes(operator) ||
-    (["==", "!=", ">", ">=", "<", "<=", "in"].includes(operator) && typeof operand === "string")
+    (["==", "!=", ">", ">=", "<", "<=", "in"].includes(operator) && typeof operand === "string" && !Array.isArray(value[2]))
   )
     throw new Error("Legacy stylesheet filters are not supported; use explicit get/has expressions.");
   if (["all", "any", "!"].includes(operator)) for (const child of value.slice(1)) rejectLegacyFilter(child);
@@ -276,7 +276,8 @@ export class AuthoritativeStyleProvider {
     if (compatible.length !== 1) throw new Error("Stylesheet must identify exactly one compatible vector layer.");
     const selected = compatible[0];
     if (!selected) throw new Error("Compatible stylesheet layer is missing.");
-    for (const field of expressionFields(selected))
+    const appliedLayers = definition.layers.filter((layer) => layer.source === selected.source && layer["source-layer"] === selected["source-layer"]);
+    for (const layer of appliedLayers) for (const field of expressionFields(layer))
       if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
     const override: Record<string, unknown> = {};
     for (const key of ["paint", "layout", "filter", "minzoom", "maxzoom"] as const)
@@ -306,10 +307,19 @@ export function expressionFields(value: unknown): readonly string[] {
   const fields = new Set<string>();
   const walk = (entry: unknown) => {
     if (Array.isArray(entry)) {
-      if ((entry[0] === "get" || entry[0] === "has") && typeof entry[1] === "string") fields.add(entry[1]);
+      if (entry[0] === "literal") return;
+      if ((entry[0] === "get" || entry[0] === "has") && typeof entry[1] === "string" &&
+          (entry.length === 2 || entry.length === 3 && Array.isArray(entry[2]) && entry[2].length === 1 && entry[2][0] === "properties")) fields.add(entry[1]);
       for (const child of entry) walk(child);
     } else if (entry && typeof entry === "object") for (const child of Object.values(entry)) walk(child);
   };
   walk(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const layout = (value as Record<string, unknown>).layout;
+    if (layout && typeof layout === "object") for (const key of ["text-field", "icon-image"]) {
+      const text = (layout as Record<string, unknown>)[key];
+      if (typeof text === "string") for (const match of text.matchAll(/\{([^{}]+)\}/g)) fields.add(match[1]!);
+    }
+  }
   return [...fields].sort();
 }
