@@ -545,7 +545,7 @@ it("returns actual canonical style readback while an unsaved preview remains dis
   // An accepted server write may normalize the submitted style.
   controller.resetBaseline({ ...createEmptyCompositionState(), mapSpec: style("#00ff00") });
   await view.settled();
-  const readback = await view.editableMapStyle();
+  const readback = (await view.editableMapStyle()) as unknown as StyleLike;
   expect(readback.layers.find((layer) => layer.id === "background")?.paint?.["background-color"]).toBe("#00ff00");
   expect(map.latestStyle?.layers.find((layer) => layer.id === "background")?.paint?.["background-color"]).toBe(
     "#0000ff",
