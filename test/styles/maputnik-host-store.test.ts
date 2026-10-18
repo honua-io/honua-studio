@@ -53,8 +53,10 @@ it("does not accept an invalid field when another field commits a valid change",
     send({ type: "honua:style-flush", requestId: "raw-json" });
     await vi.waitFor(() => expect(messages.find((message) => message.requestId === "raw-json")?.settled).toBe(false));
     send({ type: "honua:style-load", style });
+    send({ type: "honua:style-unlock" });
     invalid.value = "{ invalid focused field";
     invalid.focus();
+    expect(document.activeElement).toBe(invalid);
     invalid.dispatchEvent(new Event("input", { bubbles: true }));
     await Promise.resolve();
     store.save({ ...style, id: "honua-host-draft", name: "Unrelated later model update" });
