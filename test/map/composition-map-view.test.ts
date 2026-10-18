@@ -525,3 +525,30 @@ describe("authoritative style interaction bindings", () => {
     }
   });
 });
+
+it("returns actual canonical style readback while an unsaved preview remains displayed", async () => {
+  const { controller, map, view } = await startView();
+  const style = (color: string) => ({
+    version: 8,
+    sources: {},
+    layers: [
+      {
+        id: "background",
+        type: "background",
+        paint: { "background-color": color },
+      },
+    ],
+  });
+  controller.resetBaseline({ ...createEmptyCompositionState(), mapSpec: style("#000000") });
+  view.setStylePreview(style("#0000ff"));
+  await view.settled();
+  // An accepted server write may normalize the submitted style.
+  controller.resetBaseline({ ...createEmptyCompositionState(), mapSpec: style("#00ff00") });
+  await view.settled();
+  const readback = await view.editableMapStyle();
+  expect(readback.layers.find((layer) => layer.id === "background")?.paint?.["background-color"]).toBe("#00ff00");
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "background")?.paint?.["background-color"]).toBe(
+    "#0000ff",
+  );
+  view.dispose();
+});

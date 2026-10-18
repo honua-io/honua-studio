@@ -246,7 +246,9 @@ export class CompositionMapView {
   }
   public async editableMapStyle(): Promise<MapStyleDocument> {
     await this.settled();
-    const projection = this.#projection ?? this.#project();
+    // The editor baseline/readback is the canonical document, never its own
+    // ephemeral preview (including while a normalized save is being adopted).
+    const projection = this.#project(false);
     return structuredClone(
       await composeStyle(projection.mapPackage, projection.mapPackage.mapSpec, {}),
     ) as unknown as MapStyleDocument;
@@ -513,13 +515,14 @@ export class CompositionMapView {
       state === this.#options.controller.state && session === provider.sessionIdentity ? bindings : {};
   }
 
-  #project(): CompositionMapProjection {
+  #project(includePreview = true): CompositionMapProjection {
     const projection = compositionToMapPackage(this.#options.controller.state, {
       ...(this.#options.projection ?? {}),
       ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
       ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
     });
+    if (!includePreview) return projection;
     const effective = this.#stylePreview
       ? {
           ...projection,
