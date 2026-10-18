@@ -37,6 +37,7 @@ Object.assign(lock.packages, overlay.lockPackages);
 writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
 cpSync("scripts/maputnik/host-store.ts", join(root, "src/libs/store/style-store-factory.ts"));
 cpSync("scripts/maputnik/host-entry.jsx", join(root, "src/host-entry.jsx"));
+cpSync("scripts/maputnik/host-layout.css", join(root, "src/host-layout.css"));
 writeFileSync(join(root, "src/config/tokens.json"), "{}\n");
 // Keep rendering and authenticated resources in Honua's existing canvas.
 const appPath = join(root, "src/components/App.tsx");
@@ -140,11 +141,12 @@ writeFileSync(
       upstream: "https://github.com/maplibre/maputnik",
       version: "3.1.0",
       revision,
-      patches: ["host-store.ts", "host-entry.jsx", "blank-provider-tokens", "opaque-frame-network-denied"],
+      patches: ["host-store.ts", "host-entry.jsx", "host-layout.css", "blank-provider-tokens", "opaque-frame-network-denied"],
       integration: Object.fromEntries(
         [
           "scripts/maputnik/host-store.ts",
           "scripts/maputnik/host-entry.jsx",
+          "scripts/maputnik/host-layout.css",
           "scripts/maputnik/dependency-overlay.json",
           "scripts/vendor-maputnik.mjs",
         ].map((path) => [path, createHash("sha256").update(readFileSync(path)).digest("hex")]),
