@@ -268,7 +268,10 @@ export class MapStyleEditor {
   #addThematicControls(container: HTMLElement): void {
     if (!this.#options.layers?.length || !this.#options.getFields) return;
     const owner = document.createElement("select");
-    owner.setAttribute("aria-label", "Composed layer for styling");
+    owner.setAttribute(
+      "aria-label",
+      this.#options.scope.kind === "shared-style" ? "Catalog layer for styling" : "Map layer for styling",
+    );
     for (const layer of this.#options.layers) owner.add(new Option(layer.title ?? layer.id, layer.id));
     owner.value = this.#selectedOwner ?? "";
     const field = document.createElement("select");
