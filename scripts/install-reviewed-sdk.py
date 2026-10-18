@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import io
 import json
+import os
+import stat
 import shutil
 import tarfile
 import tempfile
@@ -62,14 +64,26 @@ def verify_dependency_inputs(root: Path, package: dict) -> None:
             raise ValueError("Run npm ci first: installed dependency differs from lock: " + relative)
 
 
+def read_archive(path: Path) -> bytes:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("Reviewed SDK archive must be a regular file.")
+        with os.fdopen(descriptor, "rb", closefd=False) as source:
+            data = source.read(MAX_FILE + 1)
+        if len(data) > MAX_FILE:
+            raise ValueError("Reviewed SDK archive exceeds its size budget.")
+        return data
+    finally:
+        os.close(descriptor)
+
+
 def install(root: Path, archive: Path) -> dict:
     receipt_bytes = (root / "scripts/sdk-review-receipt.json").read_bytes()
     if hashlib.sha256(receipt_bytes).hexdigest() != RECEIPT_SHA256:
         raise ValueError("The reviewed SDK receipt changed; qualify its replacement first.")
     receipt = json.loads(receipt_bytes)
-    if archive.stat().st_size > MAX_FILE:
-        raise ValueError("Reviewed SDK archive exceeds its size budget.")
-    files = payload(archive.read_bytes(), receipt)
+    files = payload(read_archive(archive), receipt)
     verify_dependency_inputs(root, json.loads(files["package.json"][0]))
     parent = root / "node_modules/@honua"
     target = parent / "sdk-js"

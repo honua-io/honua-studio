@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import runpy
 import tarfile
@@ -43,6 +44,12 @@ class ReviewedSdkInstallerTests(unittest.TestCase):
                 data, receipt = fixture(name, link)
                 with self.assertRaises(ValueError):
                     INSTALLER["payload"](data, receipt)
+
+        with tempfile.TemporaryDirectory() as directory:
+            fifo = Path(directory) / "archive.tgz"
+            os.mkfifo(fifo)
+            with self.assertRaisesRegex(ValueError, "regular file"):
+                INSTALLER["read_archive"](fifo)
 
     def test_detects_unrelated_floating_dependency_before_overlay(self):
         with tempfile.TemporaryDirectory() as directory:
