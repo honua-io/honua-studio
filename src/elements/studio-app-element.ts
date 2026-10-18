@@ -408,6 +408,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #liveCompositionPackageKey: string | undefined;
   #aiMapKit: HonuaAiMapKit | undefined;
   #sourceCatalog: readonly CatalogDataset[] | undefined;
+  #processSourceCatalogGeneration: number | undefined;
   #catalogRequested = false;
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
@@ -813,6 +814,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (generation !== this.#workspaceAuthGeneration || auth !== this.auth)
       throw new Error("The workspace authority changed.");
     this.#applySourceCatalog(catalog);
+    this.#processSourceCatalogGeneration = generation;
     return catalog
       .filter(
         (source) => typeof source.locator?.serviceId === "string" && Number.isSafeInteger(source.locator?.layerId),
@@ -825,7 +827,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   ): Promise<{ processLayerId?: number; unavailableReason?: string }> {
     const generation = this.#workspaceAuthGeneration;
     const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
-    if (!source) throw new Error("Refresh the authorized source choices before selecting a process layer.");
+    if (!source || this.#processSourceCatalogGeneration !== generation)
+      throw new Error("Refresh the authorized source choices before selecting a process layer.");
     const baseUrl =
       this.#session && "kind" in this.#session && this.#session.kind === "cookie"
         ? verifiedSourcePathBase(this.#session.sourcePathBase)
@@ -892,8 +895,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (status !== "fresh" && status !== "refreshing") return;
     this.#catalogRequested = true;
     try {
+      const generation = this.#workspaceAuthGeneration;
+      const auth = this.auth;
       const catalog = await this.studioClient.listCatalog();
-      if (!this.isConnected) return;
+      if (!this.isConnected || generation !== this.#workspaceAuthGeneration || auth !== this.auth) return;
       this.#applySourceCatalog(catalog);
     } catch {
       // See the doc above — an unreachable catalog degrades the map, it does
