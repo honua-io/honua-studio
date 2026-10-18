@@ -220,6 +220,28 @@ export class AuthoritativeStyleProvider {
   }
 
   async describeSource(source: CompositionSourceDescriptor): Promise<readonly MapStyleField[]> {
+    return (await this.#describeVerifiedSource(source)).fields;
+  }
+
+  async resolveProcessSource(source: CompositionSourceDescriptor): Promise<{
+    processLayerId?: number;
+    unavailableReason?: string;
+  }> {
+    const { descriptor } = await this.#describeVerifiedSource(source);
+    const id = descriptor.processLayerId;
+    if (id !== undefined && (!Number.isSafeInteger(id) || Number(id) <= 0 || Number(id) > 2147483647))
+      throw new Error("The canonical process layer identity is invalid.");
+    if (id !== undefined) return { processLayerId: Number(id) };
+    const reason = descriptor.processLayerUnavailableReason;
+    return {
+      unavailableReason:
+        typeof reason === "string" && reason.trim() && reason.length <= 1000
+          ? reason
+          : "This published source does not support the canonical streaming process binding.",
+    };
+  }
+
+  async #describeVerifiedSource(source: CompositionSourceDescriptor) {
     const { serviceId, layerId } = source.locator ?? {};
     if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
       throw new Error("Select an actual published source for thematic fields.");
@@ -239,13 +261,14 @@ export class AuthoritativeStyleProvider {
     )
       throw new Error("The field descriptor does not match its actual published source.");
     const seen = new Set<string>();
-    return descriptor.fields.map((value) => {
+    const fields = descriptor.fields.map((value) => {
       const field = record(value);
       if (typeof field.name !== "string" || !field.name || field.name.length > 256 || seen.has(field.name))
         throw new Error("Invalid actual source field.");
       seen.add(field.name);
       return { name: field.name, type: typeof field.type === "string" ? field.type : "unknown" };
     });
+    return { descriptor, fields };
   }
 
   async bind(styleId: string, source: CompositionSourceDescriptor): Promise<BoundAuthoritativeStyle> {

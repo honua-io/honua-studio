@@ -152,3 +152,58 @@ it("rejects stale version attachment after newer selection or client authority c
   resolve(snapshot("foreign"));
   expect(await stale).toBe(false);
 });
+
+it("selects the verified process binding instead of a publication index and refuses late authority projection", async () => {
+  const element = document.createElement("honua-studio-processes") as HonuaStudioProcessesElement;
+  element.client = {
+    registry: async () => ({
+      registryVersion: "v1",
+      nodes: [
+        {
+          nodeTypeId: "process:source",
+          providerId: "geoprocessing.process-catalog",
+          title: "Read source",
+          parameterSchemas: [{ name: "layerId", required: true, schema: { type: "WholeNumber", format: "layer-id" } }],
+          inputSchemas: [],
+          outputSchemas: [],
+        },
+      ],
+    }),
+  } as unknown as ServerProcessWorkspace;
+  let finish: (value: { processLayerId: number }) => void = () => {};
+  const resolve = vi.fn(
+    async () =>
+      new Promise<{ processLayerId: number }>((done) => {
+        finish = done;
+      }),
+  );
+  element.sourcePicker = { list: async () => [{ id: "published-service/0", title: "Actual parcels" }], resolve };
+  document.body.append(element);
+  const button = (name: string) =>
+    [...element.shadowRoot!.querySelectorAll("button")].find((item) => item.textContent === name)!;
+  button("Load registry").click();
+  await vi.waitFor(() => expect(button("Read source")).toBeDefined());
+  button("Read source").click();
+  button("Choose published source").click();
+  await vi.waitFor(() =>
+    expect(element.shadowRoot!.querySelector('select[aria-label^="Published source"]')).not.toBeNull(),
+  );
+  const select = element.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label^="Published source"]')!;
+  select.value = "published-service/0";
+  select.dispatchEvent(new Event("change"));
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledWith("published-service/0"));
+  finish({ processLayerId: 702 });
+  await vi.waitFor(() => expect(element.graph.nodes[0]!.parameters.layerId).toBe("702"));
+  button("Choose published source").click();
+  await vi.waitFor(() =>
+    expect(element.shadowRoot!.querySelector('select[aria-label^="Published source"]')).not.toBeNull(),
+  );
+  const late = element.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label^="Published source"]')!;
+  late.value = "published-service/0";
+  late.dispatchEvent(new Event("change"));
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+  element.client = {} as ServerProcessWorkspace;
+  finish({ processLayerId: 999 });
+  await new Promise((done) => setTimeout(done, 0));
+  expect(element.graph.nodes[0]!.parameters.layerId).toBe("702");
+});

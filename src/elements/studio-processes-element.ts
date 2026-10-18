@@ -10,9 +10,24 @@ import {
 } from "../gp/process-workspace.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 
+export interface ProcessSourcePicker {
+  list(): Promise<readonly { id: string; title: string }[]>;
+  resolve(sourceId: string): Promise<{ processLayerId?: number; unavailableReason?: string }>;
+}
+
 /** Edits the canonical workflow graph; compilation and execution remain server-owned. */
 export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
   #client: ServerProcessWorkspace | undefined;
+  #sourcePicker: ProcessSourcePicker | undefined;
+  #sourcePickGeneration = 0;
+  public get sourcePicker(): ProcessSourcePicker | undefined {
+    return this.#sourcePicker;
+  }
+  public set sourcePicker(value: ProcessSourcePicker | undefined) {
+    if (value !== this.#sourcePicker) this.#sourcePickGeneration++;
+    this.#sourcePicker = value;
+    if (this.isConnected) this.render();
+  }
   #attachmentGeneration = 0;
   #clientGeneration = 0;
   public get client(): ServerProcessWorkspace | undefined {
@@ -357,6 +372,95 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
       this.#advancedPending,
     );
   }
+  #renderSourcePicker(parent: HTMLElement, nodeId: string, parameterName: string): void {
+    const picker = this.#sourcePicker;
+    if (!picker) {
+      this.#text(
+        parent,
+        "small",
+        "Published source selection requires an authorized host binding. The value is a storage layer ID, not a service layer index.",
+      ).className = "hint";
+      return;
+    }
+    const group = document.createElement("div");
+    parent.append(group);
+    this.#button(
+      group,
+      "Choose published source",
+      () => {
+        const epoch = ++this.#sourcePickGeneration;
+        const client = this.client;
+        const text = this.#graphText;
+        const current = () =>
+          epoch === this.#sourcePickGeneration &&
+          picker === this.#sourcePicker &&
+          client === this.client &&
+          text === this.#graphText &&
+          this.#selected === nodeId &&
+          group.isConnected;
+        const report = (error: unknown) => {
+          if (current()) this.#text(group, "small", error instanceof Error ? error.message : String(error));
+        };
+        group.textContent = "Loading authorized sources…";
+        void picker
+          .list()
+          .then((sources) => {
+            if (!current()) return;
+            if (sources.length > 1000 || new Set(sources.map((source) => source.id)).size !== sources.length)
+              throw new Error("The source choices are not a bounded unique catalog.");
+            group.textContent = "";
+            const select = document.createElement("select");
+            select.setAttribute("aria-label", `Published source · ${nodeId} · ${parameterName}`);
+            for (const source of [{ id: "", title: "Select an actual published source" }, ...sources]) {
+              const option = document.createElement("option");
+              option.value = source.id;
+              option.textContent = source.title;
+              select.append(option);
+            }
+            group.append(select);
+            select.addEventListener("change", () => {
+              const sourceId = select.value;
+              if (!sourceId || !current()) return;
+              select.disabled = true;
+              void picker
+                .resolve(sourceId)
+                .then((result) => {
+                  if (!current()) return;
+                  if (
+                    !Number.isSafeInteger(result.processLayerId) ||
+                    Number(result.processLayerId) <= 0 ||
+                    Number(result.processLayerId) > 2147483647
+                  )
+                    throw new Error(
+                      result.unavailableReason ?? "This source has no supported canonical process binding.",
+                    );
+                  const node = this.#graph.nodes.find((entry) => entry.nodeId === nodeId);
+                  if (!node) return;
+                  this.#message = `Selected ${sources.find((source) => source.id === sourceId)?.title ?? sourceId} using its verified process binding.`;
+                  this.#change({
+                    ...this.#graph,
+                    nodes: this.#graph.nodes.map((entry) =>
+                      entry.nodeId === nodeId
+                        ? {
+                            ...node,
+                            parameters: { ...node.parameters, [parameterName]: String(result.processLayerId) },
+                          }
+                        : entry,
+                    ),
+                  });
+                })
+                .catch(report)
+                .finally(() => {
+                  if (current()) select.disabled = false;
+                });
+            });
+          })
+          .catch(report);
+      },
+      !this.client || this.#advancedPending,
+    );
+  }
+
   #renderInspector(parent: HTMLElement): void {
     const node = this.#graph.nodes.find((entry) => entry.nodeId === this.#selected);
     if (!node) {
@@ -416,6 +520,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
           .filter(Boolean)
           .join(" · "),
       ).className = "hint";
+      if (parameter.schema?.format === "layer-id") this.#renderSourcePicker(label, node.nodeId, parameter.name);
       for (const diagnostic of this.#diagnostics.filter(
         (item) => item.nodeId === node.nodeId && item.fieldPath?.includes(parameter.name),
       ))

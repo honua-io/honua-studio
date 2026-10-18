@@ -28,7 +28,7 @@ const source = {
   protocol: "geoservices-feature-service",
   locator: { serviceId: "service", layerId: 0, url: "https://honua.test/honua/rest/services/Parcels/FeatureServer" },
 };
-function fixture(overrides: Record<string, unknown> = {}) {
+function fixture(overrides: Record<string, unknown> = {}, descriptorOverrides: Record<string, unknown> = {}) {
   const style = {
     styleId: "district",
     title: "District colors",
@@ -53,6 +53,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
                     geometryType: "Polygon",
                     fieldCount: 1,
                     fields: [{ name: "district", type: "String" }],
+                    ...descriptorOverrides,
                   }
                 : request.params.arguments.styleId
                   ? style
@@ -388,4 +389,19 @@ it("does not treat explicit literal-object or literal-array filter operands as s
       source,
     ),
   ).resolves.toMatchObject({ stylesheetLayerId: sheet.layers[0]!.id });
+});
+
+it("uses only the canonical streaming process identity and reports unsupported bindings without index fallback", async () => {
+  expect(await fixture({}, { processLayerId: 702 }).provider.resolveProcessSource(source)).toEqual({
+    processLayerId: 702,
+  });
+  expect(
+    await fixture(
+      {},
+      { processLayerUnavailableReason: "The bound provider cannot stream." },
+    ).provider.resolveProcessSource(source),
+  ).toEqual({ unavailableReason: "The bound provider cannot stream." });
+  await expect(fixture({}, { processLayerId: 1.5 }).provider.resolveProcessSource(source)).rejects.toThrow(
+    "identity is invalid",
+  );
 });

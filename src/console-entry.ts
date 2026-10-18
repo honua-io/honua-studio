@@ -6,7 +6,7 @@ export { createWorkspaceAgentSession, workspaceAgentFeatures } from "./workspace
 export { StudioAiTranscriptVerifier, InMemoryStudioAiReplayStore } from "@honua/sdk-js/studio-agent";
 
 export { ServerProcessWorkspace } from "./gp/process-workspace.js";
-export { HonuaStudioProcessesElement } from "./elements/studio-processes-element.js";
+export { HonuaStudioProcessesElement, type ProcessSourcePicker } from "./elements/studio-processes-element.js";
 
 export { LocalProcessWorkspace } from "./gp/custom-process-workspace.js";
 

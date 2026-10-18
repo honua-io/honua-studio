@@ -795,6 +795,41 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * (or wants to constrain it) may assign it instead, which also skips the
    * fetch.
    */
+  /** Actual published choices for the canonical GP layer picker; no map focus is inferred. */
+  public async listProcessSources(): Promise<readonly { id: string; title: string }[]> {
+    const generation = this.#workspaceAuthGeneration;
+    const catalog = await this.studioClient.listCatalog();
+    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+    this.#applySourceCatalog(catalog);
+    return catalog
+      .filter(
+        (source) => typeof source.locator?.serviceId === "string" && Number.isSafeInteger(source.locator?.layerId),
+      )
+      .map((source) => ({ id: source.id, title: source.title ?? source.id }));
+  }
+
+  public async resolveProcessSource(
+    sourceId: string,
+  ): Promise<{ processLayerId?: number; unavailableReason?: string }> {
+    const generation = this.#workspaceAuthGeneration;
+    const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+    if (!source) throw new Error("Refresh the authorized source choices before selecting a process layer.");
+    const baseUrl =
+      this.#session && "kind" in this.#session && this.#session.kind === "cookie"
+        ? verifiedSourcePathBase(this.#session.sourcePathBase)
+        : runtimeMcpBaseUrl();
+    const provider = new AuthoritativeStyleProvider({
+      baseUrl,
+      ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
+      documentUrl: window.document.baseURI,
+      getAuth: () => this.auth,
+      signal: AbortSignal.timeout(8000),
+    });
+    const result = await provider.resolveProcessSource(source);
+    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+    return result;
+  }
+
   public get sourceCatalog(): readonly CatalogDataset[] | undefined {
     return this.#sourceCatalog;
   }
