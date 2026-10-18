@@ -721,3 +721,32 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     });
   });
 });
+
+it("refreshes a disconnected retained app's cookie transport without replacing its authority", async () => {
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  const request = vi.fn().mockResolvedValue(new Response("{}"));
+  vi.stubGlobal("fetch", request);
+  const cookie = {
+    kind: "cookie" as const,
+    baseUrl: "/api/studio",
+    csrfToken: "before",
+    environmentId: "env",
+    principalId: "same-owner",
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    onExpired: () => () => {},
+  };
+  try {
+    app.session = cookie;
+    const previous = app.auth;
+    app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+    const renewed = app.auth;
+    expect(renewed).not.toBe(previous);
+    await renewed.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    const headers = new Headers(request.mock.calls.at(-1)?.[1]?.headers);
+    expect(headers.get("X-CSRF-Token")).toBe("renewed");
+    expect(headers.get("X-Honua-Session-Partition")).toBe("same-owner");
+  } finally {
+    app.session = undefined;
+    vi.unstubAllGlobals();
+  }
+});
