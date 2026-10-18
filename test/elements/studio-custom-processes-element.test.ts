@@ -170,3 +170,32 @@ it("preserves source editor DOM, focus and typing during automatic import pollin
   expect(editor.value).toBe("unfinished source");
   expect(editor.selectionStart).toBe(3);
 });
+
+it("shows large fixture metadata read-only without placing fixture bytes in the code editor", async () => {
+  const file = {
+    path: "fixtures/large-input.geojson",
+    bytes: 8 * 1024 * 1024,
+    sha256: "f".repeat(64),
+    role: "fixture",
+    readOnly: true,
+  };
+  const element = document.createElement("honua-studio-custom-processes") as HonuaStudioCustomProcessesElement;
+  element.client = {
+    bind: async () => identity,
+    project: async () => ({ ...project, readOnlyFiles: [file] }),
+    identity: async () => identity,
+  } as unknown as LocalProcessWorkspace;
+  document.body.append(element);
+  click(element, "load");
+  await vi.waitFor(() => expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("original source"));
+  const list = element.shadowRoot!.querySelector('[aria-label="Read-only project files"]')!;
+  expect(list.textContent).toContain(file.path);
+  expect(list.textContent).toContain(String(file.bytes));
+  expect(list.textContent).toContain(file.sha256);
+  expect(list.textContent).toContain("Fixture input");
+  expect(list.textContent).toContain("Read-only");
+  expect(list.querySelector("textarea,input,button")).toBeNull();
+  expect(element.shadowRoot!.querySelector('select[aria-label="Source file"]')!.textContent).not.toContain(file.path);
+  element.client = {} as LocalProcessWorkspace;
+  expect(element.shadowRoot!.textContent).not.toContain(file.path);
+});
