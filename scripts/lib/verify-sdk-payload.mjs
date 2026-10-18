@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /** Verify every installed SDK payload byte against a separately pinned pack receipt. */
@@ -45,10 +45,26 @@ export function verifySdkPayload(directory, receipt) {
       }
       if (!stat.isFile() || stat.size > 64 * 1024 * 1024)
         throw new Error("SDK payload member must be a bounded regular file.");
-      total += stat.size;
-      if (total > 256 * 1024 * 1024) throw new Error("SDK payload exceeds its byte budget.");
+      const fd = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const hash = createHash("sha256");
+      try {
+        if (!fstatSync(fd).isFile()) throw new Error("SDK payload member must remain a regular file.");
+        const buffer = Buffer.alloc(65536);
+        let size = 0;
+        for (;;) {
+          const count = readSync(fd, buffer, 0, buffer.length, null);
+          if (!count) break;
+          size += count;
+          total += count;
+          if (size > 64 * 1024 * 1024 || total > 256 * 1024 * 1024)
+            throw new Error("SDK payload exceeds its byte budget.");
+          hash.update(buffer.subarray(0, count));
+        }
+      } finally {
+        closeSync(fd);
+      }
       actual.push(path);
-      if (createHash("sha256").update(readFileSync(absolute)).digest("hex") !== receipt.files[path])
+      if (hash.digest("hex") !== receipt.files[path])
         throw new Error(`SDK payload differs from its pinned receipt: ${path}`);
     }
   }
