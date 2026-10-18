@@ -435,6 +435,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       principalId: "owner",
       csrfToken: "old",
       expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
     };
     try {
       app.session = cookie;
