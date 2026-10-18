@@ -82,11 +82,19 @@ app = app.slice(0, fileModalStart) + app.slice(fileModalEnd);
 const modalGuard = '  setModal(modalName: keyof AppState["isOpen"], value: boolean) {';
 if (!app.includes(modalGuard)) throw new Error("Pinned modal command changed.");
 app = app.replace(modalGuard, `${modalGuard}\n    if (modalName === "open" || modalName === "export") return;`);
+const shortcutEnd = '    ];\n\n    document.body.addEventListener("keyup", (e) => {';
+if (!app.includes(shortcutEnd)) throw new Error("Pinned keyboard command boundary changed.");
+app = app.replace(
+  shortcutEnd,
+  '    ].filter(shortcut => !["o", "e", "i", "m"].includes(shortcut.key));\n\n    document.body.addEventListener("keyup", (e) => {',
+);
 const shortcutHelpPath = join(root, "src/components/modals/ModalShortcuts.tsx");
 let shortcutHelp = readFileSync(shortcutHelpPath, "utf8");
 for (const [key, label] of [
   ["o", "Open modal"],
   ["e", "Export modal"],
+  ["i", "Toggle inspect"],
+  ["m", "Focus map"],
 ]) {
   const help = `      {\n        key: <kbd>${key}</kbd>,\n        text: t("${label}")\n      },\n`;
   if (!shortcutHelp.includes(help)) throw new Error(`Pinned ${label} shortcut help changed.`);
