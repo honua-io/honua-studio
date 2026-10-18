@@ -63,6 +63,7 @@ export class LocalProcessWorkspace {
   constructor(
     private readonly options: {
       readonly csrfToken: string;
+      readonly principalId?: string;
       readonly environmentId: string;
       readonly workspaceId: () => string;
       readonly commandStorage?: Pick<Storage, "getItem" | "setItem">;
@@ -81,6 +82,7 @@ export class LocalProcessWorkspace {
     const headers = new Headers(init?.headers);
     headers.set("X-Honua-Workspace", workspaceId);
     headers.set("X-Honua-Environment", this.options.environmentId);
+    if (this.options.principalId) headers.set("X-Honua-Session-Partition", this.options.principalId);
     if ((init?.method ?? "GET") !== "GET") headers.set("X-CSRF-Token", this.options.csrfToken);
     const response = await (this.options.fetchImpl ?? fetch)(`/api/processes/${path}`, {
       ...init,

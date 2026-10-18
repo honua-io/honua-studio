@@ -13,6 +13,7 @@ function session(expiresAt = new Date(Date.now() + 60000).toISOString(), sourceP
     baseUrl: "/api/studio",
     csrfToken: "csrf",
     environmentId: "env-a",
+    principalId: "opaque-principal",
     sourcePathBase,
     expiresAt,
     onExpired: () => () => {},
@@ -55,6 +56,7 @@ describe("cookie host session", () => {
     expect(init.headers.get("x-api-key")).toBeNull();
     expect(init.headers.get("X-CSRF-Token")).toBe("csrf");
     expect(init.headers.get("X-Honua-Environment")).toBe("env-a");
+    expect(init.headers.get("X-Honua-Session-Partition")).toBe("opaque-principal");
     for (const url of [
       "https://evil.invalid/api/v1/studio/package-drafts",
       "/api/mcp",

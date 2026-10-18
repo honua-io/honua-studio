@@ -55,7 +55,7 @@ export interface CookieSessionAdapter {
   readonly expiresAt: string;
   readonly csrfToken: string;
   readonly environmentId: string;
-  readonly principalId?: string;
+  readonly principalId: string;
   /** Verified active deployment path only; never an upstream origin. */
   readonly sourcePathBase?: string;
   onExpired(listener: () => void): Unsubscribe;

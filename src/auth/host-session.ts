@@ -50,6 +50,7 @@ export class HostAdapterAuthSession implements AuthSession {
       if (
         cookie.baseUrl !== "/api/studio" ||
         !cookie.environmentId ||
+        !/^[A-Za-z0-9._:-]{1,256}$/.test(cookie.principalId ?? "") ||
         !cookie.csrfToken ||
         !Number.isFinite(Date.parse(cookie.expiresAt))
       ) {
@@ -127,6 +128,7 @@ export class HostAdapterAuthSession implements AuthSession {
         headers.delete("authorization");
         headers.delete("x-api-key");
         headers.set("X-Honua-Environment", cookie.environmentId);
+        headers.set("X-Honua-Session-Partition", cookie.principalId);
         if (!["GET", "HEAD", "OPTIONS"].includes((init?.method ?? "GET").toUpperCase()))
           headers.set("X-CSRF-Token", cookie.csrfToken);
         const response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });

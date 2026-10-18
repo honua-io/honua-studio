@@ -225,6 +225,7 @@ export class ServerProcessWorkspace {
     private readonly options: {
       readonly environmentId: string;
       readonly csrfToken: string;
+      readonly principalId?: string;
       readonly fetchImpl?: typeof fetch;
       readonly commandStorage?: Pick<Storage, "getItem" | "setItem">;
     },
@@ -232,6 +233,7 @@ export class ServerProcessWorkspace {
 
   async #request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers = new Headers({ accept: "application/json", "X-Honua-Environment": this.options.environmentId });
+    if (this.options.principalId) headers.set("X-Honua-Session-Partition", this.options.principalId);
     if (method !== "GET") {
       headers.set("X-CSRF-Token", this.options.csrfToken);
       headers.set("content-type", "application/json");
