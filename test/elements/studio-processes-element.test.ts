@@ -113,3 +113,42 @@ it("authors nodes and data ports visually, validates the same graph and preserve
   expect(element.graph.edges).toEqual([]);
   await expect(element.prepareWorkspaceTask()).rejects.toThrow("Save and validate");
 });
+
+it("rejects stale version attachment after newer selection or client authority change", async () => {
+  const element = document.createElement("honua-studio-processes") as HonuaStudioProcessesElement;
+  let resolve!: (value: unknown) => void;
+  const snapshot = (packageId: string) => ({
+    packageId,
+    version: 1,
+    contentHash: "a".repeat(64),
+    graph: { schemaVersion: "workflow-package.v1", nodes: [], edges: [] },
+  });
+  const readVersion = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    )
+    .mockResolvedValueOnce(snapshot("new"));
+  element.client = { readVersion } as unknown as ServerProcessWorkspace;
+  document.body.appendChild(element);
+  const old = element.attachWorkspaceTask({ packageId: "old", version: 1, contentHash: "a".repeat(64) });
+  await vi.waitFor(() => expect(readVersion).toHaveBeenCalledOnce());
+  expect(await element.attachWorkspaceTask({ packageId: "new", version: 1, contentHash: "a".repeat(64) })).toBe(true);
+  resolve(snapshot("old"));
+  expect(await old).toBe(false);
+  expect((await element.prepareWorkspaceTask()).packageId).toBe("new");
+  readVersion.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const stale = element.attachWorkspaceTask({ packageId: "foreign", version: 1, contentHash: "a".repeat(64) });
+  await vi.waitFor(() => expect(readVersion).toHaveBeenCalledTimes(3));
+  element.client = {} as ServerProcessWorkspace;
+  resolve(snapshot("foreign"));
+  expect(await stale).toBe(false);
+});

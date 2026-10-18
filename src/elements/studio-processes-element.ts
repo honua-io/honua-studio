@@ -12,7 +12,15 @@ import { HonuaStudioElementBase } from "./base-element.js";
 
 /** Edits the canonical workflow graph; compilation and execution remain server-owned. */
 export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
-  public client: ServerProcessWorkspace | undefined;
+  #client: ServerProcessWorkspace | undefined;
+  #attachmentGeneration = 0;
+  public get client(): ServerProcessWorkspace | undefined {
+    return this.#client;
+  }
+  public set client(client: ServerProcessWorkspace | undefined) {
+    if (client !== this.#client) this.#attachmentGeneration++;
+    this.#client = client;
+  }
   #graph: ProcessGraph = { schemaVersion: "workflow-package.v1", nodes: [], edges: [] };
   #graphText = JSON.stringify(this.#graph, null, 2);
   #dirty = false;
@@ -31,6 +39,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     return structuredClone(this.#graph);
   }
   public set graph(graph: ProcessGraph) {
+    this.#attachmentGeneration++;
     this.#graph = structuredClone(graph);
     this.#graphText = JSON.stringify(this.#graph, null, 2);
     this.#dirty = false;
@@ -52,11 +61,14 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     version: number;
     contentHash: string;
   }): Promise<boolean> {
+    const generation = ++this.#attachmentGeneration;
+    const client = this.client;
     await this.#pendingAction;
-    if (this.#dirty || !this.client) return false;
+    if (generation !== this.#attachmentGeneration || this.#dirty || !client || client !== this.client) return false;
     const text = this.#graphText;
-    const prepared = await this.client.readVersion(task.packageId, task.version, task.contentHash);
-    if (this.#dirty || this.#graphText !== text) return false;
+    const prepared = await client.readVersion(task.packageId, task.version, task.contentHash);
+    if (generation !== this.#attachmentGeneration || client !== this.client || this.#dirty || this.#graphText !== text)
+      return false;
     this.#prepared = prepared;
     this.#graph = structuredClone(prepared.graph);
     this.#graphText = JSON.stringify(this.#graph, null, 2);
@@ -80,6 +92,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
       this.render();
       return;
     }
+    this.#attachmentGeneration++;
     this.#graph = graph;
     this.#graphText = JSON.stringify(graph, null, 2);
     this.#dirty = true;

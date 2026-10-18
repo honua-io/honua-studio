@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   type ProcessGraph,
+  normalizeProcessDiagnostics,
   ServerProcessWorkspace,
   snapshotProcessGraph,
   validateProcessGraph,
@@ -145,4 +146,53 @@ describe("Processes server adapter", () => {
     ]);
     expect(bodies[5]).toEqual({ idempotencyKey: "command-1", reconcileOnly: false });
   });
+});
+
+it("links real server parameter/input paths by exact node ID and retains global diagnostics", () => {
+  const graph: ProcessGraph = {
+    schemaVersion: "workflow-package.v1",
+    nodes: [{ nodeId: "raster", nodeTypeId: "process:raster", parameters: {} }],
+    edges: [],
+  };
+  expect(
+    normalizeProcessDiagnostics(
+      [
+        { code: "required", fieldPath: "graph.nodes[raster].parameters.source", message: "Required" },
+        { code: "input", fieldPath: "steps[raster].inputs.source", message: "Cannot bind" },
+        { code: "global", fieldPath: "graph.nodes[other].parameters.source", message: "Unknown" },
+        { code: "global", fieldPath: "graph", message: "Graph error" },
+      ],
+      graph,
+    ).map((item) => item.nodeId),
+  ).toEqual(["raster", "raster", undefined, undefined]);
+});
+it("does not reject artifact envelope to URI input based on schema JSON type", () => {
+  const graph: ProcessGraph = {
+    schemaVersion: "workflow-package.v1",
+    nodes: [
+      { nodeId: "raster", nodeTypeId: "process:raster", parameters: {} },
+      { nodeId: "read", nodeTypeId: "process:read", parameters: {} },
+    ],
+    edges: [{ sourceNodeId: "raster", targetNodeId: "read", kind: "Data", sourcePort: "raster", targetPort: "source" }],
+  };
+  const registry = {
+    registryVersion: "actual-shapes",
+    nodes: [
+      {
+        nodeTypeId: "process:raster",
+        providerId: "geoprocessing.process-catalog",
+        title: "Raster",
+        parameterSchemas: [],
+        outputSchemas: [{ name: "raster", schema: { type: "Structured", format: "raster" } }],
+      },
+      {
+        nodeTypeId: "process:read",
+        providerId: "geoprocessing.process-catalog",
+        title: "Read",
+        parameterSchemas: [],
+        inputSchemas: [{ name: "source", schema: { type: "Text" } }],
+      },
+    ],
+  };
+  expect(validateProcessGraph(graph, registry)).toEqual([]);
 });

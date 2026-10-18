@@ -142,13 +142,6 @@ export function validateProcessGraph(graph: ProcessGraph, registry: ProcessRegis
           code: "INPUT_PORT",
           message: "Choose an input port from the current registry.",
         });
-      if (sourcePort?.schema?.type && targetPort?.schema?.type && sourcePort.schema.type !== targetPort.schema.type)
-        diagnostics.push({
-          nodeId: edge.targetNodeId,
-          fieldPath: `inputs.${edge.targetPort}`,
-          code: "PORT_TYPE",
-          message: "Connected port types differ; choose compatible ports.",
-        });
       const key = JSON.stringify([edge.targetNodeId, edge.targetPort]);
       if (connectedInputs.has(key))
         diagnostics.push({
@@ -193,6 +186,25 @@ export function snapshotProcessGraph(graph: ProcessGraph): ProcessGraph {
   Object.freeze(snapshot.nodes);
   Object.freeze(snapshot.edges);
   return Object.freeze(snapshot);
+}
+
+/** Matches actual server paths against exact graph node identities. */
+export function normalizeProcessDiagnostics(
+  diagnostics: readonly ProcessDiagnostic[],
+  graph: ProcessGraph,
+): ProcessDiagnostic[] {
+  const ids = graph.nodes.map((node) => node.nodeId).sort((a, b) => b.length - a.length);
+  return diagnostics.map((diagnostic) => {
+    const nodeId = ids.find(
+      (id) =>
+        diagnostic.nodeId === id ||
+        ["graph.nodes", "steps"].some((root) => {
+          const prefix = `${root}[${id}]`;
+          return diagnostic.fieldPath === prefix || diagnostic.fieldPath?.startsWith(`${prefix}.`);
+        }),
+    );
+    return { ...diagnostic, nodeId };
+  });
 }
 
 export class ProcessValidationError extends Error {
@@ -262,7 +274,10 @@ export class ServerProcessWorkspace {
     );
     if (!validation.isValid)
       throw new ProcessValidationError(
-        validation.failures ?? [{ code: "VALIDATION", message: "Server validation refused this graph." }],
+        normalizeProcessDiagnostics(
+          validation.failures ?? [{ code: "VALIDATION", message: "Server validation refused this graph." }],
+          snapshot,
+        ),
       );
     if (version.packageId !== saved.packageId || !/^[a-f0-9]{64}$/.test(version.packageHash))
       throw new Error("Server returned no verified immutable package hash.");
