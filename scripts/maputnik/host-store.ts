@@ -49,7 +49,11 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
   document.addEventListener(
     "beforeinput",
     (event) => {
-      if (event.target instanceof Element && event.target.closest(".maputnik-layer-editor,.maputnik-code-editor"))
+      if (
+        event.target instanceof Element &&
+        !event.target.closest(".cm-editor") &&
+        event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")
+      )
         markPending(event.target);
     },
     true,
@@ -57,7 +61,11 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
   document.addEventListener(
     "input",
     (event) => {
-      if (!(event.target instanceof Element) || !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor"))
+      if (
+        !(event.target instanceof Element) ||
+        event.target.closest(".cm-editor") ||
+        !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")
+      )
         return;
       markPending(event.target);
     },

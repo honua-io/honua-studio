@@ -55,6 +55,14 @@ it("does not accept an invalid field when another field commits a valid change",
     await vi.waitFor(() => expect(messages.find((message) => message.requestId === "raw-json")?.settled).toBe(false));
     send({ type: "honua:style-load", style });
     send({ type: "honua:style-unlock" });
+    // CodeMirror's own update listener commits before the browser's native
+    // input event. That later event must not re-mark an accepted JSON edit.
+    window.dispatchEvent(new CustomEvent("honua:style-raw-input", { detail: { element: content } }));
+    store.save({ ...style, id: "honua-host-draft", name: "Accepted JSON edit" });
+    content.dispatchEvent(new Event("input", { bubbles: true }));
+    send({ type: "honua:style-flush", requestId: "accepted-json" });
+    await vi.waitFor(() => expect(messages.find((message) => message.requestId === "accepted-json")?.settled).toBe(true));
+    send({ type: "honua:style-unlock" });
     invalid.value = "{ invalid focused field";
     invalid.focus();
     expect(document.activeElement).toBe(invalid);
