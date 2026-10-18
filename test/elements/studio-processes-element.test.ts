@@ -198,12 +198,22 @@ it("selects the verified process binding instead of a publication index and refu
   await vi.waitFor(() =>
     expect(element.shadowRoot!.querySelector('select[aria-label^="Published source"]')).not.toBeNull(),
   );
+  const zero = element.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label^="Published source"]')!;
+  zero.value = "published-service/0";
+  zero.dispatchEvent(new Event("change"));
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+  finish({ processLayerId: 0 });
+  await vi.waitFor(() => expect(element.graph.nodes[0]!.parameters.layerId).toBe("0"));
+  button("Choose published source").click();
+  await vi.waitFor(() =>
+    expect(element.shadowRoot!.querySelector('select[aria-label^="Published source"]')).not.toBeNull(),
+  );
   const late = element.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label^="Published source"]')!;
   late.value = "published-service/0";
   late.dispatchEvent(new Event("change"));
-  await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(3));
   element.client = {} as ServerProcessWorkspace;
   finish({ processLayerId: 999 });
   await new Promise((done) => setTimeout(done, 0));
-  expect(element.graph.nodes[0]!.parameters.layerId).toBe("702");
+  expect(element.graph.nodes[0]!.parameters.layerId).toBe("0");
 });
