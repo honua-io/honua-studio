@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { LocalProcessWorkspace, type LocalRunReceipt } from "../../src/gp/custom-process-workspace.js";
-const options = { csrfToken: "csrf", environmentId: "env-a", workspaceId: () => "ws-1" };
+const options = { csrfToken: "csrf", environmentId: "env-a", principalId: "partition-a", workspaceId: () => "ws-1" };
 const identity = {
   projectId: "a".repeat(32),
   revision: 1,
@@ -33,6 +33,9 @@ describe("custom-code workspace adapter", () => {
     expect(new Headers(init?.headers).get("If-Match")).toBe("before");
     expect(new Headers(init?.headers).get("X-Honua-Environment")).toBe("env-a");
     expect(new Headers(init?.headers).get("X-Honua-Workspace")).toBe("ws-1");
+    for (const [, request] of vi.mocked(fetchImpl).mock.calls) {
+      expect(new Headers(request?.headers).get("X-Honua-Session-Partition")).toBe("partition-a");
+    }
     expect(init?.credentials).toBe("same-origin");
     expect(init?.body).toBe(
       JSON.stringify({ projectId: identity.projectId, expectedRevision: 1, content: "corrected" }),
