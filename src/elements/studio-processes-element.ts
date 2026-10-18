@@ -477,6 +477,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
         this.#message = `Registry ${this.#registry.registryVersion} loaded.`;
       }
       if (action === "prepare") {
+        this.#attachmentGeneration++;
         const graph = this.#parseGraph();
         const text = this.#graphText;
         const prepared = await client.prepare("Processes", graph);
