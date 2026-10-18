@@ -196,6 +196,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     advanced.open = this.#advancedOpen;
     advanced.addEventListener("toggle", () => {
       this.#advancedOpen = advanced.open;
+      if (advanced.open && !this.#advancedPending) root.querySelector("textarea")!.value = this.#graphText;
     });
     const editor = root.querySelector("textarea")!;
     editor.value = this.#graphText;
