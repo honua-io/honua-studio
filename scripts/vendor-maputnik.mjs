@@ -8,7 +8,7 @@ const revision = "66377f5dcf14275e205869f0c6549b2e86d7d879";
 const source = resolve(process.argv[2] ?? "");
 const root = resolve(".tmp/maputnik-host-build");
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { stdio: "inherit", ...options });
+  const result = spawnSync(command, args, { stdio: options.input === undefined ? "inherit" : ["pipe", "inherit", "inherit"], ...options });
   if (result.status !== 0) throw new Error(`${command} failed (${result.status})`);
 }
 const head = spawnSync("git", ["-C", source, "rev-parse", "HEAD"], { encoding: "utf8" });
@@ -64,7 +64,7 @@ writeFileSync(
   `import {defineConfig} from 'vite'; import react from '@vitejs/plugin-react'; export default defineConfig({publicDir:false,plugins:[react()],define:{global:'window'},build:{outDir:'dist-honua',cssCodeSplit:false,lib:{entry:'src/host-entry.jsx',name:'HonuaMaputnik',formats:['iife'],fileName:()=>'editor.js'},rollupOptions:{output:{inlineDynamicImports:true,assetFileNames:'[name][extname]'}}}});\n`,
 );
 run("npm", ["ci", "--ignore-scripts"], { cwd: root });
-run("npx", ["vite", "build", "--config", "vite.honua.config.mjs"], { cwd: root });
+run(process.execPath, [join(root, "node_modules/vite/bin/vite.js"), "build", "--config", "vite.honua.config.mjs"], { cwd: root });
 const output = resolve("public/maputnik");
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
