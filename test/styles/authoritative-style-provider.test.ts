@@ -498,6 +498,12 @@ it.skipIf(styleDocumentToRefBody.length < 2)(
       "get",
       "district",
     ]);
+    expect(actual.layers.find((layer) => layer.id === "owner")?.metadata).toMatchObject({
+      "honua:styleId": "district",
+      "honua:styleVersion": 0,
+      "honua:styleSha256": bound.definition.sha256,
+      "honua:styleServer": "https://honua.test/honua",
+    });
     const durable = compositionToMapPackage(state, { catalog: [source] });
     expect(durable.mapPackage.styleRefs).toEqual([{ styleId: "district", layerBindings: bindings }]);
     expect(state.styleRefs[0]).not.toHaveProperty("body");

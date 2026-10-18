@@ -391,12 +391,24 @@ export class AuthoritativeStyleProvider {
     const override: Record<string, unknown> = {};
     for (const key of ["paint", "layout", "filter", "minzoom", "maxzoom"] as const)
       if (selected[key] !== undefined) override[key] = selected[key];
-    override.metadata = {
+    const provenance = {
       "honua:styleId": definition.styleId,
       "honua:styleVersion": definition.styleVersion,
       "honua:styleSha256": definition.sha256,
       "honua:styleServer": definition.serverRoot,
     };
+    override.metadata = provenance;
+    const previewBody = mappedBody
+      ? Object.fromEntries(
+          Object.entries(mappedBody).map(([id, appearance]) => [
+            id,
+            {
+              ...appearance,
+              metadata: { ...appearance.metadata, ...provenance },
+            },
+          ]),
+        )
+      : undefined;
     const descriptorBody = canonicalCompositionJson(descriptor);
     const descriptorSha256 = await styleContentHash(descriptorBody);
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style binding.");
@@ -408,7 +420,7 @@ export class AuthoritativeStyleProvider {
       descriptorBody,
       stylesheetLayerId: String(selected.id),
       override,
-      ...(mappedBody && mapping ? { mappedBody, layerBindings: mapping.layerBindings } : {}),
+      ...(previewBody && mapping ? { mappedBody: previewBody, layerBindings: mapping.layerBindings } : {}),
     };
   }
 }

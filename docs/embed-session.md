@@ -238,19 +238,27 @@ draft is attached. `setWorkspaceConversation(messages)` projects authorized host
 conversation into its transcript projection without changing the SDK's model history;
 it returns false while that bridge streams. The host owns the visible conversation.
 
-Review builds currently use the separately packed SDK review artifact containing
-source dispatch fix `da4003fe2`, not a claimed published 0.2.3 release. Record the
-actual tarball SHA and Studio commit in the embedding application's asset manifest.
+Review bundles currently use the separately packed SDK artifact from
+`c23d8b285c346cd5faed1c990d6b5263a65b0187`, including schema-aware dispatch and
+canonical live-style bindings. This is not a published 0.2.3 release. Record its
+actual tarball SHA and Studio commit in the embedding application's manifest.
 
-`build:console-assets` fails closed unless the installed SDK session bytes match
-the reviewed schema-aware dispatch artifact. A normal clean install of published
-0.2.2 can still build standalone Studio, but cannot emit this broad native bundle.
-Install the review tarball with `npm install --no-save --ignore-scripts
---package-lock=false /path/to/honua-sdk-js-0.2.3.tgz` after verifying SHA-256
-`306596b48f96291df65b54da8d7db24cf5d3c8edd6942e8424b53728dde6e8fa`.
-The build emits `SDK-PROVENANCE.json` and license notices. Release qualification
-requires adopting the actual immutable published SDK release, updating this pin
-and its provenance, and repeating the native-session qualification.
+`build:console-assets` verifies every installed SDK package file against the
+reviewed receipt. Published 0.2.2 still supports standalone builds; it cannot emit
+this broad native bundle. Preserve all other dependencies from `package-lock.json`:
+
+```sh
+npm ci --ignore-scripts
+python3 scripts/install-reviewed-sdk.py --archive /path/to/honua-sdk-js-0.2.3.tgz
+npm run build:console-assets
+```
+
+The installer checks archive SHA-256
+`a1ebfdfdcecd15fc25168e4da8fb9000414ea995fa787ce9c7922f1ccf2cfa90`,
+all 2,086 payload hashes, and the installed dependency versions against the lock.
+It does not run npm dependency resolution. The build emits `SDK-PROVENANCE.json`
+and license notices. Release qualification requires the actual immutable published
+SDK release, updated pins/provenance, and repeated native-session qualification.
 
 Before capturing a turn, `await studio.prepareWorkspaceTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching

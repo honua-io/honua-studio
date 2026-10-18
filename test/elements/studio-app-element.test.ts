@@ -816,3 +816,85 @@ it("pins read-only style discovery before requests while accepting same-authorit
     vi.unstubAllGlobals();
   }
 });
+
+it.each([{ principalId: "next-owner" }, { environmentId: "next-environment" }, { sourcePathBase: "/next" }])(
+  "clears accepted descriptor metadata immediately on disconnected authority swap %j",
+  (replacement) => {
+    const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      csrfToken: "first",
+      environmentId: "environment",
+      principalId: "owner",
+      sourcePathBase: "/honua",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const catalog = [
+      { id: "private-source", title: "Private descriptor", protocol: "ogc-features", geometryType: "Point" },
+    ];
+    try {
+      app.sourceCatalog = catalog;
+      app.session = cookie;
+      expect(app.sourceCatalog).toEqual(catalog);
+      app.session = { ...cookie, csrfToken: "renewed" };
+      expect(app.sourceCatalog).toEqual(catalog);
+      app.session = { ...cookie, ...replacement };
+      expect(app.sourceCatalog).toBeUndefined();
+    } finally {
+      app.session = undefined;
+    }
+  },
+);
+
+it.each([false, true])("shows shared-link detachment only for live references (inline=%s)", async (inline) => {
+  const style = {
+    version: 8,
+    sources: { source: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+    layers: [{ id: "owner", type: "fill", source: "source", paint: { "fill-color": "#ffffff" } }],
+  };
+  const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+    draftId: "shared",
+    generation: 1,
+    packageKey: "map",
+    envelope: {
+      family: "map",
+      schemaVersion: "1.0",
+      body: {
+        layers: [{ id: "owner", sourceId: "source", visible: true, styleRef: { styleId: "catalog" } }],
+        mapSpec: style,
+        styleRefs: [
+          { styleId: "catalog", ...(inline ? { body: { owner: { paint: { "fill-color": "#ffffff" } } } } : {}) },
+        ],
+      },
+    },
+  } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>);
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  try {
+    app.session = {
+      kind: "cookie",
+      baseUrl: "/api/studio",
+      csrfToken: "csrf",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    document.body.appendChild(app);
+    await app.attachWorkspaceDraft("shared");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
+    await app.openStyleEditor();
+    expect(
+      app.shadowRoot
+        ?.querySelector('[aria-label="Map style editor"]')
+        ?.textContent?.includes("converts linked shared styles"),
+    ).toBe(!inline);
+  } finally {
+    app.remove();
+    app.session = undefined;
+    get.mockRestore();
+    vi.restoreAllMocks();
+  }
+});

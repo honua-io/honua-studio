@@ -304,7 +304,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       assetsUrl: this.styleEditorAssetsUrl,
       scope: {
         kind: "map-local",
-        detachesSharedStyles: this.composition.state.layers.some((layer) => Boolean(layer.styleRef)),
+        detachesSharedStyles: this.composition.state.layers.some(
+          (layer) =>
+            layer.styleRef &&
+            this.composition.state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId)?.body ===
+              undefined,
+        ),
       },
       layers: this.composition.state.layers.map((layer) => ({
         id: layer.id,
@@ -681,6 +686,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (!samePrincipal) {
       this.#disposeStyleEditor();
       this.#workspaceAuthGeneration++;
+      if (hadAuthority) {
+        // Cached human descriptor metadata belongs to the former authority too.
+        this.#sourceCatalog = undefined;
+        this.#processSourceCatalogGeneration = undefined;
+        this.#catalogRequested = false;
+        this.#aiMapKit = undefined;
+        const previousCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+        if (previousCanvas) previousCanvas.sourceCatalog = undefined;
+      }
       this.#workspaceDraft = undefined;
       this.#workspaceDraftConflict = false;
       this.composition.resetBaseline(createEmptyCompositionState());
@@ -872,8 +886,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public set sourceCatalog(catalog: readonly CatalogDataset[] | undefined) {
-    // A host that assigns the catalog owns it: no fetch will overwrite it,
-    // and a later session change will not discard it.
+    // A host that assigns the catalog owns it: no fetch overwrites it.
+    // Lease renewal retains it; another authority must supply a fresh catalog.
     this.#catalogFromHost = true;
     this.#catalogRequested = true;
     this.#applySourceCatalog(catalog);
