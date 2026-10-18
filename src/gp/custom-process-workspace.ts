@@ -1,3 +1,6 @@
+import { ArtifactImportTracker, type ProcessImportReceipt, importedDataset } from "./artifact-import.js";
+import type { ImportedProcessDataset } from "./artifact-import.js";
+export type { ImportedProcessDataset, ProcessImportReceipt } from "./artifact-import.js";
 export interface LocalSourceFile {
   readonly path: string;
   readonly content: string;
@@ -45,11 +48,6 @@ class LocalProcessRequestError extends Error {
         : `Processes returned ${status}.`,
     );
   }
-}
-export interface ImportedProcessDataset {
-  readonly tableName: string;
-  readonly physicalTableName: string;
-  readonly schema: string;
 }
 export interface PublishedProcessLayer {
   readonly layerId: number;
@@ -257,11 +255,28 @@ export class LocalProcessWorkspace {
     receipt: LocalRunReceipt,
     artifactPath: string,
     tableName: string,
-  ): Promise<ImportedProcessDataset> {
+  ): Promise<ProcessImportReceipt> {
     if (receipt.status !== "succeeded") throw new Error("Only successful run artifacts may be imported.");
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(tableName))
+      throw new Error(
+        "Enter a dataset table name using letters, numbers and underscores, starting with a letter or underscore.",
+      );
     const artifact = receipt.artifacts?.find((item) => item.path === artifactPath);
     if (!artifact || !/\.(?:geojson|json|gpkg|fgb|parquet|csv)$/i.test(artifact.path))
       throw new Error("Select a supported geospatial artifact.");
+    const imports = this.#imports();
+    const authority = imports.capture();
+    const source = {
+      projectId: receipt.projectId,
+      snapshotDigest: receipt.snapshotDigest,
+      runId: receipt.runId,
+      path: artifact.path,
+      sha256: artifact.sha256,
+      bytes: artifact.bytes,
+      tableName,
+    };
+    const retained = await imports.reconcile(source, authority);
+    if (retained) return retained;
     const content = await (
       await this.#fetch(
         `local/runs/${encodeURIComponent(receipt.runId)}/artifacts/${artifactPath.split("/").map(encodeURIComponent).join("/")}`,
@@ -272,21 +287,52 @@ export class LocalProcessWorkspace {
     ).join("");
     if (content.byteLength !== artifact.bytes || digest !== artifact.sha256)
       throw new Error("Artifact content no longer matches the immutable receipt.");
+    imports.assertAuthority(authority);
+    const upload = imports.reserve(source, authority);
     const form = new FormData();
+    form.set("UploadId", imports.uploadId(upload));
     form.set("File", new Blob([content]), artifactPath.split("/").at(-1)!);
     form.set("TableName", tableName);
-    const imported = await this.#json<{
+    let imported: {
       success?: boolean;
       tableName?: string;
       physicalTableName?: string;
       schema?: string;
       jobId?: string;
-    }>("admin/import/upload", { method: "POST", body: form });
-    if (imported.jobId)
-      throw new Error(`Import continues as job ${imported.jobId}. Observe that job before publishing the dataset.`);
-    if (!imported.success || !imported.tableName || !imported.physicalTableName || !imported.schema)
-      throw new Error("Import did not return a verified dataset identity.");
-    return { tableName: imported.tableName, physicalTableName: imported.physicalTableName, schema: imported.schema };
+    };
+    try {
+      imported = await this.#json("admin/import/upload", { method: "POST", body: form });
+    } catch {
+      // The server may have accepted the upload before its response was lost.
+      // Preserve the exact attempt instead of issuing another mutation.
+      return imports.uncertainUpload(upload);
+    }
+    imports.assertAuthority(upload);
+    if (imported.jobId) return imports.start(imported.jobId, source, upload);
+    if (imported.success === false) {
+      imports.completeSynchronous(upload);
+      return { status: "failed", message: "The server reported that the import failed." };
+    }
+    const dataset = imported.success ? importedDataset(imported) : undefined;
+    if (!dataset) throw new Error("Import did not return a verified dataset identity.");
+    imports.completeSynchronous(upload);
+    return { status: "completed", dataset };
+  }
+  #imports(): ArtifactImportTracker {
+    const storage = this.options.commandStorage ?? globalThis.localStorage;
+    if (!storage || !this.options.principalId)
+      throw new Error("A signed-in owner and durable import storage are required.");
+    return new ArtifactImportTracker({
+      storage,
+      scope: () => JSON.stringify([this.options.environmentId, this.options.principalId, this.options.workspaceId()]),
+      fetch: (path, init) => this.#fetch(path, init),
+    });
+  }
+  resumeImport(signal?: AbortSignal): Promise<ProcessImportReceipt | undefined> {
+    return this.#imports().resume(signal);
+  }
+  cancelImport(): Promise<ProcessImportReceipt | undefined> {
+    return this.#imports().cancel();
   }
   /** Publishing uses the returned physical dataset identity; no layer is fabricated from a filename. */
   async publishDataset(
