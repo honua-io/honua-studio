@@ -693,7 +693,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         session && "kind" in session && session.kind === "cookie"
           ? verifiedSourcePathBase(session.sourcePathBase)
           : runtimeMcpBaseUrl();
-    if (!this.isConnected) return;
+    if (!this.isConnected) {
+      this.#authUnsubscribe?.();
+      this.#authUnsubscribe = undefined;
+      disposeAuthSession(this.#auth);
+      this.#auth = undefined;
+      if (!this.#studioClientOverridden) this.#studioClient = undefined;
+      return;
+    }
     this.resetAuth();
     // A host-owned catalog does not reload on session replacement. Invalidate
     // its widget rows explicitly rather than leaving another session's data visible.
@@ -798,8 +805,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Actual published choices for the canonical GP layer picker; no map focus is inferred. */
   public async listProcessSources(): Promise<readonly { id: string; title: string }[]> {
     const generation = this.#workspaceAuthGeneration;
-    const catalog = await this.studioClient.listCatalog();
-    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+    const auth = this.auth;
+    const client = this.#studioClientOverridden
+      ? this.studioClient
+      : new StudioClient(runtimeServerBaseUrl(), auth, runtimeMcpBaseUrl());
+    const catalog = await client.listCatalog();
+    if (generation !== this.#workspaceAuthGeneration || auth !== this.auth)
+      throw new Error("The workspace authority changed.");
     this.#applySourceCatalog(catalog);
     return catalog
       .filter(
