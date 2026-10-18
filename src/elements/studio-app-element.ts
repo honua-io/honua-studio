@@ -964,6 +964,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #onAuthStatusChanged(): void {
+    if (!this.isConnected) return;
     const status = this.#auth?.getState().status;
     if (status === this.#lastAuthStatus) return;
     this.#lastAuthStatus = status;

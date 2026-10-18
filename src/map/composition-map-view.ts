@@ -522,7 +522,12 @@ export class CompositionMapView {
         const entry =
           cached && Date.now() - cached.readAt < 30000
             ? cached
-            : { binding: await provider.bind(layer.styleRef.styleId, bindingSource, mapping), readAt: Date.now() };
+            : {
+                binding: await (mapping
+                  ? provider.bind(layer.styleRef.styleId, bindingSource, mapping)
+                  : provider.bind(layer.styleRef.styleId, bindingSource)),
+                readAt: Date.now(),
+              };
         bindings[layer.id] = entry.binding;
         retained.set(key, entry);
       } catch (error) {

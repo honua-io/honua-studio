@@ -265,6 +265,12 @@ export class MapStyleEditor {
       this.#busy = false;
     }
   }
+  #option(label: string, value: string): HTMLOptionElement {
+    const option = document.createElement("option");
+    option.textContent = label;
+    option.value = value;
+    return option;
+  }
   #addThematicControls(container: HTMLElement): void {
     if (!this.#options.layers?.length || !this.#options.getFields) return;
     const owner = document.createElement("select");
@@ -272,14 +278,14 @@ export class MapStyleEditor {
       "aria-label",
       this.#options.scope.kind === "shared-style" ? "Catalog layer for styling" : "Map layer for styling",
     );
-    for (const layer of this.#options.layers) owner.add(new Option(layer.title ?? layer.id, layer.id));
+    for (const layer of this.#options.layers) owner.add(this.#option(layer.title ?? layer.id, layer.id));
     owner.value = this.#selectedOwner ?? "";
     const field = document.createElement("select");
     field.setAttribute("aria-label", "Actual source field");
     const mode = document.createElement("select");
     mode.setAttribute("aria-label", "Thematic method");
-    mode.add(new Option("Categories", "categories"));
-    mode.add(new Option("Manual numeric breaks", "breaks"));
+    mode.add(this.#option("Categories", "categories"));
+    mode.add(this.#option("Manual numeric breaks", "breaks"));
     const values = document.createElement("input");
     values.setAttribute("aria-label", "Explicit thematic values as JSON array");
     values.placeholder = '["Residential","Commercial"]';
@@ -300,7 +306,7 @@ export class MapStyleEditor {
         const observed = await this.#options.getFields!(selected.sourceId);
         if (current !== epoch) return;
         fields = observed;
-        for (const actual of observed) field.add(new Option(`${actual.name} (${actual.type})`, actual.name));
+        for (const actual of observed) field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
         apply.disabled = !observed.length;
         this.#frame.contentWindow?.postMessage(
           { type: "honua:style-fields", channel: this.#channel, sourceId: selected.sourceId, fields: observed },

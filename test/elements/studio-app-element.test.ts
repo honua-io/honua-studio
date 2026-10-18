@@ -862,7 +862,7 @@ it.each([false, true])("shows shared-link detachment only for live references (i
       family: "map",
       schemaVersion: "1.0",
       body: {
-        layers: [{ id: "owner", sourceId: "source", visible: true, styleRef: { styleId: "catalog" } }],
+        layers: [{ id: "owner", sourceId: "source", visible: true, styleRef: "catalog" }],
         mapSpec: style,
         styleRefs: [
           { styleId: "catalog", ...(inline ? { body: { owner: { paint: { "fill-color": "#ffffff" } } } } : {}) },

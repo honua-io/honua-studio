@@ -4,8 +4,9 @@ import { expect, it, vi } from "vitest";
 it("does not accept an invalid field when another field commits a valid change", async () => {
   // Load the exact adapter copied into upstream Maputnik; its type-only
   // definitions resolve inside that pinned checkout, not this application.
-  const moduleUrl = new URL("../../scripts/maputnik/host-store.ts", import.meta.url).href;
-  const { createStyleStore } = await import(/* @vite-ignore */ moduleUrl);
+  const { createStyleStore } = await vi.importActual<{
+    createStyleStore: (onChange: (...args: unknown[]) => void) => Promise<{ save: (style: unknown) => unknown }>;
+  }>("../../scripts/maputnik/host-store.ts");
   const channel = "a".repeat(64);
   window.location.hash = new URLSearchParams({ channel, parentOrigin: location.origin }).toString();
   const messages: Record<string, unknown>[] = [];
