@@ -26,6 +26,9 @@ export default defineConfig({
         if (!existsSync(join(directory, "PROVENANCE.json"))) throw new Error("Build the pinned Maputnik assets before Console assets.");
         const provenance = JSON.parse(readFileSync(join(directory, "PROVENANCE.json"), "utf8"));
         if (provenance.revision !== "66377f5dcf14275e205869f0c6549b2e86d7d879") throw new Error("Unexpected Maputnik source revision.");
+        const integrationFiles = ["scripts/maputnik/host-store.ts", "scripts/maputnik/host-entry.jsx", "scripts/vendor-maputnik.mjs"];
+        if (JSON.stringify(Object.keys(provenance.integration).sort()) !== JSON.stringify([...integrationFiles].sort())) throw new Error("Maputnik integration provenance is incomplete.");
+        for (const path of integrationFiles) if (provenance.integration[path] !== createHash("sha256").update(readFileSync(resolve(path))).digest("hex")) throw new Error("Rebuild Maputnik assets after integration source changes.");
         const names = readdirSync(directory).sort();
         const expected = [...Object.keys(provenance.files), "PROVENANCE.json"].sort();
         if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error("Maputnik asset payload differs from its receipt.");
