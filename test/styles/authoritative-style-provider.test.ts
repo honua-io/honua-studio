@@ -406,3 +406,40 @@ it("uses only the canonical streaming process identity and reports unsupported b
     "identity is invalid",
   );
 });
+
+it("accepts resource-free labels on the selected actual source and validates their published field", async () => {
+  const withLabels = {
+    ...sheet,
+    layers: [
+      ...sheet.layers,
+      {
+        id: "parcel-labels",
+        type: "symbol",
+        source: "parcels",
+        layout: { "text-field": ["get", "district"], "text-size": 12 },
+      },
+    ],
+  };
+  const bound = await fixture({
+    encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(withLabels) }],
+  }).provider.bind("district", source);
+  expect(bound.definition.layers.some((layer) => layer.id === "parcel-labels" && layer.type === "symbol")).toBe(true);
+  const missing = {
+    ...withLabels,
+    layers: [
+      ...sheet.layers,
+      {
+        id: "parcel-labels",
+        type: "symbol",
+        source: "parcels",
+        layout: { "text-field": ["get", "secret"] },
+      },
+    ],
+  };
+  await expect(
+    fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(missing) }] }).provider.bind(
+      "district",
+      source,
+    ),
+  ).rejects.toThrow('missing field "secret"');
+});
