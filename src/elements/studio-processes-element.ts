@@ -14,12 +14,14 @@ import { HonuaStudioElementBase } from "./base-element.js";
 export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
   #client: ServerProcessWorkspace | undefined;
   #attachmentGeneration = 0;
+  #clientGeneration = 0;
   public get client(): ServerProcessWorkspace | undefined {
     return this.#client;
   }
   public set client(client: ServerProcessWorkspace | undefined) {
     if (client !== this.#client) {
       this.#attachmentGeneration++;
+      this.#clientGeneration++;
       this.#prepared = undefined;
       this.#run = undefined;
       this.#registry = undefined;
@@ -468,11 +470,15 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
   async #action(action: string): Promise<void> {
     const client = this.client;
     if (!client || this.#busy) return;
+    const authority = this.#clientGeneration;
+    const current = () => { if (client !== this.client || authority !== this.#clientGeneration) throw new Error("The Processes host authority changed."); };
     this.#busy = true;
     this.render();
     try {
       if (action === "registry") {
-        this.#registry = await client.registry();
+        const registry = await client.registry();
+        current();
+        this.#registry = registry;
         this.#diagnostics = validateProcessGraph(this.#graph, this.#registry);
         this.#message = `Registry ${this.#registry.registryVersion} loaded.`;
       }
@@ -481,6 +487,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
         const graph = this.#parseGraph();
         const text = this.#graphText;
         const prepared = await client.prepare("Processes", graph);
+        current();
         if (this.#graphText === text) {
           this.#graph = graph;
           this.#prepared = prepared;
@@ -492,17 +499,20 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
       }
       if (action === "run" && this.#prepared && !this.#dirty) {
         const command = client.reserveCommand(this.#prepared.packageId, this.#prepared.version);
-        this.#run = await client.run(
+        const run = await client.run(
           this.#prepared.packageId,
           this.#prepared.version,
           command.commandId,
           command.reconcileOnly,
         );
+        current();
+        this.#run = run;
         this.#message = JSON.stringify(this.#run, null, 2);
       }
       if (action === "status" && this.#run) this.#message = JSON.stringify(await client.status(this.#run), null, 2);
       if (action === "cancel" && this.#run) this.#message = JSON.stringify(await client.cancel(this.#run), null, 2);
     } catch (error) {
+      if (client !== this.client || authority !== this.#clientGeneration) return;
       if (error instanceof ProcessValidationError) this.#diagnostics = error.diagnostics;
       this.#message = error instanceof Error ? error.message : String(error);
     } finally {
