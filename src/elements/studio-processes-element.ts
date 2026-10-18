@@ -18,8 +18,14 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     return this.#client;
   }
   public set client(client: ServerProcessWorkspace | undefined) {
-    if (client !== this.#client) this.#attachmentGeneration++;
+    if (client !== this.#client) {
+      this.#attachmentGeneration++;
+      this.#prepared = undefined;
+      this.#run = undefined;
+      this.#registry = undefined;
+    }
     this.#client = client;
+    if (this.isConnected) this.render();
   }
   #graph: ProcessGraph = { schemaVersion: "workflow-package.v1", nodes: [], edges: [] };
   #graphText = JSON.stringify(this.#graph, null, 2);
