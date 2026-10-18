@@ -31,6 +31,8 @@ export interface BoundAuthoritativeStyle {
 export interface AuthoritativeStyleProviderOptions {
   readonly baseUrl: string;
   readonly documentUrl: string;
+  /** Explicit same-origin catalog alias supplied by the trusted cookie host. */
+  readonly catalogAliasBaseUrl?: string;
   readonly getAuth: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly fetchImpl?: typeof fetch;
   readonly signal?: AbortSignal;
@@ -105,6 +107,22 @@ export class AuthoritativeStyleProvider {
     if (!/^https?:$/.test(root.protocol) || root.username || root.password || root.search || root.hash)
       throw new Error("Invalid trusted style server root.");
     this.serverRoot = root.href.replace(/\/$/, "");
+  }
+
+  #catalogRoots(): readonly string[] {
+    if (this.options.catalogAliasBaseUrl === undefined) return [this.serverRoot];
+    const alias = new URL(this.options.catalogAliasBaseUrl || "/", this.options.documentUrl);
+    const root = new URL(this.serverRoot);
+    if (alias.origin !== root.origin || alias.username || alias.password || alias.search || alias.hash)
+      throw new Error("Invalid trusted catalog source alias.");
+    return [this.serverRoot, alias.href.replace(/\/$/, "")];
+  }
+  #matchesPublishedSource(url: URL, serviceName: string, layerId: number): boolean {
+    const service = serviceName.split("/").map(encodeURIComponent).join("/");
+    return this.#catalogRoots().some((root) => {
+      const published = `${root}/rest/services/${service}/FeatureServer`;
+      return url.href.replace(/\/$/, "") === published || url.href.replace(/\/$/, "") === `${published}/${layerId}`;
+    });
   }
 
   get sessionIdentity() {
@@ -213,13 +231,7 @@ export class AuthoritativeStyleProvider {
     )
       throw new Error("The actual source field descriptor does not match.");
     const expected = new URL(String(source.locator?.url), this.options.documentUrl);
-    const observed = new URL(
-      `${this.serverRoot}/rest/services/${String(descriptor.serviceName).split("/").map(encodeURIComponent).join("/")}/FeatureServer`,
-    );
-    if (
-      expected.href.replace(/\/$/, "") !== observed.href &&
-      expected.href.replace(/\/$/, "") !== `${observed.href}/${layerId}`
-    )
+    if (typeof descriptor.serviceName !== "string" || !this.#matchesPublishedSource(expected, descriptor.serviceName, Number(layerId)))
       throw new Error("The field descriptor does not match its actual published source.");
     const seen = new Set<string>();
     return descriptor.fields.map((value) => {
@@ -237,14 +249,10 @@ export class AuthoritativeStyleProvider {
     if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
       throw new Error("An actual discovered layer identity is required for style binding.");
     const sourceUrl = new URL(String(source.locator?.url), this.options.documentUrl);
-    const root = new URL(this.serverRoot);
-    if (
-      sourceUrl.origin !== root.origin ||
-      !sourceUrl.pathname.startsWith(`${root.pathname.replace(/\/$/, "")}/rest/services/`) ||
-      sourceUrl.username ||
-      sourceUrl.password
-    )
-      throw new Error("Style binding source is outside the trusted server root.");
+    if (sourceUrl.username || sourceUrl.password || !this.#catalogRoots().some((root) => {
+      const base = new URL(root);
+      return sourceUrl.origin === base.origin && sourceUrl.pathname.startsWith(`${base.pathname.replace(/\/$/, "")}/rest/services/`);
+    })) throw new Error("Style binding source is outside the trusted server root.");
     const definition = await this.read(styleId);
     const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId });
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style binding.");
@@ -257,11 +265,7 @@ export class AuthoritativeStyleProvider {
     )
       throw new Error("Source descriptor geometry or bounded fields do not match.");
     if (typeof descriptor.serviceName !== "string") throw new Error("Source descriptor service name is missing.");
-    const serviceUrl = `${this.serverRoot}/rest/services/${descriptor.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
-    if (
-      sourceUrl.href.replace(/\/$/, "") !== serviceUrl &&
-      sourceUrl.href.replace(/\/$/, "") !== `${serviceUrl}/${layerId}`
-    )
+    if (!this.#matchesPublishedSource(sourceUrl, descriptor.serviceName, Number(layerId)))
       throw new Error("Source locator does not match the actual descriptor.");
     const fields = descriptor.fields.map((value) => {
       const field = record(value);

@@ -696,6 +696,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
           ? {
               styleProvider: new AuthoritativeStyleProvider({
                 baseUrl: this.#sourceAuthBaseUrl,
+                ...(this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
                 documentUrl: document.baseURI,
                 getAuth: () => resolveInjectedAuth(this),
               }),

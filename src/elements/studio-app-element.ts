@@ -317,6 +317,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         if (!source) throw new Error("Refresh the authorized source catalog before selecting thematic fields.");
         const provider = new AuthoritativeStyleProvider({
           baseUrl: canvas.sourceAuthBaseUrl,
+          ...(canvas.sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
           documentUrl: window.document.baseURI,
           getAuth: () => this.auth,
           signal: AbortSignal.timeout(8000),
