@@ -208,7 +208,7 @@ export function resolveCompositionSource(
       return { reason: `Source "${layer.sourceId}" has no collection id in its catalog locator.` };
     }
     const collectionId = locator ? String(locator.collectionId) : layer.sourceId;
-    const collectionRoot = locator ? trimTrailingSlash(String(locator.url)) : `${baseUrl}/ogc`;
+    const collectionRoot = locator ? trimTrailingSlash(String(locator.url)) : `${baseUrl}/ogc/features`;
     return {
       binding: {
         sourceId: layer.sourceId,

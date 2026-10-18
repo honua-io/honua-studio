@@ -58,7 +58,10 @@ describe("byom preview session", () => {
       "Add the Hawaii parcels layer, zoom the map, save a version, reopen it, and propose sharing it.",
     );
     expect(turn.status, JSON.stringify(turn)).toBe("completed");
-    expect(turn.toolCalls.map((call) => call.toolName)).toEqual([
+    expect(
+      turn.toolCalls.map((call) => call.toolName),
+      JSON.stringify(turn),
+    ).toEqual([
       "honua_studio_add_layer",
       "honua_studio_set_view",
       "honua_studio_save_version",

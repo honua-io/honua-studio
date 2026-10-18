@@ -41,8 +41,8 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The current tree contains 124 files in `src/` and 123 in `test/`, with
-1197 unit tests across 103 files and 29 Playwright browser journeys, including four accessibility checks.
+The current tree contains 131 files in `src/` and 129 in `test/`, with
+1237 unit tests across 109 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -80,6 +80,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
 | Package lifecycle UI — draft, version, compare, publish, rollback against honua-server's Studio package lifecycle REST API | `src/lifecycle/` | #17 |
+| Processes built-in graph and separate local-code adapters; live end-to-end qualification pending | `src/gp/process-workspace.ts`, `src/gp/custom-process-workspace.ts` | #104 |
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
@@ -246,7 +247,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 1197 tests across 103 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — 1237 tests across 109 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

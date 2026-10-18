@@ -1,3 +1,4 @@
+import { workspaceAgent } from "./workspace-agent.js";
 /**
  * Standalone shell bootstrap (honua-studio#5 REQ-002).
  *
@@ -96,3 +97,5 @@ if (chat) {
     if (conversation) chat.transport = new FixtureChatTransport(conversation);
   }
 }
+
+Object.assign(globalThis, { HonuaStudioWorkspace: workspaceAgent });

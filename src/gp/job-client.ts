@@ -50,6 +50,7 @@ import type { GpJobSnapshot, GpJobSubmitInput } from "./gp-types.js";
 
 /** The minimal token surface this client depends on — matches `lifecycle-client.ts`'s/`mcp/client.ts`'s `TokenSource`, satisfied by `AuthSession`. */
 export interface TokenSource {
+  fetchRequest?: typeof fetch;
   getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | undefined>;
 }
 
@@ -123,7 +124,7 @@ export class StudioGpJobClient implements GpJobClient {
   public constructor(options: StudioGpJobClientOptions = {}) {
     this.#baseUrl = (options.baseUrl ?? "/api").replace(/\/$/, "");
     this.#auth = options.auth;
-    this.#fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
+    this.#fetchImpl = options.fetchImpl ?? options.auth?.fetchRequest ?? fetch.bind(globalThis);
   }
 
   public submit(input: GpJobSubmitInput): Promise<GpJobSnapshot> {

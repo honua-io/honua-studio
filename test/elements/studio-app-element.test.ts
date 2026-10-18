@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
+import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
 import type {
   HonuaStudioNavigateDetail,
   HonuaStudioThemeChangeDetail,
   SessionAdapter,
 } from "../../src/elements/types.js";
+import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 
 registerAllStudioElements();
 
@@ -51,6 +53,333 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     window.location.hash = "";
     window.localStorage.clear(); // theme choices persist across mounts by design — isolate tests from each other
     vi.unstubAllGlobals();
+  });
+
+  it("attaches an authorized draft as a fresh undo baseline and clears it on principal change", async () => {
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+      draftId: "draft",
+      generation: 2,
+      packageKey: "map",
+      envelope: {
+        family: "map",
+        schemaVersion: "1.0",
+        format: "honua_map_package.v1",
+        body: { layers: [] },
+      },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>);
+    try {
+      const app = mount();
+      app.composition.apply({ name: "addLayer", layer: { id: "old", sourceId: "old" } });
+      await app.attachWorkspaceDraft("draft");
+      expect(app.composition.canUndo()).toBe(false);
+      expect(await app.applyHistoryAction("undo")).toBe(false);
+      expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "draft", generation: 2, packageKey: "map" });
+      app.session = fixtureSession();
+      expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+      expect(app.composition.canUndo()).toBe(false);
+    } finally {
+      get.mockRestore();
+    }
+  });
+
+  it.each(["command", "undo"] as const)(
+    "keeps an accepted %s coherent across same-principal cookie renewal",
+    async (mode) => {
+      const draft = {
+        draftId: "shared",
+        generation: 1,
+        packageKey: "map",
+        envelope: {
+          family: "map",
+          schemaVersion: "1.0",
+          format: "honua_map_package.v1",
+          body: { mapPackageId: "map", layers: [] },
+        },
+      } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+      const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+      let finish!: () => void;
+      const replace = vi
+        .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+        .mockImplementation(async (_id, request) => ({ ...draft, generation: 3, envelope: request.envelope }))
+        .mockImplementationOnce(
+          (_id, request) =>
+            new Promise((resolve) => {
+              finish = () => resolve({ ...draft, generation: 2, envelope: request.envelope });
+            }),
+        );
+      try {
+        const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+        const cookie = {
+          kind: "cookie" as const,
+          baseUrl: "/api/studio",
+          environmentId: "server",
+          principalId: "opaque-owner",
+          csrfToken: "old",
+          expiresAt: new Date(Date.now() + 60000).toISOString(),
+          onExpired: () => () => {},
+        };
+        app.session = cookie;
+        document.body.appendChild(app);
+        await app.attachWorkspaceDraft("shared");
+        const dispatch = (app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement).commandDispatch!;
+        if (mode === "undo") app.composition.apply({ name: "addLayer", layer: { id: "human", sourceId: "source" } });
+        const pending =
+          mode === "command"
+            ? dispatch([{ name: "addLayer", layer: { id: "human", sourceId: "source" } }]).then((outcome) => outcome.ok)
+            : app.applyHistoryAction("undo");
+        await vi.waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+        app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+        finish();
+        expect(await pending).toBe(true);
+        const accepted = mode === "command" ? ["human"] : [];
+        expect(app.composition.state.layers.map((layer) => layer.id)).toEqual(accepted);
+        expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "shared", generation: 2, packageKey: "map" });
+        expect((await dispatch([{ name: "addLayer", layer: { id: "next", sourceId: "source" } }])).ok).toBe(true);
+        const next = replace.mock.calls[1]![1];
+        expect(next.generation).toBe(2);
+        expect((next.envelope.body as { layers: { id: string }[] }).layers.map((layer) => layer.id)).toEqual([
+          ...accepted,
+          "next",
+        ]);
+      } finally {
+        get.mockRestore();
+        replace.mockRestore();
+      }
+    },
+  );
+
+  it("uses the renewed cookie transport when a prospective draft GET spans lease renewal", async () => {
+    const draft = {
+      draftId: "shared",
+      generation: 1,
+      packageKey: "map",
+      envelope: {
+        family: "map",
+        schemaVersion: "1.0",
+        format: "honua_map_package.v1",
+        body: { mapPackageId: "map", layers: [] },
+      },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    let finish!: () => void;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(draft);
+        }),
+    );
+    const writes: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        if (init?.method !== "PUT") throw new Error("Unrelated network disabled.");
+        writes.push(init);
+        const request = JSON.parse(String(init.body));
+        return new Response(
+          JSON.stringify({ success: true, data: { ...draft, generation: 2, envelope: request.envelope } }),
+        );
+      }),
+    );
+    try {
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      const cookie = {
+        kind: "cookie" as const,
+        baseUrl: "/api/studio",
+        environmentId: "server",
+        principalId: "opaque-owner",
+        csrfToken: "old",
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        onExpired: () => () => {},
+      };
+      app.session = cookie;
+      document.body.appendChild(app);
+      const pending = app.attachWorkspaceDraft("shared");
+      await vi.waitFor(() => expect(get).toHaveBeenCalled());
+      app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+      finish();
+      await pending;
+      const dispatch = (app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement).commandDispatch!;
+      expect((await dispatch([{ name: "addLayer", layer: { id: "next", sourceId: "source" } }])).ok).toBe(true);
+      expect(writes).toHaveLength(1);
+      expect(new Headers(writes[0]!.headers).get("X-CSRF-Token")).toBe("renewed");
+      expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "shared", generation: 2, packageKey: "map" });
+    } finally {
+      get.mockRestore();
+    }
+  });
+
+  it("creates a server map only through the explicit human action and observes its actual identity", async () => {
+    const draft = {
+      draftId: "created",
+      generation: 0,
+      packageKey: "new-map",
+      envelope: {
+        family: "map",
+        schemaVersion: "1.0",
+        format: "honua_map_package.v1",
+        body: { layers: [] },
+      },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft").mockResolvedValue(draft);
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    try {
+      const app = mount();
+      expect(create).not.toHaveBeenCalled();
+      await expect(app.createWorkspaceDraft("bad key")).rejects.toThrow("package key");
+      const identity = await app.createWorkspaceDraft("new-map");
+      expect(identity).toEqual({ draftId: "created", generation: 0, packageKey: "new-map" });
+      expect(create.mock.calls[0]?.[0].envelope.body).toMatchObject({ mapPackageId: "new-map", layers: [] });
+      expect(get).toHaveBeenCalledWith("created");
+      expect(app.composition.canUndo()).toBe(false);
+    } finally {
+      create.mockRestore();
+      get.mockRestore();
+    }
+  });
+
+  it("ignores an old in-flight draft observation after a session swap", async () => {
+    let resolve!: (value: Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>) => void;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    try {
+      const app = mount();
+      const pending = app.attachWorkspaceDraft("old");
+      await vi.waitFor(() => expect(get).toHaveBeenCalled());
+      app.session = fixtureSession();
+      resolve({ draftId: "old", generation: 0, packageKey: "old", envelope: { body: { layers: [] } } } as Awaited<
+        ReturnType<StudioLifecycleClient["getDraft"]>
+      >);
+      await expect(pending).rejects.toThrow("session changed");
+      expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+    } finally {
+      get.mockRestore();
+    }
+  });
+
+  it("pins a New map gesture before waiting for pending writes", async () => {
+    const app = mount();
+    let release!: () => void;
+    const prepare = vi.spyOn(app, "prepareWorkspaceTurn").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(undefined);
+        }),
+    );
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft");
+    try {
+      const pending = app.createWorkspaceDraft("new-map");
+      app.session = fixtureSession();
+      release();
+      await expect(pending).rejects.toThrow("session changed");
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      create.mockRestore();
+    }
+  });
+
+  it("does not discard a form edited during GET or advance the active draft generation", async () => {
+    const draft = {
+      draftId: "shared",
+      generation: 1,
+      packageKey: "map",
+      envelope: { body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("shared");
+      let resolve!: (value: typeof draft) => void;
+      get.mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      );
+      const pending = app.attachWorkspaceDraft("shared");
+      await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+      const field = document.createElement("textarea");
+      field.value = "unsaved edit";
+      app.appendChild(field);
+      resolve({ ...draft, generation: 2 });
+      await expect(pending).rejects.toThrow("pending Studio edits");
+      expect(field.value).toBe("unsaved edit");
+      field.remove();
+      expect((await app.prepareWorkspaceTurn())?.generation).toBe(1);
+    } finally {
+      get.mockRestore();
+    }
+  });
+
+  it.each(["before", "after"] as const)(
+    "hides the standalone composer when the host owns chat %s mounting",
+    (timing) => {
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      app.session = fixtureSession();
+      const adapter = {
+        submitTurn: async () => {
+          throw new Error("unused");
+        },
+      };
+      if (timing === "before") app.agentSessionAdapter = adapter;
+      document.body.appendChild(app);
+      const slot = app.shadowRoot!.querySelector<HTMLSlotElement>('slot[name="chat"]')!;
+      if (timing === "after") {
+        expect(slot.hidden).toBe(false);
+        app.agentSessionAdapter = adapter;
+      }
+      expect(slot.hidden).toBe(true);
+      const chat = app.querySelector("honua-studio-chat") as unknown as { agentSessionAdapter: unknown };
+      expect(chat.agentSessionAdapter).toBe(adapter);
+      expect(app.shadowRoot!.querySelector<HTMLSlotElement>('slot[name="canvas"]')!.hidden).toBe(false);
+      app.agentSessionAdapter = undefined;
+      expect(slot.hidden).toBe(false);
+      expect(app.querySelector("honua-studio-chat")).toBe(chat);
+    },
+  );
+
+  it("does not detach a host-owned agent session on view disconnect", () => {
+    const app = mount();
+    app.agentSessionAdapter = {
+      submitTurn: async () => {
+        throw new Error("unused");
+      },
+    };
+    const chat = app.querySelector("honua-studio-chat")!;
+    const detach = vi.spyOn(chat as unknown as { detachAgentSession(): void }, "detachAgentSession");
+    app.remove();
+    expect(detach).not.toHaveBeenCalled();
+  });
+
+  it("does not announce an authority swap on first pre-connect session assignment", () => {
+    const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+    const listener = vi.fn();
+    app.addEventListener("honua-workspace-draft-change", listener);
+    app.session = fixtureSession();
+    expect(listener).not.toHaveBeenCalled();
+    app.session = fixtureSession();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0]![0] as CustomEvent).detail).toBeNull();
+  });
+
+  it("prepares host turns without fetching or discarding unsaved authoring fields", async () => {
+    const app = mount();
+    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    const pending = document.createElement("textarea");
+    pending.value = "unsaved authoring value";
+    app.appendChild(pending);
+    await expect(app.prepareWorkspaceTurn()).rejects.toThrow("pending Studio edits");
+    expect(pending.value).toBe("unsaved authoring value");
+    expect(await app.refreshWorkspaceDraft()).toBe(false);
+    pending.remove();
+    const chat = app.querySelector("honua-studio-chat");
+    const composer = chat?.shadowRoot?.querySelector("textarea");
+    if (composer) composer.value = "user-authored pending prompt";
+    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("package-drafts"))).toBe(false);
   });
 
   it("mounts a shadow shell with the documented data-testids", () => {

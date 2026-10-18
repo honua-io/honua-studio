@@ -30,7 +30,7 @@ export interface BoundAuthoritativeStyle {
 export interface AuthoritativeStyleProviderOptions {
   readonly baseUrl: string;
   readonly documentUrl: string;
-  readonly getAuth: () => Pick<AuthSession, "getAccessToken"> | undefined;
+  readonly getAuth: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly fetchImpl?: typeof fetch;
   readonly signal?: AbortSignal;
 }
@@ -113,7 +113,7 @@ export class AuthoritativeStyleProvider {
   async #call(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const auth = this.options.getAuth();
     const endpoint = `${this.serverRoot}/mcp`;
-    const transport = this.options.fetchImpl ?? fetch;
+    const transport = this.options.fetchImpl ?? auth?.fetchRequest ?? fetch;
     const client = new McpClient({
       baseUrl: this.serverRoot,
       fetchImpl: async (input, init) => {

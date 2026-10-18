@@ -80,6 +80,113 @@ afterEach(() => {
 });
 
 describe("<honua-studio-chat>", () => {
+  it("does not reuse projected message ids for a subsequent host turn", async () => {
+    const el = mountChat();
+    el.setWorkspaceConversation([
+      { id: "message-1", role: "assistant", content: "Original answer" },
+      { id: "message-2", role: "user", content: "Original question" },
+    ]);
+    el.agentSessionAdapter = {
+      submitTurn: async () => {
+        throw new Error("New turn failed");
+      },
+    };
+    await el.sendMessage("New question");
+    expect(el.shadowRoot?.textContent).toContain("Original answer");
+    expect(el.shadowRoot?.textContent).toContain("Original question");
+    expect(el.shadowRoot?.textContent).toContain("New turn failed");
+  });
+
+  it("projects the shared conversation without modifying model history or pending annotations", () => {
+    const el = mountChat();
+    const annotation = el.addAnnotation({
+      id: "unsent",
+      kind: "layer",
+      payload: { layerId: "human-only" },
+      createdAt: "t",
+    });
+    expect(
+      el.setWorkspaceConversation([
+        { id: "turn-user", role: "user", content: "Question from the Console" },
+        { id: "turn-agent", role: "assistant", content: "Shared reply" },
+      ]),
+    ).toBe(true);
+    expect(el.shadowRoot?.textContent).toContain("Question from the Console");
+    expect(el.shadowRoot?.textContent).toContain("Shared reply");
+    expect(el.pendingAnnotations).toEqual([annotation]);
+  });
+
+  it("routes a host turn through the shared adapter without serializing human annotations", async () => {
+    const el = mountChat();
+    el.addAnnotation({
+      id: "human-selection",
+      kind: "layer",
+      payload: { layerId: "restricted-human-layer" },
+      createdAt: "t",
+    });
+    const submitTurn = vi.fn(async (_prompt: string, _options: unknown) => ({
+      status: "completed" as const,
+      rounds: 1,
+      text: "",
+      toolCalls: [],
+      events: [],
+      stopReason: "endTurn" as const,
+    }));
+    el.agentSessionAdapter = { submitTurn };
+    await el.sendMessage("  Show my map  ");
+    expect(submitTurn.mock.calls[0]?.[0]).toBe("Show my map");
+    expect(JSON.stringify(submitTurn.mock.calls[0])).not.toContain("restricted-human-layer");
+  });
+
+  it("keeps a host-owned turn running across view disconnect while explicit Stop still cancels", async () => {
+    const el = mountChat();
+    let signal: AbortSignal | undefined;
+    let finish!: () => void;
+    const adapter = {
+      submitTurn: async (_prompt: string, options: { signal?: AbortSignal }) => {
+        signal = options.signal;
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return {
+          status: "completed" as const,
+          rounds: 1,
+          text: "continued",
+          toolCalls: [],
+          events: [],
+          stopReason: "endTurn" as const,
+        };
+      },
+    };
+    el.agentSessionAdapter = adapter;
+    const pending = el.sendMessage("Continue across views");
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    el.remove();
+    expect(signal!.aborted).toBe(false);
+    finish();
+    await pending;
+    expect(el.agentSessionAdapter).toBe(adapter);
+    expect(el.streaming).toBe(false);
+    document.body.appendChild(el);
+    const next = el.sendMessage("Stop this one");
+    await vi.waitFor(() => expect(el.streaming).toBe(true));
+    el.cancel();
+    expect(signal!.aborted).toBe(true);
+    finish();
+    await next;
+  });
+
+  it("surfaces a rejected host-context capture as a failed turn", async () => {
+    const el = mountChat();
+    el.agentSessionAdapter = {
+      submitTurn: async () => {
+        throw new Error("Workspace target changed.");
+      },
+    };
+    await expect(el.sendMessage("Show my map")).resolves.toBeUndefined();
+    expect(el.shadowRoot?.textContent).toContain("Workspace target changed.");
+  });
+
   it("renders a governed share update inside the conversation and never treats it as a publish action", () => {
     const el = mountChat();
     const handle = {

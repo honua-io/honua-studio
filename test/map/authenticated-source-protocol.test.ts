@@ -98,7 +98,7 @@ describe("trusted authenticated map sources", () => {
   it.each([
     source,
     "https://honua.test/deployment/rest/services/City%20Maps/Roads/FeatureServer/7/query",
-    "https://honua.test/deployment/ogc/collections/parcels/items?limit=20",
+    "https://honua.test/deployment/ogc/features/collections/parcels/items?limit=20",
   ])("accepts actual feature endpoint %s", (url) => {
     expect(trustedSourceUrl(url, sourceBaseUrl, documentUrl)?.href).toBe(url);
   });
@@ -110,7 +110,7 @@ describe("trusted authenticated map sources", () => {
     "https://user:secret@honua.test/deployment/rest/services/Roads/FeatureServer/7/query",
     "https://honua.test/deployment/rest/services/Roads/FeatureServer",
     "https://honua.test/deployment/mcp",
-    "https://honua.test/deployment/ogc/collections/parcels",
+    "https://honua.test/deployment/ogc/features/collections/parcels",
     "https://honua.test/deployment/rest/services/%2f..%2f..%2fadmin/FeatureServer/7/query",
     "https://honua.test/deployment/rest/services/%5c..%5cadmin/FeatureServer/7/query",
     "https://honua.test/deployment/rest/services/%252fadmin/FeatureServer/7/query",
@@ -122,10 +122,10 @@ describe("trusted authenticated map sources", () => {
     expect(context.fetchImpl).not.toHaveBeenCalled();
   });
   it("resolves relative same-origin routes and preserves deployment boundaries", () => {
-    expect(trustedSourceUrl("/honua/ogc/collections/roads/items", "/honua/api", documentUrl)?.pathname).toBe(
-      "/honua/ogc/collections/roads/items",
+    expect(trustedSourceUrl("/honua/ogc/features/collections/roads/items", "/honua/api", documentUrl)?.pathname).toBe(
+      "/honua/ogc/features/collections/roads/items",
     );
-    expect(trustedSourceUrl("/ogc/collections/roads/items", "/honua/api", documentUrl)).toBeUndefined();
+    expect(trustedSourceUrl("/ogc/features/collections/roads/items", "/honua/api", documentUrl)).toBeUndefined();
   });
   it("transforms only trusted Source requests and never puts credentials in the URL", async () => {
     const context = setup();

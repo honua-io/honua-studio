@@ -165,3 +165,5 @@ export {
   setGpSteps,
   validateGpPackageBodyStructurally,
 } from "../gp/index.js";
+
+export { createWorkspaceAgentSession } from "../workspace-agent.js";

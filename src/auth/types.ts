@@ -33,7 +33,7 @@ export type Unsubscribe = () => void;
  * (REQ-003). Fully documented in docs/embed-session.md — that document is
  * the source of truth this type mirrors.
  */
-export interface SessionAdapter {
+export interface BearerSessionAdapter {
   /**
    * Resolve the current bearer token, refreshing on the host's side if the
    * host deems it necessary. Resolve to `undefined` (never throw for the
@@ -48,6 +48,19 @@ export interface SessionAdapter {
   onExpired(listener: () => void): Unsubscribe;
 }
 
+/** Browser host authentication without exposing server bearer credentials. */
+export interface CookieSessionAdapter {
+  readonly kind: "cookie";
+  readonly baseUrl: string;
+  readonly expiresAt: string;
+  readonly csrfToken: string;
+  readonly environmentId: string;
+  readonly principalId?: string;
+  onExpired(listener: () => void): Unsubscribe;
+}
+
+export type SessionAdapter = BearerSessionAdapter | CookieSessionAdapter;
+
 export interface GetAccessTokenOptions {
   /** Force a refresh even if the current credential looks unexpired (used for the 401 retry). */
   forceRefresh?: boolean;
@@ -56,6 +69,8 @@ export interface GetAccessTokenOptions {
 /** The common surface both auth-session implementations expose. */
 export interface AuthSession {
   readonly mode: "standalone" | "host-adapter";
+  /** Optional bounded host transport, including cookie credentials and CSRF. */
+  fetchRequest?: typeof fetch;
   getState(): AuthState;
   subscribe(listener: AuthSessionListener): Unsubscribe;
   /** Resolve the current bearer token (or `undefined` when signed out / expired). Never throws. */

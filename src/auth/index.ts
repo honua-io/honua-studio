@@ -41,7 +41,11 @@ const HOST_SESSION_GLOBAL = "__HONUA_STUDIO_HOST_SESSION__";
 function isSessionAdapter(value: unknown): value is SessionAdapter {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<SessionAdapter>;
-  return typeof candidate.getToken === "function" && typeof candidate.onExpired === "function";
+  return (
+    typeof candidate.onExpired === "function" &&
+    (("getToken" in candidate && typeof candidate.getToken === "function") ||
+      ("kind" in candidate && candidate.kind === "cookie"))
+  );
 }
 
 /** Reads `window.__HONUA_STUDIO_HOST_SESSION__`, if present and shaped like a {@link SessionAdapter}. */

@@ -136,6 +136,7 @@ export function appShellStyles(): string {
     .entity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--hn-space-2, 8px); }
     .entity-list li { border-bottom: 1px solid var(--hn-line, #dfe4df); padding-bottom: var(--hn-space-2, 8px); }
     .entity-list li:last-child { border-bottom: none; padding-bottom: 0; }
+    slot[name="chat"][hidden] { display: none; }
     .app-slots { display: flex; flex-direction: column; gap: var(--hn-space-5, 24px); }
     /* honua-studio#23 REQ-004 — the live-composition control group. */
     .app-composition-mode { display: flex; align-items: center; gap: var(--hn-space-2, 8px); position: relative; }

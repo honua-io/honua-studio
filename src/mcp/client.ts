@@ -74,6 +74,7 @@ import {
 
 /** The minimal token surface this client depends on — matches `studio-client.ts`'s/`sse-transport.ts`'s `TokenSource`, satisfied by `AuthSession`. */
 export interface TokenSource {
+  fetchRequest?: typeof fetch;
   getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | undefined>;
 }
 
@@ -125,7 +126,7 @@ export class McpClient {
     // `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`.
     // Only the DEFAULT needs this; a caller-supplied `fetchImpl` (tests) is
     // used exactly as given.
-    this.#fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
+    this.#fetchImpl = options.fetchImpl ?? options.auth?.fetchRequest ?? fetch.bind(globalThis);
   }
 
   /** The `Mcp-Session-Id` this client was bound to on `initialize`, or `undefined` before the first call. */

@@ -114,16 +114,20 @@ describe("<honua-studio-canvas> map surface (honua-studio#23)", () => {
     expect(element.auth).toBe(next);
   });
 
-  it("authenticates against the configured data root even when the API root differs", async () => {
-    installRuntimeConfig({
-      ...runtimeConfig(),
-      serverBaseUrl: "https://api.test/admin/api",
-      mcpBaseUrl: "https://data.test/honua",
-    });
-    const { factoryCalls } = await mountWithMap();
-    expect(factoryCalls[0]?.sourceBaseUrl).toBe("https://data.test/honua");
-    expect(factoryCalls[0]?.legacySourceBaseUrl).toBe("https://api.test/admin/api");
-  });
+  it(
+    "authenticates against the configured data root even when the API root differs",
+    async () => {
+      installRuntimeConfig({
+        ...runtimeConfig(),
+        serverBaseUrl: "https://api.test/admin/api",
+        mcpBaseUrl: "https://data.test/honua",
+      });
+      const { factoryCalls } = await mountWithMap();
+      expect(factoryCalls[0]?.sourceBaseUrl).toBe("https://data.test/honua");
+      expect(factoryCalls[0]?.legacySourceBaseUrl).toBe("https://api.test/admin/api");
+    },
+    MAP_START_TIMEOUT_MS,
+  );
 
   it("restarts failed sources when a direct host session arrives and respects a custom data root", async () => {
     const { element, factoryCalls } = await mountWithMap();

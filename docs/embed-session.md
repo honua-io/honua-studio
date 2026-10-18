@@ -180,3 +180,94 @@ pending loads; removing the deck also cancels its requests. Public external and
 host-provided loaders continue to decide their own authorization, including when
 the Honua session is unavailable. Widgets retain the
 500-feature request bound and report truncation.
+
+## Console cookie host session
+
+A Console host may assign this session before connecting the element:
+
+```ts
+studio.session = {
+  kind: "cookie",
+  baseUrl: "/api/studio",
+  environmentId: session.environmentId,
+  expiresAt: session.expiresAt,
+  csrfToken: session.csrfToken,
+  onExpired: subscribeToHostExpiry,
+};
+```
+
+Studio reports `fresh` without a bearer in `AuthState` or `getAccessToken()`.
+Requests carry same-origin cookies, an environment binding, and CSRF on mutations;
+expiry or a 401 stops further transport. The host BFF must independently authorize
+and bound every route. Cookie transport permits Studio REST, read-only layer
+catalog MCP discovery, and bounded feature queries. It never lends human
+credentials to the model's canonical tools.
+
+Build `npm run build:console-assets` for `dist-console/console.js`, `style.css`,
+and its complete dynamic chunk/worker directory. This production entry exports
+registration, the existing SDK session/verifier, and Processes adapters without
+fixture credentials or automatic mounting. The Console owns one shared agent
+session using its separately authenticated agent BFF. Assign
+`studio.agentSessionAdapter.submitTurn(prompt, {signal, onEvent})` to retain the
+same host context-capture and turn loop. Supplying this adapter hides Studio's
+standalone chat slot: the host supplies the one primary composer across views.
+Removing it restores the standalone composer. The hidden chat bridge retains
+session/context projection, explicit cancellation and activity tracking; view
+navigation does not cancel host-owned turns.
+
+`studio.addPublishedLayer(receipt)` resolves an actual published layer against
+live catalog locators before applying a map command; it fails when no unique
+source exists. Built-in Processes graphs use the existing server workflow-package
+compiler and orchestration engine. The separate local custom-code bridge uses
+immutable project/fixture snapshots and the installed GP devkit inside a pinned
+container. A successful file run is not an imported dataset or a published layer:
+the custom-code adapter verifies artifact bytes, uses normal import, and then
+uses the returned physical dataset identity for publication. Async operations
+remain pending until their actual result is observed.
+
+The host calls `await studio.attachWorkspaceDraft(draftId)` after native turns
+and when restoring a `studio-composition` task. This reads the authorized
+`package-drafts/{draftId}` REST resource and observes its actual body, without
+replaying tools or injecting model history. `honua-workspace-draft-change` emits
+`{draftId, generation, packageKey}` from that resource. Persist the typed task
+reference and pass `{draftId,generation}` to the shared SDK session's `attachDraft`.
+Human canvas edits and undo/redo replace the same draft with optimistic generation
+checks and preserve envelope metadata; a conflict requires explicit reread, with
+no overwrite retry. Cookie canvas editing refuses local success before a shared
+draft is attached. `setWorkspaceConversation(messages)` projects authorized host
+conversation into its transcript projection without changing the SDK's model history;
+it returns false while that bridge streams. The host owns the visible conversation.
+
+Review builds currently use the separately packed SDK review artifact containing
+source dispatch fix `da4003fe2`, not a claimed published 0.2.3 release. Record the
+actual tarball SHA and Studio commit in the embedding application's asset manifest.
+
+`build:console-assets` fails closed unless the installed SDK session bytes match
+the reviewed schema-aware dispatch artifact. A normal clean install of published
+0.2.2 can still build standalone Studio, but cannot emit this broad native bundle.
+Install the review tarball with `npm install --no-save --ignore-scripts
+--package-lock=false /path/to/honua-sdk-js-0.2.3.tgz` after verifying SHA-256
+`306596b48f96291df65b54da8d7db24cf5d3c8edd6942e8424b53728dde6e8fa`.
+The build emits `SDK-PROVENANCE.json` and license notices. Release qualification
+requires adopting the actual immutable published SDK release, updating this pin
+and its provenance, and repeating the native-session qualification.
+
+Before capturing a turn, `await studio.prepareWorkspaceTurn()` flushes accepted
+human edits and returns their `{draftId,generation,packageKey}` without fetching
+or overwriting state. It refuses pending form changes or failed writes. Compare
+its draft identity to the synchronously captured task; never retarget a prompt
+when the user switches context while it waits. For idle external observation,
+`refreshWorkspaceDraft()` returns false while unsaved authoring fields or a failed
+write need reconciliation. The host also suppresses polling during native turns.
+
+### Shared task attachment
+
+Cookie hosts provide a stable opaque `principalId` for the operator/environment partition. Rotating CSRF or expiry for the same principal retains the observed draft and renews its REST transport; changing principal or environment clears the draft and emits `honua-workspace-draft-change` with undefined detail. Hosts must clear the shared SDK draft with `attachDraft(undefined)` on that event.
+
+`app.createWorkspaceDraft(packageKey)` is an explicit human action. It accepts a trimmed key matching `[A-Za-z0-9._-]{1,200}`, creates an empty canonical map through the authenticated lifecycle REST API, then reads and attaches the actual server draft. It returns `{draftId,generation,packageKey}`. Viewing the canvas or submitting a prompt never creates a draft implicitly. Existing lifecycle `honua-studio-lifecycle-activity` events with kind `draft-loaded` or `version-reopened` identify an actual draft for guarded authorized attachment.
+
+The built-in Processes element exposes `prepareWorkspaceTask()` returning `{packageId,version,contentHash}` only after pending saves settle and the current graph is validated. `attachWorkspaceTask(reference)` reads the immutable version and verifies all three fields before projecting its graph; it returns false when local editing would be discarded. Hosts bind these references as server task kind `workflow-package`, id `packageId`, revision `version`, and `contentHash`. Raw graph/source content is not automatically included in prompts. Local custom source editing has no server workflow-package authority.
+
+The custom Processes client takes a `workspaceId: () => string` getter and sends `X-Honua-Workspace` on each bounded BFF request. Its explicit human `bind()` action uses the configured server/daemon pairing; no daemon credential reaches JavaScript. Saving includes the observed project revision and file SHA. Running first retains an immutable source/input snapshot, persists a command reference, and reconciles an uncertain response through `GET commands/{commandId}` before any retry.
+
+`custom.prepareWorkspaceTask()` waits for pending UI writes, rejects unsaved source or an externally changed project, and returns `{projectId,revision,sourceDigest}`. `attachWorkspaceTask(reference)` and `refreshWorkspaceTask()` read actual authorized project state and preserve dirty text. `honua-local-process-task-change` carries only that reference, or undefined while source is unsaved. Hosts bind this as task kind `local-process-workspace`, id `projectId`, revision `revision`, and contentHash `sourceDigest`. Binding/ownership authorization remains separate from context selection; the canonical server captures an actual immutable snapshot for the turn. Local run and artifact identities remain distinct from imported datasets, workflow packages, and map layers.

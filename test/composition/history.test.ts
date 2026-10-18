@@ -9,6 +9,22 @@ import {
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 
 describe("composition/history CompositionHistory (undo/redo)", () => {
+  it("authorized attachment resets undo and redo boundaries", () => {
+    const history = new CompositionHistory(createEmptyCompositionState());
+    history.apply({ name: "addLayer", layer: { id: "previous", sourceId: "previous" } });
+    history.undo();
+    expect(history.canRedo()).toBe(true);
+    const attached = {
+      ...createEmptyCompositionState(),
+      layers: [{ id: "authorized", sourceId: "authorized", visible: true }],
+    };
+    history.resetBaseline(attached);
+    expect(history.current).toBe(attached);
+    expect(history.canUndo()).toBe(false);
+    expect(history.canRedo()).toBe(false);
+    expect(history.undo()).toBeUndefined();
+  });
+
   it("apply pushes a revision; undo restores the prior state; redo restores the undone one", () => {
     const history = new CompositionHistory(createEmptyCompositionState());
     expect(history.canUndo()).toBe(false);

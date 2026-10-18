@@ -136,12 +136,12 @@ function toWireEnvelope(
 }
 
 /** `StudioPackageDraft` -> the fields the seam reads, with the body checked rather than asserted. */
-function toCompositionDraft(draft: {
+export function toCompositionDraft(draft: {
   readonly draftId: string;
   readonly itemId?: string;
   readonly packageKey: string;
   readonly generation: number;
-  readonly envelope: StudioPackageEnvelope;
+  readonly envelope: { readonly body?: unknown };
 }): CompositionDraft {
   return {
     draftId: draft.draftId,

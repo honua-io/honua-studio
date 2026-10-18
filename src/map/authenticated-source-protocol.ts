@@ -11,7 +11,7 @@ export interface AuthenticatedSourceOptions {
   /** Older host catalogs resolve feature routes beneath this API root verbatim. */
   readonly legacySourceBaseUrl?: string;
   readonly documentUrl: string;
-  readonly getAuth: () => Pick<AuthSession, "getAccessToken"> | undefined;
+  readonly getAuth: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly onError?: (error: Error) => void;
   readonly fetchImpl?: typeof fetch;
 }
@@ -41,7 +41,7 @@ export function trustedSourceUrl(
       const route = target.pathname.slice(prefix.length);
       if (
         /^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(route) ||
-        /^\/ogc\/collections\/[^/]+\/items$/.test(route)
+        /^\/ogc\/features\/collections\/[^/]+\/items$/.test(route)
       )
         return target;
     }
@@ -60,7 +60,6 @@ export async function fetchAuthenticatedFeatureCollection(
 ): Promise<Record<string, unknown>> {
   const target = trustedSourceUrl(url, options.sourceBaseUrl, options.documentUrl, options.legacySourceBaseUrl);
   if (!target) throw new Error(`${label} is outside the trusted Honua feature endpoints.`);
-  const fetchImpl = options.fetchImpl ?? fetch;
   for (let attempt = 0; attempt < 2; attempt++) {
     signal.throwIfAborted();
     const auth = options.getAuth();
@@ -68,7 +67,7 @@ export async function fetchAuthenticatedFeatureCollection(
     signal.throwIfAborted();
     if (auth !== options.getAuth())
       throw new Error(`The Studio session changed during the ${label.toLowerCase()} request.`);
-    const response = await fetchImpl(target.href, {
+    const response = await (options.fetchImpl ?? auth?.fetchRequest ?? fetch)(target.href, {
       method: "GET",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal: signal,

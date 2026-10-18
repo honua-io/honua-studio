@@ -1,3 +1,4 @@
+import type { BearerSessionAdapter } from "../../src/auth/types.js";
 /**
  * A minimal fixture implementation of `SessionAdapter`
  * (src/auth/types.ts, docs/embed-session.md) — exactly what a third-party
@@ -9,9 +10,8 @@
  * the mock honua-server's catalog/packages endpoints validate it, unlike
  * this adapter's own `getToken()`/`onExpired()`, which are unconditional).
  */
-import type { SessionAdapter } from "../../src/elements/types.js";
 
-export interface FixtureSessionAdapter extends SessionAdapter {
+export interface FixtureSessionAdapter extends BearerSessionAdapter {
   /** Fixture-only escape hatch (not part of `SessionAdapter`) so a Playwright spec can drive `onExpired`. */
   triggerExpired(): void;
 }

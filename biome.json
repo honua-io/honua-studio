@@ -47,6 +47,6 @@
       "*.ts",
       "*.json"
     ],
-    "ignore": ["dist", "node_modules", ".tmp", "harness/blazor-host/StudioHost"]
+    "ignore": ["dist", "dist-console", "node_modules", ".tmp", "harness/blazor-host/StudioHost"]
   }
 }

@@ -19,6 +19,7 @@ import {
   type StudioAgentSessionOptions,
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
+import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 
 import {
   type ActivityLog,
@@ -105,6 +106,36 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   #annotationSeq = 0;
   #activeAbort: AbortController | undefined;
   #agentSession: StudioAgentSession | undefined;
+  public agentSessionAdapter: WorkspaceAgentSessionAdapter | undefined;
+  /** Human-visible projection only; this never modifies the model's session history. */
+  public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
+    if (this.streaming) return false;
+    const ids = new Set<string>();
+    for (const message of messages) {
+      if (
+        !message.id ||
+        ids.has(message.id) ||
+        !["user", "assistant"].includes(message.role) ||
+        typeof message.content !== "string"
+      )
+        throw new Error("Invalid workspace conversation projection.");
+      ids.add(message.id);
+    }
+    this.#state = {
+      ...this.#state,
+      messages: messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.content,
+        annotations: [],
+        toolCalls: [],
+        status: "complete" as const,
+      })),
+    };
+    this.render();
+    return true;
+  }
+
   #agentMessageId: string | undefined;
   #shareNote: string | undefined;
 
@@ -255,8 +286,12 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   protected onDisconnect(): void {
     this.#authUnsubscribe?.();
     this.#authUnsubscribe = undefined;
-    this.#activeAbort?.abort();
-    this.#activeAbort = undefined;
+    // The host owns shared turns across view navigation. Explicit cancel and
+    // authority replacement still abort through the retained controller.
+    if (!this.agentSessionAdapter) {
+      this.#activeAbort?.abort();
+      this.#activeAbort = undefined;
+    }
   }
 
   /** Adds an annotation reference chip to the composer (spec REQ-012). Returns the resolved `AnnotationRef`. */
@@ -320,11 +355,11 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     if (!trimmed || this.#agentSessionPending) return;
     // StudioAgentSession owns one ordered history. A second concurrent turn
     // would interleave events/tool results and corrupt that history.
-    if (this.#agentSession && this.streaming) return;
+    if ((this.#agentSession || this.agentSessionAdapter) && this.streaming) return;
 
     const annotations = this.#state.pendingAnnotations;
-    const wireContent = composeMessageContent(trimmed, annotations);
-    if (!this.#agentSession) this.#history.push({ role: "user", content: wireContent });
+    const wireContent = this.agentSessionAdapter ? trimmed : composeMessageContent(trimmed, annotations);
+    if (!this.#agentSession && !this.agentSessionAdapter) this.#history.push({ role: "user", content: wireContent });
 
     const userMessageId = this.#nextMessageId();
     this.#state = chatReducer(this.#state, {
@@ -356,10 +391,15 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
     this.#activeAbort = controller;
     let settled = false;
 
-    if (this.#agentSession) {
+    if (this.#agentSession || this.agentSessionAdapter) {
       this.#agentMessageId = assistantMessageId;
       try {
-        const turn = await this.#agentSession.chat(wireContent, { signal: controller.signal });
+        const turn = this.agentSessionAdapter
+          ? await this.agentSessionAdapter.submitTurn(wireContent, {
+              signal: controller.signal,
+              onEvent: (event) => this.#consumeAgentSessionEvent(event),
+            })
+          : await this.#agentSession!.chat(wireContent, { signal: controller.signal });
         if (turn.status === "completed") {
           settled = true;
           const event = { type: "messageStop" as const, stopReason: turn.stopReason ?? "endTurn" };
@@ -387,6 +427,19 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
             errorMessage,
           });
         }
+      } catch (error) {
+        settled = true;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.#state = chatReducer(this.#state, {
+          type: "ai-event",
+          id: assistantMessageId,
+          event: { type: "error", errorMessage },
+        });
+        this.activityLog.append("assistant_turn_error", { messageId: assistantMessageId, errorMessage });
+        this.dispatchTypedEvent<HonuaStudioChatTurnErrorDetail>("honua-studio-chat-turn-error", {
+          messageId: assistantMessageId,
+          errorMessage,
+        });
       } finally {
         this.#agentMessageId = undefined;
         if (this.#activeAbort === controller) this.#activeAbort = undefined;
@@ -552,8 +605,10 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   }
 
   #nextMessageId(): string {
-    this.#messageSeq += 1;
-    return `message-${this.#messageSeq}`;
+    let id: string;
+    do id = `message-${++this.#messageSeq}`;
+    while (this.#state.messages.some((message) => message.id === id));
+    return id;
   }
 
   #nextAnnotationId(): string {

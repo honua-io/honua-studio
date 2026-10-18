@@ -101,6 +101,7 @@ import type {
 
 /** The minimal token surface this client depends on — matches `client/studio-client.ts`'s/`mcp/client.ts`'s `TokenSource`, satisfied by `AuthSession`. */
 export interface TokenSource {
+  fetchRequest?: typeof fetch;
   getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | undefined>;
 }
 
@@ -151,7 +152,7 @@ export class StudioLifecycleClient {
     this.#auth = options.auth;
     // Bound to globalThis — see mcp/client.ts's identical comment: browser
     // `fetch` is receiver-sensitive, and only the DEFAULT needs binding.
-    this.#fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
+    this.#fetchImpl = options.fetchImpl ?? options.auth?.fetchRequest ?? fetch.bind(globalThis);
   }
 
   // -- Capability discovery --------------------------------------------------

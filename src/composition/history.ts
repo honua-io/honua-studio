@@ -196,6 +196,14 @@ export class CompositionHistory {
    * exactly like `apply()`. Identical snapshots preserve both stacks: a
    * readback or draft creation is not a new edit and must not consume redo.
    */
+  /** Establish an authorized attachment boundary without retaining revisions from another draft. */
+  public resetBaseline(state: CompositionState): void {
+    this.#assertNotReconciling();
+    this.#undoStack = [{ state, timestamp: this.#now() }];
+    this.#redoStack = [];
+    this.#syncError = undefined;
+  }
+
   public replaceState(state: CompositionState): void {
     this.#assertNotReconciling();
     if (canonicalCompositionJson(state) === canonicalCompositionJson(this.current)) return;
