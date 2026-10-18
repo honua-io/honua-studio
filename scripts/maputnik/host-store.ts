@@ -8,8 +8,15 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
   if (!channel || !/^[a-f0-9]{64}$/.test(channel) || !parentOrigin || new URL(parentOrigin).origin !== parentOrigin)
     throw new Error("A pinned Honua host channel is required.");
   let latest: StyleSpecificationWithId | undefined;
-  let inputSequence = 0;
-  let acceptedSequence = 0;
+  const pendingInputs = new Set<Element>();
+  let committing: Element | undefined;
+  const inputKey = (element: Element) => element.closest(".cm-editor") ?? element;
+  for (const name of ["input", "change", "focusout"]) document.addEventListener(name, event => {
+    if (!(event.target instanceof Element)) return;
+    const key = inputKey(event.target);
+    committing = key;
+    queueMicrotask(() => { if (committing === key) committing = undefined; });
+  }, true);
   let resolveInitial: ((style: StyleSpecificationWithId) => void) | undefined;
   const initial = new Promise<StyleSpecificationWithId>(resolve => { resolveInitial = resolve; });
   const send = (data: object) => parent.postMessage({...data, channel}, parentOrigin);
@@ -20,7 +27,7 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
   };
   document.addEventListener("input", event => {
     if (!(event.target instanceof Element) || !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")) return;
-    inputSequence++;
+    pendingInputs.add(inputKey(event.target));
     send({type: "honua:style-input"});
   }, true);
   window.addEventListener("message", event => {
@@ -33,7 +40,7 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
       document.getElementById("app")?.setAttribute("inert", "");
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       setTimeout(() => send({type: "honua:style-flushed", requestId: event.data.requestId,
-        settled: inputSequence === acceptedSequence, style: documentStyle()}), 0);
+        settled: pendingInputs.size === 0, style: documentStyle()}), 0);
       return;
     }
     if (event.data.type === "honua:style-fields") {
@@ -44,7 +51,7 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
     const style = event.data.style;
     if (!style || typeof style !== "object" || style.version !== 8 || JSON.stringify(style).length > 1048576) return;
     latest = {...style, id: "honua-host-draft"};
-    acceptedSequence = inputSequence;
+    pendingInputs.clear();
     if (resolveInitial) { resolveInitial(latest!); resolveInitial = undefined; }
     else onStyleChanged(latest!, {save: false, addRevision: false, initialLoad: true});
   });
@@ -55,9 +62,10 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
     getLatestStyle: async () => latest!,
     save(style) {
       latest = style;
-      acceptedSequence = inputSequence;
-      const document = documentStyle();
-      if (JSON.stringify(document).length <= 1048576) send({type: "honua:style-change", style: document});
+      const active = committing ?? (document.activeElement ? inputKey(document.activeElement) : undefined);
+      if (active) pendingInputs.delete(active);
+      const snapshot = documentStyle();
+      if (JSON.stringify(snapshot).length <= 1048576) send({type: "honua:style-change", style: snapshot});
       return style;
     }
   };
