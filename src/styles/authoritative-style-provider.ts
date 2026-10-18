@@ -276,7 +276,7 @@ export class AuthoritativeStyleProvider {
     if (compatible.length !== 1) throw new Error("Stylesheet must identify exactly one compatible vector layer.");
     const selected = compatible[0];
     if (!selected) throw new Error("Compatible stylesheet layer is missing.");
-    const appliedLayers = definition.layers.filter((layer) => layer.source === selected.source && layer["source-layer"] === selected["source-layer"]);
+    const appliedLayers = definition.layers.filter((layer) => (layer.id === selected.id || layer.type === "symbol") && layer.source === selected.source && layer["source-layer"] === selected["source-layer"]);
     for (const layer of appliedLayers) for (const field of expressionFields(layer))
       if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
     const override: Record<string, unknown> = {};
