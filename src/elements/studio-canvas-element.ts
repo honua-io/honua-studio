@@ -462,6 +462,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     deck.getAuth = this.#widgetAuth;
     deck.refreshSession();
     deck.sourceAuthBaseUrl = this.#sourceAuthBaseUrl;
+    deck.sourceCatalogBaseUrl = this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? runtimeMcpBaseUrl() : undefined;
     deck.sourceBaseUrl = this.#sourceBaseUrl;
     deck.sourceCatalog = this.#sourceCatalog;
     deck.dataLoader = this.#widgetDataLoader;
@@ -704,6 +705,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
           : {}),
         getAuth: () => resolveInjectedAuth(this),
         sourceAuthBaseUrl: this.#sourceAuthBaseUrl,
+        ...(this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { sourceCatalogBaseUrl: runtimeMcpBaseUrl() } : {}),
         projection: {
           baseUrl: this.#sourceBaseUrl,
           ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),

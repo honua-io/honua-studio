@@ -119,6 +119,7 @@ export interface CompositionMapViewOptions {
   readonly projection?: CompositionMapProjectionOptions;
   readonly getAuth?: () => AuthSession | undefined;
   readonly sourceAuthBaseUrl?: string;
+  readonly sourceCatalogBaseUrl?: string;
   /** Overrides the dynamic `maplibre-gl` import — the seam unit tests use. */
   readonly mapFactory?: CompositionMapFactory;
   /** Camera animation duration in ms. `0` jumps (what the browser suite uses so assertions are not racing an easing curve). Default 700. */
@@ -401,7 +402,7 @@ export class CompositionMapView {
         attributionText: "Honua Studio",
         getAuth: this.#options.getAuth,
         sourceBaseUrl: this.#options.sourceAuthBaseUrl ?? this.#options.projection?.baseUrl,
-        legacySourceBaseUrl: this.#options.projection?.baseUrl ?? "/api",
+        legacySourceBaseUrl: this.#options.sourceCatalogBaseUrl ?? this.#options.projection?.baseUrl ?? "/api",
         onSourceIncomplete: (message) => {
           this.#statusDetail = `Incomplete map preview: ${message}`;
           this.#notify();
