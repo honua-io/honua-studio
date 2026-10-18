@@ -225,6 +225,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       chat.detachAgentSession();
       chat.agentSessionAdapter = adapter;
     }
+    this.shadowRoot?.querySelector('slot[name="chat"]')?.toggleAttribute("hidden", Boolean(adapter));
   }
 
   #auth: AuthSession | undefined;
@@ -330,6 +331,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const state = await binding.observe(draftId);
       if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
       if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
+      // A same-principal lease can renew while the prospective GET is in flight.
+      // Adopt its observed state with the current transport, not the expired lease.
+      binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
       this.#workspaceDraft = binding;
       this.#workspaceDraftConflict = false;
       const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
@@ -496,13 +500,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       previous.principalId === session.principalId &&
       previous.environmentId === session.environmentId;
     if (!samePrincipal) {
+      this.#workspaceAuthGeneration++;
       this.#workspaceDraft = undefined;
       this.#workspaceDraftConflict = false;
       this.composition.resetBaseline(createEmptyCompositionState());
       if (hadAuthority) this.#announceWorkspaceDraft();
     }
     this.#session = session;
-    this.#workspaceAuthGeneration++;
     if (!this.isConnected) return;
     this.resetAuth();
     // A host-owned catalog does not reload on session replacement. Invalidate
@@ -1037,6 +1041,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.appendChild(canvas);
     }
 
+    if (this.#workspaceAgentAdapter) this.agentSessionAdapter = this.#workspaceAgentAdapter;
+
     // honua-studio#7: wire the auto-composed chat/canvas pair to
     // `.composition`/`.toolCallOrchestrator` — a host that supplied its own
     // children instead is responsible for its own wiring (same "no
@@ -1473,7 +1479,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         </header>
         <main id="view" class="app-view" data-testid="app-view"></main>
         <div class="app-slots" data-testid="app-slots">
-          <slot name="chat"></slot>
+          <slot name="chat" ${this.#workspaceAgentAdapter ? "hidden" : ""}></slot>
           <slot name="canvas"></slot>
         </div>
       </div>
