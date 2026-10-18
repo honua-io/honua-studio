@@ -220,3 +220,24 @@ describe("authoritative map-local style precedence", () => {
     expect(result.mapPackage.styleRefs?.[0].body).toEqual({ "hi-parcels": { paint: { "fill-color": "#112233" } } });
   });
 });
+
+it("preserves inline snapshot bodies when explicit binding metadata is also present", () => {
+  const body = { owner: { paint: { "fill-color": "#884422" } } };
+  const bindings = [{ styleLayerId: "catalog", targetLayerId: "owner", layerType: "fill" }];
+  const state = {
+    ...stateFrom([{ name: "addLayer", layer: { id: "owner", sourceId: "hi-parcels" } }]),
+    layers: [
+      {
+        id: "owner",
+        sourceId: "hi-parcels",
+        visible: true,
+        styleRef: { kind: "style-ref" as const, styleId: "snapshot" },
+      },
+    ],
+    styleRefs: [{ styleId: "snapshot", body, layerBindings: bindings }],
+  };
+  const exported = compositionToMapPackage(state, { catalog: CATALOG }).mapPackage;
+  expect(exported.styleRefs).toEqual([{ styleId: "snapshot", body }]);
+  expect(JSON.parse(JSON.stringify(exported)).styleRefs[0].body).toEqual(body);
+  expect(state.styleRefs[0].body).toEqual(body);
+});

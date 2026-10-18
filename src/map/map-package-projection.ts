@@ -314,7 +314,11 @@ export function compositionToMapPackage(
         styleRefs.push({ styleId: layer.styleRef.styleId, body, layerBindings: authoritative.layerBindings });
         continue;
       }
-      if (canonicalReference?.layerBindings && options.authoritativeStyles === undefined) {
+      if (
+        canonicalReference?.layerBindings &&
+        canonicalReference.body === undefined &&
+        options.authoritativeStyles === undefined
+      ) {
         // Durable export keeps live references, never a hydrated catalog snapshot.
         if (!emittedLiveRefs.has(canonicalReference.styleId)) {
           emittedLiveRefs.add(canonicalReference.styleId);
