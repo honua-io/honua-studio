@@ -31,7 +31,8 @@ export interface SharedStylePreviewOptions {
   readonly sourceBaseUrl: string;
   readonly legacySourceBaseUrl?: string;
   readonly documentUrl: string;
-  readonly styleProvider: Pick<AuthoritativeStyleProvider, "read" | "describeSource">;
+  readonly styleProvider: Pick<AuthoritativeStyleProvider, "read" | "describeSource"> &
+    Partial<Pick<AuthoritativeStyleProvider, "describeSourceBounds">>;
   readonly mapFactory?: CompositionMapFactory;
   readonly onStatus?: (status: { readonly ready: boolean; readonly message?: string }) => void;
 }
@@ -49,7 +50,11 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
   const current = (revision: number) => !disposed && revision === epoch && getAuthority() === authority;
   const sources = consumer.kind === "source" ? [consumer.source] : [...(options.catalog ?? [])];
 
-  async function project(candidate: MapStyleDocument): Promise<HonuaStyleSpecification> {
+  async function project(candidate: MapStyleDocument): Promise<{
+    style: HonuaStyleSpecification;
+    view?: HonuaMapPackage["initialView"];
+    bounds?: readonly [number, number, number, number];
+  }> {
     const errors = validateMapStyleEdit(baseline, candidate);
     if (errors.length) throw new Error(errors[0]);
     let pkg: HonuaMapPackage;
@@ -108,7 +113,8 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
       };
     }
     const style = await composeStyle(pkg, pkg.mapSpec, {});
-    if (style.sprite || style.glyphs || style.imports) throw new Error("External preview assets are not supported.");
+    if (style.sprite || style.glyphs || (style as unknown as Record<string, unknown>).imports)
+      throw new Error("External preview assets are not supported.");
     for (const source of Object.values(style.sources)) {
       if (
         source.type !== "geojson" ||
@@ -122,7 +128,9 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
       )
         throw new Error("Preview source is outside the authorized deployment.");
     }
-    return style;
+    const bounds =
+      consumer.kind === "source" ? await options.styleProvider.describeSourceBounds?.(consumer.source) : undefined;
+    return { style, view: pkg.initialView, bounds };
   }
 
   function preview(candidate?: MapStyleDocument): Promise<void> {
@@ -133,14 +141,14 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
       .then(async () => {
         if (!current(revision)) return;
         try {
-          const style = await project(document);
+          const { style, view, bounds } = await project(document);
           if (!current(revision)) return;
           if (!map) {
             const created = await (options.mapFactory ?? defaultCompositionMapFactory)({
               container: options.container,
               style,
-              center: [0, 20],
-              zoom: 1,
+              center: view?.center ?? [0, 20],
+              zoom: view?.zoom ?? 1,
               attributionText: "Honua · shared-style preview",
               getAuth: () => {
                 if (disposed || getAuthority() !== authority) throw new Error("The preview authority changed.");
@@ -161,11 +169,17 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
               return;
             }
             map = created;
+            const fit = view?.bbox ?? bounds;
+            if (fit) map.fitBounds(fit, { padding: 40, duration: 0, maxZoom: 17 });
           } else map.setStyle(style, { diff: true });
           options.onStatus?.({
             ready: true,
             ...(consumer.kind === "source"
-              ? { message: "Previewing only the explicitly selected authorized source." }
+              ? {
+                  message: bounds
+                    ? "Previewing only the explicitly selected authorized source."
+                    : "Previewing the selected source; its geographic extent is unavailable. Pan and zoom to inspect it.",
+                }
               : {}),
           });
         } catch (error) {

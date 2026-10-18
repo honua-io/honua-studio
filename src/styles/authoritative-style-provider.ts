@@ -1,3 +1,4 @@
+import { toWgs84 } from "@honua/sdk-js/geometry";
 import type { HonuaStyleRefBody, HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
 import { type HonuaStyleSpecification, validateHonuaStyle } from "@honua/sdk-js/style";
 import type { AuthSession } from "../auth/types.js";
@@ -220,6 +221,44 @@ export class AuthoritativeStyleProvider {
       serverRoot: this.serverRoot,
       observedAt: new Date().toISOString(),
     };
+  }
+
+  /** Geographic preview extent from the same freshly authorized published descriptor. */
+  async describeSourceBounds(
+    source: CompositionSourceDescriptor,
+  ): Promise<readonly [number, number, number, number] | undefined> {
+    const { descriptor } = await this.#describeVerifiedSource(source);
+    const srid = descriptor.srid;
+    const bounds = descriptor.extent;
+    if (![4326, 3857, 3785, 900913, 102100, 102113].includes(Number(srid)) || !bounds || typeof bounds !== "object")
+      return;
+    const extent = bounds as Record<string, unknown>;
+    const values = [extent.minX, extent.minY, extent.maxX, extent.maxY];
+    if (!values.every((value) => typeof value === "number" && Number.isFinite(value))) return;
+    const [minX, minY, maxX, maxY] = values as number[];
+    if (minX! > maxX! || minY! > maxY!) return;
+    const projected = toWgs84(
+      {
+        type: "MultiPoint",
+        coordinates: [
+          [minX!, minY!],
+          [maxX!, maxY!],
+        ],
+      },
+      Number(srid),
+    ) as { coordinates: number[][] };
+    const [a, b] = projected.coordinates;
+    if (
+      !a ||
+      !b ||
+      ![...a, ...b].every(Number.isFinite) ||
+      Math.abs(a[0]!) > 180 ||
+      Math.abs(b[0]!) > 180 ||
+      Math.abs(a[1]!) > 90 ||
+      Math.abs(b[1]!) > 90
+    )
+      return;
+    return [a[0]!, a[1]!, b[0]!, b[1]!];
   }
 
   async describeSource(source: CompositionSourceDescriptor): Promise<readonly MapStyleField[]> {

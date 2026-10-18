@@ -16,7 +16,7 @@ const source = {
 };
 function setup(extra: Partial<SharedStylePreviewOptions> = {}) {
   let auth = { getAccessToken: async () => undefined } as AuthSession;
-  const map = { setStyle: vi.fn(), remove: vi.fn() } as unknown as CompositionMapLike;
+  const map = { setStyle: vi.fn(), remove: vi.fn(), fitBounds: vi.fn() } as unknown as CompositionMapLike;
   const factory = vi.fn(async (_options: CompositionMapFactoryOptions) => map);
   const status = vi.fn();
   const describeSource = vi.fn(async () => [{ name: "district", type: "String" }]);
@@ -45,6 +45,18 @@ function setup(extra: Partial<SharedStylePreviewOptions> = {}) {
   };
 }
 describe("read-only shared-style preview", () => {
+  it("fits only the freshly authorized selected-source geographic extent", async () => {
+    const context = setup({
+      styleProvider: {
+        read: vi.fn(),
+        describeSource: vi.fn(),
+        describeSourceBounds: vi.fn(async () => [-158, 21, -157, 22] as const),
+      },
+    });
+    await context.preview.preview();
+    expect(context.map.fitBounds).toHaveBeenCalledWith([-158, 21, -157, 22], { padding: 40, duration: 0, maxZoom: 17 });
+  });
+
   it("refuses later map source requests after the host binding changes", async () => {
     let authority = "old-workspace";
     const context = setup({ getAuthority: () => authority });

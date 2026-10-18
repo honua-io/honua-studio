@@ -537,3 +537,17 @@ it.skipIf(styleDocumentToRefBody.length < 2)(
     expect(bound.mappedBody?.owner__outline).not.toHaveProperty("paint");
   },
 );
+
+it("derives preview bounds from the authorized descriptor's declared CRS", async () => {
+  const context = fixture({}, { srid: 4326, extent: { minX: -158, minY: 21, maxX: -157, maxY: 22 } });
+  expect(await context.provider.describeSourceBounds(source)).toEqual([-158, 21, -157, 22]);
+  const unknown = fixture({}, { srid: 999999, extent: { minX: 1, minY: 2, maxX: 3, maxY: 4 } });
+  expect(await unknown.provider.describeSourceBounds(source)).toBeUndefined();
+  const mercator = fixture(
+    {},
+    { srid: 3857, extent: { minX: 0, minY: 0, maxX: 111319.49079327357, maxY: 111325.14286638486 } },
+  );
+  const bounds = await mercator.provider.describeSourceBounds(source);
+  expect(bounds?.[2]).toBeCloseTo(1, 6);
+  expect(bounds?.[3]).toBeCloseTo(1, 6);
+});
