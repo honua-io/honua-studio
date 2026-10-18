@@ -1,9 +1,10 @@
 import { HonuaClient } from "@honua/sdk-js";
 import { loadHonuaFeatureServiceGeoJson } from "@honua/sdk-js/map";
-import type { AuthenticatedSourceOptions } from "./authenticated-source-protocol.js";
+import { trustedSourceUrl, type AuthenticatedSourceOptions } from "./authenticated-source-protocol.js";
 
 /** Uses the SDK's canonical feature query/paging and geometry conversion. */
 export async function loadPagedFeatureSource(target: URL, options: AuthenticatedSourceOptions, signal: AbortSignal): Promise<Record<string, unknown>> {
+  if (!trustedSourceUrl(target.href, options.sourceBaseUrl, options.documentUrl, options.legacySourceBaseUrl)) throw new Error("The paged source is outside the authorized deployment.");
   const match = target.pathname.match(/^(.*)(\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+)\/query$/);
   if (!match) throw new Error("Expected an authorized FeatureServer query URL.");
   const root = target.origin + match[1];
@@ -18,6 +19,7 @@ export async function loadPagedFeatureSource(target: URL, options: Authenticated
     fetchFn: async (input, init) => {
       signal.throwIfAborted();
       if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
+      if (input instanceof Request) throw new Error("The SDK source adapter requires an explicit URL.");
       const url = new URL(String(input), root);
       if (url.origin !== target.origin || ![`${match[1]}${layerPath}`, `${match[1]}${layerPath}/query`].includes(url.pathname) || (init?.method ?? "GET").toUpperCase() !== "GET") throw new Error("The SDK source adapter requested an unsupported route or method.");
       const token = await authority?.getAccessToken();
