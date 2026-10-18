@@ -53,6 +53,23 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     vi.unstubAllGlobals();
   });
 
+  it("prepares host turns without fetching or discarding unsaved authoring fields", async () => {
+    const app = mount();
+    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    const pending = document.createElement("textarea");
+    pending.value = "unsaved authoring value";
+    app.appendChild(pending);
+    await expect(app.prepareWorkspaceTurn()).rejects.toThrow("pending Studio edits");
+    expect(pending.value).toBe("unsaved authoring value");
+    expect(await app.refreshWorkspaceDraft()).toBe(false);
+    pending.remove();
+    const chat = app.querySelector("honua-studio-chat");
+    const composer = chat?.shadowRoot?.querySelector("textarea");
+    if (composer) composer.value = "user-authored pending prompt";
+    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("package-drafts"))).toBe(false);
+  });
+
   it("mounts a shadow shell with the documented data-testids", () => {
     const app = mount();
     const shell = app.shadowRoot?.querySelector('[data-testid="app-shell"]');

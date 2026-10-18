@@ -36,7 +36,7 @@ export async function fetchStudioAiCapabilities(
     const token = await options.auth.getAccessToken();
     if (token) headers.authorization = `Bearer ${token}`;
   }
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? options.auth?.fetchRequest ?? fetch;
   let response: Response;
   try {
     response = await fetchImpl(`${baseUrl}/v1/studio/ai/capabilities`, { headers });

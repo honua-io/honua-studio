@@ -18,8 +18,10 @@ import { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 import { HonuaStudioChatElement } from "./studio-chat-element.js";
 import { HonuaStudioContentBrowserElement } from "./studio-content-browser-element.js";
 import { HonuaStudioControlBarElement } from "./studio-control-bar-element.js";
+import { HonuaStudioCustomProcessesElement } from "./studio-custom-processes-element.js";
 import { HonuaStudioGpPanelElement } from "./studio-gp-panel-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
+import { HonuaStudioProcessesElement } from "./studio-processes-element.js";
 import { HonuaStudioWidgetDeckElement } from "./studio-widget-deck-element.js";
 import type { HonuaStudioComponentRegistry } from "./types.js";
 
@@ -43,6 +45,8 @@ const STUDIO_ELEMENTS: ReadonlyMap<string, CustomElementConstructor> = new Map<s
   ["honua-studio-content-browser", HonuaStudioContentBrowserElement],
   ["honua-studio-lifecycle-panel", HonuaStudioLifecyclePanelElement],
   ["honua-studio-gp-panel", HonuaStudioGpPanelElement],
+  ["honua-studio-processes", HonuaStudioProcessesElement],
+  ["honua-studio-custom-processes", HonuaStudioCustomProcessesElement],
   ["honua-studio-app", HonuaStudioAppElement],
 ]);
 

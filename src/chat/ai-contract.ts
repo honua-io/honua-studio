@@ -134,7 +134,19 @@ export type StudioAiChatEventType =
   | "transcriptProvenance";
 
 /** Why a turn stopped generating — `StudioAiChatEvent.stopReason`, set on `messageStop`. */
-export type StudioAiStopReason = "endTurn" | "toolCall" | "maxTokens" | "contentFilter" | "cancelled" | "error";
+export type StudioAiStopReason =
+  | "endTurn"
+  | "toolCall"
+  | "maxTokens"
+  | "contentFilter"
+  | "cancelled"
+  | "error"
+  | "EndTurn"
+  | "ToolCall"
+  | "MaxTokens"
+  | "ContentFilter"
+  | "Cancelled"
+  | "Error";
 
 /**
  * One event in a streamed provider-neutral chat turn — a single flat shape

@@ -10,7 +10,7 @@ import {
 } from "../../src/elements/registry.js";
 
 describe("elements/registry", () => {
-  it("lists exactly the nine contract tags", () => {
+  it("lists exactly the eleven contract tags", () => {
     expect(STUDIO_ELEMENT_TAGS).toEqual([
       "honua-studio-chat",
       "honua-studio-activity-log",
@@ -20,6 +20,8 @@ describe("elements/registry", () => {
       "honua-studio-content-browser",
       "honua-studio-lifecycle-panel",
       "honua-studio-gp-panel",
+      "honua-studio-processes",
+      "honua-studio-custom-processes",
       "honua-studio-app",
     ]);
   });

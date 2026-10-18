@@ -46,6 +46,7 @@ export class StudioSessionExpiredError extends StudioClientError {
 
 /** The minimal token surface `StudioClient` depends on — `AuthSession` satisfies this. */
 export interface TokenSource {
+  fetchRequest?: typeof fetch;
   getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | undefined>;
 }
 
@@ -63,7 +64,7 @@ async function fetchWithAuth(
       headers.set("authorization", `Bearer ${token}`);
     }
   }
-  return fetch(url, { ...init, headers });
+  return (auth?.fetchRequest ?? fetch)(url, { ...init, headers });
 }
 
 async function authenticatedFetch(url: string, auth?: TokenSource, init?: RequestInit): Promise<Response> {
@@ -119,7 +120,7 @@ export class StudioClient {
   }
 
   async health(): Promise<HealthStatus> {
-    return (await authenticatedFetch(`${this.baseUrl}/health`)).json() as Promise<HealthStatus>;
+    return (await authenticatedFetch(`${this.baseUrl}/health`, this.auth)).json() as Promise<HealthStatus>;
   }
 
   async listCatalog(): Promise<CatalogDataset[]> {

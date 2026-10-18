@@ -8,6 +8,7 @@
 import type { AuthState } from "./types.js";
 
 export type AuthTransitionEvent =
+  | { type: "host-authenticated"; expiresAt: number }
   | { type: "sign-in-started" }
   | { type: "callback-started" }
   /** A credential was issued for the first time (sign-in or callback exchange completed). */
@@ -23,6 +24,8 @@ export const INITIAL_AUTH_STATE: AuthState = { status: "signed-out" };
 
 export function reduceAuthState(state: AuthState, event: AuthTransitionEvent): AuthState {
   switch (event.type) {
+    case "host-authenticated":
+      return { status: "fresh", expiresAt: event.expiresAt };
     case "sign-in-started":
       return { status: "signing-in" };
     case "callback-started":

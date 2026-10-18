@@ -13,6 +13,7 @@ import { type ChatTransport, ChatTransportError } from "./transport.js";
 
 /** The minimal token surface this transport depends on — `AuthSession` satisfies this (matches `src/client/studio-client.ts`'s `TokenSource`). */
 export interface TokenSource {
+  fetchRequest?: typeof fetch;
   getAccessToken(options?: { forceRefresh?: boolean }): Promise<string | undefined>;
 }
 
@@ -54,7 +55,7 @@ export class SseChatTransport implements ChatTransport {
       const token = await this.options.auth.getAccessToken();
       if (token) headers.authorization = `Bearer ${token}`;
     }
-    const fetchImpl = this.options.fetchImpl ?? fetch;
+    const fetchImpl = this.options.fetchImpl ?? this.options.auth?.fetchRequest ?? fetch;
 
     let response: Response;
     try {

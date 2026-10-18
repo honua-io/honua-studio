@@ -1,3 +1,4 @@
+import type { BearerSessionAdapter } from "./types.js";
 /**
  * A controllable, in-memory {@link SessionAdapter} fixture (honua-studio#4
  * REQ-003) — implements the exact interface documented in
@@ -5,9 +6,9 @@
  * {@link HostAdapterAuthSession} against a real object that satisfies the
  * contract, not a hand-rolled mock. Never imported by app code; test-only.
  */
-import type { SessionAdapter, Unsubscribe } from "./types.js";
+import type { Unsubscribe } from "./types.js";
 
-export interface FixtureHostSessionAdapter extends SessionAdapter {
+export interface FixtureHostSessionAdapter extends BearerSessionAdapter {
   /** Sets the token `getToken()` resolves next. `undefined` simulates "no session". */
   setToken(token: string | undefined): void;
   /** Fires every subscriber registered via `onExpired`. */

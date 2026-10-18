@@ -46,6 +46,7 @@ import {
   type AuthoritativeStyleDefinition,
   AuthoritativeStyleProvider,
 } from "../styles/authoritative-style-provider.js";
+import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import {
@@ -60,6 +61,9 @@ import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
+import { applyCompositionCommands } from "../composition/reducer.js";
+import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
@@ -198,6 +202,30 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #session: SessionAdapter | undefined;
+  #workspaceAgentAdapter: WorkspaceAgentSessionAdapter | undefined;
+  #workspaceConversation: readonly WorkspaceConversationMessage[] = [];
+  public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
+    this.#workspaceConversation = messages.map((message) => ({ ...message }));
+    return (
+      this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.setWorkspaceConversation(
+        this.#workspaceConversation,
+      ) ?? true
+    );
+  }
+
+  public get agentSessionAdapter(): WorkspaceAgentSessionAdapter | undefined {
+    return this.#workspaceAgentAdapter;
+  }
+  public set agentSessionAdapter(adapter: WorkspaceAgentSessionAdapter | undefined) {
+    const previous = this.#workspaceAgentAdapter;
+    this.#workspaceAgentAdapter = adapter;
+    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    if (chat && (previous !== adapter || chat.agentSessionAdapter !== adapter)) {
+      chat.detachAgentSession();
+      chat.agentSessionAdapter = adapter;
+    }
+  }
+
   #auth: AuthSession | undefined;
   #authUnsubscribe: (() => void) | undefined;
   #redirectCallbackHandled = false;
@@ -208,6 +236,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #currentPath = "/";
   #chromeBuilt = false;
   #composition: CompositionController | undefined;
+  #workspaceDraft: WorkspaceDraftBinding | undefined;
+  #workspaceDraftConflict = false;
+  #workspaceDraftQueue: Promise<unknown> = Promise.resolve();
   #historyUnsubscribe: (() => void) | undefined;
   #historyBusy = false;
   #orchestrator: ToolCallOrchestrator | undefined;
@@ -258,13 +289,105 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
+  /** Read the authorized durable draft after a native turn. Does not execute tools. */
+  public attachWorkspaceDraft(draftId: string): Promise<void> {
+    const run = this.#workspaceDraftQueue.then(async () => {
+      const binding =
+        this.#workspaceDraft ??
+        new WorkspaceDraftBinding(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
+      const state = await binding.observe(draftId);
+      this.#workspaceDraft = binding;
+      this.#workspaceDraftConflict = false;
+      this.composition.replaceState({
+        ...state,
+        pins: this.composition.state.pins,
+        annotations: this.composition.state.annotations,
+      });
+      this.#announceWorkspaceDraft();
+    });
+    this.#workspaceDraftQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Idle observation for external draft changes; never discard an unsaved form value. */
+  public async refreshWorkspaceDraft(): Promise<boolean> {
+    await this.#workspaceDraftQueue;
+    const identity = this.#workspaceDraft?.identity;
+    if (!identity || this.#historyBusy || this.#workspaceDraftConflict) return false;
+    if (this.#hasDirtyWorkspaceForm()) return false;
+    await this.attachWorkspaceDraft(identity.draftId);
+    return true;
+  }
+
+  /** Flush accepted human edits before the host captures a durable native turn. */
+  public async prepareWorkspaceTurn(): Promise<
+    { draftId: string; generation: number; packageKey: string } | undefined
+  > {
+    await this.#workspaceDraftQueue;
+    if (this.#historyBusy || this.#workspaceDraftConflict || this.#hasDirtyWorkspaceForm()) {
+      throw new Error("Save or explicitly reload the pending Studio edits before sending a workspace turn.");
+    }
+    return this.#workspaceDraft?.identity;
+  }
+
+  #hasDirtyWorkspaceForm(): boolean {
+    const dirty = (root: ParentNode): boolean => {
+      for (const element of root.querySelectorAll("*")) {
+        if (element.tagName === "HONUA-STUDIO-CHAT") continue;
+        if (
+          (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) &&
+          (element.value !== element.defaultValue ||
+            (element instanceof HTMLInputElement && element.checked !== element.defaultChecked))
+        )
+          return true;
+        if (element instanceof HTMLSelectElement) {
+          const explicitDefault = [...element.options].some((option) => option.defaultSelected);
+          if (
+            [...element.options].some(
+              (option, index) =>
+                option.selected !== (option.defaultSelected || (!explicitDefault && !element.multiple && index === 0)),
+            )
+          )
+            return true;
+        }
+        if (element instanceof HTMLElement && element.isContentEditable) return true;
+        if (element.shadowRoot && dirty(element.shadowRoot)) return true;
+      }
+      return false;
+    };
+    return dirty(this) || Boolean(this.shadowRoot && dirty(this.shadowRoot));
+  }
+
+  #announceWorkspaceDraft(): void {
+    this.dispatchEvent(
+      new CustomEvent("honua-workspace-draft-change", {
+        bubbles: true,
+        composed: true,
+        detail: this.#workspaceDraft?.identity,
+      }),
+    );
+  }
+
   /** Undo/redo in the authoritative draft before advancing the visible history. */
   public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
     if (this.#historyBusy) return false;
     this.#historyBusy = true;
     this.paintHistoryControls();
     try {
-      const applied = await this.toolCallOrchestrator.applyHistoryAction(action);
+      let applied: boolean;
+      if (this.#workspaceDraft) {
+        const target = action === "undo" ? this.composition.history.peekUndo() : this.composition.history.peekRedo();
+        if (!target) return false;
+        const run = this.#workspaceDraftQueue.then(async () => {
+          const observed = await this.#workspaceDraft!.replace(target);
+          const changed = action === "undo" ? this.composition.undo() : this.composition.redo();
+          this.composition.replaceState(observed);
+          this.#announceWorkspaceDraft();
+          return changed;
+        });
+        this.#workspaceDraftQueue = run.catch(() => undefined);
+        applied = await run;
+      } else applied = await this.toolCallOrchestrator.applyHistoryAction(action);
       const { draftId, generation } = this.toolCallOrchestrator;
       if (applied && draftId && generation !== undefined) {
         this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.agentSession?.attachDraft({
@@ -280,6 +403,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
             : "Redone"
           : `Unable to ${action}. Review the activity log.`;
       return applied;
+    } catch (error) {
+      if (this.#workspaceDraft) this.#workspaceDraftConflict = true;
+      const status = this.shadowRoot?.querySelector('[data-testid="history-status"]');
+      if (status) status.textContent = error instanceof Error ? error.message : `Unable to ${action}.`;
+      return false;
     } finally {
       this.#historyBusy = false;
       this.paintHistoryControls();
@@ -888,6 +1016,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       chat?.activityLog.append("lifecycle_action", { ...detail });
     });
 
+    this.agentSessionAdapter = this.#workspaceAgentAdapter;
+    if (this.#workspaceConversation.length) this.setWorkspaceConversation(this.#workspaceConversation);
     // honua-studio#10 build item 2: GP authoring/validation/preview/execution
     // actions taken in `<honua-studio-gp-panel>` (mounted by a host the same
     // way `<honua-studio-lifecycle-panel>` is — see the listener above) are
@@ -919,7 +1049,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   async #attachLiveAgentSession(baseUrl: string): Promise<void> {
     const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
-    if (!chat || chat.hasCustomTransport || !this.toolCallOrchestrator.isLive) return;
+    if (chat && this.#workspaceAgentAdapter) chat.agentSessionAdapter = this.#workspaceAgentAdapter;
+    if (
+      !chat ||
+      chat.agentSessionAdapter ||
+      chat.hasCustomTransport ||
+      this.auth.fetchRequest ||
+      !this.toolCallOrchestrator.isLive
+    )
+      return;
     const setupGeneration = ++this.#agentSetupGeneration;
     chat.agentSessionPending = true;
     const draft = await this.toolCallOrchestrator.ensureLiveDraft();
@@ -1036,7 +1174,50 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * switch's two toggles are one user gesture, and half of it landing is
    * worse than none of it.
    */
+  /** Resolve an observed published receipt against the live catalog before adding it to the map. */
+  public async addPublishedLayer(layer: {
+    readonly layerId: number;
+    readonly serviceName: string;
+    readonly layerName?: string;
+  }): Promise<HonuaStudioCommandOutcome> {
+    const auth = this.auth;
+    const catalog = await this.studioClient.listCatalog();
+    if (this.auth !== auth) throw new Error("The Studio target changed while resolving the published layer.");
+    const suffix = `/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
+    const matches = catalog.filter(
+      (entry) =>
+        entry.locator?.layerId === layer.layerId &&
+        typeof entry.locator.url === "string" &&
+        entry.locator.url.endsWith(suffix),
+    );
+    if (matches.length !== 1) throw new Error("The published layer has no unique verified catalog source.");
+    const source = matches[0]!;
+    this.#applySourceCatalog(catalog);
+    return this.#dispatchCommands([
+      { name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } },
+    ]);
+  }
+
   async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+    if (this.#workspaceDraft) {
+      const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
+        try {
+          const target = applyCompositionCommands(this.composition.state, commands).state;
+          const observed = await this.#workspaceDraft!.replace(target);
+          for (const command of commands) this.composition.apply(command);
+          this.composition.replaceState(observed);
+          this.#announceWorkspaceDraft();
+          return { ok: true };
+        } catch (error) {
+          this.#workspaceDraftConflict = true;
+          return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+        }
+      });
+      this.#workspaceDraftQueue = run.catch(() => undefined);
+      return run;
+    }
+    if (this.#session && "kind" in this.#session && this.#session.kind === "cookie")
+      return { ok: false, reason: "Attach the shared server draft before editing the map." };
     for (const command of commands) {
       const result = await this.toolCallOrchestrator.handleToolCall({
         toolName: command.name,

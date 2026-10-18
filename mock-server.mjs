@@ -978,7 +978,19 @@ function createMcpDispatcher(store, catalogDatasets) {
               ...STUDIO_MCP_TOOL_NAMES.map((name) => ({
                 name,
                 description: name,
-                inputSchema: { type: "object", additionalProperties: true },
+                // Canonical draft binding is schema-declared. The SDK must never
+                // inject Studio fields into unrelated tools from the broad view.
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: true,
+                  properties: [
+                    "honua_studio_create_draft",
+                    "honua_studio_reopen_version",
+                    "honua_studio_propose_publication",
+                  ].includes(name)
+                    ? {}
+                    : { draftId: { type: "string" }, generation: { type: "integer" } },
+                },
                 _meta: STUDIO_TOOL_CLASSIFICATION,
               })),
               ...["honua_describe_layer", "honua_get_style"].map((name) => ({
