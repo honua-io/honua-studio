@@ -229,7 +229,7 @@ export class AuthoritativeStyleProvider {
   }> {
     const { descriptor } = await this.#describeVerifiedSource(source);
     const id = descriptor.processLayerId;
-    if (id !== undefined && (!Number.isSafeInteger(id) || Number(id) <= 0 || Number(id) > 2147483647))
+    if (id !== undefined && (!Number.isSafeInteger(id) || Number(id) < 0 || Number(id) > 2147483647))
       throw new Error("The canonical process layer identity is invalid.");
     if (id !== undefined) return { processLayerId: Number(id) };
     const reason = descriptor.processLayerUnavailableReason;

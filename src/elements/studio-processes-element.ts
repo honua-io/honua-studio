@@ -428,7 +428,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
                   if (!current()) return;
                   if (
                     !Number.isSafeInteger(result.processLayerId) ||
-                    Number(result.processLayerId) <= 0 ||
+                    Number(result.processLayerId) < 0 ||
                     Number(result.processLayerId) > 2147483647
                   )
                     throw new Error(
@@ -520,7 +520,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
           .filter(Boolean)
           .join(" · "),
       ).className = "hint";
-      if (parameter.schema?.format === "layer-id") this.#renderSourcePicker(label, node.nodeId, parameter.name);
+      if (parameter.schema?.format === "layer-id") this.#renderSourcePicker(parent, node.nodeId, parameter.name);
       for (const diagnostic of this.#diagnostics.filter(
         (item) => item.nodeId === node.nodeId && item.fieldPath?.includes(parameter.name),
       ))

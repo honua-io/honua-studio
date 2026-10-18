@@ -395,6 +395,7 @@ it("uses only the canonical streaming process identity and reports unsupported b
   expect(await fixture({}, { processLayerId: 702 }).provider.resolveProcessSource(source)).toEqual({
     processLayerId: 702,
   });
+  expect(await fixture({}, { processLayerId: 0 }).provider.resolveProcessSource(source)).toEqual({ processLayerId: 0 });
   expect(
     await fixture(
       {},
