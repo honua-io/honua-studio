@@ -228,18 +228,32 @@ export interface ProposeStudioPublicationInput {
   readonly note?: string;
 }
 
-/** `AwaitingApproval` receipt. The final URL is not part of this payload. */
-export interface ProposeStudioPublicationOutput {
+interface StudioPublicationReceipt {
   readonly operationInstanceId: string;
-  readonly proposalId: string;
-  readonly proposalUri: string;
   readonly auditId: string;
   readonly correlationId: string;
   readonly idempotencyIdentity: string;
-  readonly status: "AwaitingApproval";
-  readonly humanConfirmationRequired: true;
   readonly message: string;
 }
+
+/** The server's configured policy determines whether publication completes or needs approval. */
+export type ProposeStudioPublicationOutput = StudioPublicationReceipt &
+  (
+    | {
+        readonly status: "Published";
+        readonly humanConfirmationRequired: false;
+        readonly shareUrl: string;
+        readonly proposalId?: never;
+        readonly proposalUri?: never;
+      }
+    | {
+        readonly status: "AwaitingApproval";
+        readonly humanConfirmationRequired: true;
+        readonly proposalId: string;
+        readonly proposalUri: string;
+        readonly shareUrl?: never;
+      }
+  );
 
 /** The tool name published in `tools/list` for every `honua_studio_*` tool (honua-server#3002). */
 export const STUDIO_MCP_TOOL_NAMES = [

@@ -51,6 +51,7 @@ import { type AuthSession, type SessionAdapter, createAuthSession } from "../aut
 import {
   fetchShareProposalStatus,
   loadShareProposal,
+  projectPublicationReceipt,
   projectShareConversation,
   sessionShareStorage,
 } from "../chat/share-preview.js";
@@ -219,6 +220,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
   #agentCertification: StudioAgentCertificationOptions | undefined;
   #agentSetupGeneration = 0;
+  #publicationNoteGeneration = 0;
   #liveAgentBaseUrl = "/api";
   #liveCompositionOptions: LiveCompositionOptions | undefined;
 
@@ -994,7 +996,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           composition: this.composition.state,
         }),
       onEvent: (event) => {
-        if (event.type === "toolResult" && event.result.draft) {
+        if (event.type === "toolResult") {
           if (
             setupGeneration !== this.#agentSetupGeneration ||
             sessionRef.current !== chat.agentSession ||
@@ -1002,7 +1004,21 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           ) {
             return;
           }
-          this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
+          if (event.result.draft) this.toolCallOrchestrator.acceptServerDraft(event.result.draft as StudioMcpDraft);
+          if (event.result.ok && event.result.toolName === "honua_studio_propose_publication") {
+            try {
+              const payload = JSON.parse(event.result.content) as { status?: string; result?: unknown };
+              if (payload.status !== "ok") return;
+              const baseUrl = new URL(runtimeServerBaseUrl(), document.baseURI).href;
+              const note = projectPublicationReceipt(payload.result, baseUrl);
+              if (note) {
+                this.#publicationNoteGeneration += 1;
+                chat.shareNote = note.text;
+              }
+            } catch {
+              // A malformed receipt must not turn assistant text into a publication link.
+            }
+          }
         }
       },
     });
@@ -1033,6 +1049,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Restores a retained preview proposal into the conversation. Never publishes. */
   async #resumeSharePreview(): Promise<void> {
+    const noteGeneration = this.#publicationNoteGeneration;
     try {
       const handle = loadShareProposal(sessionShareStorage());
       if (!handle) return;
@@ -1045,7 +1062,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const token = await this.auth?.getAccessToken();
       if (!token) return;
       const status = await fetchShareProposalStatus(runtimeServerBaseUrl(), handle.proposalId, token);
-      if (!status) return;
+      if (!status || noteGeneration !== this.#publicationNoteGeneration || !this.isConnected) return;
       chat.shareNote = projectShareConversation(handle, status).text;
     } catch {
       // A retained handle must not block the shell when the preview server is unreachable.
