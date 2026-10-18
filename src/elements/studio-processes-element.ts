@@ -407,6 +407,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
         const run = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-action="run"]');
         if (run) run.disabled = true;
       });
+      field.addEventListener("change", () => this.render());
       label.append(field);
       this.#text(
         label,
