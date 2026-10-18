@@ -367,6 +367,7 @@ export class DraftSync {
   #pendingState: CompositionState | undefined;
   #flushLoop: Promise<CompositionDraft> | undefined;
   #needsReconciliation = false;
+  #automaticRebase = false;
 
   public constructor(options: DraftSyncOptions) {
     this.#store = options.store;
@@ -418,7 +419,7 @@ export class DraftSync {
   }
 
   public apply(state: CompositionState): Promise<CompositionDraft> {
-    if (this.#needsReconciliation) {
+    if (this.#needsReconciliation && !this.#automaticRebase) {
       return Promise.reject(
         new CompositionDraftError("generation-conflict", "Reconcile the unresolved draft conflict before editing."),
       );
@@ -426,6 +427,7 @@ export class DraftSync {
     this.#pendingState = state;
     if (!this.#flushLoop) {
       this.#flushLoop = this.#runFlushLoop().finally(() => {
+        this.#automaticRebase = false;
         this.#flushLoop = undefined;
       });
     }
@@ -445,8 +447,12 @@ export class DraftSync {
       // behind it".
       await Promise.resolve();
       if (this.#pendingState === undefined) break;
-      const toSend = this.#pendingState;
+      const pending = this.#pendingState;
       this.#pendingState = undefined;
+      const toSend =
+        this.#automaticRebase && this.#rebase && this.#draft
+          ? this.#rebase(pending, this.#draft.envelope.body)
+          : pending;
       result = await this.#flushOnce(toSend);
     }
     if (!result) throw new Error("DraftSync: flush loop completed without a result — this is a bug.");
@@ -473,6 +479,7 @@ export class DraftSync {
     } catch (error) {
       if (!isCompositionDraftConflict(error)) throw error;
       this.#needsReconciliation = true;
+      this.#automaticRebase = this.#rebase !== undefined;
       return this.#reloadAndRebase(state);
     }
   }
@@ -480,8 +487,6 @@ export class DraftSync {
   async #reloadAndRebase(state: CompositionState): Promise<CompositionDraft> {
     const draftId = this.#draft?.draftId;
     if (!draftId) throw new Error("DraftSync: generation conflict reported before a draft existed — this is a bug.");
-    const latestState = this.#pendingState ?? state;
-    this.#pendingState = undefined;
     const server = await this.#store.get(draftId);
     const conflict: DraftSyncConflict = {
       draftId: server.draftId,
@@ -500,7 +505,9 @@ export class DraftSync {
     }
     // Every queued snapshot needs reconciliation; none may bypass the host's
     // strategy just because it arrived after the original conflicting write.
-    this.#pendingState = this.#rebase(latestState, server.envelope.body);
+    // Keep raw intent here: the loop reconciles every queued state, including
+    // edits arriving while either the reload or the reconciled write awaits I/O.
+    this.#pendingState ??= state;
     return server;
   }
 }

@@ -209,6 +209,60 @@ describe("composition/history DraftSync + FixtureDraftStore", () => {
     expect(result.envelope.body.view).toEqual({ zoom: 99 });
   });
 
+  it("coalesces edits during automatic reload and rebases edits queued during its write", async () => {
+    const store = new FixtureDraftStore();
+    const rebase = vi.fn(
+      (
+        local: ReturnType<typeof createEmptyCompositionState>,
+        server: ReturnType<typeof createEmptyCompositionState>,
+      ) => ({ ...server, layers: local.layers }),
+    );
+    const sync = new DraftSync({ store, packageKey: "test-package", rebase });
+    const empty = createEmptyCompositionState();
+    const initial = await sync.apply(empty);
+    store.simulateExternalWrite(initial.draftId, { body: { ...empty, view: { zoom: 99 } } });
+    const get = store.get.bind(store);
+    const replace = store.replace.bind(store);
+    const deferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((complete) => {
+        resolve = complete;
+      });
+      return { promise, resolve };
+    };
+    const reloadStarted = deferred();
+    const releaseReload = deferred();
+    const writeStarted = deferred();
+    const releaseWrite = deferred();
+    vi.spyOn(store, "get").mockImplementationOnce(async (id) => {
+      reloadStarted.resolve();
+      await releaseReload.promise;
+      return get(id);
+    });
+    vi.spyOn(store, "replace").mockImplementation(async (id, request) => {
+      if (request.generation === 2) {
+        writeStarted.resolve();
+        await releaseWrite.promise;
+      }
+      return replace(id, request);
+    });
+    const first = sync.apply(empty);
+    await reloadStarted.promise;
+    const duringReload = sync.apply({ ...empty, layers: [{ id: "roads", sourceId: "s", visible: true }] });
+    expect(duringReload).toBe(first);
+    releaseReload.resolve();
+    await writeStarted.promise;
+    const duringWrite = sync.apply({ ...empty, layers: [{ id: "rivers", sourceId: "s", visible: true }] });
+    expect(duringWrite).toBe(first);
+    releaseWrite.resolve();
+    const result = await first;
+    expect(result.envelope.body.layers[0]?.id).toBe("rivers");
+    expect(result.envelope.body.view).toEqual({ zoom: 99 });
+    expect(rebase).toHaveBeenCalledTimes(2);
+    expect(rebase.mock.calls[0]?.[0].layers[0]?.id).toBe("roads");
+    expect(sync.needsReconciliation).toBe(false);
+  });
+
   it("FixtureDraftStore.replace with a stale explicit generation throws a generation-conflict CompositionDraftError", async () => {
     const store = new FixtureDraftStore();
     const draft = await store.create({ packageKey: "p", envelope: { body: createEmptyCompositionState() } });
