@@ -16,3 +16,8 @@ export { MapStyleEditor, type MapStyleEditorOptions, type MapStyleEditorScope } 
 export type { MapStyleDocument } from "./styles/map-style-edit.js";
 
 export { createWorkspaceLifecycleReader, type WorkspaceLifecycleReader } from "./lifecycle/workspace-reader.js";
+export {
+  readSharedStyleMapConsumer,
+  type SharedStyleMapConsumer,
+  type SharedStyleMapConsumerReference,
+} from "./styles/shared-style-consumer.js";
