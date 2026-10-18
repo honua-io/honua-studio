@@ -781,3 +781,38 @@ it("rejects a stale source picker catalog after a disconnected authority change"
     app.session = undefined;
   }
 });
+
+it("pins read-only style discovery before requests while accepting same-authority cookie renewal", async () => {
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  const cookie = {
+    kind: "cookie" as const,
+    baseUrl: "/api/studio",
+    csrfToken: "first",
+    environmentId: "env",
+    principalId: "owner",
+    sourcePathBase: "/honua",
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    onExpired: () => () => {},
+  };
+  let workspace = "workspace-a";
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  try {
+    app.session = cookie;
+    const provider = app.createWorkspaceStyleProvider({ getAuthority: () => workspace });
+    const old = provider.sessionIdentity;
+    app.session = { ...cookie, csrfToken: "renewed" };
+    expect(provider.sessionIdentity).toBe(app.auth);
+    expect(provider.sessionIdentity).not.toBe(old);
+    workspace = "workspace-b";
+    await expect(provider.list()).rejects.toThrow("workspace authority changed");
+    expect(fetch).not.toHaveBeenCalled();
+    const replacement = app.createWorkspaceStyleProvider();
+    app.session = { ...cookie, principalId: "another-owner" };
+    await expect(replacement.list()).rejects.toThrow("workspace authority changed");
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    app.session = undefined;
+    vi.unstubAllGlobals();
+  }
+});

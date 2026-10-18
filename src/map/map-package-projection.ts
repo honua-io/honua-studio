@@ -170,7 +170,12 @@ export function compositionToMapPackage(
   const existingRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
   const inlineBodies = Object.fromEntries((state.styleRefs ?? []).map((ref) => [ref.styleId, ref.body]));
   const sourceBindings: HonuaMapPackageSourceBinding[] = [];
-  const styleRefs: { styleId: string; body?: HonuaStyleRefBody }[] = [];
+  const styleRefs: {
+    styleId: string;
+    body?: HonuaStyleRefBody;
+    layerBindings?: readonly import("../styles/map-style-edit.js").CompositionStyleLayerBinding[];
+  }[] = [];
+  const emittedLiveRefs = new Set<string>();
   const unresolved: UnresolvedCompositionLayer[] = [];
   const renderedLayerIds: string[] = [];
   const boundSourceIds = new Set<string>();
@@ -288,6 +293,35 @@ export function compositionToMapPackage(
     renderedLayerIds.push(layer.id);
 
     if (layer.styleRef) {
+      const canonicalReference = state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId);
+      if (authoritative && !("reason" in authoritative) && authoritative.mappedBody) {
+        const body = Object.fromEntries(
+          Object.entries(authoritative.mappedBody).map(([targetId, override]) => {
+            const target = mapSpec.layers.find((render) => render.id === targetId);
+            return [
+              targetId,
+              target
+                ? compositionStyleOverride(override, target.type, layer.visible, {
+                    filter: options.appearance?.filters?.[layer.id],
+                    opacity: options.appearance?.opacity?.[layer.id],
+                  })
+                : override,
+            ];
+          }),
+        );
+        // This body is derived preview data only. Keep the exact bindings so
+        // the SDK validates every target/type and rejects stale mappings.
+        styleRefs.push({ styleId: layer.styleRef.styleId, body, layerBindings: authoritative.layerBindings });
+        continue;
+      }
+      if (canonicalReference?.layerBindings && options.authoritativeStyles === undefined) {
+        // Durable export keeps live references, never a hydrated catalog snapshot.
+        if (!emittedLiveRefs.has(canonicalReference.styleId)) {
+          emittedLiveRefs.add(canonicalReference.styleId);
+          styleRefs.push({ ...canonicalReference, body: undefined });
+        }
+        continue;
+      }
       const effective =
         authoritative && !("reason" in authoritative)
           ? compositionStyleOverride(authoritative.override, resolution.layerType, layer.visible, {

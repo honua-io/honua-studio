@@ -1,4 +1,4 @@
-import { composeStyle } from "@honua/sdk-js/runtime";
+import { composeStyle, styleDocumentToRefBody } from "@honua/sdk-js/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { compositionToMapPackage } from "../../src/map/map-package-projection.js";
@@ -443,3 +443,97 @@ it("accepts resource-free labels on the selected actual source and validates the
     ),
   ).rejects.toThrow('missing field "secret"');
 });
+
+it.skipIf(styleDocumentToRefBody.length < 2)(
+  "uses canonical SDK bindings for owner-specific primary and label appearances without persisting hydrated bodies",
+  async () => {
+    const document: { version: number; sources: typeof sheet.sources; layers: Record<string, unknown>[] } =
+      structuredClone(sheet);
+    document.layers.push({
+      id: "catalog-label",
+      type: "symbol",
+      source: "parcels",
+      layout: { "text-field": ["get", "district"] },
+      paint: { "text-color": "#123456" },
+      metadata: { example: ["get", "not-a-published-field"] },
+    });
+    const context = fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(document) }] });
+    const bindings = [
+      { styleLayerId: "canonical-parcels", targetLayerId: "owner", layerType: "fill" },
+      { styleLayerId: "catalog-label", targetLayerId: "server-issued-label", layerType: "symbol" },
+    ];
+    const bound = await context.provider.bind("district", source, {
+      primaryTargetId: "owner",
+      layerBindings: bindings,
+    });
+    expect(Object.keys(bound.mappedBody!)).toEqual(["owner", "server-issued-label"]);
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: [
+        {
+          id: "owner",
+          sourceId: source.id,
+          visible: true,
+          styleRef: { kind: "style-ref" as const, styleId: "district" },
+        },
+      ],
+      mapSpec: {
+        version: 8,
+        sources: { [source.id]: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+        layers: [
+          { id: "owner", type: "fill", source: source.id },
+          {
+            id: "server-issued-label",
+            type: "symbol",
+            source: source.id,
+            metadata: { "honua:compositionLayerId": "owner" },
+          },
+        ],
+      },
+      styleRefs: [{ styleId: "district", layerBindings: bindings }],
+    };
+    const preview = compositionToMapPackage(state, { catalog: [source], authoritativeStyles: { owner: bound } });
+    const actual = await composeStyle(preview.mapPackage, preview.mapPackage.mapSpec, {});
+    expect(actual.layers.find((layer) => layer.id === "server-issued-label")?.layout?.["text-field"]).toEqual([
+      "get",
+      "district",
+    ]);
+    const durable = compositionToMapPackage(state, { catalog: [source] });
+    expect(durable.mapPackage.styleRefs).toEqual([{ styleId: "district", layerBindings: bindings }]);
+    expect(state.styleRefs[0]).not.toHaveProperty("body");
+  },
+);
+
+it.skipIf(styleDocumentToRefBody.length < 2)(
+  "validates only explicitly selected catalog appearances and preserves restricted outline bindings",
+  async () => {
+    const document = {
+      ...sheet,
+      layers: [
+        ...sheet.layers,
+        {
+          id: "unused-label",
+          type: "symbol",
+          source: "parcels",
+          layout: { "text-field": ["get", "unavailable"] },
+        },
+      ],
+    };
+    const bound = await fixture({
+      encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(document) }],
+    }).provider.bind("district", source, {
+      primaryTargetId: "owner",
+      layerBindings: [
+        { styleLayerId: "canonical-parcels", targetLayerId: "owner", layerType: "fill" },
+        {
+          styleLayerId: "canonical-parcels",
+          targetLayerId: "owner__outline",
+          layerType: "fill",
+          properties: ["filter", "visibility"],
+        },
+      ],
+    });
+    expect(bound.mappedBody?.owner?.paint).toEqual(sheet.layers[0]!.paint);
+    expect(bound.mappedBody?.owner__outline).not.toHaveProperty("paint");
+  },
+);

@@ -21,3 +21,7 @@ export {
   type SharedStyleMapConsumer,
   type SharedStyleMapConsumerReference,
 } from "./styles/shared-style-consumer.js";
+
+export { createSharedStylePreview, type SharedStylePreviewOptions } from "./styles/shared-style-preview.js";
+
+export { AuthoritativeStyleProvider } from "./styles/authoritative-style-provider.js";

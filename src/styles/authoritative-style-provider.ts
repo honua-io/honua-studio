@@ -1,10 +1,11 @@
-import type { HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
-import { validateHonuaStyle } from "@honua/sdk-js/style";
+import type { HonuaStyleRefBody, HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
+import { type HonuaStyleSpecification, validateHonuaStyle } from "@honua/sdk-js/style";
 import type { AuthSession } from "../auth/types.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import { type CompositionSourceDescriptor, layerTypeForGeometry } from "../map/source-resolution.js";
 import { McpClient } from "../mcp/client.js";
-import type { MapStyleField } from "./map-style-edit.js";
+import type { CompositionStyleLayerBinding, MapStyleField } from "./map-style-edit.js";
+import { canonicalStyleRefBody } from "./style-ref-body.js";
 
 export interface AuthoritativeStyleSummary {
   readonly styleId: string;
@@ -27,6 +28,8 @@ export interface BoundAuthoritativeStyle {
   readonly stylesheetLayerId: string;
   readonly fields: readonly string[];
   readonly override: HonuaStyleRefLayerOverride;
+  readonly mappedBody?: HonuaStyleRefBody;
+  readonly layerBindings?: readonly CompositionStyleLayerBinding[];
 }
 export interface AuthoritativeStyleProviderOptions {
   readonly baseUrl: string;
@@ -271,7 +274,14 @@ export class AuthoritativeStyleProvider {
     return { descriptor, fields };
   }
 
-  async bind(styleId: string, source: CompositionSourceDescriptor): Promise<BoundAuthoritativeStyle> {
+  async bind(
+    styleId: string,
+    source: CompositionSourceDescriptor,
+    mapping?: {
+      readonly primaryTargetId: string;
+      readonly layerBindings: readonly CompositionStyleLayerBinding[];
+    },
+  ): Promise<BoundAuthoritativeStyle> {
     const auth = this.options.getAuth();
     const { serviceId, layerId } = source.locator ?? {};
     if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
@@ -308,7 +318,16 @@ export class AuthoritativeStyleProvider {
       if (typeof field.name !== "string" || !field.name) throw new Error("Invalid source descriptor field.");
       return field.name;
     });
-    const compatible = definition.layers.filter((layer) => layer.type === layerTypeForGeometry(source.geometryType));
+    const primaryBindings = mapping?.layerBindings.filter(
+      (binding) => binding.targetLayerId === mapping.primaryTargetId,
+    );
+    if (primaryBindings && primaryBindings.length !== 1)
+      throw new Error("The canonical primary style binding is missing or ambiguous.");
+    const compatible = definition.layers.filter(
+      (layer) =>
+        layer.type === layerTypeForGeometry(source.geometryType) &&
+        (!primaryBindings || layer.id === primaryBindings[0]?.styleLayerId),
+    );
     if (compatible.length !== 1) throw new Error("Stylesheet must identify exactly one compatible vector layer.");
     const selected = compatible[0];
     if (!selected) throw new Error("Compatible stylesheet layer is missing.");
@@ -318,9 +337,18 @@ export class AuthoritativeStyleProvider {
         layer.source === selected.source &&
         layer["source-layer"] === selected["source-layer"],
     );
-    for (const layer of appliedLayers)
-      for (const field of expressionFields(layer))
+    const mappedBody = mapping
+      ? canonicalStyleRefBody(JSON.parse(definition.inlineBody) as HonuaStyleSpecification, mapping.layerBindings)
+      : undefined;
+    for (const appearance of mappedBody ? Object.values(mappedBody) : appliedLayers) {
+      const properties = Object.fromEntries(
+        (["paint", "layout", "filter"] as const)
+          .filter((key) => appearance[key] !== undefined)
+          .map((key) => [key, appearance[key]]),
+      );
+      for (const field of expressionFields(properties))
         if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
+    }
     const override: Record<string, unknown> = {};
     for (const key of ["paint", "layout", "filter", "minzoom", "maxzoom"] as const)
       if (selected[key] !== undefined) override[key] = selected[key];
@@ -341,6 +369,7 @@ export class AuthoritativeStyleProvider {
       descriptorBody,
       stylesheetLayerId: String(selected.id),
       override,
+      ...(mappedBody && mapping ? { mappedBody, layerBindings: mapping.layerBindings } : {}),
     };
   }
 }

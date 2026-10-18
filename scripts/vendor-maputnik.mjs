@@ -22,12 +22,30 @@ mkdirSync(root, { recursive: true });
 const archive = spawnSync("git", ["-C", source, "archive", revision], { maxBuffer: 64 * 1024 * 1024 });
 if (archive.status !== 0) throw new Error("Could not export pinned upstream source.");
 run("tar", ["-xf", "-", "-C", root], { input: archive.stdout });
+const overlay = JSON.parse(readFileSync("scripts/maputnik/dependency-overlay.json", "utf8"));
+const lockPath = join(root, "package-lock.json");
+if (createHash("sha256").update(readFileSync(lockPath)).digest("hex") !== overlay.upstreamLockSha256)
+  throw new Error("Pinned upstream dependency lock changed.");
+const manifestPath = join(root, "package.json");
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+Object.assign(manifest.dependencies, overlay.package.dependencies);
+manifest.overrides = overlay.package.overrides;
+writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+for (const key of overlay.removedLockPackages) delete lock.packages[key];
+Object.assign(lock.packages, overlay.lockPackages);
+writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
 cpSync("scripts/maputnik/host-store.ts", join(root, "src/libs/store/style-store-factory.ts"));
 cpSync("scripts/maputnik/host-entry.jsx", join(root, "src/host-entry.jsx"));
 writeFileSync(join(root, "src/config/tokens.json"), "{}\n");
 // Keep rendering and authenticated resources in Honua's existing canvas.
 const appPath = join(root, "src/components/App.tsx");
 let app = readFileSync(appPath, "utf8");
+app = app.replace(/^import MapMaplibreGl.*\n/m, "").replace(/^import MapOpenLayers.*\n/m, "");
+const rendererStart = app.indexOf("  mapRenderer() {");
+const rendererEnd = app.indexOf("  setStateInUrl = () => {", rendererStart);
+if (rendererStart < 0 || rendererEnd < 0) throw new Error("Pinned renderer boundary changed.");
+app = `${app.slice(0, rendererStart)}  mapRenderer() { return null; }\n\n${app.slice(rendererEnd)}`;
 app = app.replace("  updateFonts(urlTemplate: string) {", "  updateFonts(urlTemplate: string) { return;");
 app = app.replace("  updateIcons(baseUrl: string) {", "  updateIcons(baseUrl: string) { return;");
 app = app.replace(
@@ -81,6 +99,7 @@ writeFileSync(
   `import {defineConfig} from 'vite'; import react from '@vitejs/plugin-react'; export default defineConfig({publicDir:false,plugins:[react()],define:{global:'window'},build:{outDir:'dist-honua',cssCodeSplit:false,lib:{entry:'src/host-entry.jsx',name:'HonuaMaputnik',formats:['iife'],fileName:()=>'editor.js'},rollupOptions:{output:{inlineDynamicImports:true,assetFileNames:'[name][extname]'}}}});\n`,
 );
 run("npm", ["ci", "--ignore-scripts"], { cwd: root });
+run("npm", ["audit", "--omit=dev", "--audit-level=low"], { cwd: root });
 run(process.execPath, [join(root, "node_modules/vite/bin/vite.js"), "build", "--config", "vite.honua.config.mjs"], {
   cwd: root,
 });
@@ -123,9 +142,12 @@ writeFileSync(
       revision,
       patches: ["host-store.ts", "host-entry.jsx", "blank-provider-tokens", "opaque-frame-network-denied"],
       integration: Object.fromEntries(
-        ["scripts/maputnik/host-store.ts", "scripts/maputnik/host-entry.jsx", "scripts/vendor-maputnik.mjs"].map(
-          (path) => [path, createHash("sha256").update(readFileSync(path)).digest("hex")],
-        ),
+        [
+          "scripts/maputnik/host-store.ts",
+          "scripts/maputnik/host-entry.jsx",
+          "scripts/maputnik/dependency-overlay.json",
+          "scripts/vendor-maputnik.mjs",
+        ].map((path) => [path, createHash("sha256").update(readFileSync(path)).digest("hex")]),
       ),
       files,
     },

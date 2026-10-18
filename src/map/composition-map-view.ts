@@ -493,12 +493,36 @@ export class CompositionMapView {
         // The renderer may use a supported legacy alias; keep the actual
         // discovered locator while binding provenance to that rendered id.
         const bindingSource = source.id === layer.sourceId ? source : { ...source, id: layer.sourceId };
-        const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source: bindingSource });
+        const reference = state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId);
+        const ownedTargets = new Set([layer.id, `${layer.id}__outline`]);
+        const renderLayers = state.mapSpec?.layers;
+        if (Array.isArray(renderLayers))
+          for (const render of renderLayers) {
+            if (
+              render &&
+              typeof render === "object" &&
+              render.metadata?.["honua:compositionLayerId"] === layer.id &&
+              typeof render.id === "string"
+            )
+              ownedTargets.add(render.id);
+          }
+        const mapping = reference?.layerBindings
+          ? {
+              primaryTargetId: layer.id,
+              layerBindings: reference.layerBindings.filter((binding) => ownedTargets.has(binding.targetLayerId)),
+            }
+          : undefined;
+        const key = canonicalCompositionJson({
+          styleId: layer.styleRef.styleId,
+          source: bindingSource,
+          owner: layer.id,
+          mapping,
+        });
         const cached = this.#styleBindings.get(key);
         const entry =
           cached && Date.now() - cached.readAt < 30000
             ? cached
-            : { binding: await provider.bind(layer.styleRef.styleId, bindingSource), readAt: Date.now() };
+            : { binding: await provider.bind(layer.styleRef.styleId, bindingSource, mapping), readAt: Date.now() };
         bindings[layer.id] = entry.binding;
         retained.set(key, entry);
       } catch (error) {

@@ -1,11 +1,20 @@
+import type { HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
 import { validateHonuaStyle } from "@honua/sdk-js/style";
 import { canonicalCompositionJson } from "../composition/model.js";
 
 export type MapStyleDocument = Readonly<Record<string, unknown>>;
 export type InlineStyleBody = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+/** Structural projection of the SDK-owned optional portable binding wire contract. */
+export interface CompositionStyleLayerBinding {
+  readonly styleLayerId: string;
+  readonly targetLayerId: string;
+  readonly layerType: string;
+  readonly properties?: readonly (keyof HonuaStyleRefLayerOverride | "visibility")[];
+}
 export interface CompositionStyleDefinition {
   readonly styleId: string;
   readonly body?: InlineStyleBody;
+  readonly layerBindings?: readonly CompositionStyleLayerBinding[];
   readonly [key: string]: unknown;
 }
 

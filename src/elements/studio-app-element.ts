@@ -845,6 +845,28 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return result;
   }
 
+  /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
+  public createWorkspaceStyleProvider(
+    options: { readonly getAuthority?: () => unknown } = {},
+  ): AuthoritativeStyleProvider {
+    const generation = this.#workspaceAuthGeneration;
+    const authority = options.getAuthority?.();
+    const baseUrl =
+      this.#session && "kind" in this.#session && this.#session.kind === "cookie"
+        ? verifiedSourcePathBase(this.#session.sourcePathBase)
+        : runtimeMcpBaseUrl();
+    return new AuthoritativeStyleProvider({
+      baseUrl,
+      ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
+      documentUrl: window.document.baseURI,
+      getAuth: () => {
+        if (generation !== this.#workspaceAuthGeneration || options.getAuthority?.() !== authority)
+          throw new Error("The selected style workspace authority changed.");
+        return this.auth;
+      },
+    });
+  }
+
   public get sourceCatalog(): readonly CatalogDataset[] | undefined {
     return this.#sourceCatalog;
   }

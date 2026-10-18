@@ -2,19 +2,18 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { defineConfig } from "vite";
+import { type SdkPayloadReceipt, verifySdkPayload } from "./scripts/lib/verify-sdk-payload.mjs";
 
-// Review artifact only: a clean install of published 0.2.2 must never silently
-// produce a broad native-tool bundle with its old unconditional draft injection.
-// Replace this pin and provenance explicitly when adopting the immutable release.
-const reviewedSessionSha256 = "6a648853c7343515b19c2ce652882f97e5a38dc4fb38da9412164cce49efc470";
-const installedSessionSha256 = createHash("sha256")
-  .update(readFileSync(resolve("node_modules/@honua/sdk-js/dist/src/studio-agent/session.js")))
-  .digest("hex");
-if (installedSessionSha256 !== reviewedSessionSha256) {
-  throw new Error(
-    "Console assets require the reviewed schema-aware SDK artifact. Install the documented review tarball or explicitly qualify and pin its published replacement.",
-  );
-}
+// Review artifact only. The complete installed package must match the exact
+// validated pack, including its canonical style binding resolver and tool policy.
+// Standalone builds retain their published SDK compatibility; this host bundle
+// cannot silently fall back to those older semantics.
+const sdkReceiptBytes = readFileSync(resolve("scripts/sdk-review-receipt.json"));
+const sdkReceiptSha256 = "97ee301b41e3f2e513d91586aa737179c9f1cfc02996caa3ac02875b74482d4c";
+if (createHash("sha256").update(sdkReceiptBytes).digest("hex") !== sdkReceiptSha256)
+  throw new Error("The Console SDK review receipt changed without explicit qualification.");
+const sdkReceipt = JSON.parse(sdkReceiptBytes.toString("utf8")) as SdkPayloadReceipt;
+verifySdkPayload(resolve("node_modules/@honua/sdk-js"), sdkReceipt);
 
 export default defineConfig({
   publicDir: false,
@@ -31,6 +30,7 @@ export default defineConfig({
         const integrationFiles = [
           "scripts/maputnik/host-store.ts",
           "scripts/maputnik/host-entry.jsx",
+          "scripts/maputnik/dependency-overlay.json",
           "scripts/vendor-maputnik.mjs",
         ];
         if (JSON.stringify(Object.keys(provenance.integration).sort()) !== JSON.stringify([...integrationFiles].sort()))
@@ -68,10 +68,10 @@ export default defineConfig({
               releaseQualified: false,
               kind: "review-artifact",
               version: "0.2.3",
-              sourceCommit: "da4003fe2",
-              packageSourceCommit: "4582b47db",
-              tarballSha256: "306596b48f96291df65b54da8d7db24cf5d3c8edd6942e8424b53728dde6e8fa",
-              sessionSha256: installedSessionSha256,
+              ...sdkReceipt,
+              receiptSha256: sdkReceiptSha256,
+              tarballSha256: sdkReceipt.artifactSha256,
+              sessionSha256: sdkReceipt.files["dist/src/studio-agent/session.js"],
             },
             null,
             2,
