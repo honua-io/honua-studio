@@ -23,7 +23,7 @@ export function compositionStyleOverride(
   return {
     ...canonical,
     paint,
-    layout: { ...canonical.layout, visibility: visible ? "visible" : "none" },
+    layout: { ...canonical.layout, ...(!visible ? { visibility: "none" } : {}) },
     ...(filter !== undefined ? { filter } : {}),
   };
 }

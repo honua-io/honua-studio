@@ -1,3 +1,4 @@
+import { verifiedSourcePathBase } from "../auth/host-session.js";
 /**
  * `<honua-studio-app>` — the full Studio shell (honua-studio#5 REQ-001/002).
  *
@@ -46,6 +47,8 @@ import {
   type AuthoritativeStyleDefinition,
   AuthoritativeStyleProvider,
 } from "../styles/authoritative-style-provider.js";
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
+import { MapStyleEditor } from "../styles/map-style-editor.js";
 import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
@@ -220,12 +223,28 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public set agentSessionAdapter(adapter: WorkspaceAgentSessionAdapter | undefined) {
     const previous = this.#workspaceAgentAdapter;
     this.#workspaceAgentAdapter = adapter;
+    this.#syncWorkspaceChrome();
     const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
     if (chat && (previous !== adapter || chat.agentSessionAdapter !== adapter)) {
       chat.detachAgentSession();
       chat.agentSessionAdapter = adapter;
     }
     this.shadowRoot?.querySelector('slot[name="chat"]')?.toggleAttribute("hidden", Boolean(adapter));
+  }
+
+  #isWorkspaceHost(): boolean {
+    return Boolean(
+      this.#workspaceAgentAdapter || (this.#session && "kind" in this.#session && this.#session.kind === "cookie"),
+    );
+  }
+  #syncWorkspaceChrome(): void {
+    const host = this.#isWorkspaceHost();
+    this.toggleAttribute("data-workspace-host", host);
+    if (host) {
+      this.#hashRouter?.stop();
+      this.#hashRouter = undefined;
+    }
+    if (this.isConnected) this.renderView();
   }
 
   #auth: AuthSession | undefined;
@@ -238,6 +257,146 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #currentPath = "/";
   #chromeBuilt = false;
   #composition: CompositionController | undefined;
+  #styleEditor: MapStyleEditor | undefined;
+  #styleEditorPanel: HTMLElement | undefined;
+  #styleEditorUnsubscribe: (() => void) | undefined;
+  public styleEditorAssetsUrl = "/maputnik/index.html";
+  public get hasUnsavedStyleChanges(): boolean {
+    return this.#styleEditor?.dirty ?? false;
+  }
+  public async openStyleEditor(_options: { layerId?: string } = {}): Promise<void> {
+    if (this.#styleEditor) return;
+    await this.prepareWorkspaceTurn();
+    if (!this.#workspaceDraft) throw new Error("Attach an authorized map draft before editing its style.");
+    if (!this.composition.state.mapSpec) {
+      const binding = this.#workspaceDraft;
+      const epoch = this.#workspaceAuthGeneration;
+      const pending = this.#workspaceDraftQueue.then(async () => {
+        const observed = await binding.initializeStyle();
+        if (epoch !== this.#workspaceAuthGeneration || this.#workspaceDraft !== binding)
+          throw new Error("The workspace authority changed.");
+        this.composition.resetBaseline({
+          ...observed,
+          pins: this.composition.state.pins,
+          annotations: this.composition.state.annotations,
+        });
+        this.#announceWorkspaceDraft();
+      });
+      this.#workspaceDraftQueue = pending.catch(() => undefined);
+      await pending;
+    }
+    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (!canvas) throw new Error("Open the map canvas before its style editor.");
+    const generation = this.#workspaceAuthGeneration;
+    const identity = this.#workspaceDraft?.identity;
+    if (!identity) throw new Error("The workspace draft is unavailable.");
+    const document = await canvas.editableMapStyle();
+    if (generation !== this.#workspaceAuthGeneration || identity.draftId !== this.#workspaceDraft?.identity?.draftId)
+      throw new Error("The workspace draft changed while opening the style editor.");
+    const panel = window.document.createElement("section");
+    panel.setAttribute("aria-label", "Map style editor");
+    this.shadowRoot?.querySelector(".app-slots")?.prepend(panel);
+    this.#styleEditorPanel = panel;
+    this.shadowRoot?.querySelector(".app-slots")?.setAttribute("data-style-mode", "");
+    this.#styleEditor = new MapStyleEditor({
+      container: panel,
+      document,
+      assetsUrl: this.styleEditorAssetsUrl,
+      scope: {
+        kind: "map-local",
+        detachesSharedStyles: this.composition.state.layers.some((layer) => Boolean(layer.styleRef)),
+      },
+      layers: this.composition.state.layers.map((layer) => ({
+        id: layer.id,
+        sourceId: layer.sourceId,
+        title: layer.title,
+      })),
+      selectedLayerId: _options?.layerId,
+      getFields: async (sourceId) => {
+        const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+        if (!source) throw new Error("Refresh the authorized source catalog before selecting thematic fields.");
+        const provider = new AuthoritativeStyleProvider({
+          baseUrl: canvas.sourceAuthBaseUrl,
+          documentUrl: window.document.baseURI,
+          getAuth: () => this.auth,
+          signal: AbortSignal.timeout(8000),
+        });
+        const fields = await provider.describeSource(source);
+        if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        return fields;
+      },
+      onPreview: (style) => {
+        canvas.stylePreview = style;
+      },
+      onDirty: (dirty) => {
+        this.paintHistoryControls();
+        this.dispatchEvent(
+          new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty }, bubbles: true, composed: true }),
+        );
+      },
+      onSave: async (style) => {
+        if (
+          generation !== this.#workspaceAuthGeneration ||
+          identity.draftId !== this.#workspaceDraft?.identity?.draftId
+        )
+          throw new Error("The workspace authority changed. Reopen the visual editor.");
+        const result = await this.#dispatchCommands([{ name: "setMapStyle", mapSpec: style }]);
+        if (!result.ok) throw new Error(result.reason);
+        if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        return canvas.editableMapStyle();
+      },
+      onDiscard: async () => {
+        // Explicit discard permits authoritative refresh; no stale buffer is written.
+        canvas.stylePreview = undefined;
+        const id = this.#workspaceDraft?.identity?.draftId;
+        if (!id || generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        const editor = this.#styleEditor;
+        this.#styleEditor = undefined;
+        try {
+          await this.attachWorkspaceDraft(id);
+        } finally {
+          if (generation === this.#workspaceAuthGeneration) this.#styleEditor = editor;
+          else editor?.dispose();
+        }
+        if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        return canvas.editableMapStyle();
+      },
+    });
+    const editor = this.#styleEditor;
+    this.#styleEditorUnsubscribe = this.composition.subscribe(() => {
+      if (editor.dirty) return;
+      void canvas
+        .editableMapStyle()
+        .then((style) => {
+          if (this.#styleEditor === editor && generation === this.#workspaceAuthGeneration)
+            editor.observeSavedDocument(style);
+        })
+        .catch(() => {});
+    });
+  }
+  public async closeStyleEditor(): Promise<void> {
+    if (this.hasUnsavedStyleChanges) throw new Error("Save or discard visual style edits before leaving.");
+    this.#disposeStyleEditor();
+  }
+  public async discardStyleChanges(): Promise<void> {
+    await this.#styleEditor?.discard();
+  }
+  #disposeStyleEditor(): void {
+    this.#styleEditorUnsubscribe?.();
+    this.#styleEditorUnsubscribe = undefined;
+    this.#styleEditor?.dispose();
+    this.#styleEditor = undefined;
+    this.#styleEditorPanel?.remove();
+    this.#styleEditorPanel = undefined;
+    this.shadowRoot?.querySelector(".app-slots")?.removeAttribute("data-style-mode");
+    this.paintHistoryControls();
+    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (canvas) canvas.stylePreview = undefined;
+    this.dispatchEvent(
+      new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty: false }, bubbles: true, composed: true }),
+    );
+  }
+
   #workspaceDraft: WorkspaceDraftBinding | undefined;
   #workspaceAuthGeneration = 0;
   #workspaceDraftConflict = false;
@@ -353,18 +512,33 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Idle observation for external draft changes; never discard an unsaved form value. */
   public async refreshWorkspaceDraft(): Promise<boolean> {
+    const binding = this.#workspaceDraft;
+    const generation = this.#workspaceAuthGeneration;
     await this.#workspaceDraftQueue;
-    const identity = this.#workspaceDraft?.identity;
-    if (!identity || this.#historyBusy || this.#workspaceDraftConflict) return false;
+    const identity = binding?.identity;
+    if (!identity || binding !== this.#workspaceDraft || this.#historyBusy || this.#workspaceDraftConflict)
+      return false;
     if (this.#hasDirtyWorkspaceForm()) return false;
-    await this.attachWorkspaceDraft(identity.draftId);
-    return true;
+    try {
+      await this.attachWorkspaceDraft(identity.draftId);
+    } catch (error) {
+      if (
+        generation !== this.#workspaceAuthGeneration ||
+        this.#historyBusy ||
+        this.#workspaceDraftConflict ||
+        this.#hasDirtyWorkspaceForm()
+      )
+        return false;
+      throw error;
+    }
+    return generation === this.#workspaceAuthGeneration && !this.#hasDirtyWorkspaceForm();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
   public async prepareWorkspaceTurn(): Promise<
     { draftId: string; generation: number; packageKey: string } | undefined
   > {
+    await this.#styleEditor?.settled();
     await this.#workspaceDraftQueue;
     if (this.#historyBusy || this.#workspaceDraftConflict || this.#hasDirtyWorkspaceForm()) {
       throw new Error("Save or explicitly reload the pending Studio edits before sending a workspace turn.");
@@ -373,9 +547,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #hasDirtyWorkspaceForm(): boolean {
+    if (this.hasUnsavedStyleChanges) return true;
     const dirty = (root: ParentNode): boolean => {
       for (const element of root.querySelectorAll("*")) {
-        if (element.tagName === "HONUA-STUDIO-CHAT") continue;
+        if (element.tagName === "HONUA-STUDIO-CHAT" || this.#styleEditorPanel?.contains(element)) continue;
         if (
           (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) &&
           (element.value !== element.defaultValue ||
@@ -412,7 +587,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Undo/redo in the authoritative draft before advancing the visible history. */
   public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
-    if (this.#historyBusy) return false;
+    if (this.#historyBusy || this.hasUnsavedStyleChanges) return false;
     const authGeneration = this.#workspaceAuthGeneration;
     this.#historyBusy = true;
     this.paintHistoryControls();
@@ -487,6 +662,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public set session(session: SessionAdapter | undefined) {
     if (this.#session === session) return;
+    if (session && "kind" in session && session.kind === "cookie") verifiedSourcePathBase(session.sourcePathBase);
     const previous = this.#session;
     const hadAuthority = Boolean(previous || this.#auth || this.#workspaceDraft);
     const samePrincipal =
@@ -498,8 +674,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       session.kind === "cookie" &&
       previous.principalId &&
       previous.principalId === session.principalId &&
-      previous.environmentId === session.environmentId;
+      previous.environmentId === session.environmentId &&
+      verifiedSourcePathBase(previous.sourcePathBase) === verifiedSourcePathBase(session.sourcePathBase);
     if (!samePrincipal) {
+      this.#disposeStyleEditor();
       this.#workspaceAuthGeneration++;
       this.#workspaceDraft = undefined;
       this.#workspaceDraftConflict = false;
@@ -507,6 +685,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (hadAuthority) this.#announceWorkspaceDraft();
     }
     this.#session = session;
+    this.#syncWorkspaceChrome();
+    const sourceCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (sourceCanvas)
+      sourceCanvas.sourceAuthBaseUrl =
+        session && "kind" in session && session.kind === "cookie"
+          ? verifiedSourcePathBase(session.sourcePathBase)
+          : runtimeMcpBaseUrl();
     if (!this.isConnected) return;
     this.resetAuth();
     // A host-owned catalog does not reload on session replacement. Invalidate
@@ -533,7 +718,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // new `.auth` (route render functions receive `auth` as a fresh
     // argument, not a live binding) — deliberately NOT done from inside
     // auth.subscribe's own listener below; see that listener's comment.
-    this.#chromeBuilt = false;
+    // A cookie lease changes credentials, not the editor's DOM or authority.
+    // Retain the iframe so uncommitted field text survives renewal.
+    if (!samePrincipal) this.#chromeBuilt = false;
     this.renderChrome();
     // renderChrome() just replaced the shadow DOM wholesale — in hash mode
     // that orphans any existing #hashRouter's captured #view node (see
@@ -948,7 +1135,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * first, onConnect one — closes that gap.
    */
   #setupHashRouter(): void {
-    if (this.routingMode !== "hash") return;
+    if (this.routingMode !== "hash" || this.#isWorkspaceHost()) return;
     this.#hashRouter?.stop();
     this.#hashRouter = new Router(
       this.viewRoot(),
@@ -1048,6 +1235,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // children instead is responsible for its own wiring (same "no
     // privileged internal APIs" boundary `main.ts`'s doc calls out).
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (canvas)
+      canvas.sourceAuthBaseUrl =
+        this.#session && "kind" in this.#session && this.#session.kind === "cookie"
+          ? verifiedSourcePathBase(this.#session.sourcePathBase)
+          : runtimeMcpBaseUrl();
     if (canvas && !canvas.composition) canvas.composition = this.composition;
     // honua-studio#31: a widget's intrinsic mutation is a composition command
     // like any other, so it goes through the SAME orchestrator a chat tool
@@ -1267,6 +1459,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+    if (this.hasUnsavedStyleChanges && commands.some((command) => command.name !== "setMapStyle"))
+      return { ok: false, reason: "Save or discard visual style edits before changing the map." };
     if (this.#workspaceDraft) {
       const binding = this.#workspaceDraft;
       const generation = this.#workspaceAuthGeneration;
@@ -1274,7 +1468,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         try {
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           const target = applyCompositionCommands(this.composition.state, commands).state;
-          const observed = await binding.replace(target);
+          const observed =
+            commands.length === 1 && commands[0]?.name === "setMapStyle"
+              ? {
+                  ...(await binding.replaceStyle(commands[0].mapSpec)),
+                  pins: target.pins,
+                  annotations: target.annotations,
+                }
+              : await binding.replace(target);
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           for (const command of commands) this.composition.apply(command);
           this.composition.replaceState(observed);
@@ -1637,7 +1838,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const button = this.shadowRoot?.querySelector<HTMLButtonElement>(`[data-testid="history-${action}"]`);
       if (button)
         button.disabled =
-          this.#historyBusy || !(action === "undo" ? this.composition.canUndo() : this.composition.canRedo());
+          this.#historyBusy ||
+          this.hasUnsavedStyleChanges ||
+          !(action === "undo" ? this.composition.canUndo() : this.composition.canRedo());
     }
   }
 
@@ -1678,6 +1881,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   private renderView(): void {
     if (!this.shadowRoot?.querySelector("#view")) return;
+    if (this.#isWorkspaceHost()) {
+      this.viewRoot().replaceChildren();
+      return;
+    }
     const route = ROUTES.find((candidate) => candidate.path === this.#currentPath) ?? ROUTES[0];
     route?.render(this.viewRoot(), this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
     this.syncNavCurrent();

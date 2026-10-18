@@ -1,14 +1,17 @@
-# Honua Studio
+# Honua Studio editor runtime
 
-**Natural language to map app.**
+**The embedded editor for the unified Honua Console workspace.**
 
-Honua Studio is an open-source, model-agnostic builder
-for geospatial applications: describe the app you want in conversation, and an
-agent composes it — layers from the live catalog, styling, views, tables,
-charts, analysis — through typed, bounded, auditable commands over the
-[Honua JS SDK](https://github.com/honua-io/honua-sdk-js)'s package, style, and
-agent-tool contracts. No license seats, no platform lock-in, self-hostable end
-to end.
+This repository currently supplies Console's reusable map, styling, app, and
+Processes editing runtime. Console owns product navigation, authentication,
+workspace context, and the one shared conversation. Visual edits and agent
+commands operate on the same authorized draft and revision; ordinary creative
+editing does not require a generate/approve/handoff workflow. Publication and
+other governed operations remain explicit actions.
+
+The standalone shell and embed harnesses are compatibility and development
+surfaces, not a separate product. Repository consolidation is still pending;
+Console currently depends on the qualified editor bundle from this repository.
 
 - **BYOM** — bring your own model: Studio talks to honua-server's Studio AI
   proxy, so the provider is the operator's choice (Bedrock, any hosted API, or
@@ -32,6 +35,8 @@ to end.
   [Honua Console](https://github.com/honua-io/honua-console)'s `/studio`
   surface is honua-io/honua-console#324, scheduled for 2026.2.
 
+The current visual styling follow-up is under qualification. It adds a pinned credential-free Maputnik frame over the same authorized map draft, explicit map-local versus shared-catalog save callbacks, host-only navigation/chat, and SDK-paged feature preview. These source changes do not yet establish browser label rendering, shared-symbol publication, actual large-layer coverage, or a new production asset receipt. Font/sprite resource transport and the full public artifact journey remain unfinished.
+
 ## Status
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
@@ -42,7 +47,7 @@ real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
 The current tree contains 131 files in `src/` and 129 in `test/`, with
-1237 unit tests across 109 files and 29 Playwright browser journeys, including four accessibility checks.
+Last qualified baseline: 1237 unit tests across 109 files and 29 Playwright browser journeys, including four accessibility checks.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -247,7 +252,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — 1237 tests across 109 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
+| `npm test` | Unit tests (Vitest) — last qualified baseline 1237 tests across 109 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)) |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

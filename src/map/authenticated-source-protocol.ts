@@ -1,3 +1,4 @@
+import { loadPagedFeatureSource } from "./paged-feature-source.js";
 import type { AddProtocolAction, RequestTransformFunction } from "maplibre-gl";
 import type { AuthSession } from "../auth/types.js";
 
@@ -13,6 +14,8 @@ export interface AuthenticatedSourceOptions {
   readonly documentUrl: string;
   readonly getAuth: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly onError?: (error: Error) => void;
+  readonly onIncomplete?: (message: string) => void;
+  readonly pagedFeatureServices?: boolean;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -90,6 +93,10 @@ export async function fetchAuthenticatedFeatureCollection(
     if (record?.type !== "FeatureCollection" || !Array.isArray(record.features)) {
       throw new Error(`${label} did not return a GeoJSON FeatureCollection.`);
     }
+    if (record.exceededTransferLimit === true)
+      options.onIncomplete?.(
+        `Showing ${record.features.length} returned features; the server reports additional features. This preview is incomplete.`,
+      );
     return record;
   }
   throw new Error(`${label} authorization failed.`);
@@ -117,7 +124,9 @@ export function installAuthenticatedSourceProtocol(
       );
       if (!target) throw new Error("Map source is outside the trusted Honua feature endpoints.");
       pending.add(controller);
-      const data = await fetchAuthenticatedFeatureCollection(target.href, options, controller.signal);
+      const data = options.pagedFeatureServices && /\/FeatureServer\/\d+\/query$/.test(target.pathname)
+        ? await loadPagedFeatureSource(target, options, controller.signal)
+        : await fetchAuthenticatedFeatureCollection(target.href, options, controller.signal);
       if (disposed) throw new Error("Map source transport is disposed.");
       return { data };
     } catch (error) {

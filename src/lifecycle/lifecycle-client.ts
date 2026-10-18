@@ -1,3 +1,4 @@
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * REST client for honua-server's Studio package lifecycle API
  * (`docs/internal/admin-api/studio-package-lifecycle.md`, issue #1180) plus
@@ -202,6 +203,33 @@ export class StudioLifecycleClient {
     return this.#request("PUT", `/package-drafts/${encodeURIComponent(draftId)}`, request);
   }
 
+  public initializeDraftStyle(
+    draftId: string,
+    generation: number,
+    commandId = crypto.randomUUID(),
+  ): Promise<StudioPackageDraft> {
+    return this.#request(
+      "POST",
+      `/package-drafts/${encodeURIComponent(draftId)}/style/initialize`,
+      { generation },
+      commandId,
+    );
+  }
+
+  public setMapStyle(
+    draftId: string,
+    generation: number,
+    mapSpec: MapStyleDocument,
+    commandId = crypto.randomUUID(),
+  ): Promise<StudioPackageDraft> {
+    return this.#request(
+      "PUT",
+      `/package-drafts/${encodeURIComponent(draftId)}/style`,
+      { generation, mapSpec },
+      commandId,
+    );
+  }
+
   public async deleteDraft(draftId: string): Promise<void> {
     await this.#request("DELETE", `/package-drafts/${encodeURIComponent(draftId)}`);
   }
@@ -288,9 +316,16 @@ export class StudioLifecycleClient {
 
   // -- transport ----------------------------------------------------------------
 
-  async #fetchWithAuth(path: string, method: string, body: unknown, forceRefresh: boolean): Promise<Response> {
+  async #fetchWithAuth(
+    path: string,
+    method: string,
+    body: unknown,
+    forceRefresh: boolean,
+    commandId?: string,
+  ): Promise<Response> {
     const headers: Record<string, string> = { accept: "application/json" };
     if (body !== undefined) headers["content-type"] = "application/json";
+    if (commandId) headers["Idempotency-Key"] = commandId;
     if (this.#auth) {
       const token = await this.#auth.getAccessToken({ forceRefresh });
       if (token) headers.authorization = `Bearer ${token}`;
@@ -302,11 +337,11 @@ export class StudioLifecycleClient {
     });
   }
 
-  async #request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async #request<T>(method: string, path: string, body?: unknown, commandId?: string): Promise<T> {
     const url = `${this.#baseUrl}/v1/studio${path}`;
     let response: Response;
     try {
-      response = await this.#fetchWithAuth(path, method, body, false);
+      response = await this.#fetchWithAuth(path, method, body, false, commandId);
     } catch (error) {
       throw new StudioLifecycleTransportError(`Could not reach the Studio lifecycle API at ${url}.`, error);
     }
@@ -314,7 +349,7 @@ export class StudioLifecycleClient {
       // Single refresh-then-retry — never a second attempt after this one
       // (matches client/studio-client.ts's/mcp/client.ts's documented policy).
       try {
-        response = await this.#fetchWithAuth(path, method, body, true);
+        response = await this.#fetchWithAuth(path, method, body, true, commandId);
       } catch (error) {
         throw new StudioLifecycleTransportError(`Could not reach the Studio lifecycle API at ${url}.`, error);
       }

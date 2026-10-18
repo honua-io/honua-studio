@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { defineConfig } from "vite";
 
@@ -21,6 +21,10 @@ export default defineConfig({
   plugins: [
     {
       name: "console-license-notices",
+      closeBundle() {
+        if (existsSync(resolve("public/maputnik")))
+          cpSync(resolve("public/maputnik"), resolve("dist-console/maputnik"), { recursive: true });
+      },
       generateBundle() {
         this.emitFile({
           type: "asset",

@@ -5,11 +5,14 @@ import {
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
 
+export const workspaceAgentFeatures = Object.freeze({ toolApproval: true, visualStyleScopes: true });
+
 /** Creates the one host-owned model/tool loop with a separately authenticated agent transport. */
 export function createWorkspaceAgentSession(options: {
   readonly fetchImpl: typeof fetch;
   readonly system: StudioAgentSessionOptions["system"];
   readonly toolFamilies: readonly string[];
+  readonly toolApproval?: NonNullable<StudioAgentSessionOptions["studioTools"]>["approve"];
   readonly onEvent?: StudioAgentSessionOptions["onEvent"];
   readonly certification?: StudioAgentSessionOptions["certification"];
   readonly transcriptVerifier?: StudioAgentSessionOptions["transcriptVerifier"];
@@ -21,7 +24,7 @@ export function createWorkspaceAgentSession(options: {
     transcriptVerifier: options.transcriptVerifier,
     fetchImpl: options.fetchImpl,
     system: options.system,
-    studioTools: { families: options.toolFamilies, required: [] },
+    studioTools: { families: options.toolFamilies, required: [], approve: options.toolApproval },
     onEvent: options.onEvent,
   });
 }

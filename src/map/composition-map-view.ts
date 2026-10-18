@@ -1,5 +1,6 @@
 import type { LiveStyleObservation } from "../evals/authoritative-style-evidence.js";
 import type { AuthoritativeStyleProvider, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * The live MapLibre surface (honua-studio#23 REQ-001) — the thing that makes
  * "the agent composes a running application" literally true instead of
@@ -104,6 +105,7 @@ export interface CompositionMapFactoryOptions {
   readonly sourceBaseUrl?: string;
   readonly legacySourceBaseUrl?: string;
   readonly onSourceError?: (error: Error) => void;
+  readonly onSourceIncomplete?: (message: string) => void;
 }
 
 export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => Promise<CompositionMapLike>;
@@ -185,6 +187,8 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
         legacySourceBaseUrl: options.legacySourceBaseUrl,
         documentUrl: document.baseURI,
         onError: options.onSourceError,
+        onIncomplete: options.onSourceIncomplete,
+        pagedFeatureServices: true,
       })
     : undefined;
   try {
@@ -233,6 +237,19 @@ export class CompositionMapView {
   #status: CompositionMapStatus = "idle";
   #statusDetail: string | undefined;
   #projection: CompositionMapProjection | undefined;
+  #stylePreview: MapStyleDocument | undefined;
+
+  public setStylePreview(style: MapStyleDocument | undefined): void {
+    this.#stylePreview = style;
+    this.#scheduleUpdate();
+  }
+  public async editableMapStyle(): Promise<MapStyleDocument> {
+    await this.settled();
+    const projection = this.#projection ?? this.#project();
+    return structuredClone(
+      await composeStyle(projection.mapPackage, projection.mapPackage.mapSpec, {}),
+    ) as unknown as MapStyleDocument;
+  }
   #queue: Promise<void> = Promise.resolve();
   #generation = 0;
   #appliedView: CompositionView | undefined;
@@ -385,6 +402,10 @@ export class CompositionMapView {
         getAuth: this.#options.getAuth,
         sourceBaseUrl: this.#options.sourceAuthBaseUrl ?? this.#options.projection?.baseUrl,
         legacySourceBaseUrl: this.#options.projection?.baseUrl ?? "/api",
+        onSourceIncomplete: (message) => {
+          this.#statusDetail = `Incomplete map preview: ${message}`;
+          this.#notify();
+        },
         onSourceError: (error) => {
           this.#statusDetail = `Map source could not load: ${error.message}`;
           this.#notify();
@@ -455,7 +476,11 @@ export class CompositionMapView {
     this.#styleSession = session;
     const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
     for (const layer of state.layers) {
-      if (!layer.styleRef) continue;
+      if (
+        !layer.styleRef ||
+        state.styleRefs?.some((ref) => ref.styleId === layer.styleRef?.styleId && ref.body !== undefined)
+      )
+        continue;
       const source = findCompositionSourceDescriptor(layer.sourceId, this.#options.projection?.catalog);
       if (source && !usesHonuaStyleCatalog(source)) continue;
       try {
@@ -494,8 +519,18 @@ export class CompositionMapView {
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
       ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
     });
-    this.#projection = projection;
-    return projection;
+    const effective = this.#stylePreview
+      ? {
+          ...projection,
+          mapPackage: {
+            ...projection.mapPackage,
+            mapSpec: this.#stylePreview as unknown as HonuaStyleSpecification,
+            styleRefs: [],
+          },
+        }
+      : projection;
+    this.#projection = effective;
+    return effective;
   }
 
   /**

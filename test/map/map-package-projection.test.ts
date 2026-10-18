@@ -190,3 +190,33 @@ describe("compositionToMapPackage (honua-studio#23)", () => {
     expect(paintOf(two)).toEqual(paintOf(one));
   });
 });
+
+describe("authoritative map-local style precedence", () => {
+  it("does not resurrect a render layer intentionally removed in the visual editor", () => {
+    const state = stateFrom([{ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } }]);
+    const initial = compositionToMapPackage(state, { catalog: CATALOG }).mapPackage.mapSpec;
+    const mapSpec = {
+      ...initial,
+      layers: initial.layers.filter((layer) => layer.id !== "hi-parcels" && layer.id !== "hi-parcels__outline"),
+    };
+    const observed = compositionToMapPackage(
+      { ...state, mapSpec: mapSpec as unknown as Record<string, unknown> },
+      { catalog: CATALOG },
+    ).mapPackage.mapSpec;
+    expect(layerIds(observed)).not.toContain("hi-parcels");
+    expect(layerIds(observed)).not.toContain("hi-parcels__outline");
+  });
+  it("uses inline paint without requiring a remote style-catalog binding", () => {
+    const state = stateFrom([
+      { name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } },
+      {
+        name: "setLayerStyleRef",
+        target: { kind: "layer", id: "hi-parcels" },
+        styleBody: { "hi-parcels": { paint: { "fill-color": "#112233" } } },
+      },
+    ]);
+    const result = compositionToMapPackage(state, { catalog: CATALOG, authoritativeStyles: {} });
+    expect(result.unresolved).toEqual([]);
+    expect(result.mapPackage.styleRefs?.[0].body).toEqual({ "hi-parcels": { paint: { "fill-color": "#112233" } } });
+  });
+});

@@ -154,7 +154,7 @@ describe("authoritative style provider", () => {
       const actual = await composeStyle(projected.mapPackage, projected.mapPackage.mapSpec, {});
       for (const id of ["composed", "composed__outline"]) {
         expect(actual.layers.find((layer) => layer.id === id)).toMatchObject({
-          layout: { visibility: visible ? "visible" : "none" },
+          layout: { visibility: visible ? canonicalVisibility : "none" },
           minzoom: 8,
           maxzoom: 14,
         });

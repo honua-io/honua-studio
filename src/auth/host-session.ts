@@ -18,6 +18,13 @@ import type {
   Unsubscribe,
 } from "./types.js";
 
+export function verifiedSourcePathBase(value: string | undefined): string {
+  const path = value ?? "";
+  if (path !== "" && (!/^\/(?:[A-Za-z0-9_-]+)(?:\/[A-Za-z0-9_-]+)*$/.test(path) || path.length > 512))
+    throw new Error("Invalid verified deployment source path.");
+  return path;
+}
+
 export class HostAdapterAuthSession implements AuthSession {
   readonly mode = "host-adapter" as const;
 
@@ -39,6 +46,7 @@ export class HostAdapterAuthSession implements AuthSession {
     if ("kind" in adapter && adapter.kind === "cookie") {
       const cookie = Object.freeze({ ...adapter });
       this.adapter = cookie;
+      const sourcePathBase = verifiedSourcePathBase(cookie.sourcePathBase);
       if (
         cookie.baseUrl !== "/api/studio" ||
         !cookie.environmentId ||
@@ -58,6 +66,8 @@ export class HostAdapterAuthSession implements AuthSession {
           if (url.origin !== location.origin) throw new Error("Cookie transport requires the host origin.");
           path = url.pathname + url.search;
         }
+        if (sourcePathBase && (path.startsWith(`${sourcePathBase}/rest/`) || path === `${sourcePathBase}/mcp`))
+          path = path.slice(sourcePathBase.length);
         const pathname = path.split("?")[0]!;
         if (/[^\x20-\x7e]|[\\#]/.test(path) || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split("/").includes(".."))
           throw new Error("Cookie host transport rejected an unbounded URL.");
@@ -99,7 +109,7 @@ export class HostAdapterAuthSession implements AuthSession {
             throw new Error("The human catalog transport only permits layer discovery and style readback.");
           target = "/api/studio/catalog-mcp";
         } else if (
-          (/^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(pathname) ||
+          (/^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+(?:\/query)?$/.test(pathname) ||
             /^\/ogc\/features\/collections\/[^/]+\/items$/.test(pathname)) &&
           (init?.method ?? "GET") === "GET"
         ) {

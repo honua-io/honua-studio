@@ -1,3 +1,4 @@
+import type { MapStyleField } from "./map-style-edit.js";
 import type { HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
 import { validateHonuaStyle } from "@honua/sdk-js/style";
 import type { AuthSession } from "../auth/types.js";
@@ -57,7 +58,7 @@ function rejectLegacyFilter(value: unknown): void {
   if (["all", "any", "!"].includes(operator)) for (const child of value.slice(1)) rejectLegacyFilter(child);
 }
 
-/** Initial subset: resource-free fill/line/circle overrides onto existing resolved sources. */
+/** Resource-free vector styles, including symbols rendered with local fonts. */
 export function parseStyleLayers(inlineBody: string): readonly Readonly<Record<string, unknown>>[] {
   if (new TextEncoder().encode(inlineBody).length > 262144) throw new Error("Stylesheet exceeds the 256 KiB limit.");
   const style = record(JSON.parse(inlineBody));
@@ -80,7 +81,7 @@ export function parseStyleLayers(inlineBody: string): readonly Readonly<Record<s
       typeof layer.id !== "string" ||
       !layer.id ||
       identities.has(layer.id) ||
-      !["fill", "line", "circle"].includes(String(layer.type))
+      !["fill", "line", "circle", "symbol"].includes(String(layer.type))
     )
       throw new Error("Stylesheet layers must have unique ids and supported vector types.");
     identities.add(layer.id);
@@ -196,6 +197,38 @@ export class AuthoritativeStyleProvider {
       serverRoot: this.serverRoot,
       observedAt: new Date().toISOString(),
     };
+  }
+
+  async describeSource(source: CompositionSourceDescriptor): Promise<readonly MapStyleField[]> {
+    const { serviceId, layerId } = source.locator ?? {};
+    if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
+      throw new Error("Select an actual published source for thematic fields.");
+    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId });
+    if (
+      descriptor.serviceId !== serviceId ||
+      descriptor.layerId !== layerId ||
+      !Array.isArray(descriptor.fields) ||
+      descriptor.fields.length > 1000 ||
+      descriptor.fieldCount !== descriptor.fields.length
+    )
+      throw new Error("The actual source field descriptor does not match.");
+    const expected = new URL(String(source.locator?.url), this.options.documentUrl);
+    const observed = new URL(
+      `${this.serverRoot}/rest/services/${String(descriptor.serviceName).split("/").map(encodeURIComponent).join("/")}/FeatureServer`,
+    );
+    if (
+      expected.href.replace(/\/$/, "") !== observed.href &&
+      expected.href.replace(/\/$/, "") !== `${observed.href}/${layerId}`
+    )
+      throw new Error("The field descriptor does not match its actual published source.");
+    const seen = new Set<string>();
+    return descriptor.fields.map((value) => {
+      const field = record(value);
+      if (typeof field.name !== "string" || !field.name || field.name.length > 256 || seen.has(field.name))
+        throw new Error("Invalid actual source field.");
+      seen.add(field.name);
+      return { name: field.name, type: typeof field.type === "string" ? field.type : "unknown" };
+    });
   }
 
   async bind(styleId: string, source: CompositionSourceDescriptor): Promise<BoundAuthoritativeStyle> {
