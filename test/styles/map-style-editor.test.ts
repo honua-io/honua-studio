@@ -181,3 +181,20 @@ it("missing canonical save readback retains dirty buffer", async () => {
   await editor.save();
   expect(editor.dirty).toBe(true);
 });
+
+it("ignores unsolicited flush acknowledgments without an active matching request", () => {
+  const { editor, frame, onSave, onPreview } = setup();
+  const channel = new URLSearchParams(new URL(frame.src).hash.slice(1)).get("channel");
+  expect(() =>
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: frame.contentWindow,
+        origin: "null",
+        data: { type: "honua:style-flushed", channel, settled: true, style },
+      }),
+    ),
+  ).not.toThrow();
+  expect(editor.dirty).toBe(false);
+  expect(onSave).not.toHaveBeenCalled();
+  expect(onPreview).not.toHaveBeenCalled();
+});

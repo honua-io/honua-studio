@@ -141,10 +141,11 @@ export class MapStyleEditor {
   #receive(event: MessageEvent): void {
     if (event.source !== this.#frame.contentWindow || event.origin !== "null" || event.data?.channel !== this.#channel)
       return;
-    if (event.data.type === "honua:style-flushed" && this.#flush?.id === event.data.requestId) {
-      clearTimeout(this.#flush.timer);
-      if (event.data.settled === true) this.#flush.resolve(event.data.style);
-      else this.#flush.reject(new Error("Finish or discard the pending visual field before saving."));
+    const flush = this.#flush;
+    if (event.data.type === "honua:style-flushed" && flush && flush.id === event.data.requestId) {
+      clearTimeout(flush.timer);
+      if (event.data.settled === true) flush.resolve(event.data.style);
+      else flush.reject(new Error("Finish or discard the pending visual field before saving."));
       this.#flush = undefined;
       return;
     }
