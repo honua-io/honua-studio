@@ -14,3 +14,5 @@ export { HonuaStudioCustomProcessesElement } from "./elements/studio-custom-proc
 
 export { MapStyleEditor, type MapStyleEditorOptions, type MapStyleEditorScope } from "./styles/map-style-editor.js";
 export type { MapStyleDocument } from "./styles/map-style-edit.js";
+
+export { createWorkspaceLifecycleReader, type WorkspaceLifecycleReader } from "./lifecycle/workspace-reader.js";
