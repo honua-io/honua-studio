@@ -61,7 +61,9 @@ it("does not accept an invalid field when another field commits a valid change",
     store.save({ ...style, id: "honua-host-draft", name: "Accepted JSON edit" });
     content.dispatchEvent(new Event("input", { bubbles: true }));
     send({ type: "honua:style-flush", requestId: "accepted-json" });
-    await vi.waitFor(() => expect(messages.find((message) => message.requestId === "accepted-json")?.settled).toBe(true));
+    await vi.waitFor(() =>
+      expect(messages.find((message) => message.requestId === "accepted-json")?.settled).toBe(true),
+    );
     send({ type: "honua:style-unlock" });
     invalid.value = "{ invalid focused field";
     invalid.focus();
