@@ -59,6 +59,13 @@ writeFileSync(
   ),
 );
 
+const editorFactoryPath = join(root, "src/libs/codemirror-editor-factory.ts");
+const editorFactory = readFileSync(editorFactoryPath, "utf8");
+if (!editorFactory.includes("        if (update.docChanged) {")) throw new Error("Pinned CodeMirror input hook changed.");
+writeFileSync(editorFactoryPath, editorFactory.replace("        if (update.docChanged) {", `        if (update.docChanged) {
+          if (update.transactions.some(transaction => transaction.isUserEvent("input") || transaction.isUserEvent("delete")))
+            window.dispatchEvent(new CustomEvent("honua:style-raw-input", {detail: {element: update.view.contentDOM}}));`));
+
 writeFileSync(
   join(root, "vite.honua.config.mjs"),
   `import {defineConfig} from 'vite'; import react from '@vitejs/plugin-react'; export default defineConfig({publicDir:false,plugins:[react()],define:{global:'window'},build:{outDir:'dist-honua',cssCodeSplit:false,lib:{entry:'src/host-entry.jsx',name:'HonuaMaputnik',formats:['iife'],fileName:()=>'editor.js'},rollupOptions:{output:{inlineDynamicImports:true,assetFileNames:'[name][extname]'}}}});\n`,

@@ -25,10 +25,22 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
     const {id: _identity, ...style} = latest;
     return style;
   };
+  const markPending = (element: Element) => {
+    const key = inputKey(element);
+    committing = key;
+    queueMicrotask(() => { if (committing === key) committing = undefined; });
+    pendingInputs.add(key);
+    send({type: "honua:style-input"});
+  };
+  window.addEventListener("honua:style-raw-input", ((event: CustomEvent) => {
+    if (event.detail?.element instanceof Element) markPending(event.detail.element);
+  }) as EventListener);
+  document.addEventListener("beforeinput", event => {
+    if (event.target instanceof Element && event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")) markPending(event.target);
+  }, true);
   document.addEventListener("input", event => {
     if (!(event.target instanceof Element) || !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")) return;
-    pendingInputs.add(inputKey(event.target));
-    send({type: "honua:style-input"});
+    markPending(event.target);
   }, true);
   window.addEventListener("message", event => {
     if (event.source !== parent || event.origin !== parentOrigin || event.data?.channel !== channel) return;
