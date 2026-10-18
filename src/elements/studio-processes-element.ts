@@ -509,8 +509,11 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
         this.#run = run;
         this.#message = JSON.stringify(this.#run, null, 2);
       }
-      if (action === "status" && this.#run) this.#message = JSON.stringify(await client.status(this.#run), null, 2);
-      if (action === "cancel" && this.#run) this.#message = JSON.stringify(await client.cancel(this.#run), null, 2);
+      if ((action === "status" || action === "cancel") && this.#run) {
+        const result = await (action === "status" ? client.status(this.#run) : client.cancel(this.#run));
+        current();
+        this.#message = JSON.stringify(result, null, 2);
+      }
     } catch (error) {
       if (client !== this.client || authority !== this.#clientGeneration) return;
       if (error instanceof ProcessValidationError) this.#diagnostics = error.diagnostics;
