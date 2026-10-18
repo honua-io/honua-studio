@@ -109,8 +109,9 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
     getLatestStyle: async () => latest!,
     save(style) {
       latest = style;
-      const active = committing ?? (document.activeElement ? inputKey(document.activeElement) : undefined);
-      if (active) pendingInputs.delete(active);
+      // Only a save from this field's actual commit event acknowledges its
+      // buffer. Merely focusing a field cannot authorize an unrelated save.
+      if (committing) pendingInputs.delete(committing);
       const snapshot = documentStyle();
       if (JSON.stringify(snapshot).length <= 1048576) send({ type: "honua:style-change", style: snapshot });
       return style;

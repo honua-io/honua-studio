@@ -52,6 +52,16 @@ it("does not accept an invalid field when another field commits a valid change",
     store.save({ ...style, id: "honua-host-draft", name: "Other valid edit" });
     send({ type: "honua:style-flush", requestId: "raw-json" });
     await vi.waitFor(() => expect(messages.find((message) => message.requestId === "raw-json")?.settled).toBe(false));
+    send({ type: "honua:style-load", style });
+    invalid.value = "{ invalid focused field";
+    invalid.focus();
+    invalid.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+    store.save({ ...style, id: "honua-host-draft", name: "Unrelated later model update" });
+    send({ type: "honua:style-flush", requestId: "focused-invalid" });
+    await vi.waitFor(() =>
+      expect(messages.find((message) => message.requestId === "focused-invalid")?.settled).toBe(false),
+    );
   } finally {
     post.mockRestore();
     window.location.hash = "";
