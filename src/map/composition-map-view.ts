@@ -399,7 +399,7 @@ export class CompositionMapView {
         style,
         center: (initialView?.center ?? WORLD_VIEW.center) as readonly [number, number],
         zoom: initialView?.zoom ?? WORLD_VIEW.zoom,
-        attributionText: "Honua Studio",
+        attributionText: "Honua",
         getAuth: this.#options.getAuth,
         sourceBaseUrl: this.#options.sourceAuthBaseUrl ?? this.#options.projection?.baseUrl,
         legacySourceBaseUrl: this.#options.sourceCatalogBaseUrl ?? this.#options.projection?.baseUrl ?? "/api",
