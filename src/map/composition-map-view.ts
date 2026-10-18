@@ -521,6 +521,8 @@ export class CompositionMapView {
       ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
       ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
+      // Exploration controls do not belong to the canonical editable draft.
+      ...(!includePreview ? { appearance: undefined } : {}),
     });
     if (!includePreview) return projection;
     const effective = this.#stylePreview

@@ -552,3 +552,26 @@ it("returns actual canonical style readback while an unsaved preview remains dis
   );
   view.dispose();
 });
+
+it("does not persist runtime exploration filters in the canonical editor baseline", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  view.setAppearance({
+    filters: { "hi-parcels": ["==", ["get", "district"], "North"] },
+    opacity: { "hi-parcels": 0.2 },
+  });
+  await view.settled();
+  const readback = (await view.editableMapStyle()) as unknown as {
+    layers: { id: string; filter?: unknown; paint?: Record<string, unknown> }[];
+  };
+  expect(readback.layers.find((layer) => layer.id === "hi-parcels")?.filter).toBeUndefined();
+  expect((map.latestStyle?.layers.find((layer) => layer.id === "hi-parcels") as { filter?: unknown })?.filter).toEqual([
+    "==",
+    ["get", "district"],
+    "North",
+  ]);
+  expect(readback.layers.find((layer) => layer.id === "hi-parcels")?.paint?.["fill-opacity"]).not.toBe(
+    map.latestStyle?.layers.find((layer) => layer.id === "hi-parcels")?.paint?.["fill-opacity"],
+  );
+  view.dispose();
+});
