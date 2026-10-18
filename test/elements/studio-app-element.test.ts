@@ -750,3 +750,34 @@ it("refreshes a disconnected retained app's cookie transport without replacing i
     vi.unstubAllGlobals();
   }
 });
+
+it("rejects a stale source picker catalog after a disconnected authority change", async () => {
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  const cookie = {
+    kind: "cookie" as const,
+    baseUrl: "/api/studio",
+    csrfToken: "csrf",
+    environmentId: "env",
+    principalId: "first-owner",
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    onExpired: () => () => {},
+  };
+  let finish!: (value: []) => void;
+  app.session = cookie;
+  app.studioClient = {
+    listCatalog: () =>
+      new Promise<[]>((done) => {
+        finish = done;
+      }),
+  } as unknown as HonuaStudioAppElement["studioClient"];
+  try {
+    const pending = app.listProcessSources();
+    app.session = { ...cookie, principalId: "next-owner" };
+    finish([]);
+    await expect(pending).rejects.toThrow("authority changed");
+    expect(app.sourceCatalog).toBeUndefined();
+    await expect(app.resolveProcessSource("published-source")).rejects.toThrow("Refresh the authorized source choices");
+  } finally {
+    app.session = undefined;
+  }
+});
