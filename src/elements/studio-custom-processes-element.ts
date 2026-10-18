@@ -2,6 +2,7 @@ import type {
   ImportedProcessDataset,
   LocalProcessWorkspace,
   LocalProjectIdentity,
+  LocalReadOnlyFile,
   LocalRunReceipt,
   LocalSourceFile,
   ProcessImportReceipt,
@@ -24,6 +25,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     this.#client = client;
     this.#project = undefined;
     this.#files = [];
+    this.#readOnlyFiles = [];
     this.#selected = undefined;
     this.#content = "";
     this.#receipt = undefined;
@@ -58,6 +60,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
       return false;
     this.#project = project;
     this.#files = project.files;
+    this.#readOnlyFiles = project.readOnlyFiles ?? [];
     this.#selected = this.#files.find((file) => file.path === this.#selected?.path) ?? this.#files[0];
     this.#content = this.#selected?.content ?? "";
     this.#announceTask();
@@ -108,6 +111,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     );
   }
   #files: readonly LocalSourceFile[] = [];
+  #readOnlyFiles: readonly LocalReadOnlyFile[] = [];
   #selected: LocalSourceFile | undefined;
   #content = "";
   #receipt: LocalRunReceipt | undefined;
@@ -141,7 +145,15 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     this.#importTimer = undefined;
     const root = this.shadowRoot;
     if (!root) return;
-    root.innerHTML = `<style>:host{display:block;padding:1rem;font:14px system-ui}textarea{display:block;box-sizing:border-box;width:100%;min-height:18rem;font:13px monospace}button,input,select{margin:.4rem}pre{white-space:pre-wrap}label{display:block}</style><h2>Custom Python / .NET</h2><p>Source and fixture bytes are frozen for each run. Restore, build and execution stay in the isolated container. Open the project in your IDE for breakpoints.</p><button data-action="load">Load project</button><select aria-label="Source file"></select><textarea aria-label="Process source" spellcheck="false"></textarea><button data-action="save">Save source</button><button data-action="run">Run immutable snapshot</button><button data-action="refresh">Refresh run</button><button data-action="cancel">Cancel run</button><label>Output artifact<select data-artifact></select></label><label>Dataset table<input data-field="table" /></label><button data-action="import">Import artifact as dataset</button><button data-action="resume-import">Resume saved import</button><button data-action="cancel-import">Cancel import</button><label>Managed database connection ID<input data-field="connection" /></label><label>Service name<input data-field="service" /></label><label>Layer title<input data-field="layer" /></label><button data-action="publish">Publish imported dataset</button><button data-action="map">Add published layer to map</button><pre role="status"></pre>`;
+    root.innerHTML = `<style>:host{display:block;padding:1rem;font:14px system-ui}textarea{display:block;box-sizing:border-box;width:100%;min-height:18rem;font:13px monospace}button,input,select{margin:.4rem}pre{white-space:pre-wrap}details{margin:.5rem 0}li{overflow-wrap:anywhere}label{display:block}</style><h2>Custom Python / .NET</h2><p>Source and fixture bytes are frozen for each run. Restore, build and execution stay in the isolated container. Open the project in your IDE for breakpoints.</p><button data-action="load">Load project</button><details data-read-only><summary>Read-only project files</summary><ul aria-label="Read-only project files"></ul></details><select aria-label="Source file"></select><textarea aria-label="Process source" spellcheck="false"></textarea><button data-action="save">Save source</button><button data-action="run">Run immutable snapshot</button><button data-action="refresh">Refresh run</button><button data-action="cancel">Cancel run</button><label>Output artifact<select data-artifact></select></label><label>Dataset table<input data-field="table" /></label><button data-action="import">Import artifact as dataset</button><button data-action="resume-import">Resume saved import</button><button data-action="cancel-import">Cancel import</button><label>Managed database connection ID<input data-field="connection" /></label><label>Service name<input data-field="service" /></label><label>Layer title<input data-field="layer" /></label><button data-action="publish">Publish imported dataset</button><button data-action="map">Add published layer to map</button><pre role="status"></pre>`;
+    const readOnly = root.querySelector<HTMLDetailsElement>("[data-read-only]")!;
+    readOnly.hidden = this.#readOnlyFiles.length === 0;
+    readOnly.querySelector("summary")!.textContent = `Read-only project files (${this.#readOnlyFiles.length})`;
+    for (const file of this.#readOnlyFiles) {
+      const row = document.createElement("li");
+      row.textContent = `${file.role === "fixture" ? "Fixture input" : "Source file"}: ${file.path}; ${file.bytes} bytes; SHA-256 ${file.sha256}. Read-only.`;
+      readOnly.querySelector("ul")!.append(row);
+    }
     const files = root.querySelector<HTMLSelectElement>('select[aria-label="Source file"]')!;
     for (const file of this.#files) {
       const option = document.createElement("option");
@@ -236,6 +248,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
         this.#assertClient(client);
         this.#project = project;
         this.#files = project.files;
+        this.#readOnlyFiles = project.readOnlyFiles ?? [];
         this.#selected = this.#files[0];
         this.#content = this.#selected?.content ?? "";
         this.#message = `Immutable image: ${project.image}\nIDE project: ${project.ideHandoff?.workspace ?? "Use the paired project in your IDE"}`;

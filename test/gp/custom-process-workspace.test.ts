@@ -381,3 +381,22 @@ it("refuses a response declaring more bytes than the canonical artifact before r
   expect(cancel).toHaveBeenCalledOnce();
   expect(fetchImpl).toHaveBeenCalledOnce();
 });
+
+it("accepts metadata-only large fixtures and rejects fixture bodies in that metadata contract", async () => {
+  const file = {
+    path: "fixtures/large-input.geojson",
+    bytes: 8 * 1024 * 1024,
+    sha256: "f".repeat(64),
+    role: "fixture",
+    readOnly: true,
+  };
+  const fetchImpl = vi
+    .fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ...identity, files: [], readOnlyFiles: [file] })))
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...identity, files: [], readOnlyFiles: [{ ...file, content: "fixture body" }] })),
+    ) as typeof fetch;
+  const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+  expect((await client.project()).readOnlyFiles).toEqual([file]);
+  await expect(client.project()).rejects.toThrow("read-only file metadata");
+});

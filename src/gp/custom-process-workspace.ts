@@ -18,8 +18,16 @@ export interface LocalProjectIdentity {
     readonly workspaceId: string;
   } | null;
 }
+export interface LocalReadOnlyFile {
+  readonly path: string;
+  readonly bytes: number;
+  readonly sha256: string;
+  readonly role: "fixture" | "source";
+  readonly readOnly: true;
+}
 export interface LocalProject extends LocalProjectIdentity {
   readonly files: readonly LocalSourceFile[];
+  readonly readOnlyFiles?: readonly LocalReadOnlyFile[];
   readonly ideHandoff?: { readonly kind: string; readonly workspace: string };
 }
 export interface LocalSnapshot {
@@ -126,6 +134,26 @@ export class LocalProcessWorkspace {
   }
   async project(): Promise<LocalProject> {
     const project = await this.#json<LocalProject>("local/project");
+    if (
+      project.readOnlyFiles !== undefined &&
+      (!Array.isArray(project.readOnlyFiles) ||
+        project.readOnlyFiles.length > 10000 ||
+        project.readOnlyFiles.some(
+          (file) =>
+            !file ||
+            typeof file !== "object" ||
+            typeof file.path !== "string" ||
+            !file.path ||
+            file.path.length > 4096 ||
+            !Number.isSafeInteger(file.bytes) ||
+            file.bytes < 0 ||
+            !/^[a-f0-9]{64}$/.test(file.sha256) ||
+            !["fixture", "source"].includes(file.role) ||
+            file.readOnly !== true ||
+            Object.hasOwn(file, "content"),
+        ))
+    )
+      throw new Error("The project returned invalid read-only file metadata.");
     this.#observe(project);
     if (!project.binding) throw new Error("Bind the configured project before reading source.");
     return project;
