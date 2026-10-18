@@ -142,7 +142,10 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
               center: [0, 20],
               zoom: 1,
               attributionText: "Honua · shared-style preview",
-              getAuth: options.getAuth,
+              getAuth: () => {
+                if (disposed || getAuthority() !== authority) throw new Error("The preview authority changed.");
+                return options.getAuth();
+              },
               sourceBaseUrl: options.sourceBaseUrl,
               legacySourceBaseUrl: options.legacySourceBaseUrl,
               onSourceError: (error) => {

@@ -45,10 +45,25 @@ function setup(extra: Partial<SharedStylePreviewOptions> = {}) {
   };
 }
 describe("read-only shared-style preview", () => {
+  it("refuses later map source requests after the host binding changes", async () => {
+    let authority = "old-workspace";
+    const context = setup({ getAuthority: () => authority });
+    await context.preview.preview();
+    const getAuth = context.factory.mock.calls[0]![0].getAuth!;
+    expect(getAuth()).toBeDefined();
+    authority = "new-workspace";
+    context.replaceAuth();
+    expect(() => getAuth()).toThrow("preview authority changed");
+    context.preview.dispose();
+    expect(() => getAuth()).toThrow("preview authority changed");
+  });
   it("keeps the derived preview across same-authority transport renewal", async () => {
     const context = setup({ getAuthority: () => "same-workspace-binding" });
     await context.preview.preview();
+    const getAuth = context.factory.mock.calls[0]![0].getAuth!;
+    const before = getAuth();
     context.replaceAuth();
+    expect(getAuth()).not.toBe(before);
     await context.preview.preview();
     expect(context.factory).toHaveBeenCalledOnce();
     expect(context.map.setStyle).toHaveBeenCalledOnce();
