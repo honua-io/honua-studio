@@ -235,18 +235,33 @@ export function compositionToMapPackage(
       mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
     else
       mapSpec.layers = mapSpec.layers.map((renderLayer) => {
-        const owner=renderLayer.metadata?.["honua:compositionLayerId"];
-        if(renderLayer.id!==layer.id && renderLayer.id!==`${layer.id}${OUTLINE_LAYER_SUFFIX}` && owner!==layer.id) return renderLayer;
-        const visible=layer.visible && renderLayer.layout?.visibility!=="none";
-        const paint={...renderLayer.paint};
-        const opacity=options.appearance?.opacity?.[layer.id];
-        if(opacity!==undefined) for(const key of renderLayer.type==="symbol" ? ["text-opacity","icon-opacity"] : [`${renderLayer.type}-opacity`]) {
-          const current=paint[key] ?? 1;const multiplier=Math.min(1,Math.max(0,opacity));
-          paint[key]=typeof current==="number" ? current*multiplier : ["*",current,multiplier];
-        }
-        const filter=options.appearance?.filters?.[layer.id];
-        return {...renderLayer,paint,layout:{...renderLayer.layout,...(!visible ? {visibility:"none"} : {})},
-          ...(filter!==undefined ? {filter:renderLayer.filter===undefined ? filter : ["all",renderLayer.filter,filter]} : {})};
+        const owner = renderLayer.metadata?.["honua:compositionLayerId"];
+        if (
+          renderLayer.id !== layer.id &&
+          renderLayer.id !== `${layer.id}${OUTLINE_LAYER_SUFFIX}` &&
+          owner !== layer.id
+        )
+          return renderLayer;
+        const visible = layer.visible && renderLayer.layout?.visibility !== "none";
+        const paint = { ...renderLayer.paint };
+        const opacity = options.appearance?.opacity?.[layer.id];
+        if (opacity !== undefined)
+          for (const key of renderLayer.type === "symbol"
+            ? ["text-opacity", "icon-opacity"]
+            : [`${renderLayer.type}-opacity`]) {
+            const current = paint[key] ?? 1;
+            const multiplier = Math.min(1, Math.max(0, opacity));
+            paint[key] = typeof current === "number" ? current * multiplier : ["*", current, multiplier];
+          }
+        const filter = options.appearance?.filters?.[layer.id];
+        return {
+          ...renderLayer,
+          paint,
+          layout: { ...renderLayer.layout, ...(!visible ? { visibility: "none" } : {}) },
+          ...(filter !== undefined
+            ? { filter: renderLayer.filter === undefined ? filter : ["all", renderLayer.filter, filter] }
+            : {}),
+        };
       });
     if (
       !state.mapSpec &&

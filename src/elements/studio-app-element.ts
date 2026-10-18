@@ -1,4 +1,3 @@
-import { verifiedSourcePathBase } from "../auth/host-session.js";
 /**
  * `<honua-studio-app>` — the full Studio shell (honua-studio#5 REQ-001/002).
  *
@@ -43,6 +42,7 @@ import {
   type StudioAiTranscriptSigningManifest,
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
+import { verifiedSourcePathBase } from "../auth/host-session.js";
 import {
   type AuthoritativeStyleDefinition,
   AuthoritativeStyleProvider,

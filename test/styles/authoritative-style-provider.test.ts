@@ -373,6 +373,19 @@ it("refuses catalog provenance when the effective renderer source is overridden"
 });
 
 it("does not treat explicit literal-object or literal-array filter operands as source fields", async () => {
-  const altered = { ...sheet, layers: [{ ...sheet.layers[0], filter: ["all", ["has", "name", ["literal", { name: 1 }]], ["in", "a", ["literal", ["a", "b"]]]] }] };
-  await expect(fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(altered) }] }).provider.bind("district", source)).resolves.toMatchObject({ stylesheetLayerId: sheet.layers[0]!.id });
+  const altered = {
+    ...sheet,
+    layers: [
+      {
+        ...sheet.layers[0],
+        filter: ["all", ["has", "name", ["literal", { name: 1 }]], ["in", "a", ["literal", ["a", "b"]]]],
+      },
+    ],
+  };
+  await expect(
+    fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(altered) }] }).provider.bind(
+      "district",
+      source,
+    ),
+  ).resolves.toMatchObject({ stylesheetLayerId: sheet.layers[0]!.id });
 });

@@ -1,6 +1,6 @@
-import { loadPagedFeatureSource } from "./paged-feature-source.js";
 import type { AddProtocolAction, RequestTransformFunction } from "maplibre-gl";
 import type { AuthSession } from "../auth/types.js";
+import { loadPagedFeatureSource } from "./paged-feature-source.js";
 
 export interface SourceProtocolRegistry {
   addProtocol(name: string, handler: AddProtocolAction): void;
@@ -124,9 +124,10 @@ export function installAuthenticatedSourceProtocol(
       );
       if (!target) throw new Error("Map source is outside the trusted Honua feature endpoints.");
       pending.add(controller);
-      const data = options.pagedFeatureServices && /\/FeatureServer\/\d+\/query$/.test(target.pathname)
-        ? await loadPagedFeatureSource(target, options, controller.signal)
-        : await fetchAuthenticatedFeatureCollection(target.href, options, controller.signal);
+      const data =
+        options.pagedFeatureServices && /\/FeatureServer\/\d+\/query$/.test(target.pathname)
+          ? await loadPagedFeatureSource(target, options, controller.signal)
+          : await fetchAuthenticatedFeatureCollection(target.href, options, controller.signal);
       if (disposed) throw new Error("Map source transport is disposed.");
       return { data };
     } catch (error) {

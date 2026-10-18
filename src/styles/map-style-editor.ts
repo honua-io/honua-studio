@@ -1,9 +1,9 @@
 import { canonicalCompositionJson } from "../composition/model.js";
 import {
-  bindNewRenderLayerOwners,
+  type MapStyleDocument,
   type MapStyleField,
   type MapStyleLayerOwner,
-  type MapStyleDocument,
+  bindNewRenderLayerOwners,
   thematicMapStyle,
   validateMapStyleEdit,
 } from "./map-style-edit.js";

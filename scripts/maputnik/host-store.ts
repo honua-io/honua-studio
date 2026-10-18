@@ -1,4 +1,4 @@
-import type {IStyleStore, OnStyleChangedCallback, StyleSpecificationWithId} from "../definitions";
+import type { IStyleStore, OnStyleChangedCallback, StyleSpecificationWithId } from "../definitions";
 
 /** Ephemeral visual buffer. Only the host can persist an authorized draft. */
 export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): Promise<IStyleStore> {
@@ -11,65 +11,100 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
   const pendingInputs = new Set<Element>();
   let committing: Element | undefined;
   const inputKey = (element: Element) => element.closest(".cm-editor") ?? element;
-  for (const name of ["input", "change", "focusout"]) document.addEventListener(name, event => {
-    if (!(event.target instanceof Element)) return;
-    const key = inputKey(event.target);
-    committing = key;
-    queueMicrotask(() => { if (committing === key) committing = undefined; });
-  }, true);
+  for (const name of ["input", "change", "focusout"])
+    document.addEventListener(
+      name,
+      (event) => {
+        if (!(event.target instanceof Element)) return;
+        const key = inputKey(event.target);
+        committing = key;
+        queueMicrotask(() => {
+          if (committing === key) committing = undefined;
+        });
+      },
+      true,
+    );
   let resolveInitial: ((style: StyleSpecificationWithId) => void) | undefined;
-  const initial = new Promise<StyleSpecificationWithId>(resolve => { resolveInitial = resolve; });
-  const send = (data: object) => parent.postMessage({...data, channel}, parentOrigin);
+  const initial = new Promise<StyleSpecificationWithId>((resolve) => {
+    resolveInitial = resolve;
+  });
+  const send = (data: object) => parent.postMessage({ ...data, channel }, parentOrigin);
   const documentStyle = () => {
     if (!latest) return undefined;
-    const {id: _identity, ...style} = latest;
+    const { id: _identity, ...style } = latest;
     return style;
   };
   const markPending = (element: Element) => {
     const key = inputKey(element);
     committing = key;
-    queueMicrotask(() => { if (committing === key) committing = undefined; });
+    queueMicrotask(() => {
+      if (committing === key) committing = undefined;
+    });
     pendingInputs.add(key);
-    send({type: "honua:style-input"});
+    send({ type: "honua:style-input" });
   };
   window.addEventListener("honua:style-raw-input", ((event: CustomEvent) => {
     if (event.detail?.element instanceof Element) markPending(event.detail.element);
   }) as EventListener);
-  document.addEventListener("beforeinput", event => {
-    if (event.target instanceof Element && event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")) markPending(event.target);
-  }, true);
-  document.addEventListener("input", event => {
-    if (!(event.target instanceof Element) || !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")) return;
-    markPending(event.target);
-  }, true);
-  window.addEventListener("message", event => {
+  document.addEventListener(
+    "beforeinput",
+    (event) => {
+      if (event.target instanceof Element && event.target.closest(".maputnik-layer-editor,.maputnik-code-editor"))
+        markPending(event.target);
+    },
+    true,
+  );
+  document.addEventListener(
+    "input",
+    (event) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor"))
+        return;
+      markPending(event.target);
+    },
+    true,
+  );
+  window.addEventListener("message", (event) => {
     if (event.source !== parent || event.origin !== parentOrigin || event.data?.channel !== channel) return;
     if (event.data.type === "honua:style-unlock") {
       document.getElementById("app")?.removeAttribute("inert");
       return;
     }
-    if (event.data.type === "honua:style-flush" && typeof event.data.requestId === "string" && event.data.requestId.length <= 80) {
+    if (
+      event.data.type === "honua:style-flush" &&
+      typeof event.data.requestId === "string" &&
+      event.data.requestId.length <= 80
+    ) {
       document.getElementById("app")?.setAttribute("inert", "");
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      setTimeout(() => send({type: "honua:style-flushed", requestId: event.data.requestId,
-        settled: pendingInputs.size === 0, style: documentStyle()}), 0);
+      setTimeout(
+        () =>
+          send({
+            type: "honua:style-flushed",
+            requestId: event.data.requestId,
+            settled: pendingInputs.size === 0,
+            style: documentStyle(),
+          }),
+        0,
+      );
       return;
     }
     if (event.data.type === "honua:style-fields") {
-      window.dispatchEvent(new CustomEvent("honua:style-fields", {detail: event.data}));
+      window.dispatchEvent(new CustomEvent("honua:style-fields", { detail: event.data }));
       return;
     }
     if (event.data.type !== "honua:style-load") return;
     const style = event.data.style;
     if (!style || typeof style !== "object" || style.version !== 8 || JSON.stringify(style).length > 1048576) return;
-    latest = {...style, id: "honua-host-draft"};
+    latest = { ...style, id: "honua-host-draft" };
     pendingInputs.clear();
-    if (resolveInitial) { resolveInitial(latest!); resolveInitial = undefined; }
-    else onStyleChanged(latest!, {save: false, addRevision: false, initialLoad: true});
+    if (resolveInitial) {
+      resolveInitial(latest!);
+      resolveInitial = undefined;
+    } else onStyleChanged(latest!, { save: false, addRevision: false, initialLoad: true });
   });
-  send({type: "honua:style-ready"});
+  send({ type: "honua:style-ready" });
   latest = await initial;
-  onStyleChanged(latest, {save: false, initialLoad: true});
+  onStyleChanged(latest, { save: false, initialLoad: true });
   return {
     getLatestStyle: async () => latest!,
     save(style) {
@@ -77,9 +112,9 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
       const active = committing ?? (document.activeElement ? inputKey(document.activeElement) : undefined);
       if (active) pendingInputs.delete(active);
       const snapshot = documentStyle();
-      if (JSON.stringify(snapshot).length <= 1048576) send({type: "honua:style-change", style: snapshot});
+      if (JSON.stringify(snapshot).length <= 1048576) send({ type: "honua:style-change", style: snapshot });
       return style;
-    }
+    },
   };
 }
-export type {IStyleStore};
+export type { IStyleStore };

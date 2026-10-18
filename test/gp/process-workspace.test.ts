@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   type ProcessGraph,
-  normalizeProcessDiagnostics,
   ServerProcessWorkspace,
+  normalizeProcessDiagnostics,
   snapshotProcessGraph,
   validateProcessGraph,
 } from "../../src/gp/process-workspace.js";
@@ -127,7 +127,12 @@ describe("Processes server adapter", () => {
       bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
       return new Response(JSON.stringify({ success: true, data: responses.shift() }));
     }) as unknown as typeof fetch;
-    const client = new ServerProcessWorkspace({ environmentId: "env-a", csrfToken: "csrf", principalId: "partition-a", fetchImpl });
+    const client = new ServerProcessWorkspace({
+      environmentId: "env-a",
+      csrfToken: "csrf",
+      principalId: "partition-a",
+      fetchImpl,
+    });
     const prepared = await client.prepare("Buffer graph", graph);
     expect(prepared.version).toBe(2);
     expect(prepared.contentHash).toBe("a".repeat(64));

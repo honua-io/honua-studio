@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, readFileSync, readdirSync, lstatSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { defineConfig } from "vite";
 
@@ -23,22 +23,39 @@ export default defineConfig({
       name: "console-license-notices",
       closeBundle() {
         const directory = resolve("public/maputnik");
-        if (!existsSync(join(directory, "PROVENANCE.json"))) throw new Error("Build the pinned Maputnik assets before Console assets.");
+        if (!existsSync(join(directory, "PROVENANCE.json")))
+          throw new Error("Build the pinned Maputnik assets before Console assets.");
         const provenance = JSON.parse(readFileSync(join(directory, "PROVENANCE.json"), "utf8"));
-        if (provenance.revision !== "66377f5dcf14275e205869f0c6549b2e86d7d879") throw new Error("Unexpected Maputnik source revision.");
-        const integrationFiles = ["scripts/maputnik/host-store.ts", "scripts/maputnik/host-entry.jsx", "scripts/vendor-maputnik.mjs"];
-        if (JSON.stringify(Object.keys(provenance.integration).sort()) !== JSON.stringify([...integrationFiles].sort())) throw new Error("Maputnik integration provenance is incomplete.");
-        for (const path of integrationFiles) if (provenance.integration[path] !== createHash("sha256").update(readFileSync(resolve(path))).digest("hex")) throw new Error("Rebuild Maputnik assets after integration source changes.");
+        if (provenance.revision !== "66377f5dcf14275e205869f0c6549b2e86d7d879")
+          throw new Error("Unexpected Maputnik source revision.");
+        const integrationFiles = [
+          "scripts/maputnik/host-store.ts",
+          "scripts/maputnik/host-entry.jsx",
+          "scripts/vendor-maputnik.mjs",
+        ];
+        if (JSON.stringify(Object.keys(provenance.integration).sort()) !== JSON.stringify([...integrationFiles].sort()))
+          throw new Error("Maputnik integration provenance is incomplete.");
+        for (const path of integrationFiles)
+          if (
+            provenance.integration[path] !==
+            createHash("sha256")
+              .update(readFileSync(resolve(path)))
+              .digest("hex")
+          )
+            throw new Error("Rebuild Maputnik assets after integration source changes.");
         const names = readdirSync(directory).sort();
         const expected = [...Object.keys(provenance.files), "PROVENANCE.json"].sort();
-        if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error("Maputnik asset payload differs from its receipt.");
+        if (JSON.stringify(names) !== JSON.stringify(expected))
+          throw new Error("Maputnik asset payload differs from its receipt.");
         for (const name of names) {
           const path = join(directory, name);
-          if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) throw new Error("Maputnik assets must be regular files.");
+          if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())
+            throw new Error("Maputnik assets must be regular files.");
           if (name === "PROVENANCE.json") continue;
           const bytes = readFileSync(path);
           const entry = provenance.files[name];
-          if (entry.bytes !== bytes.length || entry.sha256 !== createHash("sha256").update(bytes).digest("hex")) throw new Error("Maputnik asset hash differs from its receipt.");
+          if (entry.bytes !== bytes.length || entry.sha256 !== createHash("sha256").update(bytes).digest("hex"))
+            throw new Error("Maputnik asset hash differs from its receipt.");
         }
         cpSync(directory, resolve("dist-console/maputnik"), { recursive: true });
       },

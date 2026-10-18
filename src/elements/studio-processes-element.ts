@@ -472,7 +472,10 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     const client = this.client;
     if (!client || this.#busy) return;
     const authority = this.#clientGeneration;
-    const current = () => { if (client !== this.client || authority !== this.#clientGeneration) throw new Error("The Processes host authority changed."); };
+    const current = () => {
+      if (client !== this.client || authority !== this.#clientGeneration)
+        throw new Error("The Processes host authority changed.");
+    };
     this.#busy = true;
     this.render();
     try {
