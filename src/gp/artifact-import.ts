@@ -6,7 +6,7 @@ export interface ImportedProcessDataset {
   readonly schema: string;
 }
 export interface ProcessImportReceipt {
-  readonly status: "unknown" | "pending" | "completed" | "failed" | "cancelled";
+  readonly status: "unknown" | "pending" | "completed" | "failed" | "cancelled" | "unsupported";
   readonly jobId?: string;
   readonly uploadId?: string;
   readonly dataset?: ImportedProcessDataset;

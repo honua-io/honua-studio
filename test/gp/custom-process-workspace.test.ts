@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { LocalProcessWorkspace, type LocalRunReceipt } from "../../src/gp/custom-process-workspace.js";
-const options = { csrfToken: "csrf", environmentId: "env-a", principalId: "partition-a", workspaceId: () => "ws-1" };
+const options = {
+  csrfToken: "csrf",
+  environmentId: "env-a",
+  principalId: "partition-a",
+  workspaceId: () => "ws-1",
+  maxArtifactUploadBytes: 4 * 1024 * 1024,
+};
 const identity = {
   projectId: "a".repeat(32),
   revision: 1,
@@ -240,4 +246,138 @@ describe("artifact import acceptance boundaries", () => {
     expect([...saved.entries.keys()].some((key) => key.includes('"other"'))).toBe(false);
     expect([...saved.entries.values()].every((value) => !value.includes("accepted-original"))).toBe(true);
   });
+});
+
+it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+  "does not allocate or upload without a valid host file-byte capability (%s)",
+  async (capacity) => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const writes = vi.fn();
+    const client = new LocalProcessWorkspace({
+      ...options,
+      maxArtifactUploadBytes: capacity,
+      fetchImpl,
+      commandStorage: { getItem: () => null, setItem: writes },
+    });
+    const observed = await client.importArtifact(
+      {
+        ...runIdentity,
+        runId: "run",
+        snapshotDigest: "d".repeat(64),
+        status: "succeeded",
+        artifacts: [{ path: "features.geojson", bytes: 471, sha256: "f".repeat(64) }],
+      },
+      "features.geojson",
+      "features",
+    );
+    expect(observed.status).toBe("unsupported");
+    expect(observed.message).toContain("capacity");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
+  },
+);
+it("preflights a multi-GB declared output before any download, allocation or upload intent", async () => {
+  const fetchImpl = vi.fn() as unknown as typeof fetch;
+  const writes = vi.fn();
+  const client = new LocalProcessWorkspace({
+    ...options,
+    fetchImpl,
+    commandStorage: { getItem: () => null, setItem: writes },
+  });
+  const observed = await client.importArtifact(
+    {
+      ...runIdentity,
+      runId: "run",
+      snapshotDigest: "d".repeat(64),
+      status: "succeeded",
+      artifacts: [{ path: "features.geojson", bytes: 8 * 1024 ** 3, sha256: "f".repeat(64) }],
+    },
+    "features.geojson",
+    "features",
+  );
+  expect(observed.status).toBe("unsupported");
+  expect(observed.message).toContain("resumable");
+  expect(fetchImpl).not.toHaveBeenCalled();
+  expect(writes).not.toHaveBeenCalled();
+});
+it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+  "refuses an invalid canonical artifact size before I/O (%s)",
+  async (bytes) => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+    await expect(
+      client.importArtifact(
+        {
+          ...runIdentity,
+          runId: "run",
+          snapshotDigest: "d".repeat(64),
+          status: "succeeded",
+          artifacts: [{ path: "features.geojson", bytes, sha256: "f".repeat(64) }],
+        },
+        "features.geojson",
+        "features",
+      ),
+    ).rejects.toThrow("immutable byte size");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  },
+);
+
+it("cancels a response that exceeds the receipt instead of growing its buffer or uploading", async () => {
+  const cancel = vi.fn();
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(4));
+      },
+      cancel,
+    }),
+  );
+  const fetchImpl = vi.fn(async () => response) as typeof fetch;
+  const writes = vi.fn();
+  const client = new LocalProcessWorkspace({
+    ...options,
+    fetchImpl,
+    commandStorage: { getItem: () => null, setItem: writes },
+  });
+  await expect(
+    client.importArtifact(
+      {
+        ...runIdentity,
+        runId: "run",
+        snapshotDigest: "d".repeat(64),
+        status: "succeeded",
+        artifacts: [{ path: "features.geojson", bytes: 4, sha256: "f".repeat(64) }],
+      },
+      "features.geojson",
+      "features",
+    ),
+  ).rejects.toThrow("exceeded its immutable byte size");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetchImpl).toHaveBeenCalledOnce();
+  expect(writes).not.toHaveBeenCalled();
+});
+it("refuses a response declaring more bytes than the canonical artifact before reading it", async () => {
+  const cancel = vi.fn();
+  const response = new Response(new ReadableStream({ cancel }), { headers: { "Content-Length": "8589934592" } });
+  const fetchImpl = vi.fn(async () => response) as typeof fetch;
+  const client = new LocalProcessWorkspace({
+    ...options,
+    fetchImpl,
+    commandStorage: { getItem: () => null, setItem: vi.fn() },
+  });
+  await expect(
+    client.importArtifact(
+      {
+        ...runIdentity,
+        runId: "run",
+        snapshotDigest: "d".repeat(64),
+        status: "succeeded",
+        artifacts: [{ path: "features.geojson", bytes: 4, sha256: "f".repeat(64) }],
+      },
+      "features.geojson",
+      "features",
+    ),
+  ).rejects.toThrow("response size");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetchImpl).toHaveBeenCalledOnce();
 });

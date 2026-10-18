@@ -65,6 +65,8 @@ export class LocalProcessWorkspace {
       readonly environmentId: string;
       readonly workspaceId: () => string;
       readonly commandStorage?: Pick<Storage, "getItem" | "setItem">;
+      /** Effective file-byte capacity supplied by the authenticated host transport. */
+      readonly maxArtifactUploadBytes?: number;
       readonly fetchImpl?: typeof fetch;
     },
   ) {}
@@ -264,6 +266,8 @@ export class LocalProcessWorkspace {
     const artifact = receipt.artifacts?.find((item) => item.path === artifactPath);
     if (!artifact || !/\.(?:geojson|json|gpkg|fgb|parquet|csv)$/i.test(artifact.path))
       throw new Error("Select a supported geospatial artifact.");
+    if (!Number.isSafeInteger(artifact.bytes) || artifact.bytes < 0 || !/^[a-f0-9]{64}$/.test(artifact.sha256))
+      throw new Error("The artifact receipt has no valid immutable byte size and digest.");
     const imports = this.#imports();
     const authority = imports.capture();
     const source = {
@@ -277,11 +281,21 @@ export class LocalProcessWorkspace {
     };
     const retained = await imports.reconcile(source, authority);
     if (retained) return retained;
-    const content = await (
-      await this.#fetch(
-        `local/runs/${encodeURIComponent(receipt.runId)}/artifacts/${artifactPath.split("/").map(encodeURIComponent).join("/")}`,
-      )
-    ).arrayBuffer();
+    const capacity = this.options.maxArtifactUploadBytes;
+    if (typeof capacity !== "number" || !Number.isSafeInteger(capacity) || capacity <= 0 || artifact.bytes > capacity) {
+      return {
+        status: "unsupported",
+        message:
+          typeof capacity === "number" && Number.isSafeInteger(capacity) && capacity > 0
+            ? `This output contains ${artifact.bytes} bytes; this host accepts files up to ${capacity} bytes. A resumable import route is required. No artifact bytes were downloaded or uploaded.`
+            : "This host has not declared its artifact import capacity. A verified transport or resumable import route is required before artifact bytes can be downloaded or uploaded.",
+      };
+    }
+    imports.assertAuthority(authority);
+    const response = await this.#fetch(
+      `local/runs/${encodeURIComponent(receipt.runId)}/artifacts/${artifactPath.split("/").map(encodeURIComponent).join("/")}`,
+    );
+    const content = await this.#boundedArtifact(response, artifact.bytes);
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", content)), (byte) =>
       byte.toString(16).padStart(2, "0"),
     ).join("");
@@ -317,6 +331,38 @@ export class LocalProcessWorkspace {
     if (!dataset) throw new Error("Import did not return a verified dataset identity.");
     imports.completeSynchronous(upload);
     return { status: "completed", dataset };
+  }
+  async #boundedArtifact(response: Response, expectedBytes: number): Promise<ArrayBuffer> {
+    const declared = response.headers.get("Content-Length");
+    if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) !== expectedBytes)) {
+      await response.body?.cancel();
+      throw new Error("Artifact response size does not match its immutable receipt.");
+    }
+    if (!response.body) {
+      if (expectedBytes === 0) return new ArrayBuffer(0);
+      throw new Error("Artifact response has no readable body.");
+    }
+    // The host capacity and canonical receipt were checked before this bounded
+    // allocation. Stop a dishonest/growing response before it can fill more.
+    const content = new Uint8Array(expectedBytes);
+    const reader = response.body.getReader();
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.byteLength > expectedBytes - total) {
+          await reader.cancel();
+          throw new Error("Artifact response exceeded its immutable byte size.");
+        }
+        content.set(value, total);
+        total += value.byteLength;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (total !== expectedBytes) throw new Error("Artifact response was truncated before its immutable byte size.");
+    return content.buffer;
   }
   #imports(): ArtifactImportTracker {
     const storage = this.options.commandStorage ?? globalThis.localStorage;
