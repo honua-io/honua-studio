@@ -286,8 +286,12 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   protected onDisconnect(): void {
     this.#authUnsubscribe?.();
     this.#authUnsubscribe = undefined;
-    this.#activeAbort?.abort();
-    this.#activeAbort = undefined;
+    // The host owns shared turns across view navigation. Explicit cancel and
+    // authority replacement still abort through the retained controller.
+    if (!this.agentSessionAdapter) {
+      this.#activeAbort?.abort();
+      this.#activeAbort = undefined;
+    }
   }
 
   /** Adds an annotation reference chip to the composer (spec REQ-012). Returns the resolved `AnnotationRef`. */
@@ -601,8 +605,10 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   }
 
   #nextMessageId(): string {
-    this.#messageSeq += 1;
-    return `message-${this.#messageSeq}`;
+    let id: string;
+    do id = `message-${++this.#messageSeq}`;
+    while (this.#state.messages.some((message) => message.id === id));
+    return id;
   }
 
   #nextAnnotationId(): string {

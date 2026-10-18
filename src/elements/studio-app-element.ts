@@ -67,6 +67,7 @@ import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
+import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
@@ -237,6 +238,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #chromeBuilt = false;
   #composition: CompositionController | undefined;
   #workspaceDraft: WorkspaceDraftBinding | undefined;
+  #workspaceAuthGeneration = 0;
   #workspaceDraftConflict = false;
   #workspaceDraftQueue: Promise<unknown> = Promise.resolve();
   #historyUnsubscribe: (() => void) | undefined;
@@ -289,16 +291,52 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
+  /** Explicit human create action; never creates a draft as a side effect of viewing or chatting. */
+  public async createWorkspaceDraft(
+    packageKey: string,
+  ): Promise<{ draftId: string; generation: number; packageKey: string }> {
+    const key = packageKey.trim();
+    if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
+      throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
+    const generation = this.#workspaceAuthGeneration;
+    await this.prepareWorkspaceTurn();
+    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
+    const created = await client.createDraft({
+      packageKey: key,
+      envelope: {
+        ...MAP_COMPOSITION_ENVELOPE,
+        body: toCompositionDraftBody(createEmptyCompositionState(), key),
+      },
+    });
+    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    await this.attachWorkspaceDraft(created.draftId);
+    const identity = this.#workspaceDraft?.identity;
+    if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
+    return identity;
+  }
+
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
   public attachWorkspaceDraft(draftId: string): Promise<void> {
+    const generation = this.#workspaceAuthGeneration;
     const run = this.#workspaceDraftQueue.then(async () => {
-      const binding =
-        this.#workspaceDraft ??
-        new WorkspaceDraftBinding(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
+      if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+      if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
+      const previous = this.#workspaceDraft?.identity;
+      // Observe prospectively: a refused read must not advance the active binding's generation.
+      const binding = new WorkspaceDraftBinding(
+        new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
+      );
       const state = await binding.observe(draftId);
+      if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+      if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
       this.#workspaceDraft = binding;
       this.#workspaceDraftConflict = false;
-      this.composition.replaceState({
+      const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
+      const attach = reset
+        ? this.composition.resetBaseline.bind(this.composition)
+        : this.composition.replaceState.bind(this.composition);
+      attach({
         ...state,
         pins: this.composition.state.pins,
         annotations: this.composition.state.annotations,
@@ -371,6 +409,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Undo/redo in the authoritative draft before advancing the visible history. */
   public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
     if (this.#historyBusy) return false;
+    const authGeneration = this.#workspaceAuthGeneration;
     this.#historyBusy = true;
     this.paintHistoryControls();
     try {
@@ -378,8 +417,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (this.#workspaceDraft) {
         const target = action === "undo" ? this.composition.history.peekUndo() : this.composition.history.peekRedo();
         if (!target) return false;
+        const binding = this.#workspaceDraft;
+        const generation = this.#workspaceAuthGeneration;
         const run = this.#workspaceDraftQueue.then(async () => {
-          const observed = await this.#workspaceDraft!.replace(target);
+          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+          const observed = await binding.replace(target);
+          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           const changed = action === "undo" ? this.composition.undo() : this.composition.redo();
           this.composition.replaceState(observed);
           this.#announceWorkspaceDraft();
@@ -404,7 +447,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           : `Unable to ${action}. Review the activity log.`;
       return applied;
     } catch (error) {
-      if (this.#workspaceDraft) this.#workspaceDraftConflict = true;
+      if (this.#workspaceDraft && authGeneration === this.#workspaceAuthGeneration) this.#workspaceDraftConflict = true;
       const status = this.shadowRoot?.querySelector('[data-testid="history-status"]');
       if (status) status.textContent = error instanceof Error ? error.message : `Unable to ${action}.`;
       return false;
@@ -440,7 +483,26 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public set session(session: SessionAdapter | undefined) {
     if (this.#session === session) return;
+    const previous = this.#session;
+    const hadAuthority = Boolean(previous || this.#auth || this.#workspaceDraft);
+    const samePrincipal =
+      previous &&
+      session &&
+      "kind" in previous &&
+      previous.kind === "cookie" &&
+      "kind" in session &&
+      session.kind === "cookie" &&
+      previous.principalId &&
+      previous.principalId === session.principalId &&
+      previous.environmentId === session.environmentId;
+    if (!samePrincipal) {
+      this.#workspaceDraft = undefined;
+      this.#workspaceDraftConflict = false;
+      this.composition.resetBaseline(createEmptyCompositionState());
+      if (hadAuthority) this.#announceWorkspaceDraft();
+    }
     this.#session = session;
+    this.#workspaceAuthGeneration++;
     if (!this.isConnected) return;
     this.resetAuth();
     // A host-owned catalog does not reload on session replacement. Invalidate
@@ -557,10 +619,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (!this.#sourceCatalog?.some((entry) => entry.id === dataset.id)) {
       this.#applySourceCatalog([...(this.#sourceCatalog ?? []), dataset]);
     }
-    const result = await this.toolCallOrchestrator.handleToolCall({
-      toolName: "addLayer",
-      arguments: { layer: { id: dataset.id, sourceId: dataset.id, title: dataset.title } },
-    });
+    const result = await this.#dispatchCommands([
+      { name: "addLayer", layer: { id: dataset.id, sourceId: dataset.id, title: dataset.title } },
+    ]);
     if (!result.ok) throw new Error(result.reason);
   }
 
@@ -817,6 +878,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     const auth = createAuthSession({ hostAdapter: this.#session });
     this.#auth = auth;
+    this.#workspaceDraft?.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth }));
     // honua-studio#5 finding: paintAuthControls() ONLY here — never
     // renderView(). AuthSession implementations dispatch a state change on
     // EVERY getAccessToken() call, even when the token is unchanged
@@ -1200,16 +1262,20 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
     if (this.#workspaceDraft) {
+      const binding = this.#workspaceDraft;
+      const generation = this.#workspaceAuthGeneration;
       const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
         try {
+          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           const target = applyCompositionCommands(this.composition.state, commands).state;
-          const observed = await this.#workspaceDraft!.replace(target);
+          const observed = await binding.replace(target);
+          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           for (const command of commands) this.composition.apply(command);
           this.composition.replaceState(observed);
           this.#announceWorkspaceDraft();
           return { ok: true };
         } catch (error) {
-          this.#workspaceDraftConflict = true;
+          if (generation === this.#workspaceAuthGeneration) this.#workspaceDraftConflict = true;
           return { ok: false, reason: error instanceof Error ? error.message : String(error) };
         }
       });
@@ -1260,7 +1326,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   protected onDisconnect(): void {
     this.#historyUnsubscribe?.();
     this.#historyUnsubscribe = undefined;
-    this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    if (!this.#workspaceAgentAdapter) {
+      this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+    }
     this.#agentSetupGeneration += 1;
     this.#hashRouter?.stop();
     this.#hashRouter = undefined;

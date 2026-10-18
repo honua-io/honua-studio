@@ -79,15 +79,47 @@ describe("Processes server adapter", () => {
     await expect(reopened.run("pkg", 1, command.commandId, true)).rejects.toThrow("acceptance is unknown");
     expect(vi.mocked(fetchImpl).mock.calls.map(([, init]) => init?.method)).toEqual(["GET"]);
   });
+  it("rotates a command only after a matching accepted receipt, retaining the previous receipt", async () => {
+    const entries = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        entries.set(key, value);
+      },
+    };
+    let commandId = "";
+    const client = new ServerProcessWorkspace({
+      environmentId: "env",
+      csrfToken: "csrf",
+      commandStorage: storage,
+      fetchImpl: vi.fn(
+        async (url) =>
+          new Response(
+            JSON.stringify({
+              data: String(url).endsWith("/runs")
+                ? { workflowRunId: "run", packageId: "pkg", packageVersion: 1, publicationId: `wfp-${commandId}` }
+                : {},
+            }),
+          ),
+      ) as typeof fetch,
+    });
+    commandId = client.reserveCommand("pkg", 1).commandId;
+    await client.run("pkg", 1, commandId);
+    expect([...entries.values()][0]).toContain("accepted:");
+    const next = client.reserveCommand("pkg", 1);
+    expect(next.commandId).not.toBe(commandId);
+    expect(next.reconcileOnly).toBe(false);
+  });
+
   it("delegates snapshots, compilation, run and cancellation to actual server routes", async () => {
     const bodies: unknown[] = [];
     const responses = [
       registry,
       { packageId: "pkg" },
-      { version: 2 },
+      { version: 2, packageId: "pkg", packageHash: "a".repeat(64) },
       { isValid: true },
-      { publicationId: "pub" },
-      { workflowRunId: "wf-1", packageId: "pkg", packageVersion: 2, publicationId: "pub" },
+      { publicationId: "wfp-command-1" },
+      { workflowRunId: "wf-1", packageId: "pkg", packageVersion: 2, publicationId: "wfp-command-1" },
       { status: "Cancelled" },
     ];
     const fetchImpl = vi.fn(async (_url, init) => {
@@ -97,6 +129,7 @@ describe("Processes server adapter", () => {
     const client = new ServerProcessWorkspace({ environmentId: "env-a", csrfToken: "csrf", fetchImpl });
     const prepared = await client.prepare("Buffer graph", graph);
     expect(prepared.version).toBe(2);
+    expect(prepared.contentHash).toBe("a".repeat(64));
     expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(bodies[1]).toEqual({ name: "Buffer graph", graph });
     const run = await client.run(prepared.packageId, prepared.version, "command-1");

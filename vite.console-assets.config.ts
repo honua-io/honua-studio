@@ -25,7 +25,7 @@ export default defineConfig({
         this.emitFile({
           type: "asset",
           fileName: "SDK-PROVENANCE.json",
-          source: JSON.stringify(
+          source: `${JSON.stringify(
             {
               releaseQualified: false,
               kind: "review-artifact",
@@ -37,7 +37,7 @@ export default defineConfig({
             },
             null,
             2,
-          ),
+          )}\n`,
         });
         const packages = new Map<string, string>();
         for (const id of this.getModuleIds()) {

@@ -31,14 +31,14 @@ describe("resolveCompositionSource (honua-studio#23)", () => {
     expect(resolution.layerType).toBe("fill");
     expect(resolution.source).toEqual({
       type: "geojson",
-      data: "/api/ogc/collections/hi-parcels/items?f=json&limit=500",
+      data: "/api/ogc/features/collections/hi-parcels/items?f=json&limit=500",
     });
     // The durable binding is emitted even though the offline render path
     // does not read it — it is what `loadMapPackage` (and an eject) consume.
     expect(resolution.binding).toEqual({
       sourceId: "hi-parcels",
       protocol: "ogc_features",
-      locator: { url: "/api/ogc", collectionId: "hi-parcels" },
+      locator: { url: "/api/ogc/features", collectionId: "hi-parcels" },
     });
   });
 
@@ -49,7 +49,9 @@ describe("resolveCompositionSource (honua-studio#23)", () => {
     });
     expect(isCompositionSourceResolution(resolution)).toBe(true);
     if (!isCompositionSourceResolution(resolution)) return;
-    expect(resolution.source.data).toBe("https://demo.honua.io/api/ogc/collections/hi-wells/items?f=json&limit=2000");
+    expect(resolution.source.data).toBe(
+      "https://demo.honua.io/api/ogc/features/collections/hi-wells/items?f=json&limit=2000",
+    );
     expect(resolution.layerType).toBe("circle");
   });
 

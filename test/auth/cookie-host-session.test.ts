@@ -20,6 +20,16 @@ function session(expiresAt = new Date(Date.now() + 60000).toISOString()) {
   return result;
 }
 describe("cookie host session", () => {
+  it("bounds OGC reads to the actual features collection route", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    const auth = session();
+    await auth.fetchRequest!("/ogc/features/collections/roads/items?f=json&limit=500");
+    expect(fetch.mock.calls[0][0]).toBe("/api/studio/data/ogc/features/collections/roads/items?f=json&limit=500");
+    await expect(auth.fetchRequest!("/ogc/features/collections/roads/items", { method: "POST" })).rejects.toThrow();
+    await expect(auth.fetchRequest!("/ogc/features/collections/roads%2Fsecret/items")).rejects.toThrow();
+  });
+
   it("represents authentication without any JavaScript bearer", async () => {
     const auth = session();
     expect(auth.getState().status).toBe("fresh");

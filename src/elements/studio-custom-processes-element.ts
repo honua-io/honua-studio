@@ -1,6 +1,7 @@
 import type {
   ImportedProcessDataset,
   LocalProcessWorkspace,
+  LocalProjectIdentity,
   LocalRunReceipt,
   LocalSourceFile,
   PublishedProcessLayer,
@@ -9,7 +10,100 @@ import { HonuaStudioElementBase } from "./base-element.js";
 
 /** Separate Python/.NET source/fixture lane. Every run is a local sandbox snapshot. */
 export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
-  public client: LocalProcessWorkspace | undefined;
+  #client: LocalProcessWorkspace | undefined;
+  #project: LocalProjectIdentity | undefined;
+  #pendingAction: Promise<void> = Promise.resolve();
+  public get client(): LocalProcessWorkspace | undefined {
+    return this.#client;
+  }
+  public set client(client: LocalProcessWorkspace | undefined) {
+    if (client === this.#client) return;
+    this.#client = client;
+    this.#project = undefined;
+    this.#files = [];
+    this.#selected = undefined;
+    this.#content = "";
+    this.#receipt = undefined;
+    this.#dataset = undefined;
+    this.#layer = undefined;
+    this.#values = {};
+    if (this.isConnected) this.render();
+  }
+  public async prepareWorkspaceTask(): Promise<{ projectId: string; revision: number; sourceDigest: string }> {
+    await this.#pendingAction;
+    if (!this.#project || !this.client || this.#dirty())
+      throw new Error("Load the actual project and save source before capturing a turn.");
+    const client = this.client;
+    const project = this.#project;
+    const observed = await client.identity();
+    this.#assertClient(client);
+    if (this.#dirty() || !this.#matches(observed, project))
+      throw new Error("The actual project changed; refresh it before capturing a turn.");
+    return { projectId: observed.projectId, revision: observed.revision, sourceDigest: observed.sourceDigest };
+  }
+  public async attachWorkspaceTask(reference: {
+    projectId: string;
+    revision: number;
+    sourceDigest: string;
+  }): Promise<boolean> {
+    await this.#pendingAction;
+    if (!this.client || this.#dirty()) return false;
+    const client = this.client;
+    const text = this.#content;
+    const project = await client.project();
+    if (client !== this.client || this.#dirty() || this.#content !== text || !this.#matches(project, reference))
+      return false;
+    this.#project = project;
+    this.#files = project.files;
+    this.#selected = this.#files.find((file) => file.path === this.#selected?.path) ?? this.#files[0];
+    this.#content = this.#selected?.content ?? "";
+    this.#announceTask();
+    this.render();
+    return true;
+  }
+  public async refreshWorkspaceTask(): Promise<boolean> {
+    await this.#pendingAction;
+    if (!this.client || !this.#project) return false;
+    const client = this.client;
+    const observed = await client.identity();
+    if (client !== this.client || !observed.binding) return false;
+    if (this.#dirty()) {
+      if (!this.#matches(this.#project, observed)) {
+        this.#message =
+          "Project source changed outside this editor. Unsaved text is preserved; review the current revision before saving or running.";
+        this.render();
+      }
+      return false;
+    }
+    return this.attachWorkspaceTask(observed);
+  }
+  #assertClient(client: LocalProcessWorkspace): void {
+    if (client !== this.client) throw new Error("The local workspace session changed.");
+  }
+  #matches(
+    left: { projectId: string; revision: number; sourceDigest: string },
+    right: { projectId: string; revision: number; sourceDigest: string },
+  ): boolean {
+    return (
+      left.projectId === right.projectId && left.revision === right.revision && left.sourceDigest === right.sourceDigest
+    );
+  }
+  #dirty(): boolean {
+    return Boolean(this.#selected && this.#content !== this.#selected.content);
+  }
+  #announceTask(): void {
+    const project = this.#project;
+    this.dispatchEvent(
+      new CustomEvent("honua-local-process-task-change", {
+        bubbles: true,
+        composed: true,
+        detail:
+          project && !this.#dirty()
+            ? { projectId: project.projectId, revision: project.revision, sourceDigest: project.sourceDigest }
+            : undefined,
+      }),
+    );
+  }
   #files: readonly LocalSourceFile[] = [];
   #selected: LocalSourceFile | undefined;
   #content = "";
@@ -49,6 +143,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     editor.value = this.#content;
     editor.addEventListener("input", () => {
       this.#content = editor.value;
+      this.#announceTask();
     });
     const artifacts = root.querySelector<HTMLSelectElement>("[data-artifact]")!;
     for (const artifact of this.#receipt?.artifacts ?? []) {
@@ -75,7 +170,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
         (action === "publish" && !this.#dataset) ||
         (action === "map" && !this.#layer);
       button.addEventListener("click", () => {
-        void this.#action(action, artifacts.value);
+        this.#pendingAction = this.#action(action, artifacts.value);
       });
     }
   }
@@ -85,45 +180,66 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     this.#busy = true;
     try {
       if (action === "load") {
+        if (this.#dirty()) throw new Error("Save the current source before loading another project.");
+        await client.bind();
+        this.#assertClient(client);
         const project = await client.project();
+        this.#assertClient(client);
+        this.#project = project;
         this.#files = project.files;
         this.#selected = this.#files[0];
         this.#content = this.#selected?.content ?? "";
-        this.#message = `Immutable image: ${project.image}\nIDE project: ${project.ideHandoff.workspace}`;
+        this.#message = `Immutable image: ${project.image}\nIDE project: ${project.ideHandoff?.workspace ?? "Use the paired project in your IDE"}`;
+        this.#announceTask();
       }
       if (action === "save" && this.#selected) {
-        const saved = await client.save(this.#selected, this.#content);
-        this.#selected = { ...this.#selected, content: this.#content, sha256: saved.sha256 };
+        const content = this.#content;
+        const saved = await client.save(this.#selected, content, this.#project);
+        this.#assertClient(client);
+        this.#selected = { ...this.#selected, content, sha256: saved.sha256 };
+        if (this.#project)
+          this.#project = { ...this.#project, revision: saved.revision, sourceDigest: saved.sourceDigest };
         this.#files = this.#files.map((file) => (file.path === saved.path ? this.#selected! : file));
         this.#message = "Source saved. Run a fresh snapshot to test the correction.";
+        this.#announceTask();
       }
       if (action === "run") {
         if (this.#selected && this.#content !== this.#selected.content)
           throw new Error("Save source changes before running an immutable snapshot.");
         this.#dataset = undefined;
         this.#layer = undefined;
-        this.#receipt = await client.run();
+        const receipt = await client.run(this.#project);
+        this.#assertClient(client);
+        this.#receipt = receipt;
         this.#message = JSON.stringify(this.#receipt, null, 2);
       }
       if (action === "refresh" && this.#receipt) {
-        this.#receipt = await client.status(this.#receipt.runId);
+        const receipt = await client.status(this.#receipt.runId);
+        this.#assertClient(client);
+        this.#receipt = receipt;
         this.#message = JSON.stringify(this.#receipt, null, 2);
       }
       if (action === "cancel" && this.#receipt) {
-        this.#receipt = await client.cancel(this.#receipt.runId);
+        const receipt = await client.cancel(this.#receipt.runId);
+        this.#assertClient(client);
+        this.#receipt = receipt;
         this.#message = JSON.stringify(this.#receipt, null, 2);
       }
       if (action === "import" && this.#receipt) {
-        this.#dataset = await client.importArtifact(this.#receipt, artifact, this.#values.table ?? "");
+        const dataset = await client.importArtifact(this.#receipt, artifact, this.#values.table ?? "");
+        this.#assertClient(client);
+        this.#dataset = dataset;
         this.#message = JSON.stringify(this.#dataset, null, 2);
       }
       if (action === "publish" && this.#dataset) {
-        this.#layer = await client.publishDataset(
+        const layer = await client.publishDataset(
           this.#dataset,
           this.#values.connection ?? "",
           this.#values.service ?? "",
           this.#values.layer ?? "",
         );
+        this.#assertClient(client);
+        this.#layer = layer;
         this.#message = JSON.stringify(this.#layer, null, 2);
       }
       if (action === "map" && this.#layer)

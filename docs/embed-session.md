@@ -255,3 +255,15 @@ its draft identity to the synchronously captured task; never retarget a prompt
 when the user switches context while it waits. For idle external observation,
 `refreshWorkspaceDraft()` returns false while unsaved authoring fields or a failed
 write need reconciliation. The host also suppresses polling during native turns.
+
+### Shared task attachment
+
+Cookie hosts provide a stable opaque `principalId` for the operator/environment partition. Rotating CSRF or expiry for the same principal retains the observed draft and renews its REST transport; changing principal or environment clears the draft and emits `honua-workspace-draft-change` with undefined detail. Hosts must clear the shared SDK draft with `attachDraft(undefined)` on that event.
+
+`app.createWorkspaceDraft(packageKey)` is an explicit human action. It accepts a trimmed key matching `[A-Za-z0-9._-]{1,200}`, creates an empty canonical map through the authenticated lifecycle REST API, then reads and attaches the actual server draft. It returns `{draftId,generation,packageKey}`. Viewing the canvas or submitting a prompt never creates a draft implicitly. Existing lifecycle `honua-studio-lifecycle-activity` events with kind `draft-loaded` or `version-reopened` identify an actual draft for guarded authorized attachment.
+
+The built-in Processes element exposes `prepareWorkspaceTask()` returning `{packageId,version,contentHash}` only after pending saves settle and the current graph is validated. `attachWorkspaceTask(reference)` reads the immutable version and verifies all three fields before projecting its graph; it returns false when local editing would be discarded. Hosts bind these references as server task kind `workflow-package`, id `packageId`, revision `version`, and `contentHash`. Raw graph/source content is not automatically included in prompts. Local custom source editing has no server workflow-package authority.
+
+The custom Processes client takes a `workspaceId: () => string` getter and sends `X-Honua-Workspace` on each bounded BFF request. Its explicit human `bind()` action uses the configured server/daemon pairing; no daemon credential reaches JavaScript. Saving includes the observed project revision and file SHA. Running first retains an immutable source/input snapshot, persists a command reference, and reconciles an uncertain response through `GET commands/{commandId}` before any retry.
+
+`custom.prepareWorkspaceTask()` waits for pending UI writes, rejects unsaved source or an externally changed project, and returns `{projectId,revision,sourceDigest}`. `attachWorkspaceTask(reference)` and `refreshWorkspaceTask()` read actual authorized project state and preserve dirty text. `honua-local-process-task-change` carries only that reference, or undefined while source is unsaved. Hosts bind this as task kind `local-process-workspace`, id `projectId`, revision `revision`, and contentHash `sourceDigest`. Binding/ownership authorization remains separate from context selection; the canonical server captures an actual immutable snapshot for the turn. Local run and artifact identities remain distinct from imported datasets, workflow packages, and map layers.

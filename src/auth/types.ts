@@ -55,6 +55,7 @@ export interface CookieSessionAdapter {
   readonly expiresAt: string;
   readonly csrfToken: string;
   readonly environmentId: string;
+  readonly principalId?: string;
   onExpired(listener: () => void): Unsubscribe;
 }
 

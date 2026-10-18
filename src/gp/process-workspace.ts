@@ -154,7 +154,7 @@ export class ServerProcessWorkspace {
   async prepare(
     name: string,
     graph: ProcessGraph,
-  ): Promise<{ packageId: string; version: number; validation: unknown; graph: ProcessGraph }> {
+  ): Promise<{ packageId: string; version: number; contentHash: string; validation: unknown; graph: ProcessGraph }> {
     const snapshot = snapshotProcessGraph(graph);
     const diagnostics = validateProcessGraph(snapshot, await this.registry());
     if (diagnostics.length)
@@ -163,7 +163,7 @@ export class ServerProcessWorkspace {
       name,
       graph: snapshot,
     });
-    const version = await this.#request<{ version: number }>(
+    const version = await this.#request<{ version: number; packageId: string; packageHash: string }>(
       "POST",
       `console/workflow-packages/${encodeURIComponent(saved.packageId)}/versions`,
     );
@@ -172,14 +172,51 @@ export class ServerProcessWorkspace {
       `console/workflow-packages/${encodeURIComponent(saved.packageId)}/versions/${version.version}/validate`,
     );
     if (!validation.isValid) throw new Error(JSON.stringify(validation.failures ?? validation));
-    return { packageId: saved.packageId, version: version.version, validation, graph: snapshot };
+    if (version.packageId !== saved.packageId || !/^[a-f0-9]{64}$/.test(version.packageHash))
+      throw new Error("Server returned no verified immutable package hash.");
+    return {
+      packageId: saved.packageId,
+      version: version.version,
+      contentHash: version.packageHash,
+      validation,
+      graph: snapshot,
+    };
   }
+  async readVersion(
+    packageId: string,
+    version: number,
+    contentHash: string,
+  ): Promise<{ packageId: string; version: number; contentHash: string; graph: ProcessGraph; validation: unknown }> {
+    const observed = await this.#request<{
+      packageId: string;
+      version: number;
+      packageHash: string;
+      graph: ProcessGraph;
+      validation: unknown;
+    }>("GET", `console/workflow-packages/${encodeURIComponent(packageId)}/versions/${version}`);
+    if (
+      observed.packageId !== packageId ||
+      observed.version !== version ||
+      observed.packageHash !== contentHash ||
+      !/^[a-f0-9]{64}$/.test(contentHash)
+    )
+      throw new Error("The immutable workflow package reference does not match.");
+    return {
+      packageId,
+      version,
+      contentHash,
+      graph: snapshotProcessGraph(observed.graph),
+      validation: observed.validation,
+    };
+  }
+
   /** Persist a command reference before submission; ambiguous acceptance must reuse it. */
   reserveCommand(packageId: string, version: number): { commandId: string; reconcileOnly: boolean } {
     const storage = this.options.commandStorage ?? globalThis.localStorage;
     if (!storage) throw new Error("Durable command storage is required before submitting a run.");
     const key = `honua.processes.command:${this.options.environmentId}:${packageId}:${version}`;
-    const prior = storage.getItem(key);
+    const retained = storage.getItem(key);
+    const prior = retained && !retained.startsWith("accepted:") ? retained : null;
     const commandId = prior ?? crypto.randomUUID();
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(commandId)) throw new Error("Invalid retained process command.");
     storage.setItem(key, commandId);
@@ -227,10 +264,26 @@ export class ServerProcessWorkspace {
     }
     // Record the attempt BEFORE sending. A missing reply is reconciled, never blindly rerun.
     this.#attempted.add(commandId);
-    return this.#request("POST", `console/workflow-publications/${encodeURIComponent(publicationId)}/runs`, {
-      idempotencyKey: commandId,
-      reconcileOnly: wasAttempted,
-    });
+    const run = await this.#request<ProcessRun>(
+      "POST",
+      `console/workflow-publications/${encodeURIComponent(publicationId)}/runs`,
+      {
+        idempotencyKey: commandId,
+        reconcileOnly: wasAttempted,
+      },
+    );
+    if (
+      run.publicationId !== publicationId ||
+      run.packageId !== packageId ||
+      run.packageVersion !== version ||
+      !(run.workflowRunId || run.jobId)
+    )
+      throw new Error("Server returned no matching operation receipt.");
+    const storage = this.options.commandStorage ?? globalThis.localStorage;
+    const key = `honua.processes.command:${this.options.environmentId}:${packageId}:${version}`;
+    // Preserve the accepted receipt before permitting an intentional subsequent run.
+    if (storage?.getItem(key) === commandId) storage.setItem(key, `accepted:${JSON.stringify({ commandId, run })}`);
+    return run;
   }
 
   status(run: ProcessRun): Promise<unknown> {

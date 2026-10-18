@@ -99,7 +99,8 @@ export class HostAdapterAuthSession implements AuthSession {
             throw new Error("The human catalog transport only permits layer discovery and style readback.");
           target = "/api/studio/catalog-mcp";
         } else if (
-          /^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(pathname) &&
+          (/^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(pathname) ||
+            /^\/ogc\/features\/collections\/[^/]+\/items$/.test(pathname)) &&
           (init?.method ?? "GET") === "GET"
         ) {
           target = `/api/studio/data${path}`;

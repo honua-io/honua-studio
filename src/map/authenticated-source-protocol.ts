@@ -41,7 +41,7 @@ export function trustedSourceUrl(
       const route = target.pathname.slice(prefix.length);
       if (
         /^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+\/query$/.test(route) ||
-        /^\/ogc\/collections\/[^/]+\/items$/.test(route)
+        /^\/ogc\/features\/collections\/[^/]+\/items$/.test(route)
       )
         return target;
     }
