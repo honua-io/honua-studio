@@ -1,0 +1,14 @@
+/* The host owns the preview canvas; keep the remaining editor panels usable in its allocated width. */
+.maputnik-layout-main > p { flex: 1; min-width: 0; padding: 12px; }
+.maputnik-layout-drawer, .maputnik-layout-code-editor { min-width: 0; }
+@media (max-width: 600px) {
+  .maputnik-layout-main { flex-direction: column; }
+  .maputnik-layout-list { width: 100%; flex: 0 0 auto; max-height: 140px; overflow-y: auto; }
+  .maputnik-layout-drawer { width: 100%; flex: 1; min-height: 0; }
+  .maputnik-layout-code-editor { width: 100%; height: 100%; }
+  .maputnik-layout-main > p { display: none; }
+  .maputnik-toolbar-logo { width: auto; flex-basis: auto; }
+  .maputnik-toolbar-link { padding-left: 8px; padding-right: 8px; }
+}
+/* Persistence and file ingestion belong to the host's validated draft lifecycle. */
+[data-wd-key="nav:open"], [data-wd-key="nav:export"] { display: none; }
