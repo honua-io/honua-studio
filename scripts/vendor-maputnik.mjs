@@ -63,6 +63,36 @@ app = app.replace(
       this.setState({vectorLayers: {...this.state.vectorLayers, [sourceId]: properties}});
     }) as EventListener);`,
 );
+// Embedded persistence belongs exclusively to the host. Remove file modals as
+// well as their toolbar entry points; keyboard shortcuts must not reopen them.
+for (const modal of ["ModalOpen", "ModalExport"]) {
+  const imported = `import ${modal} from "./modals/${modal}";\n`;
+  if (!app.includes(imported)) throw new Error(`Pinned ${modal} import changed.`);
+  app = app.replace(imported, "");
+}
+const fileModalStart = app.indexOf("      <ModalExport\n");
+const fileModalEnd = app.indexOf("      <ModalSources\n", fileModalStart);
+if (
+  fileModalStart < 0 ||
+  fileModalEnd < fileModalStart ||
+  !app.slice(fileModalStart, fileModalEnd).includes("<ModalOpen")
+)
+  throw new Error("Pinned file modal boundary changed.");
+app = app.slice(0, fileModalStart) + app.slice(fileModalEnd);
+const modalGuard = '  setModal(modalName: keyof AppState["isOpen"], value: boolean) {';
+if (!app.includes(modalGuard)) throw new Error("Pinned modal command changed.");
+app = app.replace(modalGuard, `${modalGuard}\n    if (modalName === "open" || modalName === "export") return;`);
+const shortcutHelpPath = join(root, "src/components/modals/ModalShortcuts.tsx");
+let shortcutHelp = readFileSync(shortcutHelpPath, "utf8");
+for (const [key, label] of [
+  ["o", "Open modal"],
+  ["e", "Export modal"],
+]) {
+  const help = `      {\n        key: <kbd>${key}</kbd>,\n        text: t("${label}")\n      },\n`;
+  if (!shortcutHelp.includes(help)) throw new Error(`Pinned ${label} shortcut help changed.`);
+  shortcutHelp = shortcutHelp.replace(help, "");
+}
+writeFileSync(shortcutHelpPath, shortcutHelp);
 writeFileSync(appPath, app);
 const layoutPath = join(root, "src/components/AppLayout.tsx");
 writeFileSync(
@@ -145,6 +175,7 @@ writeFileSync(
         "host-store.ts",
         "host-entry.jsx",
         "host-layout.css",
+        "host-persistence-only",
         "blank-provider-tokens",
         "opaque-frame-network-denied",
       ],
