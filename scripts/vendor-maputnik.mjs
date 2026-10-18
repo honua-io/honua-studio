@@ -141,7 +141,13 @@ writeFileSync(
       upstream: "https://github.com/maplibre/maputnik",
       version: "3.1.0",
       revision,
-      patches: ["host-store.ts", "host-entry.jsx", "host-layout.css", "blank-provider-tokens", "opaque-frame-network-denied"],
+      patches: [
+        "host-store.ts",
+        "host-entry.jsx",
+        "host-layout.css",
+        "blank-provider-tokens",
+        "opaque-frame-network-denied",
+      ],
       integration: Object.fromEntries(
         [
           "scripts/maputnik/host-store.ts",
