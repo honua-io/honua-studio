@@ -1,5 +1,6 @@
 export interface ReviewAuthor {
   readonly login: string;
+  readonly __typename?: string;
 }
 export interface ReviewComment {
   readonly user: ReviewAuthor & { readonly type?: string };
@@ -16,11 +17,19 @@ export interface ReviewThread {
 }
 export interface ReviewPullRequest {
   readonly headRefOid: string;
+  readonly baseRefName: string;
   readonly state: string;
   readonly mergedAt: string | null;
   readonly isDraft: boolean;
   readonly headRepository: { readonly nameWithOwner: string } | null;
-  readonly reviews: { readonly totalCount: number; readonly nodes: readonly { readonly author: ReviewAuthor }[] };
+  readonly reviews: {
+    readonly totalCount: number;
+    readonly nodes: readonly {
+      readonly author: ReviewAuthor;
+      readonly state?: string;
+      readonly commit?: { readonly oid: string } | null;
+    }[];
+  };
   readonly reviewThreads: { readonly totalCount: number; readonly nodes: readonly ReviewThread[] };
 }
 export interface ReviewGateInput {

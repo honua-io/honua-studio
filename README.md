@@ -275,7 +275,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — public SDK 0.2.4 checkpoint: 1401 tests across 123 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); installed end-to-end workflow qualification remains pending |
+| `npm test` | Unit tests (Vitest) — public SDK 0.2.4 checkpoint: 1410 tests across 123 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); installed end-to-end workflow qualification remains pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs 31 Playwright boot/harness/journey/accessibility tests (chromium); local fixture checkpoint passed with retries disabled |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

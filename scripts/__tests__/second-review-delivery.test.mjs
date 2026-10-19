@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   matchingReceipt,
+  pinReviewBase,
   requireCurrentReview,
   reviewBody,
   selectEligibleReviewRun,
@@ -19,6 +20,7 @@ const expected = {
   prNumber: 108,
   headSha: "a".repeat(40),
   baseSha: "b".repeat(40),
+  baseRefName: "main",
   mode: "second-review",
 };
 const result = () => ({ headSha: expected.headSha, verdict: "no-findings", blockedReason: "", findings: [] });
@@ -33,6 +35,7 @@ const finding = () => ({
 const pr = () => ({
   headRefOid: expected.headSha,
   baseRefOid: expected.baseSha,
+  baseRefName: expected.baseRefName,
   state: "OPEN",
   isDraft: false,
   mergedAt: null,
@@ -43,9 +46,48 @@ const eligibleRun = () => ({
   path: ".github/workflows/claude-second-review.yml",
   head_sha: expected.headSha,
   head_repository: { full_name: expected.repository },
-  pull_requests: [{ number: expected.prNumber, head: { sha: expected.headSha }, base: { sha: expected.baseSha } }],
+  pull_requests: [
+    {
+      number: expected.prNumber,
+      head: { sha: expected.headSha },
+      base: { sha: expected.baseSha, ref: expected.baseRefName },
+    },
+  ],
   status: "completed",
   conclusion: "failure",
+});
+const pinPr = () => ({ ...pr(), number: expected.prNumber, headRepository: { nameWithOwner: expected.repository } });
+const restPr = () => ({
+  number: expected.prNumber,
+  state: "open",
+  merged_at: null,
+  head: { sha: expected.headSha, repo: { full_name: expected.repository } },
+  base: { sha: expected.baseSha, ref: expected.baseRefName },
+});
+
+test("pins an immutable open-PR snapshot and the recorded pre-merge base for retrospective audits", () => {
+  assert.deepEqual(pinReviewBase(pinPr(), restPr(), expected), {
+    baseSha: expected.baseSha,
+    baseRefName: expected.baseRefName,
+  });
+  assert.deepEqual(pinReviewBase(pinPr(), { ...restPr(), base: { ...restPr().base, sha: "c".repeat(40) } }, expected), {
+    baseSha: "c".repeat(40),
+    baseRefName: expected.baseRefName,
+  });
+  const merged = { ...pinPr(), state: "MERGED", baseRefOid: expected.headSha };
+  const recorded = { ...restPr(), state: "closed", merged_at: "2026-10-19T00:00:00Z" };
+  assert.equal(pinReviewBase(merged, recorded, expected).baseSha, expected.baseSha);
+  for (const changed of [
+    { ...restPr(), number: 999 },
+    { ...restPr(), head: { ...restPr().head, sha: "c".repeat(40) } },
+    { ...restPr(), head: { ...restPr().head, repo: { full_name: "untrusted/fork" } } },
+    { ...restPr(), base: { ...restPr().base, ref: "other" } },
+    { ...restPr(), state: "closed" },
+  ])
+    assert.throws(() => pinReviewBase(pinPr(), changed, expected));
+  assert.throws(() =>
+    pinReviewBase(merged, { ...recorded, base: { ...recorded.base, sha: expected.headSha } }, expected),
+  );
 });
 
 test("comment admission selects only the exact PR-associated head/base/repository workflow", () => {
@@ -57,8 +99,16 @@ test("comment admission selects only the exact PR-associated head/base/repositor
     { head_sha: "c".repeat(40) },
     { head_repository: { full_name: "untrusted/fork" } },
     { path: ".github/workflows/other.yml" },
-    { pull_requests: [{ number: 999, head: { sha: expected.headSha }, base: { sha: expected.baseSha } }] },
-    { pull_requests: [{ number: expected.prNumber, head: { sha: expected.headSha }, base: { sha: "c".repeat(40) } }] },
+    {
+      pull_requests: [
+        { number: 999, head: { sha: expected.headSha }, base: { sha: expected.baseSha, ref: expected.baseRefName } },
+      ],
+    },
+    {
+      pull_requests: [
+        { number: expected.prNumber, head: { sha: expected.headSha }, base: { sha: expected.baseSha, ref: "other" } },
+      ],
+    },
     { status: "in_progress" },
   ])
     assert.throws(() => selectEligibleReviewRun({ total_count: 1, workflow_runs: [{ ...run, ...change }] }, expected));
@@ -66,14 +116,34 @@ test("comment admission selects only the exact PR-associated head/base/repositor
   assert.throws(() =>
     selectEligibleReviewRun({ total_count: 1, workflow_runs: [run] }, { ...expected, mode: "post-merge-audit" }),
   );
+  const advanced = {
+    ...run,
+    pull_requests: [
+      {
+        number: expected.prNumber,
+        head: { sha: expected.headSha },
+        base: { sha: "c".repeat(40), ref: expected.baseRefName },
+      },
+    ],
+  };
+  assert.equal(selectEligibleReviewRun({ total_count: 1, workflow_runs: [advanced] }, expected), advanced);
 });
 
 test("completed results produce the exact current-head receipt", () => {
-  assert.equal(reviewBody(result(), expected), `<!-- claude-second-review: ${expected.headSha} -->\n\nNo findings.\n`);
+  assert.equal(
+    reviewBody(result(), expected),
+    `<!-- claude-second-review: ${expected.headSha} -->\n<!-- claude-review-base: bWFpbg ${expected.baseSha} -->\n\nNo findings.\n`,
+  );
   const audit = { ...expected, mode: "post-merge-audit" };
   const body = reviewBody(result(), audit);
   assert.ok(body.startsWith(`<!-- claude-post-merge-audit: ${expected.headSha} -->\n`));
   assert.ok(body.includes("Post-merge audit; this result does not establish historical pre-merge clearance."));
+});
+
+test("missing or control-bearing target branches cannot enter artifacts or review receipts", () => {
+  for (const baseRefName of [undefined, "", "main\ninjected", " main", "m\u0000ain"]) {
+    assert.throws(() => reviewBody(result(), { ...expected, baseRefName }));
+  }
 });
 
 for (const [name, change] of [
@@ -142,11 +212,12 @@ test("checks finding locations against actual pinned source without executing it
   }
 });
 
-test("rechecks head, base, draft status and pre/post-merge lifecycle", () => {
+test("rechecks head, target branch, draft status and pre/post-merge lifecycle while allowing target-tip advances", () => {
   requireCurrentReview(pr(), expected);
+  requireCurrentReview({ ...pr(), baseRefOid: "c".repeat(40) }, expected);
   for (const change of [
     { headRefOid: "c".repeat(40) },
-    { baseRefOid: "c".repeat(40) },
+    { baseRefName: "other" },
     { isDraft: true },
     { state: "CLOSED" },
     { state: "MERGED", mergedAt: "2026-10-19T00:00:00Z" },
@@ -167,10 +238,14 @@ test("receipt reconciliation ignores quoted, wrong-mode, wrong-head and untruste
     { ...valid, body: `quoted\n${body}` },
     { ...valid, body: body.replace(expected.headSha, "c".repeat(40)) },
     { ...valid, body: body.replace("second-review", "post-merge-audit") },
+    { ...valid, body: body.replace("bWFpbg", "b3RoZXI") },
+    { ...valid, body: `<!-- claude-second-review: ${expected.headSha} -->\n\nNo findings.\n` },
+    { ...valid, body: body.split("\n").slice(0, 2).join("\n") },
   ]) {
     assert.equal(matchingReceipt([value], expected), undefined);
   }
   assert.equal(matchingReceipt([valid], expected), valid);
+  assert.equal(matchingReceipt([valid], { ...expected, baseSha: "c".repeat(40) }), valid);
 });
 
 test("admission and delivery agree on authenticated current-head receipts", () => {
@@ -181,7 +256,16 @@ test("admission and delivery agree on authenticated current-head receipts", () =
     pr: {
       ...pr(),
       headRepository: { nameWithOwner: expected.repository },
-      reviews: { totalCount: 1, nodes: [{ author: { login: "chatgpt-codex-connector" } }] },
+      reviews: {
+        totalCount: 1,
+        nodes: [
+          {
+            author: { login: "chatgpt-codex-connector", __typename: "Bot" },
+            state: "COMMENTED",
+            commit: { oid: expected.headSha },
+          },
+        ],
+      },
       reviewThreads: { totalCount: 0, nodes: [] },
     },
   };
@@ -192,6 +276,42 @@ test("admission and delivery agree on authenticated current-head receipts", () =
       .shouldReview,
     true,
   );
+});
+
+test("old formal reviews and resolved threads cannot admit a new-head collector", () => {
+  const input = {
+    repository: expected.repository,
+    eventName: "pull_request",
+    comments: [],
+    pr: {
+      ...pr(),
+      headRepository: { nameWithOwner: expected.repository },
+      reviews: {
+        totalCount: 1,
+        nodes: [
+          {
+            author: { login: "chatgpt-codex-connector", __typename: "Bot" },
+            state: "COMMENTED",
+            commit: { oid: "c".repeat(40) },
+          },
+        ],
+      },
+      reviewThreads: {
+        totalCount: 1,
+        nodes: [
+          {
+            isResolved: true,
+            comments: {
+              nodes: [{ author: { login: "chatgpt-codex-connector", __typename: "Bot" }, body: "Prior finding" }],
+            },
+          },
+        ],
+      },
+    },
+  };
+  assert.equal(evaluateSecondReview(input).checks.first_pass_done, false);
+  assert.equal(evaluateSecondReview(input).shouldReview, false);
+  assert.match(evaluateSecondReview(input).resolvedThreads, /Prior finding/u);
 });
 
 function runPublisher({
@@ -211,6 +331,10 @@ function runPublisher({
     const artifact = { schemaVersion: 1, expected, result: result() };
     mutateArtifact?.(artifact);
     fs.writeFileSync(path.join(output, "validated-result.json"), JSON.stringify(artifact));
+    fs.writeFileSync(
+      path.join(root, "pull-request.json"),
+      JSON.stringify({ data: { repository: { pullRequest: pinPr() } } }),
+    );
     if (command === "prepare") {
       const fixture = spawnSync(
         "python3",
@@ -229,9 +353,12 @@ const receipt=()=>JSON.parse(fs.readFileSync('receipt.json','utf8'));
 if(a[0]==='pr'&&a[1]==='view'){
 const p=JSON.parse(process.env.TEST_PR);
 if(process.env.CHANGED_HEAD==='true'||process.env.CHANGE_AFTER_POST==='true'&&fs.existsSync('receipt.json')||process.env.CHANGE_AFTER_SNAPSHOT==='true'&&fs.existsSync('.claude-second-review/head'))p.headRefOid='c'.repeat(40);
+if(process.env.ADVANCED_BASE==='true')p.baseRefOid='c'.repeat(40);
+if(process.env.RETARGETED_BASE==='true')p.baseRefName='other';
 console.log(JSON.stringify(p));
-}else if(a[0]==='pr'&&a[1]==='diff')console.log('diff --git a/src/map.ts b/src/map.ts');
+}else if(a[0]==='api'&&a[1].includes('/compare/'))console.log('diff --git a/src/map.ts b/src/map.ts');
 else if(a[0]==='api'&&a[1].includes('/zipball/'))process.stdout.write(fs.readFileSync('fixture.zip'));
+else if(a[0]==='api'&&a[1].includes('/pulls/'))console.log(process.env.TEST_PIN_PR);
 else if(a[0]==='api'&&a[1].includes('/actions/workflows/'))console.log(process.env.TEST_REVIEW_RUNS);
 else if(a[0]==='api'&&a[1].endsWith('/rerun')&&a.includes('POST'))console.log('{}');
 else if(a.includes('--method')){
@@ -255,8 +382,10 @@ else process.exit(90);
       PR_NUMBER: String(expected.prNumber),
       HEAD_SHA: expected.headSha,
       BASE_SHA: expected.baseSha,
+      BASE_REF_NAME: expected.baseRefName,
       REVIEW_MODE: expected.mode,
       TEST_PR: JSON.stringify(pr()),
+      TEST_PIN_PR: JSON.stringify(restPr()),
       TEST_REVIEW_RUNS: JSON.stringify({ total_count: 1, workflow_runs: [reviewRun] }),
       GITHUB_OUTPUT: path.join(root, "outputs"),
     };
@@ -290,6 +419,7 @@ else process.exit(90);
         ? fs.readFileSync(path.join(output, "head/src/map.ts"), "utf8")
         : null,
       archiveRemoved: !fs.existsSync(path.join(output, "source.zip")),
+      outputs: fs.existsSync(path.join(root, "outputs")) ? fs.readFileSync(path.join(root, "outputs"), "utf8") : "",
     };
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -297,13 +427,20 @@ else process.exit(90);
 }
 const posts = (value) => value.trace.filter((args) => args.includes("POST"));
 
+test("the actual base-pinning CLI uses canonical PR metadata without any mutation", () => {
+  const value = runPublisher({ command: "pin-base" });
+  assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
+  assert.equal(value.outputs, `base_sha=${expected.baseSha}\nbase_ref_name=${expected.baseRefName}\n`);
+  assert.equal(posts(value).length, 0);
+});
+
 test("comment/manual admission requeues the whole exact-head PR workflow, not only its failed publisher", () => {
   const value = runPublisher({ command: "requeue" });
   assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
   assert.deepEqual(posts(value), [["api", `repos/${expected.repository}/actions/runs/123/rerun`, "--method", "POST"]]);
 });
 
-test("requeue refuses stale/foreign events and does not rerun successful or still-active PR reviews", () => {
+test("requeue refuses stale/foreign events and does not rerun still-active PR reviews", () => {
   for (const options of [
     { env: { CHANGED_HEAD: "true" } },
     { reviewRun: { ...eligibleRun(), event: "workflow_dispatch" } },
@@ -313,7 +450,37 @@ test("requeue refuses stale/foreign events and does not rerun successful or stil
     assert.notEqual(value.runs[0].status, 0);
     assert.equal(posts(value).length, 0);
   }
-  const succeeded = runPublisher({ command: "requeue", reviewRun: { ...eligibleRun(), conclusion: "success" } });
+});
+
+test("a successful run with a deleted or untrusted receipt is requeued for actual review recovery", () => {
+  const valid = { id: 99, user: { login: "github-actions[bot]", type: "Bot" }, body: reviewBody(result(), expected) };
+  for (const initialReceipt of [
+    undefined,
+    { ...valid, user: { login: "github-actions[bot]", type: "User" } },
+    { ...valid, body: valid.body.replace(expected.headSha, "c".repeat(40)) },
+  ]) {
+    const value = runPublisher({
+      command: "requeue",
+      reviewRun: { ...eligibleRun(), conclusion: "success" },
+      initialReceipt,
+    });
+    assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
+    assert.deepEqual(posts(value), [
+      ["api", `repos/${expected.repository}/actions/runs/123/rerun`, "--method", "POST"],
+    ]);
+  }
+});
+
+test("a successful PR review with an observed authenticated receipt coalesces without another rerun", () => {
+  const succeeded = runPublisher({
+    command: "requeue",
+    reviewRun: { ...eligibleRun(), conclusion: "success" },
+    initialReceipt: {
+      id: 99,
+      user: { login: "github-actions[bot]", type: "Bot" },
+      body: reviewBody(result(), expected),
+    },
+  });
   assert.equal(succeeded.runs[0].status, 0, succeeded.runs[0].stderr);
   assert.equal(posts(succeeded).length, 0);
 });
@@ -321,14 +488,33 @@ test("requeue refuses stale/foreign events and does not rerun successful or stil
 test("the actual collector reads only the admitted commit archive and removes the compressed input", () => {
   const value = runPublisher({ command: "prepare" });
   assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
-  assert.deepEqual(
-    value.trace.filter((args) => args.includes("api")),
-    [["api", `repos/${expected.repository}/zipball/${expected.headSha}`]],
+  assert.ok(
+    value.trace.some(
+      (args) => args[0] === "api" && args[1] === `repos/${expected.repository}/zipball/${expected.headSha}`,
+    ),
+  );
+  assert.ok(
+    value.trace.some(
+      (args) =>
+        args[0] === "api" &&
+        args[1] === `repos/${expected.repository}/compare/${expected.baseSha}...${expected.headSha}` &&
+        args.includes("Accept: application/vnd.github.diff"),
+    ),
   );
   assert.equal(value.source, "throw new Error('never execute');\n");
   assert.equal(value.prepared, true);
   assert.equal(value.archiveRemoved, true);
   assert.equal(posts(value).length, 0);
+});
+
+test("collection and publication use an immutable comparison despite unrelated target merges, but reject retargeting", () => {
+  for (const command of ["prepare", "publish"]) {
+    const advanced = runPublisher({ command, env: { ADVANCED_BASE: "true" } });
+    assert.equal(advanced.runs[0].status, 0, advanced.runs[0].stderr);
+    const retargeted = runPublisher({ command, env: { RETARGETED_BASE: "true" } });
+    assert.notEqual(retargeted.runs[0].status, 0);
+    assert.equal(posts(retargeted).length, 0);
+  }
 });
 
 test("the actual collector rejects head changes before and after source download", () => {

@@ -4,6 +4,27 @@ import path from "node:path";
 const fields = ["headSha", "verdict", "blockedReason", "findings"];
 const findingFields = ["kind", "priority", "path", "line", "title", "detail"];
 const reviewers = new Set(["claude[bot]", "claude", "github-actions[bot]"]);
+const auditDisclaimer = "Post-merge audit; this result does not establish historical pre-merge clearance.";
+
+/** REST retains the PR's recorded base when a merged target branch advances. */
+export function pinReviewBase(pr, metadata, target) {
+  const state = metadata?.merged_at ? "MERGED" : metadata?.state?.toUpperCase();
+  if (
+    metadata?.number !== target.prNumber ||
+    pr?.number !== target.prNumber ||
+    metadata?.head?.repo?.full_name !== target.repository ||
+    pr?.headRepository?.nameWithOwner !== target.repository ||
+    !/^[a-f0-9]{40}$/u.test(pr?.headRefOid) ||
+    metadata?.head?.sha !== pr.headRefOid ||
+    !validBaseRef(pr.baseRefName) ||
+    metadata?.base?.ref !== pr.baseRefName ||
+    !/^[a-f0-9]{40}$/u.test(metadata?.base?.sha) ||
+    state !== pr.state ||
+    (state === "MERGED" && metadata.base.sha === pr.headRefOid)
+  )
+    throw new Error("The PR snapshot changed or no original review base is available.");
+  return { baseSha: metadata.base.sha, baseRefName: metadata.base.ref };
+}
 
 /** Comment/dispatch events must hand off to an actual PR-associated run. */
 export function selectEligibleReviewRun(response, expected) {
@@ -23,7 +44,7 @@ export function selectEligibleReviewRun(response, expected) {
       run.head_repository?.full_name === expected.repository &&
       run.pull_requests?.some(
         (pr) =>
-          pr.number === expected.prNumber && pr.head?.sha === expected.headSha && pr.base?.sha === expected.baseSha,
+          pr.number === expected.prNumber && pr.head?.sha === expected.headSha && pr.base?.ref === expected.baseRefName,
       ),
   );
   const latest = matches.sort((a, b) => b.id - a.id)[0];
@@ -85,6 +106,7 @@ export function validateReviewResult(result, expected, snapshotDirectory) {
   if (
     !/^[a-f0-9]{40}$/u.test(expected.headSha) ||
     !/^[a-f0-9]{40}$/u.test(expected.baseSha) ||
+    !validBaseRef(expected.baseRefName) ||
     !["second-review", "post-merge-audit"].includes(expected.mode)
   )
     throw new Error("Invalid pinned review identity.");
@@ -138,28 +160,54 @@ export function requireCurrentReview(pr, expected) {
   if (
     !/^[a-f0-9]{40}$/u.test(expected.headSha) ||
     !/^[a-f0-9]{40}$/u.test(expected.baseSha) ||
+    !validBaseRef(expected.baseRefName) ||
     !["second-review", "post-merge-audit"].includes(expected.mode) ||
     pr.headRefOid !== expected.headSha ||
-    pr.baseRefOid !== expected.baseSha ||
+    pr.baseRefName !== expected.baseRefName ||
     pr.isDraft ||
     (expected.mode === "second-review" ? pr.state !== "OPEN" : pr.state !== "MERGED" || !pr.mergedAt)
   )
-    throw new Error("The pull request head, base or lifecycle changed; review publication refused.");
+    throw new Error("The pull request head, target branch or lifecycle changed; review publication refused.");
+}
+function validBaseRef(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 255 &&
+    !Array.from(value).some((character) => character.charCodeAt(0) < 33 || character.charCodeAt(0) === 127)
+  );
+}
+function reviewContext(expected) {
+  return `<!-- claude-review-base: ${Buffer.from(expected.baseRefName).toString("base64url")} ${expected.baseSha} -->`;
+}
+function sameReceiptTarget(body, expected) {
+  if (!validBaseRef(expected.baseRefName)) return false;
+  const lines = body.split(/\r?\n/u);
+  const context = /^<!-- claude-review-base: ([A-Za-z0-9_-]+) ([a-f0-9]{40}) -->$/u.exec(lines[1] ?? "");
+  let payload = lines.slice(2).join("\n").trim();
+  if (expected.mode === "post-merge-audit") {
+    if (!payload.startsWith(`${auditDisclaimer}\n\n`)) return false;
+    payload = payload.slice(auditDisclaimer.length).trim();
+  }
+  // The receipt records the immutable reviewed snapshot. An unrelated target
+  // branch advance must not invalidate it; retargeting the PR must.
+  return Boolean(
+    context &&
+      context[1] === Buffer.from(expected.baseRefName).toString("base64url") &&
+      (payload === "No findings." || /^- \*\*P[0-3] /u.test(payload)),
+  );
 }
 export function reviewMarker(expected) {
   return `<!-- claude-${expected.mode}: ${expected.headSha} -->`;
 }
 export function reviewBody(result, expected) {
   validateReviewResult(result, expected);
-  const audit =
-    expected.mode === "post-merge-audit"
-      ? "\n\nPost-merge audit; this result does not establish historical pre-merge clearance."
-      : "";
+  const audit = expected.mode === "post-merge-audit" ? `\n\n${auditDisclaimer}` : "";
   const findings = result.findings.map(
     (finding) =>
       `- **${finding.priority} ${finding.kind === "question" ? "Question: " : ""}${finding.title}** — ${finding.path}:${finding.line}\n\n  ${finding.detail.replaceAll("\n", "\n  ")}`,
   );
-  return `${reviewMarker(expected)}${audit}\n\n${findings.length ? findings.join("\n\n") : "No findings."}\n`;
+  return `${reviewMarker(expected)}\n${reviewContext(expected)}${audit}\n\n${findings.length ? findings.join("\n\n") : "No findings."}\n`;
 }
 export function matchingReceipt(comments, expected) {
   return comments.find(
@@ -168,6 +216,7 @@ export function matchingReceipt(comments, expected) {
       reviewers.has(comment.user?.login) &&
       typeof comment.body === "string" &&
       comment.body.split(/\r?\n/u)[0] === reviewMarker(expected) &&
+      sameReceiptTarget(comment.body, expected) &&
       (expected.mode !== "post-merge-audit" ||
         comment.body.includes("Post-merge audit; this result does not establish historical pre-merge clearance.")),
   );

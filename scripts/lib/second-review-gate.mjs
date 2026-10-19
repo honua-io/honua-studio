@@ -42,10 +42,15 @@ export function evaluateSecondReview({
   const mode = postMergeAudit ? "post-merge-audit" : "second-review";
   const marker = `<!-- claude-${mode}: ${headSha} -->`;
   const threads = pr.reviewThreads.nodes;
-  const firstPass = (login) => (login ?? "").toLowerCase().includes(firstPassReviewer.toLowerCase());
+  const firstPass = (login) => (login ?? "").toLowerCase() === firstPassReviewer.toLowerCase();
   const firstThreads = threads.filter((thread) => firstPass(thread.comments.nodes[0]?.author?.login));
-  const recordedFirstPass =
-    pr.reviews.nodes.some((review) => firstPass(review.author?.login)) || firstThreads.length > 0;
+  const recordedFirstPass = pr.reviews.nodes.some(
+    (review) =>
+      firstPass(review.author?.login) &&
+      review.author?.__typename === "Bot" &&
+      review.commit?.oid === headSha &&
+      ["APPROVED", "COMMENTED", "CHANGES_REQUESTED"].includes(review.state),
+  );
   const completedCommit = completedFirstPassCommit(comments, firstPassReviewer);
   const completedSummary = Boolean(completedCommit && resolvedFirstPassCommits[completedCommit] === headSha);
   const checks = {
@@ -59,7 +64,7 @@ export function evaluateSecondReview({
     comment_completion_threads_resolved:
       recordedFirstPass || !completedSummary || threads.every((thread) => thread.isResolved),
     threads_resolved: firstThreads.every((thread) => thread.isResolved),
-    not_already_reviewed: !matchingReceipt(comments, { headSha, mode }),
+    not_already_reviewed: !matchingReceipt(comments, { headSha, mode, baseRefName: pr.baseRefName }),
   };
   const resolvedThreads = firstThreads
     .filter((thread) => thread.isResolved)

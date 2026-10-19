@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   matchingReceipt,
+  pinReviewBase,
   requireCurrentReview,
   reviewBody,
   reviewResultSchema,
@@ -23,20 +24,27 @@ function boundedJson(filename) {
   if (bytes.length > 100000) throw new Error("Review artifact exceeded its bound.");
   return JSON.parse(bytes.toString("utf8"));
 }
-function identity() {
-  const expected = {
+function targetIdentity() {
+  const target = {
     repository: process.env.GITHUB_REPOSITORY,
     prNumber: Number(process.env.PR_NUMBER),
-    headSha: process.env.HEAD_SHA,
-    baseSha: process.env.BASE_SHA,
-    mode: process.env.REVIEW_MODE,
   };
   if (
-    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(expected.repository ?? "") ||
-    !Number.isSafeInteger(expected.prNumber) ||
-    expected.prNumber < 1
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(target.repository ?? "") ||
+    !Number.isSafeInteger(target.prNumber) ||
+    target.prNumber < 1
   )
     throw new Error("Invalid review target.");
+  return target;
+}
+function identity() {
+  const expected = {
+    ...targetIdentity(),
+    headSha: process.env.HEAD_SHA,
+    baseSha: process.env.BASE_SHA,
+    baseRefName: process.env.BASE_REF_NAME,
+    mode: process.env.REVIEW_MODE,
+  };
   // Reuse the result validator to check the pinned SHA/mode vocabulary.
   validateReviewResult(
     { headSha: expected.headSha, verdict: "no-findings", blockedReason: "", findings: [] },
@@ -53,13 +61,19 @@ function current(expected) {
       "--repo",
       expected.repository,
       "--json",
-      "headRefOid,baseRefOid,state,mergedAt,isDraft",
+      "headRefOid,baseRefOid,baseRefName,state,mergedAt,isDraft",
     ]),
   );
 }
 const mode = process.argv[2];
 if (mode === "schema") {
   console.log(JSON.stringify(reviewResultSchema));
+} else if (mode === "pin-base") {
+  const target = targetIdentity();
+  const pr = JSON.parse(fs.readFileSync("pull-request.json", "utf8")).data.repository.pullRequest;
+  const metadata = JSON.parse(gh(["api", `repos/${target.repository}/pulls/${target.prNumber}`]));
+  const pinned = pinReviewBase(pr, metadata, target);
+  fs.appendFileSync(process.env.GITHUB_OUTPUT, `base_sha=${pinned.baseSha}\nbase_ref_name=${pinned.baseRefName}\n`);
 } else if (mode === "requeue") {
   const expected = identity();
   requireCurrentReview(current(expected), expected);
@@ -70,9 +84,23 @@ if (mode === "schema") {
     ]),
   );
   const eligible = selectEligibleReviewRun(runs, expected);
-  requireCurrentReview(current(expected), expected);
+  let recorded;
   if (eligible.conclusion === "success") {
-    console.log(`PR-associated review run ${eligible.id} already succeeded for ${expected.headSha}.`);
+    const comments = JSON.parse(
+      gh([
+        "api",
+        "--paginate",
+        "--slurp",
+        `repos/${expected.repository}/issues/${expected.prNumber}/comments?per_page=100`,
+      ]),
+    ).flat();
+    recorded = matchingReceipt(comments, expected);
+  }
+  requireCurrentReview(current(expected), expected);
+  if (eligible.conclusion === "success" && recorded) {
+    console.log(
+      `PR-associated review run ${eligible.id} succeeded with observed receipt ${recorded.id} for ${expected.headSha}.`,
+    );
   } else {
     // Rerun the whole eligible workflow: rerunning only the failed publisher
     // would reuse the old gate's "not admitted" outputs indefinitely.
@@ -97,7 +125,12 @@ if (mode === "schema") {
   } finally {
     fs.rmSync(archiveFile, { force: true });
   }
-  const diff = gh(["pr", "diff", String(expected.prNumber), "--repo", expected.repository, "--color", "never"]);
+  const diff = gh([
+    "api",
+    `repos/${expected.repository}/compare/${expected.baseSha}...${expected.headSha}`,
+    "--header",
+    "Accept: application/vnd.github.diff",
+  ]);
   requireCurrentReview(current(expected), expected);
   fs.writeFileSync(path.join(directory, "current.diff"), diff);
   fs.writeFileSync(metadataFile, JSON.stringify(expected));
@@ -173,4 +206,4 @@ if (mode === "schema") {
       throw new Error("The expected review receipt was not observed.");
     console.log(`Posted and verified review receipt ${receipt.id} for ${expected.headSha}.`);
   }
-} else throw new Error("Expected schema, requeue, prepare, validate, existing, verify or publish.");
+} else throw new Error("Expected schema, pin-base, requeue, prepare, validate, existing, verify or publish.");

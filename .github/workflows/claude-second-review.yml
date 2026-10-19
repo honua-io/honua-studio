@@ -20,7 +20,7 @@ on:
   pull_request_review_comment:
     types: [created, edited, deleted]
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize, ready_for_review, edited, reopened]
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -75,6 +75,7 @@ jobs:
       should_review: ${{ steps.evaluate.outputs.should_review }}
       eligible_for_receipt: ${{ steps.evaluate.outputs.eligible_for_receipt }}
       base_sha: ${{ steps.base.outputs.base_sha }}
+      base_ref_name: ${{ steps.base.outputs.base_ref_name }}
       head_sha: ${{ steps.evaluate.outputs.head_sha }}
       marker: ${{ steps.evaluate.outputs.marker }}
       review_mode: ${{ steps.evaluate.outputs.review_mode }}
@@ -122,10 +123,11 @@ jobs:
                     isDraft
                     headRefOid
                     baseRefOid
+                    baseRefName
                     headRepository { nameWithOwner }
                     reviews(first: 100) {
                       totalCount
-                      nodes { author { login } state }
+                      nodes { author { login __typename } state commit { oid } }
                     }
                     reviewThreads(first: 100) {
                       totalCount
@@ -154,11 +156,11 @@ jobs:
 
       - name: Pin the review base
         id: base
-        run: |
-          set -euo pipefail
-          base=$(jq -er '.data.repository.pullRequest.baseRefOid' pull-request.json)
-          [[ "$base" =~ ^[a-f0-9]{40}$ ]]
-          echo "base_sha=$base" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Pin the REST PR base snapshot, including the original base retained
+        # after merge. The moving GraphQL target tip is not a diff identity.
+        run: node scripts/second-review-delivery.mjs pin-base
 
   requeue:
     name: Re-evaluate the admitted PR review
@@ -180,6 +182,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
       BASE_SHA: ${{ needs.gate.outputs.base_sha }}
+      BASE_REF_NAME: ${{ needs.gate.outputs.base_ref_name }}
       REVIEW_MODE: ${{ needs.gate.outputs.review_mode }}
     steps:
       - name: Check out the active workflow implementation
@@ -212,6 +215,7 @@ jobs:
     env:
       HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
       BASE_SHA: ${{ needs.gate.outputs.base_sha }}
+      BASE_REF_NAME: ${{ needs.gate.outputs.base_ref_name }}
       REVIEW_MODE: ${{ needs.gate.outputs.review_mode }}
     steps:
       - name: Check out the active workflow implementation
@@ -306,6 +310,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
       BASE_SHA: ${{ needs.gate.outputs.base_sha }}
+      BASE_REF_NAME: ${{ needs.gate.outputs.base_ref_name }}
       REVIEW_MODE: ${{ needs.gate.outputs.review_mode }}
     steps:
       - name: Check out the active workflow implementation
