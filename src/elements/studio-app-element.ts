@@ -66,7 +66,7 @@ import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
-import type { StudioContentVersion } from "../lifecycle/lifecycle-types.js";
+import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
@@ -405,6 +405,21 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #workspaceDraft: WorkspaceDraftBinding | undefined;
+  #workspacePublicationReviews = new WeakMap<
+    StudioContentVersion,
+    {
+      binding: WorkspaceDraftBinding;
+      generation: number;
+      itemId: string;
+      versionId: string;
+      contentHash: string;
+      submission?: {
+        commandId: string;
+        requestJson: string;
+        pending?: ReturnType<StudioLifecycleClient["requestPublish"]>;
+      };
+    }
+  >();
   #workspaceAuthGeneration = 0;
   #workspaceDraftConflict = false;
   #workspaceDraftQueue: Promise<unknown> = Promise.resolve();
@@ -510,6 +525,90 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       current();
       return result.versions;
     });
+  }
+
+  /** Read the exact saved version for the host's human publication review. Never submits. */
+  public reviewWorkspacePublication(versionId: string): Promise<StudioContentVersion> {
+    return this.#withWorkspaceLifecycle(async (client, identity, current, generation) => {
+      const draft = await client.getDraft(identity.draftId);
+      current();
+      const version = await client.getVersion(draft.itemId, versionId);
+      current();
+      if (
+        version.itemId !== draft.itemId ||
+        version.versionId !== versionId ||
+        version.packageKey !== identity.packageKey ||
+        !version.contentHash
+      )
+        throw new Error("The publication version does not belong to the active map.");
+      const review = Object.freeze(structuredClone(version));
+      this.#workspacePublicationReviews.set(review, {
+        binding: this.#workspaceDraft!,
+        generation,
+        itemId: version.itemId,
+        versionId: version.versionId,
+        contentHash: version.contentHash,
+      });
+      return review;
+    });
+  }
+
+  /**
+   * Human host action only. The host must persist commandId before submission and
+   * retain it and the exact input after a lost response. Replays use server policy
+   * and fresh authorization; a receipt awaiting approval is never completion.
+   */
+  public async publishWorkspaceVersion(
+    review: StudioContentVersion,
+    request: StudioPublishRequestInput,
+    commandId: string,
+  ): ReturnType<StudioLifecycleClient["requestPublish"]> {
+    const state = this.#workspacePublicationReviews.get(review);
+    if (!state) throw new Error("Review the saved version in the current workspace before publishing.");
+    const requireReview = () => {
+      if (state.binding !== this.#workspaceDraft || state.generation !== this.#workspaceAuthGeneration)
+        throw new Error("Review the saved version again in the original workspace session before publishing.");
+    };
+    requireReview();
+    if (typeof commandId !== "string" || commandId.trim() !== commandId || !/^[A-Za-z0-9_-]{1,128}$/.test(commandId))
+      throw new Error("A stable publication command ID is required.");
+    // Keep only canonical publication inputs; browser callers cannot add approval fields.
+    const requestJson = JSON.stringify({
+      intent: request.intent,
+      warningAcknowledgement: request.warningAcknowledgement,
+    });
+    if (state.submission && (state.submission.commandId !== commandId || state.submission.requestJson !== requestJson))
+      throw new Error("Check the original publication before changing its command or publication settings.");
+    state.submission ??= { commandId, requestJson };
+    const submission = state.submission;
+    if (submission.pending) return submission.pending;
+    const pending = this.#withWorkspaceLifecycle(async (client, _identity, current) => {
+      requireReview();
+      const version = await client.getVersion(state.itemId, state.versionId);
+      current();
+      requireReview();
+      if (
+        version.itemId !== state.itemId ||
+        version.versionId !== state.versionId ||
+        version.contentHash !== state.contentHash
+      )
+        throw new Error("The saved version changed after publication review.");
+      const receipt = await client.requestPublish(
+        state.itemId,
+        state.versionId,
+        JSON.parse(submission.requestJson) as StudioPublishRequestInput,
+        submission.commandId,
+      );
+      current();
+      requireReview();
+      return receipt;
+    });
+    submission.pending = pending;
+    try {
+      return await pending;
+    } finally {
+      submission.pending = undefined;
+    }
   }
 
   /** Reopen a version of the active map as a new draft, preserving the saved version. */

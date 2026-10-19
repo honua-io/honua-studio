@@ -42,11 +42,11 @@ const LIFECYCLE_CLIENT_IMPORT_PATTERN = /from\s+["'][^"']*lifecycle-client\.js["
 describe("Publication routing boundaries", () => {
   const allSourceFiles = listSourceFiles(srcRoot);
 
-  it("the only file anywhere under src/ that calls .requestPublish(/.requestRollback( is the lifecycle panel element", () => {
+  it("only explicit human lifecycle and embedded-host actions call pointer mutation methods", () => {
     const callers = allSourceFiles
       .filter((file) => GATED_METHOD_CALL_PATTERN.test(readFileSync(file, "utf8")))
       .map((file) => relative(srcRoot, file));
-    expect(callers).toEqual(["elements/studio-lifecycle-panel-element.ts"]);
+    expect(callers).toEqual(["elements/studio-app-element.ts", "elements/studio-lifecycle-panel-element.ts"]);
   });
 
   it("no file under src/mcp/**, src/chat/**, or src/composition/** imports lifecycle-client.js at all", () => {

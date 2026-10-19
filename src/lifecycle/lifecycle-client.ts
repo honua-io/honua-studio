@@ -59,12 +59,11 @@ import { type StudioApprovalPending, readStudioApprovalPending } from "./approva
  * share, embed, and any action that widens exposure are HUMAN-CONFIRMED
  * gates the agent can propose but never invoke"), these two methods must
  * ONLY ever be called from a human-confirmed UI interaction —
- * `studio-lifecycle-panel-element.ts`'s typed-confirmation dialog handlers,
- * themselves wired to nothing but a `click` listener on a button inside that
- * element's own shadow DOM. No chat/MCP/tool-call/activity-log event handler
+ * the lifecycle panel's confirmation dialog or the embedded app's explicit
+ * host publication method after version review. No chat/MCP/tool-call/activity-log event handler
  * anywhere in this package may call either method — `honua_studio_propose_publication`
- * (`mcp/studio-tools.ts`) submits an `AwaitingApproval` proposal for an
- * already-saved version and has no reference to this client. See
+ * (`mcp/studio-tools.ts`) routes an already-saved version through server
+ * authorization and approval policy and has no reference to this client. See
  * `test/lifecycle/human-gate.test.ts`, which asserts this both statically
  * (no `src/mcp/**`, `src/chat/**`, or `src/composition/**` module imports
  * this file) and at runtime (driving `propose_publication` end to end and
@@ -285,8 +284,8 @@ export class StudioLifecycleClient {
   }
 
   // -- HUMAN-CONFIRMED GATES (spec REQ-009) ------------------------------------
-  // See the module doc's "The human gate" section. Callers: ONLY
-  // studio-lifecycle-panel-element.ts's confirm-dialog handlers.
+  // Called by the lifecycle confirmation dialog or the embedded host's explicit
+  // version-publication action. Agent composition uses its canonical server tool.
 
   /**
    * Persists a publication request and, when validation permits, moves the
@@ -297,12 +296,13 @@ export class StudioLifecycleClient {
     itemId: string,
     versionId: string,
     request: StudioPublishRequestInput = {},
+    commandId?: string,
   ): Promise<StudioPublicationRequest | StudioApprovalPending> {
     return this.#request(
       "POST",
       `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests`,
       request,
-      undefined,
+      commandId,
       true,
     );
   }
@@ -316,12 +316,13 @@ export class StudioLifecycleClient {
   public requestRollback(
     itemId: string,
     request: StudioRollbackRequestInput,
+    commandId?: string,
   ): Promise<StudioRollbackRequest | StudioApprovalPending> {
     return this.#request(
       "POST",
       `/content-items/${encodeURIComponent(itemId)}/rollback-requests`,
       request,
-      undefined,
+      commandId,
       true,
     );
   }

@@ -137,6 +137,11 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   Pending visual edits settle first; a session or map change rejects stale
   results. This does not publish the map or qualify the complete installed
   Console journey.
+- **Embedded publication has an explicit host review boundary.** Hosts can
+  review a saved version, then submit its publication with a retained command
+  identity. Changed session, map or immutable content is refused; retries keep
+  the original settings and command. Console controls, durable host recovery
+  and live audience qualification are still being integrated.
 - **Approval receipts are distinct from completion.** Lifecycle publication
   and rollback show HTTP 202 approval requests as awaiting separate human
   approval, retaining operation and proposal references in activity events.
@@ -268,7 +273,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — local reviewed-SDK checkpoint: 1377 tests across 121 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); published SDK compatibility remains pending |
+| `npm test` | Unit tests (Vitest) — local reviewed-SDK checkpoint: 1392 tests across 122 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); published SDK compatibility remains pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

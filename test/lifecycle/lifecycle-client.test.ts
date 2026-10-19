@@ -419,6 +419,24 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
     await expect(c.getPackageFamilies()).rejects.toBeInstanceOf(StudioLifecycleSessionExpiredError);
   });
 
+  it("preserves the caller's publication identity through session refresh and an explicit retry", async () => {
+    const calls: { key: string | null; body: unknown }[] = [];
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      calls.push({ key: new Headers(init?.headers).get("Idempotency-Key"), body: init?.body });
+      if (calls.length === 1) return jsonResponse(401, {});
+      if (calls.length === 2) throw new TypeError("response lost");
+      return jsonResponse(202, { data: { status: 4, operationInstanceId: "operation", proposalId: "proposal" } });
+    };
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl, auth: { getAccessToken: async () => "token" } });
+    const input = { intent: { route: "/maps/map", visibility: "organization" } };
+    await expect(c.requestPublish("item", "version", input, "original-command")).rejects.toThrow("Could not reach");
+    expect(calls).toHaveLength(2);
+    await expect(c.requestPublish("item", "version", input, "original-command")).resolves.toMatchObject({
+      status: "awaiting-approval",
+    });
+    expect(calls).toEqual(Array.from({ length: 3 }, () => ({ key: "original-command", body: JSON.stringify(input) })));
+  });
+
   it("a 401 WITH auth retries once with forceRefresh, then succeeds", async () => {
     let call = 0;
     const fetchImpl = (async () => {

@@ -61,6 +61,22 @@ Reopening emits `honua-workspace-draft-change` with the new
 follow the same draft. The host should await each action, show failures,
 and require another explicit action before retrying a failed mutation.
 
+`reviewWorkspacePublication(versionId)` reads the exact saved version for a
+human review without submitting anything. Pass that returned object to
+`publishWorkspaceVersion(review, input, commandId)` only after the human
+confirms the version, route and audience. The review is bound to this app's
+active map and session; a fresh read verifies the immutable content hash
+before submission. The input uses the lifecycle API's `intent` and optional
+`warningAcknowledgement` fields. Server authorization and approval policy
+remain authoritative.
+
+The host must retain the command ID and exact input before submitting, then
+reuse both for an explicit retry after a lost response. Concurrent duplicate
+calls share one in-flight request. Changing settings or command identity on a
+submitted review is refused. An `awaiting-approval` receipt retains operation
+and proposal identifiers and does not mean the map is published. These methods
+do not themselves provide a durable host recovery UI after browser reload.
+
 **Events** (all `CustomEvent`, `bubbles: true, composed: true` — cross the
 shadow boundary): `honua-studio-ready` (base contract, see below),
 `honua-studio-navigate` (`{ path, replace? }` — host-owned mode only, a
