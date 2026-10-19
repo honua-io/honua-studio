@@ -17,11 +17,21 @@ function input(audit = false): ReviewGateInput {
     comments: [],
     pr: {
       headRefOid: head,
+      baseRefName: "main",
       state: audit ? "MERGED" : "OPEN",
       mergedAt: audit ? "2026-10-14T09:37:02Z" : null,
       isDraft: false,
       headRepository: { nameWithOwner: "honua-io/honua-studio" },
-      reviews: { totalCount: 1, nodes: [{ author: { login: "chatgpt-codex-connector" } }] },
+      reviews: {
+        totalCount: 1,
+        nodes: [
+          {
+            author: { login: "chatgpt-codex-connector", __typename: "Bot" },
+            state: "COMMENTED",
+            commit: { oid: head },
+          },
+        ],
+      },
       reviewThreads: { totalCount: 0, nodes: [] },
     },
   };
@@ -142,6 +152,81 @@ describe("authenticated comment-only first-pass completion", () => {
 });
 
 describe("sequential review mode admission", () => {
+  it.each(["old-head", "missing-head", "pending", "dismissed", "lookalike-author", "human-author"])(
+    "does not admit %s formal review evidence for the current head",
+    (scenario) => {
+      const value = input();
+      const review = {
+        author: {
+          login: scenario === "lookalike-author" ? "fake-chatgpt-codex-connector" : "chatgpt-codex-connector",
+          __typename: scenario === "human-author" ? "User" : "Bot",
+        },
+        state: scenario === "pending" ? "PENDING" : scenario === "dismissed" ? "DISMISSED" : "COMMENTED",
+        commit: scenario === "missing-head" ? null : { oid: scenario === "old-head" ? "c".repeat(40) : head },
+      };
+      expect(
+        evaluateSecondReview({ ...value, pr: { ...value.pr, reviews: { totalCount: 1, nodes: [review] } } }).checks
+          .first_pass_done,
+      ).toBe(false);
+    },
+  );
+  it("does not treat a resolved thread as proof the new-head first pass completed", () => {
+    const value = input();
+    const pr = {
+      ...value.pr,
+      reviews: { totalCount: 0, nodes: [] },
+      reviewThreads: {
+        totalCount: 1,
+        nodes: [
+          {
+            isResolved: true,
+            comments: {
+              nodes: [{ author: { login: "chatgpt-codex-connector", __typename: "Bot" }, body: "old finding" }],
+            },
+          },
+        ],
+      },
+    };
+    expect(evaluateSecondReview({ ...value, pr }).shouldReview).toBe(false);
+  });
+  it("waits for a new-head summary while retaining older formal reviews and resolved findings as context", () => {
+    const value = input();
+    const pr = {
+      ...value.pr,
+      reviews: {
+        totalCount: 1,
+        nodes: [
+          {
+            author: { login: "chatgpt-codex-connector", __typename: "Bot" },
+            state: "COMMENTED",
+            commit: { oid: "c".repeat(40) },
+          },
+        ],
+      },
+      reviewThreads: {
+        totalCount: 1,
+        nodes: [
+          {
+            isResolved: true,
+            comments: {
+              nodes: [{ author: { login: "chatgpt-codex-connector", __typename: "Bot" }, body: "old finding" }],
+            },
+          },
+        ],
+      },
+    };
+    const completed = summary();
+    const running = { ...completed, body: completed.body.replace("Completed", "In progress") };
+    expect(evaluateSecondReview({ ...value, pr, comments: [running] }).shouldReview).toBe(false);
+    const finished = evaluateSecondReview({
+      ...value,
+      pr,
+      comments: [completed],
+      resolvedFirstPassCommits: { [head.slice(0, 7)]: head },
+    });
+    expect(finished.shouldReview).toBe(true);
+    expect(finished.resolvedThreads).toContain("old finding");
+  });
   it("preserves ordinary open-PR admission and its marker", () => {
     expect(evaluateSecondReview(input())).toMatchObject({
       shouldReview: true,
@@ -198,7 +283,11 @@ describe("sequential review mode admission", () => {
                   nodes: [
                     {
                       isResolved: false,
-                      comments: { nodes: [{ author: { login: "chatgpt-codex-connector" }, body: "real finding" }] },
+                      comments: {
+                        nodes: [
+                          { author: { login: "chatgpt-codex-connector", __typename: "Bot" }, body: "real finding" },
+                        ],
+                      },
                     },
                   ],
                 },
@@ -213,7 +302,15 @@ describe("sequential review mode admission", () => {
     const value = input(audit);
     const marker = evaluateSecondReview(input(!audit)).marker;
     expect(
-      evaluateSecondReview({ ...value, comments: [{ user: { login: "claude" }, body: marker }] }).shouldReview,
+      evaluateSecondReview({
+        ...value,
+        comments: [
+          {
+            user: { login: "claude", type: "Bot" },
+            body: `${marker}\nPost-merge audit; this result does not establish historical pre-merge clearance.`,
+          },
+        ],
+      }).shouldReview,
     ).toBe(true);
   });
   it.each([false, true])("does not trust an author's forged marker in mode %s", (audit) => {
@@ -228,19 +325,33 @@ describe("sequential review mode admission", () => {
     (login) => {
       for (const audit of [false, true]) {
         const value = input(audit);
-        const marker = evaluateSecondReview(value).marker;
-        expect(evaluateSecondReview({ ...value, comments: [{ user: { login }, body: marker }] }).shouldReview).toBe(
-          false,
-        );
+        const auditNote = audit
+          ? "\n\nPost-merge audit; this result does not establish historical pre-merge clearance."
+          : "";
+        const marker = `${evaluateSecondReview(value).marker}\n<!-- claude-review-base: bWFpbg ${"a".repeat(40)} -->${auditNote}\n\nNo findings.`;
+        expect(
+          evaluateSecondReview({ ...value, comments: [{ user: { login, type: "Bot" }, body: marker }] }).shouldReview,
+        ).toBe(false);
         expect(
           evaluateSecondReview({
             ...value,
-            comments: [{ user: { login }, body: marker.replace(head, "c".repeat(40)) }],
+            comments: [{ user: { login, type: "Bot" }, body: marker.replace(head, "c".repeat(40)) }],
           }).shouldReview,
         ).toBe(true);
       }
     },
   );
+  it("does not reuse a review after the same head is retargeted to another branch", () => {
+    const value = input();
+    const marker = `${evaluateSecondReview(value).marker}\n<!-- claude-review-base: bWFpbg ${"a".repeat(40)} -->\n\nNo findings.`;
+    expect(
+      evaluateSecondReview({
+        ...value,
+        pr: { ...value.pr, baseRefName: "release" },
+        comments: [{ user: { login: "github-actions[bot]", type: "Bot" }, body: marker }],
+      }).shouldReview,
+    ).toBe(true);
+  });
   it("preserves informational treatment of unrelated review threads", () => {
     const value = input();
     const pr = {
@@ -265,7 +376,7 @@ describe("sequential review mode admission", () => {
           {
             isResolved: true,
             path: "src/map.ts",
-            comments: { nodes: [{ author: { login: "chatgpt-codex-connector" }, body }] },
+            comments: { nodes: [{ author: { login: "chatgpt-codex-connector", __typename: "Bot" }, body }] },
           },
         ],
       },
@@ -277,6 +388,7 @@ describe("sequential review mode admission", () => {
   it("wires the tested policy and bounded retrospective review into the workflow", () => {
     const workflow = readFileSync(new URL("../../.github/workflows/claude-second-review.yml", import.meta.url), "utf8");
     expect(workflow).toContain("node scripts/evaluate-second-review.mjs");
+    expect(workflow).toContain("state commit { oid }");
     expect(workflow).toContain("issue_comment:\n    types: [created, edited]");
     expect(workflow).toContain(
       "github.event.pull_request.number || github.event.issue.number || inputs.pull_request_number",
@@ -291,15 +403,21 @@ describe("sequential review mode admission", () => {
     expect(workflow).toContain("--max-turns 80");
     expect(workflow).toContain("timeout-minutes: 20");
     expect(workflow).toContain("github.workflow_sha");
-    const reviewJob = workflow.split("\n  review:\n")[1];
+    const reviewJob = workflow.split("\n  review:\n")[1].split("\n  publish:\n")[0];
+    const publisher = workflow.split("\n  publish:\n")[1];
     expect(reviewJob).toMatch(/allowed_bots: chatgpt-codex-connector\[bot\]\n/);
     expect(reviewJob.match(/allowed_bots:/g)).toHaveLength(1);
-    expect(reviewJob).toContain("additional_permissions: |\n            contents: read\n");
+    expect(reviewJob).toContain("pull-requests: read");
+    expect(reviewJob).toContain("github_token: ${{ github.token }}");
+    expect(reviewJob).not.toContain("pull-requests: write");
     expect(reviewJob).toContain("ref: ${{ github.workflow_sha }}");
     expect(reviewJob).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
-    expect(reviewJob).toContain("contents/PATH --method GET -f ref=${{ needs.gate.outputs.head_sha }}");
-    expect(reviewJob).toContain("Never execute PR code");
-    expect(workflow).toContain("does not\n            establish historical pre-merge clearance");
+    expect(reviewJob).toContain("node scripts/second-review-delivery.mjs prepare");
+    expect(reviewJob).toContain('--disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"');
+    expect(publisher).toContain("ref: ${{ github.workflow_sha }}");
+    expect(publisher).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
+    expect(publisher).toContain("node scripts/second-review-delivery.mjs publish");
+    expect(publisher).toContain("node scripts/second-review-delivery.mjs verify");
     expect(workflow).not.toContain("--max-turns 40");
   });
 });

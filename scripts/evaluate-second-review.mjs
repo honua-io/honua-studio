@@ -39,7 +39,13 @@ console.log(`unresolved_other=${result.unresolvedOther} (informational; does not
 console.log(`should_review=${result.shouldReview}`);
 appendFileSync(
   process.env.GITHUB_OUTPUT,
-  `head_sha=${result.headSha}\nmarker=${result.marker}\nreview_mode=${result.mode}\nshould_review=${result.shouldReview}\nthreads_digest_base64=${Buffer.from(result.resolvedThreads).subarray(0, 60000).toString("base64")}\n`,
+  `head_sha=${result.headSha}\nmarker=${result.marker}\nreview_mode=${result.mode}\nshould_review=${result.shouldReview}\neligible_for_receipt=${Object.entries(
+    result.checks,
+  )
+    .filter(([key]) => key !== "not_already_reviewed")
+    .every(
+      ([, value]) => value,
+    )}\nthreads_digest_base64=${Buffer.from(result.resolvedThreads).subarray(0, 60000).toString("base64")}\n`,
 );
 appendFileSync(
   process.env.GITHUB_STEP_SUMMARY,
