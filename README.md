@@ -13,9 +13,9 @@ The standalone shell and embed harnesses are compatibility and development
 surfaces, not a separate product. Repository consolidation is still pending;
 Console currently depends on the qualified editor bundle from this repository.
 
-The Console review bundle also exposes the canonical SDK clients for dataset
+The Console bundle also exposes the canonical SDK clients for dataset
 tasks, uploads, submission status, and bounded file hashing. Its browser packaging
-check is `npm run test:console-assets`; see [the reviewed SDK setup](docs/embed-session.md).
+check is `npm run test:console-assets`; see [the public SDK setup](docs/embed-session.md).
 These exports do not establish deployment readiness or a completed large-file
 import → query → map journey.
 
@@ -52,8 +52,9 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The current tree contains 131 files in `src/` and 129 in `test/`, with
-Last qualified baseline: 1237 unit tests across 109 files and 29 Playwright browser journeys, including four accessibility checks.
+The recorded standalone baseline passed 1,237 unit tests across 109 files and
+29 Playwright browser journeys, including four accessibility checks. The latest
+embedded-workspace validation is recorded in the commands table below.
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -110,13 +111,14 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   and can run scripted or signature-verified model turns against an owned real
   server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. The [authoritative style provider](docs/authoritative-styles.md) resolves real server definitions for supported vector layers and accepts actual browser observations for hash-bound semantic verification. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
   follow-up work.
-- **The GP panel talks to a fixture, not a server**
-  ([#35](https://github.com/honua-io/honua-studio/issues/35)). `src/gp/job-client.ts`
-  posts to `mock-server.mjs`'s job store, shaped to match `@honua/sdk-js`'s
-  `IJobRun`/`JobStatus` so the swap to real OGC API Processes is a client
-  substitution, not a rewrite.
+- **Processes live qualification remains pending.** Console's built-in and custom
+  Processes views use the server-backed adapters in `src/gp/process-workspace.ts`
+  and `src/gp/custom-process-workspace.ts`. Their installed edit/run/debug/output
+  journey still needs qualification. The older standalone GP compatibility panel
+  (`src/gp/job-client.ts`, [#35](https://github.com/honua-io/honua-studio/issues/35))
+  continues to use the fixture job store.
 - **Fixture chat and MCP clients remain local.** The
-  `@honua/sdk-js` pin is `0.2.2`
+  `@honua/sdk-js` pin is `0.2.4`
   ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
   the SDK's declarative interaction compiler and Studio lifecycle client —
   both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
@@ -124,8 +126,8 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   transport remains the deterministic fixture seam and the local MCP client
   still powers the existing lifecycle/tool orchestrator. The console's
   lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
-  header — enumeration endpoints and server DTO fields the SDK's projection
-  does not carry yet.
+  header. The SDK now includes enumeration and extended lifecycle types;
+  consolidating the remaining adapter and its POST refresh behavior is follow-up work.
 - **Live composition mutations delegate to the server.** Control and
   interaction commands ([#43](https://github.com/honua-io/honua-studio/issues/43))
   use the landed `honua_studio_*` tools, following visibility delegation in
@@ -273,7 +275,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — local reviewed-SDK checkpoint: 1392 tests across 122 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); published SDK compatibility remains pending |
+| `npm test` | Unit tests (Vitest) — public SDK 0.2.4 checkpoint: 1397 tests across 122 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); installed end-to-end workflow qualification remains pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs the 29 Playwright boot/harness/journey/accessibility specs (chromium) |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |

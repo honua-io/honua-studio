@@ -7,48 +7,15 @@ import { type StudioApprovalPending, readStudioApprovalPending } from "./approva
  * #3003) — every method below corresponds 1:1 to one row of that doc's
  * endpoint table, at `${baseUrl}/v1/studio/...`.
  *
- * ## Why this is not `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient`
+ * ## SDK integration
  *
- * The SDK ships a lifecycle client and this app is pinned to a version that
- * has it (honua-studio#30). The composition draft path *does* use it —
- * `./composition-draft-store.ts` puts `HonuaStudioLifecycleClient.drafts`
- * behind the `CompositionDraftStore` seam. This module stays because the
- * console surfaces (`studio-content-browser-element.ts`,
- * `studio-lifecycle-panel-element.ts`) need four things the SDK's client
- * does not have, none of which is a release-timing problem:
- *
- *  1. **The enumeration endpoints.** `GET /content-items` and
- *     `GET /package-drafts` (server PR #3014, issue #3003) are how the
- *     content browser finds an `itemId`/`draftId` in the first place. The
- *     SDK's module doc names this as its own open gap and offers `.raw()`
- *     — an untyped escape hatch — in place of methods. Cursor pagination,
- *     the family/state/owner filters, and the joined publication badge are
- *     all typed here (`lifecycle-types.ts`).
- *  2. **A `changeNote` on save-as-version.** The SDK's
- *     `drafts.createContentVersion` posts no body. The deployed server 400s
- *     a bodyless `POST .../content-versions`, and the change note is what
- *     the panel's "save a version" dialog collects.
- *  3. **The server's DTO fields.** honua-server returns
- *     `StudioPackageDraft.validation` (the panel's status badge),
- *     `persistenceMode`/`durable` at the top of `GET /package-families`, and
- *     `currentSchemaVersion`/`previewSupported`/`publishSupported` per
- *     family. The SDK's projection has none of those as declared members —
- *     they survive only through its index signatures, typed `unknown`, so
- *     adopting it would replace typed reads with casts at every call site.
- *  4. **Refresh-then-retry on a POST.** `HonuaClient` replays a `401` only
- *     for replay-safe methods (`GET`/`HEAD`/`PUT`/`DELETE`). Draft create,
- *     validate, preview-plan, save-as-version, publish and rollback are all
- *     POSTs, and a token that expires mid-session must not turn one of them
- *     into a hard sign-in prompt.
- *
- * Points 1-3 are honua-sdk-js work, not honua-studio work: when the SDK's
- * projection covers the server's DTOs and the enumeration endpoints, this
- * module becomes an adapter the way `./composition-draft-store.ts` already
- * is. Until then it is a complete, independently-typed REST client against
- * `docs/internal/admin-api/studio-package-lifecycle.md`'s endpoint table,
- * built the same way `client/studio-client.ts` and `mcp/client.ts` are: a
- * thin fetch wrapper, no schema-validation dependency, bearer-attached via
- * the same `TokenSource` shape those two already use.
+ * The composition draft store uses the published SDK lifecycle client behind
+ * its narrow create/get/replace adapter. The SDK now also exposes enumeration,
+ * publication status and extended lifecycle types. This local client remains
+ * the adapter used by the existing lifecycle elements: it preserves their DTO
+ * shapes and refreshes authentication once after a 401, including for POSTs.
+ * Publication retries retain their original command ID. Consolidating these
+ * remaining elements onto the SDK must preserve those transport semantics.
  *
  * ## The human gate (spec REQ-009 — READ BEFORE TOUCHING THIS FILE)
  *
@@ -308,7 +275,11 @@ export class StudioLifecycleClient {
   }
 
   /** Read a publication receipt without submitting or replaying a mutation. */
-  public getPublicationRequest(itemId: string, versionId: string, requestId: string): Promise<StudioPublicationRequest> {
+  public getPublicationRequest(
+    itemId: string,
+    versionId: string,
+    requestId: string,
+  ): Promise<StudioPublicationRequest> {
     return this.#request(
       "GET",
       `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests/${encodeURIComponent(requestId)}`,

@@ -244,36 +244,28 @@ draft is attached. `setWorkspaceConversation(messages)` projects authorized host
 conversation into its transcript projection without changing the SDK's model history;
 it returns false while that bridge streams. The host owns the visible conversation.
 
-Review bundles currently use the separately packed SDK artifact from
-`50d8f1d6fcbbcee89f666949722c6b7ac904e5c4`, including schema-aware dispatch,
-canonical live-style bindings, and the dataset import transports. This is not a published 0.2.3 release. Record its
-actual tarball SHA and Studio commit in the embedding application's manifest.
-
-`build:console-assets` verifies every installed SDK package file against the
-reviewed receipt. Published 0.2.2 still supports standalone builds; it cannot emit
-this broad native bundle. Preserve all other dependencies from `package-lock.json`:
+The Console bundle uses the public `@honua/sdk-js@0.2.4` package. Install the
+locked dependency graph normally:
 
 ```sh
-npm ci --ignore-scripts
-python3 scripts/install-reviewed-sdk.py --archive /path/to/honua-sdk-js-0.2.3.tgz
+npm ci
 npm run build:console-assets
 ```
 
-The installer checks archive SHA-256
-`4592fae1917971394a54e33487b345476cdbfe40dddeb819e5661c30f41a1d8b`,
-all 2,113 payload hashes, and the installed dependency versions against the lock.
-It does not run npm dependency resolution. The build emits `SDK-PROVENANCE.json`
-and license notices. Release qualification requires the actual immutable published
-SDK release, updated pins/provenance, and repeated native-session qualification.
+Build the pinned Maputnik assets first as described in the editor setup. The
+build checks every installed SDK file against `scripts/sdk-public-receipt.json`,
+and checks its version, tarball URL and registry integrity against the lockfile.
+The receipt identifies release source `1b098478f710861a5b861bcd7d4598601d30fcb6`;
+`SDK-PROVENANCE.json` and license notices travel with the bundle. Registry package
+verification does not establish installed workflow or cloud qualification.
 
 The Console entry exports `DatasetImportTaskClient`, `DatasetImportUploadClient`,
-`DatasetImportSubmissionClient`, and `hashDatasetImportFile` from that SDK.
-Console supplies fresh authenticated headers and its workspace-bound BFF transport;
-these exports do not grant import authority or enable a host that is not ready.
-After installing the reviewed SDK and pinned Maputnik assets, run
-`npm run test:console-assets` to build the bundle and exercise its real hashing
-and read transports in Chromium. This packaging check uses controlled HTTP
-responses; live import, query, and map qualification remains separate.
+`DatasetImportSubmissionClient`, and `hashDatasetImportFile`. Console supplies
+fresh authenticated headers and its workspace-bound BFF transport; these exports
+do not grant import authority or enable a host that is not ready. Run
+`npm run test:console-assets` to exercise real hashing and read transports in
+Chromium. That packaging check uses controlled HTTP responses; live import,
+query, map and publication qualification remains separate.
 
 Before capturing a turn, `await studio.prepareWorkspaceTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching

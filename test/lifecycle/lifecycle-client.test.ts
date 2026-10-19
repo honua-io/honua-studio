@@ -240,11 +240,13 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
     if (request.status === "awaiting-approval") throw new Error("Expected immediate publication from this fixture.");
     expect(request.intent).toEqual({ route: "/studio/lc-publish", visibility: "organization" });
     expect(await c.getPublicationRequest(created.itemId, version.versionId, request.requestId)).toEqual(request);
-    await expect(c.getPublicationRequest(created.itemId, version.versionId, "missing-request"))
-      .rejects.toSatisfy(isStudioLifecycleNotFound);
+    await expect(c.getPublicationRequest(created.itemId, version.versionId, "missing-request")).rejects.toSatisfy(
+      isStudioLifecycleNotFound,
+    );
     const otherVersion = await c.saveAsVersion(created.draftId);
-    await expect(c.getPublicationRequest(created.itemId, otherVersion.versionId, request.requestId))
-      .rejects.toSatisfy(isStudioLifecycleNotFound);
+    await expect(c.getPublicationRequest(created.itemId, otherVersion.versionId, request.requestId)).rejects.toSatisfy(
+      isStudioLifecycleNotFound,
+    );
 
     const items = await c.listContentItems({ q: "lc-publish" });
     expect(items.items[0]?.state).toBe("published");

@@ -73,7 +73,13 @@ describe("embedded workspace publication review", () => {
 
   it("reads the bound receipt without submitting or flushing draft edits", async () => {
     const { app, publish } = await mount();
-    const saved = { requestId: "request", itemId: "item", versionId: "version", status: "accepted" as const, createdAt: "2026-01-01T00:00:00Z" };
+    const saved = {
+      requestId: "request",
+      itemId: "item",
+      versionId: "version",
+      status: "accepted" as const,
+      createdAt: "2026-01-01T00:00:00Z",
+    };
     const read = vi.spyOn(StudioLifecycleClient.prototype, "getPublicationRequest").mockResolvedValue(saved);
     const prepare = vi.spyOn(app, "prepareWorkspaceTurn");
     expect(await app.readWorkspacePublication("version", "request")).toEqual(saved);
@@ -86,7 +92,12 @@ describe("embedded workspace publication review", () => {
   it.each(["itemId", "versionId", "requestId"] as const)("refuses a receipt with a different %s", async (field) => {
     const { app } = await mount();
     vi.spyOn(StudioLifecycleClient.prototype, "getPublicationRequest").mockResolvedValue({
-      requestId: "request", itemId: "item", versionId: "version", status: "accepted", createdAt: "2026-01-01T00:00:00Z", [field]: "other",
+      requestId: "request",
+      itemId: "item",
+      versionId: "version",
+      status: "accepted",
+      createdAt: "2026-01-01T00:00:00Z",
+      [field]: "other",
     });
     await expect(app.readWorkspacePublication("version", "request")).rejects.toThrow("does not belong");
   });
@@ -95,7 +106,13 @@ describe("embedded workspace publication review", () => {
     const { app } = await mount();
     vi.spyOn(StudioLifecycleClient.prototype, "getPublicationRequest").mockImplementation(async () => {
       app.session = { getToken: async () => "other-token", onExpired: () => () => {} };
-      return { requestId: "request", itemId: "item", versionId: "version", status: "accepted", createdAt: "2026-01-01T00:00:00Z" };
+      return {
+        requestId: "request",
+        itemId: "item",
+        versionId: "version",
+        status: "accepted",
+        createdAt: "2026-01-01T00:00:00Z",
+      };
     });
     await expect(app.readWorkspacePublication("version", "request")).rejects.toThrow("session or map changed");
   });

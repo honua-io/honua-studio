@@ -4,15 +4,32 @@ import { dirname, join, resolve } from "node:path";
 import { defineConfig } from "vite";
 import { type SdkPayloadReceipt, verifySdkPayload } from "./scripts/lib/verify-sdk-payload.mjs";
 
-// Review artifact only. The complete installed package must match the exact
-// validated pack, including its canonical style binding resolver and tool policy.
-// Standalone builds retain their published SDK compatibility; this host bundle
-// cannot silently fall back to those older semantics.
-const sdkReceiptBytes = readFileSync(resolve("scripts/sdk-review-receipt.json"));
-const sdkReceiptSha256 = "4600a7db34cdf55b859786602e9a7757063eb4fb15066b690de73d667e3d4e33";
+// Verify the installed public package against its registry archive and lockfile.
+// This receipt identifies package bytes; installed workflow qualification is separate.
+const sdkReceiptBytes = readFileSync(resolve("scripts/sdk-public-receipt.json"));
+const sdkReceiptSha256 = "310b38fe74561be1cf350ab215ea57e33303046706e0df772c6002fd804d3d58";
 if (createHash("sha256").update(sdkReceiptBytes).digest("hex") !== sdkReceiptSha256)
-  throw new Error("The Console SDK review receipt changed without explicit qualification.");
-const sdkReceipt = JSON.parse(sdkReceiptBytes.toString("utf8")) as SdkPayloadReceipt;
+  throw new Error("The public SDK receipt changed without explicit qualification.");
+const sdkReceipt = JSON.parse(sdkReceiptBytes.toString("utf8")) as SdkPayloadReceipt & {
+  name: string;
+  version: string;
+  registry: string;
+  tarball: string;
+  integrity: string;
+};
+const installedSdk = JSON.parse(readFileSync(resolve("node_modules/@honua/sdk-js/package.json"), "utf8"));
+const lockedSdk = JSON.parse(readFileSync(resolve("package-lock.json"), "utf8")).packages["node_modules/@honua/sdk-js"];
+if (
+  sdkReceipt.name !== "@honua/sdk-js" ||
+  sdkReceipt.version !== "0.2.4" ||
+  sdkReceipt.registry !== "https://registry.npmjs.org" ||
+  installedSdk.name !== sdkReceipt.name ||
+  installedSdk.version !== sdkReceipt.version ||
+  lockedSdk.version !== sdkReceipt.version ||
+  lockedSdk.integrity !== sdkReceipt.integrity ||
+  lockedSdk.resolved !== sdkReceipt.tarball
+)
+  throw new Error("The installed SDK and lockfile must identify the verified public registry package.");
 verifySdkPayload(resolve("node_modules/@honua/sdk-js"), sdkReceipt);
 
 export default defineConfig({
@@ -67,8 +84,8 @@ export default defineConfig({
           source: `${JSON.stringify(
             {
               releaseQualified: false,
-              kind: "review-artifact",
-              version: "0.2.3",
+              kind: "npm-registry",
+              integrationQualification: "pending-installed-workspace-journey",
               ...sdkReceipt,
               receiptSha256: sdkReceiptSha256,
               tarballSha256: sdkReceipt.artifactSha256,
