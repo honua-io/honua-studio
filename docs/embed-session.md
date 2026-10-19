@@ -239,7 +239,7 @@ conversation into its transcript projection without changing the SDK's model his
 it returns false while that bridge streams. The host owns the visible conversation.
 
 Review bundles currently use the separately packed SDK artifact from
-`b42c2c5e099574403c67dca5fd63fe1120e15feb`, including schema-aware dispatch,
+`4c879cad01288b2382f6664a1ac8c14fd0b9453d`, including schema-aware dispatch,
 canonical live-style bindings, and the dataset import transports. This is not a published 0.2.3 release. Record its
 actual tarball SHA and Studio commit in the embedding application's manifest.
 
@@ -254,7 +254,7 @@ npm run build:console-assets
 ```
 
 The installer checks archive SHA-256
-`96a936c40a6f7a8da2f38633d7dfbbdbdcfd50d4f99df129a2eec0616ffbcafd`,
+`fb58463d79ec75409ec18d6f0ef76f9f4fa3db57dc11e1d97a1dd33f499f634d`,
 all 2,110 payload hashes, and the installed dependency versions against the lock.
 It does not run npm dependency resolution. The build emits `SDK-PROVENANCE.json`
 and license notices. Release qualification requires the actual immutable published
