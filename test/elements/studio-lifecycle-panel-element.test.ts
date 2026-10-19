@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioLifecyclePanelElement } from "../../src/elements/studio-lifecycle-panel-element.js";
 import type { HonuaStudioLifecycleActivityDetail } from "../../src/elements/types.js";
+import type { StudioApprovalPending } from "../../src/lifecycle/approval-pending.js";
 import type {
   StudioContentVersion,
   StudioContentVersionListResponse,
@@ -49,14 +50,14 @@ class FakeLifecycleClient {
   public draft: StudioPackageDraft = fakeDraft();
   public versions: StudioContentVersion[] = [fakeVersion()];
   public comparison: StudioVersionComparison | undefined;
-  public publishResponse: StudioPublicationRequest = {
+  public publishResponse: StudioPublicationRequest | StudioApprovalPending = {
     requestId: "req-1",
     itemId: "item-1",
     versionId: "version-1",
     status: "accepted",
     createdAt: "2026-01-01T00:00:00Z",
   };
-  public rollbackResponse: StudioRollbackRequest = {
+  public rollbackResponse: StudioRollbackRequest | StudioApprovalPending = {
     requestId: "req-2",
     itemId: "item-1",
     targetVersionId: "version-1",
@@ -113,12 +114,16 @@ class FakeLifecycleClient {
     );
   }
 
-  async requestPublish(itemId: unknown, versionId: unknown, input: unknown): Promise<StudioPublicationRequest> {
+  async requestPublish(
+    itemId: unknown,
+    versionId: unknown,
+    input: unknown,
+  ): Promise<StudioPublicationRequest | StudioApprovalPending> {
     this.requestPublishCalls.push({ itemId, versionId, input });
     return this.publishResponse;
   }
 
-  async requestRollback(itemId: unknown, input: unknown): Promise<StudioRollbackRequest> {
+  async requestRollback(itemId: unknown, input: unknown): Promise<StudioRollbackRequest | StudioApprovalPending> {
     this.requestRollbackCalls.push({ itemId, input });
     return this.rollbackResponse;
   }
@@ -308,6 +313,55 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
         "Published",
       );
     });
+
+    it.each(["publish", "rollback"] as const)(
+      "shows pending %s approval and emits its receipt without claiming completion",
+      async (action) => {
+        const client = new FakeLifecycleClient();
+        const pending: StudioApprovalPending = {
+          status: "awaiting-approval",
+          operationInstanceId: "operation-1",
+          proposalId: "proposal-1",
+          auditId: "audit-1",
+        };
+        client.publishResponse = pending;
+        client.rollbackResponse = pending;
+        const { el } = mount(client);
+        const events: HonuaStudioLifecycleActivityDetail[] = [];
+        el.addEventListener("honua-studio-lifecycle-activity", (event) => {
+          events.push((event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail);
+        });
+        el.draftId = "draft-1";
+        await flush();
+        el.shadowRoot?.querySelector<HTMLButtonElement>(`[data-testid="lifecycle-version-${action}"]`)?.click();
+        await flush();
+        expect(client.requestPublishCalls).toHaveLength(0);
+        expect(client.requestRollbackCalls).toHaveLength(0);
+        const input = el.shadowRoot?.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]');
+        expect(input).toBeTruthy();
+        input!.value = "parcels-overview";
+        input!.dispatchEvent(new Event("input"));
+        await flush();
+        el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')?.click();
+        await flush();
+        const message = el.shadowRoot?.querySelector('[data-testid="lifecycle-panel-message"]')?.textContent;
+        expect(message).toContain("awaiting separate human approval");
+        expect(message).toContain("proposal-1");
+        expect(message).not.toMatch(/Published|rejected|Rolled back/);
+        expect(events.find((event) => event.kind === `${action}-requested`)).toMatchObject({
+          operationInstanceId: "operation-1",
+          proposalId: "proposal-1",
+          auditId: "audit-1",
+          itemId: "item-1",
+          versionId: "version-1",
+          message: "AwaitingApproval",
+        });
+        expect(events.some((event) => event.kind === "publish-rejected")).toBe(false);
+        expect(client.requestPublishCalls).toHaveLength(action === "publish" ? 1 : 0);
+        expect(client.requestRollbackCalls).toHaveLength(action === "rollback" ? 1 : 0);
+        expect(el.shadowRoot?.querySelector('[data-testid="lifecycle-confirm-dialog"]')).toBeFalsy();
+      },
+    );
 
     it("Cancel closes the dialog without ever calling requestPublish", async () => {
       const { el, client } = mount(new FakeLifecycleClient());

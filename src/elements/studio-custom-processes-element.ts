@@ -2,8 +2,10 @@ import type {
   ImportedProcessDataset,
   LocalProcessWorkspace,
   LocalProjectIdentity,
+  LocalReadOnlyFile,
   LocalRunReceipt,
   LocalSourceFile,
+  ProcessImportReceipt,
   PublishedProcessLayer,
 } from "../gp/custom-process-workspace.js";
 import { HonuaStudioElementBase } from "./base-element.js";
@@ -18,9 +20,12 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
   }
   public set client(client: LocalProcessWorkspace | undefined) {
     if (client === this.#client) return;
+    this.#stopImportPolling();
+    this.#import = undefined;
     this.#client = client;
     this.#project = undefined;
     this.#files = [];
+    this.#readOnlyFiles = [];
     this.#selected = undefined;
     this.#content = "";
     this.#receipt = undefined;
@@ -55,6 +60,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
       return false;
     this.#project = project;
     this.#files = project.files;
+    this.#readOnlyFiles = project.readOnlyFiles ?? [];
     this.#selected = this.#files.find((file) => file.path === this.#selected?.path) ?? this.#files[0];
     this.#content = this.#selected?.content ?? "";
     this.#announceTask();
@@ -105,10 +111,14 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     );
   }
   #files: readonly LocalSourceFile[] = [];
+  #readOnlyFiles: readonly LocalReadOnlyFile[] = [];
   #selected: LocalSourceFile | undefined;
   #content = "";
   #receipt: LocalRunReceipt | undefined;
   #dataset: ImportedProcessDataset | undefined;
+  #import: ProcessImportReceipt | undefined;
+  #importTimer: ReturnType<typeof setTimeout> | undefined;
+  #importPolls = 0;
   #layer: PublishedProcessLayer | undefined;
   #message = "Connect the local sandbox bridge to edit Python or .NET projects.";
   #busy = false;
@@ -116,11 +126,34 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
   protected onConnect(): void {
     this.render();
   }
-  protected onDisconnect(): void {}
+  protected onDisconnect(): void {
+    this.#stopImportPolling();
+  }
+  #stopImportPolling(): void {
+    clearTimeout(this.#importTimer);
+    this.#importTimer = undefined;
+    this.#importPolls = 0;
+  }
+  #acceptImport(receipt: ProcessImportReceipt): void {
+    this.#import = receipt;
+    this.#dataset = receipt.status === "completed" ? receipt.dataset : undefined;
+    this.#layer = undefined;
+    this.#message = `Import ${receipt.status}${receipt.jobId || receipt.uploadId ? ` (${receipt.jobId ?? receipt.uploadId})` : ""}.\n${receipt.message ?? ""}${receipt.dataset ? `\n${JSON.stringify(receipt.dataset, null, 2)}` : ""}`;
+  }
   render(): void {
+    clearTimeout(this.#importTimer);
+    this.#importTimer = undefined;
     const root = this.shadowRoot;
     if (!root) return;
-    root.innerHTML = `<style>:host{display:block;padding:1rem;font:14px system-ui}textarea{display:block;box-sizing:border-box;width:100%;min-height:18rem;font:13px monospace}button,input,select{margin:.4rem}pre{white-space:pre-wrap}label{display:block}</style><h2>Custom Python / .NET</h2><p>Source and fixture bytes are frozen for each run. Restore, build and execution stay in the isolated container. Open the project in your IDE for breakpoints.</p><button data-action="load">Load project</button><select aria-label="Source file"></select><textarea aria-label="Process source" spellcheck="false"></textarea><button data-action="save">Save source</button><button data-action="run">Run immutable snapshot</button><button data-action="refresh">Refresh run</button><button data-action="cancel">Cancel run</button><label>Output artifact<select data-artifact></select></label><label>Dataset table<input data-field="table" /></label><button data-action="import">Import artifact as dataset</button><label>Managed database connection ID<input data-field="connection" /></label><label>Service name<input data-field="service" /></label><label>Layer title<input data-field="layer" /></label><button data-action="publish">Publish imported dataset</button><button data-action="map">Add published layer to map</button><pre role="status"></pre>`;
+    root.innerHTML = `<style>:host{display:block;padding:1rem;font:14px system-ui}textarea{display:block;box-sizing:border-box;width:100%;min-height:18rem;font:13px monospace}button,input,select{margin:.4rem}pre{white-space:pre-wrap}details{margin:.5rem 0}li{overflow-wrap:anywhere}label{display:block}</style><h2>Custom Python / .NET</h2><p>Source and fixture bytes are frozen for each run. Restore, build and execution stay in the isolated container. Open the project in your IDE for breakpoints.</p><button data-action="load">Load project</button><details data-read-only><summary>Read-only project files</summary><ul aria-label="Read-only project files"></ul></details><select aria-label="Source file"></select><textarea aria-label="Process source" spellcheck="false"></textarea><button data-action="save">Save source</button><button data-action="run">Run immutable snapshot</button><button data-action="refresh">Refresh run</button><button data-action="cancel">Cancel run</button><label>Output artifact<select data-artifact></select></label><label>Dataset table<input data-field="table" /></label><button data-action="import">Import artifact as dataset</button><button data-action="resume-import">Resume saved import</button><button data-action="cancel-import">Cancel import</button><label>Managed database connection ID<input data-field="connection" /></label><label>Service name<input data-field="service" /></label><label>Layer title<input data-field="layer" /></label><button data-action="publish">Publish imported dataset</button><button data-action="map">Add published layer to map</button><pre role="status"></pre>`;
+    const readOnly = root.querySelector<HTMLDetailsElement>("[data-read-only]")!;
+    readOnly.hidden = this.#readOnlyFiles.length === 0;
+    readOnly.querySelector("summary")!.textContent = `Read-only project files (${this.#readOnlyFiles.length})`;
+    for (const file of this.#readOnlyFiles) {
+      const row = document.createElement("li");
+      row.textContent = `${file.role === "fixture" ? "Fixture input" : "Source file"}: ${file.path}; ${file.bytes} bytes; SHA-256 ${file.sha256}. Read-only.`;
+      readOnly.querySelector("ul")!.append(row);
+    }
     const files = root.querySelector<HTMLSelectElement>('select[aria-label="Source file"]')!;
     for (const file of this.#files) {
       const option = document.createElement("option");
@@ -158,6 +191,18 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
         this.#values[input.dataset.field!] = input.value;
       });
     }
+    for (const button of root.querySelectorAll<HTMLButtonElement>("button")) {
+      const action = button.dataset.action!;
+      button.addEventListener("click", () => {
+        this.#pendingAction = this.#action(action, artifacts.value);
+      });
+    }
+    this.#paintControls();
+    this.#scheduleImportPolling();
+  }
+  #paintControls(): void {
+    const root = this.shadowRoot;
+    if (!root) return;
     root.querySelector("pre")!.textContent = this.#message;
     for (const button of root.querySelectorAll<HTMLButtonElement>("button")) {
       const action = button.dataset.action!;
@@ -166,12 +211,28 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
         this.#busy ||
         (action === "save" && !this.#selected) ||
         (["refresh", "cancel"].includes(action) && !this.#receipt) ||
-        (action === "import" && this.#receipt?.status !== "succeeded") ||
+        (action === "import" &&
+          (this.#receipt?.status !== "succeeded" || ["pending", "unknown"].includes(this.#import?.status ?? ""))) ||
+        (action === "cancel-import" &&
+          (this.#import?.status !== "pending" || this.#import.cancellationRequested === true)) ||
         (action === "publish" && !this.#dataset) ||
         (action === "map" && !this.#layer);
-      button.addEventListener("click", () => {
-        this.#pendingAction = this.#action(action, artifacts.value);
-      });
+    }
+  }
+  #scheduleImportPolling(): void {
+    clearTimeout(this.#importTimer);
+    this.#importTimer = undefined;
+    if (this.isConnected && this.#import?.status === "pending" && this.#importPolls > 0) {
+      const client = this.client;
+      this.#importTimer = setTimeout(() => {
+        if (client !== this.client || !this.isConnected) return;
+        if (this.#busy) {
+          this.#scheduleImportPolling();
+          return;
+        }
+        this.#importPolls--;
+        this.#pendingAction = this.#action("refresh-import", "");
+      }, 1000);
     }
   }
   async #action(action: string, artifact: string): Promise<void> {
@@ -187,6 +248,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
         this.#assertClient(client);
         this.#project = project;
         this.#files = project.files;
+        this.#readOnlyFiles = project.readOnlyFiles ?? [];
         this.#selected = this.#files[0];
         this.#content = this.#selected?.content ?? "";
         this.#message = `Immutable image: ${project.image}\nIDE project: ${project.ideHandoff?.workspace ?? "Use the paired project in your IDE"}`;
@@ -226,10 +288,19 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
         this.#message = JSON.stringify(this.#receipt, null, 2);
       }
       if (action === "import" && this.#receipt) {
-        const dataset = await client.importArtifact(this.#receipt, artifact, this.#values.table ?? "");
+        this.#dataset = undefined;
+        this.#layer = undefined;
+        const imported = await client.importArtifact(this.#receipt, artifact, this.#values.table ?? "");
         this.#assertClient(client);
-        this.#dataset = dataset;
-        this.#message = JSON.stringify(this.#dataset, null, 2);
+        this.#acceptImport(imported);
+        this.#importPolls = 20;
+      }
+      if (action === "resume-import" || action === "refresh-import" || action === "cancel-import") {
+        const imported = await (action === "cancel-import" ? client.cancelImport() : client.resumeImport());
+        this.#assertClient(client);
+        if (imported) this.#acceptImport(imported);
+        else this.#message = "No saved import exists for this owner, environment and workspace.";
+        if (action !== "refresh-import") this.#importPolls = 20;
       }
       if (action === "publish" && this.#dataset) {
         const layer = await client.publishDataset(
@@ -251,10 +322,14 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
           }),
         );
     } catch (error) {
+      this.#importPolls = 0;
       this.#message = error instanceof Error ? error.message : String(error);
     } finally {
       this.#busy = false;
-      this.render();
+      if (action === "refresh-import") {
+        this.#paintControls();
+        this.#scheduleImportPolling();
+      } else this.render();
     }
   }
 }

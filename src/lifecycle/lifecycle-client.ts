@@ -1,3 +1,5 @@
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
+import { type StudioApprovalPending, readStudioApprovalPending } from "./approval-pending.js";
 /**
  * REST client for honua-server's Studio package lifecycle API
  * (`docs/internal/admin-api/studio-package-lifecycle.md`, issue #1180) plus
@@ -5,48 +7,15 @@
  * #3003) — every method below corresponds 1:1 to one row of that doc's
  * endpoint table, at `${baseUrl}/v1/studio/...`.
  *
- * ## Why this is not `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient`
+ * ## SDK integration
  *
- * The SDK ships a lifecycle client and this app is pinned to a version that
- * has it (honua-studio#30). The composition draft path *does* use it —
- * `./composition-draft-store.ts` puts `HonuaStudioLifecycleClient.drafts`
- * behind the `CompositionDraftStore` seam. This module stays because the
- * console surfaces (`studio-content-browser-element.ts`,
- * `studio-lifecycle-panel-element.ts`) need four things the SDK's client
- * does not have, none of which is a release-timing problem:
- *
- *  1. **The enumeration endpoints.** `GET /content-items` and
- *     `GET /package-drafts` (server PR #3014, issue #3003) are how the
- *     content browser finds an `itemId`/`draftId` in the first place. The
- *     SDK's module doc names this as its own open gap and offers `.raw()`
- *     — an untyped escape hatch — in place of methods. Cursor pagination,
- *     the family/state/owner filters, and the joined publication badge are
- *     all typed here (`lifecycle-types.ts`).
- *  2. **A `changeNote` on save-as-version.** The SDK's
- *     `drafts.createContentVersion` posts no body. The deployed server 400s
- *     a bodyless `POST .../content-versions`, and the change note is what
- *     the panel's "save a version" dialog collects.
- *  3. **The server's DTO fields.** honua-server returns
- *     `StudioPackageDraft.validation` (the panel's status badge),
- *     `persistenceMode`/`durable` at the top of `GET /package-families`, and
- *     `currentSchemaVersion`/`previewSupported`/`publishSupported` per
- *     family. The SDK's projection has none of those as declared members —
- *     they survive only through its index signatures, typed `unknown`, so
- *     adopting it would replace typed reads with casts at every call site.
- *  4. **Refresh-then-retry on a POST.** `HonuaClient` replays a `401` only
- *     for replay-safe methods (`GET`/`HEAD`/`PUT`/`DELETE`). Draft create,
- *     validate, preview-plan, save-as-version, publish and rollback are all
- *     POSTs, and a token that expires mid-session must not turn one of them
- *     into a hard sign-in prompt.
- *
- * Points 1-3 are honua-sdk-js work, not honua-studio work: when the SDK's
- * projection covers the server's DTOs and the enumeration endpoints, this
- * module becomes an adapter the way `./composition-draft-store.ts` already
- * is. Until then it is a complete, independently-typed REST client against
- * `docs/internal/admin-api/studio-package-lifecycle.md`'s endpoint table,
- * built the same way `client/studio-client.ts` and `mcp/client.ts` are: a
- * thin fetch wrapper, no schema-validation dependency, bearer-attached via
- * the same `TokenSource` shape those two already use.
+ * The composition draft store uses the published SDK lifecycle client behind
+ * its narrow create/get/replace adapter. The SDK now also exposes enumeration,
+ * publication status and extended lifecycle types. This local client remains
+ * the adapter used by the existing lifecycle elements: it preserves their DTO
+ * shapes and refreshes authentication once after a 401, including for POSTs.
+ * Publication retries retain their original command ID. Consolidating these
+ * remaining elements onto the SDK must preserve those transport semantics.
  *
  * ## The human gate (spec REQ-009 — READ BEFORE TOUCHING THIS FILE)
  *
@@ -57,12 +26,11 @@
  * share, embed, and any action that widens exposure are HUMAN-CONFIRMED
  * gates the agent can propose but never invoke"), these two methods must
  * ONLY ever be called from a human-confirmed UI interaction —
- * `studio-lifecycle-panel-element.ts`'s typed-confirmation dialog handlers,
- * themselves wired to nothing but a `click` listener on a button inside that
- * element's own shadow DOM. No chat/MCP/tool-call/activity-log event handler
+ * the lifecycle panel's confirmation dialog or the embedded app's explicit
+ * host publication method after version review. No chat/MCP/tool-call/activity-log event handler
  * anywhere in this package may call either method — `honua_studio_propose_publication`
- * (`mcp/studio-tools.ts`) submits an `AwaitingApproval` proposal for an
- * already-saved version and has no reference to this client. See
+ * (`mcp/studio-tools.ts`) routes an already-saved version through server
+ * authorization and approval policy and has no reference to this client. See
  * `test/lifecycle/human-gate.test.ts`, which asserts this both statically
  * (no `src/mcp/**`, `src/chat/**`, or `src/composition/**` module imports
  * this file) and at runtime (driving `propose_publication` end to end and
@@ -202,6 +170,33 @@ export class StudioLifecycleClient {
     return this.#request("PUT", `/package-drafts/${encodeURIComponent(draftId)}`, request);
   }
 
+  public initializeDraftStyle(
+    draftId: string,
+    generation: number,
+    commandId = crypto.randomUUID(),
+  ): Promise<StudioPackageDraft> {
+    return this.#request(
+      "POST",
+      `/package-drafts/${encodeURIComponent(draftId)}/style/initialize`,
+      { generation },
+      commandId,
+    );
+  }
+
+  public setMapStyle(
+    draftId: string,
+    generation: number,
+    mapSpec: MapStyleDocument,
+    commandId = crypto.randomUUID(),
+  ): Promise<StudioPackageDraft> {
+    return this.#request(
+      "PUT",
+      `/package-drafts/${encodeURIComponent(draftId)}/style`,
+      { generation, mapSpec },
+      commandId,
+    );
+  }
+
   public async deleteDraft(draftId: string): Promise<void> {
     await this.#request("DELETE", `/package-drafts/${encodeURIComponent(draftId)}`);
   }
@@ -256,8 +251,8 @@ export class StudioLifecycleClient {
   }
 
   // -- HUMAN-CONFIRMED GATES (spec REQ-009) ------------------------------------
-  // See the module doc's "The human gate" section. Callers: ONLY
-  // studio-lifecycle-panel-element.ts's confirm-dialog handlers.
+  // Called by the lifecycle confirmation dialog or the embedded host's explicit
+  // version-publication action. Agent composition uses its canonical server tool.
 
   /**
    * Persists a publication request and, when validation permits, moves the
@@ -268,11 +263,26 @@ export class StudioLifecycleClient {
     itemId: string,
     versionId: string,
     request: StudioPublishRequestInput = {},
-  ): Promise<StudioPublicationRequest> {
+    commandId?: string,
+  ): Promise<StudioPublicationRequest | StudioApprovalPending> {
     return this.#request(
       "POST",
       `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests`,
       request,
+      commandId,
+      true,
+    );
+  }
+
+  /** Read a publication receipt without submitting or replaying a mutation. */
+  public getPublicationRequest(
+    itemId: string,
+    versionId: string,
+    requestId: string,
+  ): Promise<StudioPublicationRequest> {
+    return this.#request(
+      "GET",
+      `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests/${encodeURIComponent(requestId)}`,
     );
   }
 
@@ -282,15 +292,32 @@ export class StudioLifecycleClient {
    * human-confirmed UI interaction — never from a chat/tool-call/activity-log
    * event handler.
    */
-  public requestRollback(itemId: string, request: StudioRollbackRequestInput): Promise<StudioRollbackRequest> {
-    return this.#request("POST", `/content-items/${encodeURIComponent(itemId)}/rollback-requests`, request);
+  public requestRollback(
+    itemId: string,
+    request: StudioRollbackRequestInput,
+    commandId?: string,
+  ): Promise<StudioRollbackRequest | StudioApprovalPending> {
+    return this.#request(
+      "POST",
+      `/content-items/${encodeURIComponent(itemId)}/rollback-requests`,
+      request,
+      commandId,
+      true,
+    );
   }
 
   // -- transport ----------------------------------------------------------------
 
-  async #fetchWithAuth(path: string, method: string, body: unknown, forceRefresh: boolean): Promise<Response> {
+  async #fetchWithAuth(
+    path: string,
+    method: string,
+    body: unknown,
+    forceRefresh: boolean,
+    commandId?: string,
+  ): Promise<Response> {
     const headers: Record<string, string> = { accept: "application/json" };
     if (body !== undefined) headers["content-type"] = "application/json";
+    if (commandId) headers["Idempotency-Key"] = commandId;
     if (this.#auth) {
       const token = await this.#auth.getAccessToken({ forceRefresh });
       if (token) headers.authorization = `Bearer ${token}`;
@@ -302,11 +329,17 @@ export class StudioLifecycleClient {
     });
   }
 
-  async #request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async #request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    commandId?: string,
+    allowApproval = false,
+  ): Promise<T> {
     const url = `${this.#baseUrl}/v1/studio${path}`;
     let response: Response;
     try {
-      response = await this.#fetchWithAuth(path, method, body, false);
+      response = await this.#fetchWithAuth(path, method, body, false, commandId);
     } catch (error) {
       throw new StudioLifecycleTransportError(`Could not reach the Studio lifecycle API at ${url}.`, error);
     }
@@ -314,7 +347,7 @@ export class StudioLifecycleClient {
       // Single refresh-then-retry — never a second attempt after this one
       // (matches client/studio-client.ts's/mcp/client.ts's documented policy).
       try {
-        response = await this.#fetchWithAuth(path, method, body, true);
+        response = await this.#fetchWithAuth(path, method, body, true, commandId);
       } catch (error) {
         throw new StudioLifecycleTransportError(`Could not reach the Studio lifecycle API at ${url}.`, error);
       }
@@ -327,8 +360,17 @@ export class StudioLifecycleClient {
     }
     if (response.status === 204) return undefined as T;
     const text = await response.text();
-    if (!text) return undefined as T;
+    if (!text && response.status !== 202) return undefined as T;
+    if (!text)
+      throw new StudioLifecycleError("unknown", "The pending action returned no operation receipt.", { status: 202 });
     const envelope = JSON.parse(text) as StudioApiResponse<T> | { data?: T };
+    if (response.status === 202) {
+      const pending = readStudioApprovalPending(envelope.data);
+      if (allowApproval && pending) return pending as T;
+      throw new StudioLifecycleError("unknown", "The action is pending; no completed result was returned.", {
+        status: 202,
+      });
+    }
     return (envelope as StudioApiResponse<T>).data as T;
   }
 

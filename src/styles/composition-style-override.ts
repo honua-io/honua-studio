@@ -10,9 +10,10 @@ export function compositionStyleOverride(
   const paint = { ...canonical.paint };
   if (appearance?.opacity !== undefined) {
     const multiplier = Math.min(1, Math.max(0, appearance.opacity));
-    const key = `${layerType}-opacity`;
-    const opacity = paint[key] ?? 1;
-    paint[key] = typeof opacity === "number" ? opacity * multiplier : ["*", opacity, multiplier];
+    for (const key of layerType === "symbol" ? ["text-opacity", "icon-opacity"] : [`${layerType}-opacity`]) {
+      const opacity = paint[key] ?? 1;
+      paint[key] = typeof opacity === "number" ? opacity * multiplier : ["*", opacity, multiplier];
+    }
   }
   const filter =
     appearance?.filter === undefined
@@ -23,7 +24,7 @@ export function compositionStyleOverride(
   return {
     ...canonical,
     paint,
-    layout: { ...canonical.layout, visibility: visible ? "visible" : "none" },
+    layout: { ...canonical.layout, ...(!visible ? { visibility: "none" } : {}) },
     ...(filter !== undefined ? { filter } : {}),
   };
 }

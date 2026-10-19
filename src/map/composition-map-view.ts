@@ -1,5 +1,6 @@
 import type { LiveStyleObservation } from "../evals/authoritative-style-evidence.js";
 import type { AuthoritativeStyleProvider, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * The live MapLibre surface (honua-studio#23 REQ-001) — the thing that makes
  * "the agent composes a running application" literally true instead of
@@ -104,6 +105,7 @@ export interface CompositionMapFactoryOptions {
   readonly sourceBaseUrl?: string;
   readonly legacySourceBaseUrl?: string;
   readonly onSourceError?: (error: Error) => void;
+  readonly onSourceIncomplete?: (message: string) => void;
 }
 
 export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => Promise<CompositionMapLike>;
@@ -117,6 +119,7 @@ export interface CompositionMapViewOptions {
   readonly projection?: CompositionMapProjectionOptions;
   readonly getAuth?: () => AuthSession | undefined;
   readonly sourceAuthBaseUrl?: string;
+  readonly sourceCatalogBaseUrl?: string;
   /** Overrides the dynamic `maplibre-gl` import — the seam unit tests use. */
   readonly mapFactory?: CompositionMapFactory;
   /** Camera animation duration in ms. `0` jumps (what the browser suite uses so assertions are not racing an easing curve). Default 700. */
@@ -185,6 +188,8 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
         legacySourceBaseUrl: options.legacySourceBaseUrl,
         documentUrl: document.baseURI,
         onError: options.onSourceError,
+        onIncomplete: options.onSourceIncomplete,
+        pagedFeatureServices: true,
       })
     : undefined;
   try {
@@ -233,6 +238,21 @@ export class CompositionMapView {
   #status: CompositionMapStatus = "idle";
   #statusDetail: string | undefined;
   #projection: CompositionMapProjection | undefined;
+  #stylePreview: MapStyleDocument | undefined;
+
+  public setStylePreview(style: MapStyleDocument | undefined): void {
+    this.#stylePreview = style;
+    this.#scheduleUpdate();
+  }
+  public async editableMapStyle(): Promise<MapStyleDocument> {
+    await this.settled();
+    // The editor baseline/readback is the canonical document, never its own
+    // ephemeral preview (including while a normalized save is being adopted).
+    const projection = this.#project(false);
+    return structuredClone(
+      await composeStyle(projection.mapPackage, projection.mapPackage.mapSpec, {}),
+    ) as unknown as MapStyleDocument;
+  }
   #queue: Promise<void> = Promise.resolve();
   #generation = 0;
   #appliedView: CompositionView | undefined;
@@ -381,10 +401,14 @@ export class CompositionMapView {
         style,
         center: (initialView?.center ?? WORLD_VIEW.center) as readonly [number, number],
         zoom: initialView?.zoom ?? WORLD_VIEW.zoom,
-        attributionText: "Honua Studio",
+        attributionText: "Honua",
         getAuth: this.#options.getAuth,
         sourceBaseUrl: this.#options.sourceAuthBaseUrl ?? this.#options.projection?.baseUrl,
-        legacySourceBaseUrl: this.#options.projection?.baseUrl ?? "/api",
+        legacySourceBaseUrl: this.#options.sourceCatalogBaseUrl ?? this.#options.projection?.baseUrl ?? "/api",
+        onSourceIncomplete: (message) => {
+          this.#statusDetail = `Incomplete map preview: ${message}`;
+          this.#notify();
+        },
         onSourceError: (error) => {
           this.#statusDetail = `Map source could not load: ${error.message}`;
           this.#notify();
@@ -455,7 +479,11 @@ export class CompositionMapView {
     this.#styleSession = session;
     const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
     for (const layer of state.layers) {
-      if (!layer.styleRef) continue;
+      if (
+        !layer.styleRef ||
+        state.styleRefs?.some((ref) => ref.styleId === layer.styleRef?.styleId && ref.body !== undefined)
+      )
+        continue;
       const source = findCompositionSourceDescriptor(layer.sourceId, this.#options.projection?.catalog);
       if (source && !usesHonuaStyleCatalog(source)) continue;
       try {
@@ -465,12 +493,41 @@ export class CompositionMapView {
         // The renderer may use a supported legacy alias; keep the actual
         // discovered locator while binding provenance to that rendered id.
         const bindingSource = source.id === layer.sourceId ? source : { ...source, id: layer.sourceId };
-        const key = canonicalCompositionJson({ styleId: layer.styleRef.styleId, source: bindingSource });
+        const reference = state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId);
+        const ownedTargets = new Set([layer.id, `${layer.id}__outline`]);
+        const renderLayers = state.mapSpec?.layers;
+        if (Array.isArray(renderLayers))
+          for (const render of renderLayers) {
+            if (
+              render &&
+              typeof render === "object" &&
+              render.metadata?.["honua:compositionLayerId"] === layer.id &&
+              typeof render.id === "string"
+            )
+              ownedTargets.add(render.id);
+          }
+        const mapping = reference?.layerBindings
+          ? {
+              primaryTargetId: layer.id,
+              layerBindings: reference.layerBindings.filter((binding) => ownedTargets.has(binding.targetLayerId)),
+            }
+          : undefined;
+        const key = canonicalCompositionJson({
+          styleId: layer.styleRef.styleId,
+          source: bindingSource,
+          owner: layer.id,
+          mapping,
+        });
         const cached = this.#styleBindings.get(key);
         const entry =
           cached && Date.now() - cached.readAt < 30000
             ? cached
-            : { binding: await provider.bind(layer.styleRef.styleId, bindingSource), readAt: Date.now() };
+            : {
+                binding: await (mapping
+                  ? provider.bind(layer.styleRef.styleId, bindingSource, mapping)
+                  : provider.bind(layer.styleRef.styleId, bindingSource)),
+                readAt: Date.now(),
+              };
         bindings[layer.id] = entry.binding;
         retained.set(key, entry);
       } catch (error) {
@@ -487,15 +544,28 @@ export class CompositionMapView {
       state === this.#options.controller.state && session === provider.sessionIdentity ? bindings : {};
   }
 
-  #project(): CompositionMapProjection {
+  #project(includePreview = true): CompositionMapProjection {
     const projection = compositionToMapPackage(this.#options.controller.state, {
       ...(this.#options.projection ?? {}),
       ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
       ...(this.#appearance !== undefined ? { appearance: this.#appearance } : {}),
+      // Exploration controls do not belong to the canonical editable draft.
+      ...(!includePreview ? { appearance: undefined } : {}),
     });
-    this.#projection = projection;
-    return projection;
+    if (!includePreview) return projection;
+    const effective = this.#stylePreview
+      ? {
+          ...projection,
+          mapPackage: {
+            ...projection.mapPackage,
+            mapSpec: this.#stylePreview as unknown as HonuaStyleSpecification,
+            styleRefs: [],
+          },
+        }
+      : projection;
+    this.#projection = effective;
+    return effective;
   }
 
   /**

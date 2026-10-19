@@ -63,6 +63,7 @@ export interface CatalogWidgetDataLoaderOptions {
   readonly featureLimit?: number;
   /** Explicit credential trust root, which can differ from the legacy API resolution root. */
   readonly sourceAuthBaseUrl?: string;
+  readonly sourceCatalogBaseUrl?: string;
   readonly documentUrl?: string;
   readonly getAuth?: () => Pick<AuthSession, "getAccessToken"> | undefined;
   /** Replaces `globalThis.fetch`. The seam a node test (or an auth-decorating host) uses. */
@@ -165,7 +166,7 @@ export function createCatalogWidgetDataLoader(options: CatalogWidgetDataLoaderOp
     const documentUrl = options.documentUrl ?? globalThis.document?.baseURI;
     const authOptions = {
       sourceBaseUrl: options.sourceAuthBaseUrl ?? options.baseUrl ?? "/api",
-      legacySourceBaseUrl: options.baseUrl ?? "/api",
+      legacySourceBaseUrl: options.sourceCatalogBaseUrl ?? options.baseUrl ?? "/api",
       documentUrl: documentUrl ?? "",
       getAuth: options.getAuth ?? (() => undefined),
       fetchImpl,

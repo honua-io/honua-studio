@@ -107,16 +107,20 @@ describe("actual style semantics supplement", () => {
       prerequisite,
     );
   });
-  it("checks effective composition visibility without rewriting the hash-bound canonical definition", async () => {
+  it("preserves canonical hidden sublayers while validating effective composition visibility", async () => {
     const { observation, composition } = await fixture("none");
+    const hidden = { ...observation, renderedLayer: { ...observation.renderedLayer, layout: { visibility: "none" } } };
     const raw = observation.binding.definition.inlineBody;
     expect(JSON.parse(raw).layers[0].layout.visibility).toBe("none");
-    expect((await applyAuthoritativeStyleEvidence(prerequisite, requirement, [observation], composition)).status).toBe(
+    expect((await applyAuthoritativeStyleEvidence(prerequisite, requirement, [hidden], composition)).status).toBe(
       "pass",
     );
     expect(observation.binding.definition.inlineBody).toBe(raw);
-    const hidden = { ...observation, renderedLayer: { ...observation.renderedLayer, layout: { visibility: "none" } } };
-    expect((await applyAuthoritativeStyleEvidence(prerequisite, requirement, [hidden], composition)).status).toBe(
+    const revealed = {
+      ...observation,
+      renderedLayer: { ...observation.renderedLayer, layout: { visibility: "visible" } },
+    };
+    expect((await applyAuthoritativeStyleEvidence(prerequisite, requirement, [revealed], composition)).status).toBe(
       "fail",
     );
   });

@@ -20,3 +20,6 @@ harness/blazor-host/**/obj/
 harness/blazor-host/StudioHost/wwwroot/studio/
 
 dist-console/
+
+# Local reviewed-artifact installer regression tests.
+__pycache__/

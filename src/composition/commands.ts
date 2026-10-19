@@ -1,3 +1,4 @@
+import { type InlineStyleBody, type MapStyleDocument, validateInlineStyleBody } from "../styles/map-style-edit.js";
 /**
  * The composition engine's typed, bounded command set (honua-studio#8;
  * mirrors `@honua/sdk-js`'s `src/agent-tools/index.ts` vocabulary — flat
@@ -82,7 +83,13 @@ export interface AddAnnotationInput {
 export type CompositionCommand =
   | { readonly name: "addLayer"; readonly layer: AddLayerInput; readonly beforeId?: string }
   | { readonly name: "removeLayer"; readonly target: CompositionTarget }
-  | { readonly name: "setLayerStyleRef"; readonly target: CompositionTarget; readonly styleRef?: CompositionStyleRef }
+  | {
+      readonly name: "setLayerStyleRef";
+      readonly target: CompositionTarget;
+      readonly styleRef?: CompositionStyleRef;
+      readonly styleBody?: InlineStyleBody;
+    }
+  | { readonly name: "setMapStyle"; readonly mapSpec: MapStyleDocument }
   | { readonly name: "setVisibility"; readonly target: CompositionTarget; readonly visible: boolean }
   | { readonly name: "setView"; readonly view: Partial<CompositionView> }
   | { readonly name: "addWidget"; readonly widget: AddWidgetInput }
@@ -111,6 +118,7 @@ export const COMPOSITION_COMMAND_NAMES = [
   "addLayer",
   "removeLayer",
   "setLayerStyleRef",
+  "setMapStyle",
   "setVisibility",
   "setView",
   "addWidget",
@@ -158,6 +166,10 @@ export function validateCompositionCommand(input: unknown): CompositionCommandVa
       return validateTargetedCommand(input, "removeLayer");
     case "setLayerStyleRef":
       return validateSetLayerStyleRef(input);
+    case "setMapStyle":
+      return isPlainObject(input.mapSpec) && input.mapSpec.version === 8
+        ? { ok: true, command: { name: "setMapStyle", mapSpec: input.mapSpec } }
+        : fail(["setMapStyle requires a MapLibre v8 document"]);
     case "setVisibility":
       return validateSetVisibility(input);
     case "setView":
@@ -224,6 +236,10 @@ function validateSetLayerStyleRef(input: Record<string, unknown>): CompositionCo
   const errors: string[] = [];
   const target = validateTarget(input.target, errors, "setLayerStyleRef.target");
   errors.push(...validateOptionalStyleRef(input.styleRef, "setLayerStyleRef.styleRef"));
+  if (input.styleBody !== undefined) {
+    if (input.styleRef !== undefined) errors.push("Inline styling cannot also select a shared style.");
+    errors.push(...validateInlineStyleBody(target && target.kind !== "feature" ? target.id : "", input.styleBody));
+  }
   if (errors.length > 0 || !target) return fail(errors);
   return {
     ok: true,
@@ -231,6 +247,7 @@ function validateSetLayerStyleRef(input: Record<string, unknown>): CompositionCo
       name: "setLayerStyleRef",
       target,
       ...(input.styleRef !== undefined ? { styleRef: input.styleRef as CompositionStyleRef } : {}),
+      ...(input.styleBody !== undefined ? { styleBody: input.styleBody as InlineStyleBody } : {}),
     },
   };
 }

@@ -190,6 +190,7 @@ studio.session = {
   kind: "cookie",
   baseUrl: "/api/studio",
   environmentId: session.environmentId,
+  principalId: session.principalId,
   expiresAt: session.expiresAt,
   csrfToken: session.csrfToken,
   onExpired: subscribeToHostExpiry,
@@ -202,6 +203,11 @@ expiry or a 401 stops further transport. The host BFF must independently authori
 and bound every route. Cookie transport permits Studio REST, read-only layer
 catalog MCP discovery, and bounded feature queries. It never lends human
 credentials to the model's canonical tools.
+
+`principalId` is the host's stable opaque user partition, not a credential. Pass
+the same partition to `ServerProcessWorkspace`; run submission requires it.
+Pending process commands and accepted receipts are retained separately for each
+environment and principal, so switching users cannot adopt another user's run.
 
 Build `npm run build:console-assets` for `dist-console/console.js`, `style.css`,
 and its complete dynamic chunk/worker directory. This production entry exports
@@ -238,19 +244,28 @@ draft is attached. `setWorkspaceConversation(messages)` projects authorized host
 conversation into its transcript projection without changing the SDK's model history;
 it returns false while that bridge streams. The host owns the visible conversation.
 
-Review builds currently use the separately packed SDK review artifact containing
-source dispatch fix `da4003fe2`, not a claimed published 0.2.3 release. Record the
-actual tarball SHA and Studio commit in the embedding application's asset manifest.
+The Console bundle uses the public `@honua/sdk-js@0.2.4` package. Install the
+locked dependency graph normally:
 
-`build:console-assets` fails closed unless the installed SDK session bytes match
-the reviewed schema-aware dispatch artifact. A normal clean install of published
-0.2.2 can still build standalone Studio, but cannot emit this broad native bundle.
-Install the review tarball with `npm install --no-save --ignore-scripts
---package-lock=false /path/to/honua-sdk-js-0.2.3.tgz` after verifying SHA-256
-`306596b48f96291df65b54da8d7db24cf5d3c8edd6942e8424b53728dde6e8fa`.
-The build emits `SDK-PROVENANCE.json` and license notices. Release qualification
-requires adopting the actual immutable published SDK release, updating this pin
-and its provenance, and repeating the native-session qualification.
+```sh
+npm ci
+npm run build:console-assets
+```
+
+Build the pinned Maputnik assets first as described in the editor setup. The
+build checks every installed SDK file against `scripts/sdk-public-receipt.json`,
+and checks its version, tarball URL and registry integrity against the lockfile.
+The receipt identifies release source `1b098478f710861a5b861bcd7d4598601d30fcb6`;
+`SDK-PROVENANCE.json` and license notices travel with the bundle. Registry package
+verification does not establish installed workflow or cloud qualification.
+
+The Console entry exports `DatasetImportTaskClient`, `DatasetImportUploadClient`,
+`DatasetImportSubmissionClient`, and `hashDatasetImportFile`. Console supplies
+fresh authenticated headers and its workspace-bound BFF transport; these exports
+do not grant import authority or enable a host that is not ready. Run
+`npm run test:console-assets` to exercise real hashing and read transports in
+Chromium. That packaging check uses controlled HTTP responses; live import,
+query, map and publication qualification remains separate.
 
 Before capturing a turn, `await studio.prepareWorkspaceTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching

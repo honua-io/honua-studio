@@ -1,3 +1,4 @@
+import { validateMapStyleEdit } from "../styles/map-style-edit.js";
 /**
  * The composition engine's pure reducer (honua-studio#8): `state, command`
  * in, `{ state, diff }` out, or a thrown {@link CompositionCommandError}.
@@ -234,15 +235,82 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       const resolution = requireResolved(state, command.target, "layer", command);
       guardPin(resolution, command);
       const id = nonFeatureTargetId(command.target);
-      return { ...state, layers: state.layers.filter((layer) => layer.id !== id) };
+      return {
+        ...state,
+        layers: state.layers.filter((layer) => layer.id !== id),
+        ...(state.sourceBindings
+          ? {
+              sourceBindings: state.sourceBindings.filter((binding) =>
+                state.layers.some((layer) => layer.id !== id && layer.sourceId === binding.sourceId),
+              ),
+            }
+          : {}),
+        ...(state.styleRefs
+          ? { styleRefs: state.styleRefs.filter((ref) => ref.styleId !== `honua-inline:${id}`) }
+          : {}),
+        ...(state.mapSpec && Array.isArray(state.mapSpec.layers)
+          ? {
+              mapSpec: {
+                ...state.mapSpec,
+                ...(state.mapSpec.sources && typeof state.mapSpec.sources === "object"
+                  ? {
+                      sources: Object.fromEntries(
+                        Object.entries(state.mapSpec.sources).filter(
+                          ([sourceId]) =>
+                            sourceId !== state.layers.find((layer) => layer.id === id)?.sourceId ||
+                            state.layers.some((layer) => layer.id !== id && layer.sourceId === sourceId),
+                        ),
+                      ),
+                    }
+                  : {}),
+                layers: state.mapSpec.layers.filter((value) => {
+                  const layer = value as Record<string, unknown>;
+                  const metadata = layer.metadata as Record<string, unknown> | undefined;
+                  return (
+                    layer.id !== id && layer.id !== `${id}__outline` && metadata?.["honua:compositionLayerId"] !== id
+                  );
+                }),
+              },
+            }
+          : {}),
+      };
     }
     case "setLayerStyleRef": {
       const resolution = requireResolved(state, command.target, "layer", command);
       guardPin(resolution, command);
       const id = nonFeatureTargetId(command.target);
+      const inlineId = `honua-inline:${id}`;
       return {
         ...state,
-        layers: state.layers.map((layer) => (layer.id === id ? withStyleRef(layer, command.styleRef) : layer)),
+        ...(command.styleBody !== undefined
+          ? {
+              styleRefs: [
+                ...(state.styleRefs ?? []).filter((ref) => ref.styleId !== inlineId),
+                { styleId: inlineId, body: command.styleBody },
+              ],
+            }
+          : {}),
+        layers: state.layers.map((layer) =>
+          layer.id === id
+            ? withStyleRef(
+                layer,
+                command.styleBody !== undefined ? { kind: "style-ref", styleId: inlineId } : command.styleRef,
+              )
+            : layer,
+        ),
+      };
+    }
+    case "setMapStyle": {
+      for (const layer of state.layers)
+        guardPin(requireResolved(state, { kind: "layer", id: layer.id }, "layer", command), command);
+      if (!state.mapSpec) throw new Error("Initialize the authorized map style before editing it.");
+      const errors = validateMapStyleEdit(state.mapSpec, command.mapSpec);
+      if (errors.length) throw new Error(errors[0]);
+      return {
+        ...state,
+        mapSpec: structuredClone(command.mapSpec),
+        styleRefs: [],
+        layers: state.layers.map((layer) => withStyleRef(layer, undefined)),
       };
     }
     case "setVisibility": {
@@ -521,6 +589,12 @@ function nonFeatureTargetId(target: CompositionTarget): string {
 
 function diffCompositionState(before: CompositionState, after: CompositionState): readonly CompositionChange[] {
   return [
+    ...(canonicalCompositionJson(before.mapSpec ?? null) !== canonicalCompositionJson(after.mapSpec ?? null)
+      ? [{ path: "mapSpec", kind: "replace" as const, before: before.mapSpec, after: after.mapSpec }]
+      : []),
+    ...(canonicalCompositionJson(before.styleRefs ?? null) !== canonicalCompositionJson(after.styleRefs ?? null)
+      ? [{ path: "styleRefs", kind: "replace" as const, before: before.styleRefs, after: after.styleRefs }]
+      : []),
     ...diffKeyedArray(
       before.layers,
       after.layers,

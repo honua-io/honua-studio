@@ -1,4 +1,4 @@
-import { composeStyle } from "@honua/sdk-js/runtime";
+import { composeStyle, styleDocumentToRefBody } from "@honua/sdk-js/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { compositionToMapPackage } from "../../src/map/map-package-projection.js";
@@ -28,7 +28,7 @@ const source = {
   protocol: "geoservices-feature-service",
   locator: { serviceId: "service", layerId: 0, url: "https://honua.test/honua/rest/services/Parcels/FeatureServer" },
 };
-function fixture(overrides: Record<string, unknown> = {}) {
+function fixture(overrides: Record<string, unknown> = {}, descriptorOverrides: Record<string, unknown> = {}) {
   const style = {
     styleId: "district",
     title: "District colors",
@@ -53,6 +53,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
                     geometryType: "Polygon",
                     fieldCount: 1,
                     fields: [{ name: "district", type: "String" }],
+                    ...descriptorOverrides,
                   }
                 : request.params.arguments.styleId
                   ? style
@@ -154,7 +155,7 @@ describe("authoritative style provider", () => {
       const actual = await composeStyle(projected.mapPackage, projected.mapPackage.mapSpec, {});
       for (const id of ["composed", "composed__outline"]) {
         expect(actual.layers.find((layer) => layer.id === id)).toMatchObject({
-          layout: { visibility: visible ? "visible" : "none" },
+          layout: { visibility: visible ? canonicalVisibility : "none" },
           minzoom: 8,
           maxzoom: 14,
         });
@@ -370,4 +371,189 @@ it("refuses catalog provenance when the effective renderer source is overridden"
   expect(projected.renderedLayerIds).toEqual([]);
   expect(projected.unresolved[0]?.reason).toMatch(/source override/);
   expect(projected.mapPackage.styleRefs).toBeUndefined();
+});
+
+it("does not treat explicit literal-object or literal-array filter operands as source fields", async () => {
+  const altered = {
+    ...sheet,
+    layers: [
+      {
+        ...sheet.layers[0],
+        filter: ["all", ["has", "name", ["literal", { name: 1 }]], ["in", "a", ["literal", ["a", "b"]]]],
+      },
+    ],
+  };
+  await expect(
+    fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(altered) }] }).provider.bind(
+      "district",
+      source,
+    ),
+  ).resolves.toMatchObject({ stylesheetLayerId: sheet.layers[0]!.id });
+});
+
+it("uses only the canonical streaming process identity and reports unsupported bindings without index fallback", async () => {
+  expect(await fixture({}, { processLayerId: 702 }).provider.resolveProcessSource(source)).toEqual({
+    processLayerId: 702,
+  });
+  expect(await fixture({}, { processLayerId: 0 }).provider.resolveProcessSource(source)).toEqual({ processLayerId: 0 });
+  expect(
+    await fixture(
+      {},
+      { processLayerUnavailableReason: "The bound provider cannot stream." },
+    ).provider.resolveProcessSource(source),
+  ).toEqual({ unavailableReason: "The bound provider cannot stream." });
+  await expect(fixture({}, { processLayerId: 1.5 }).provider.resolveProcessSource(source)).rejects.toThrow(
+    "identity is invalid",
+  );
+});
+
+it("accepts resource-free labels on the selected actual source and validates their published field", async () => {
+  const withLabels = {
+    ...sheet,
+    layers: [
+      ...sheet.layers,
+      {
+        id: "parcel-labels",
+        type: "symbol",
+        source: "parcels",
+        layout: { "text-field": ["get", "district"], "text-size": 12 },
+      },
+    ],
+  };
+  const bound = await fixture({
+    encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(withLabels) }],
+  }).provider.bind("district", source);
+  expect(bound.definition.layers.some((layer) => layer.id === "parcel-labels" && layer.type === "symbol")).toBe(true);
+  const missing = {
+    ...withLabels,
+    layers: [
+      ...sheet.layers,
+      {
+        id: "parcel-labels",
+        type: "symbol",
+        source: "parcels",
+        layout: { "text-field": ["get", "secret"] },
+      },
+    ],
+  };
+  await expect(
+    fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(missing) }] }).provider.bind(
+      "district",
+      source,
+    ),
+  ).rejects.toThrow('missing field "secret"');
+});
+
+it.skipIf(styleDocumentToRefBody.length < 2)(
+  "uses canonical SDK bindings for owner-specific primary and label appearances without persisting hydrated bodies",
+  async () => {
+    const document: { version: number; sources: typeof sheet.sources; layers: Record<string, unknown>[] } =
+      structuredClone(sheet);
+    document.layers.push({
+      id: "catalog-label",
+      type: "symbol",
+      source: "parcels",
+      layout: { "text-field": ["get", "district"] },
+      paint: { "text-color": "#123456" },
+      metadata: { example: ["get", "not-a-published-field"] },
+    });
+    const context = fixture({ encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(document) }] });
+    const bindings = [
+      { styleLayerId: "canonical-parcels", targetLayerId: "owner", layerType: "fill" },
+      { styleLayerId: "catalog-label", targetLayerId: "server-issued-label", layerType: "symbol" },
+    ];
+    const bound = await context.provider.bind("district", source, {
+      primaryTargetId: "owner",
+      layerBindings: bindings,
+    });
+    expect(Object.keys(bound.mappedBody!)).toEqual(["owner", "server-issued-label"]);
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: [
+        {
+          id: "owner",
+          sourceId: source.id,
+          visible: true,
+          styleRef: { kind: "style-ref" as const, styleId: "district" },
+        },
+      ],
+      mapSpec: {
+        version: 8,
+        sources: { [source.id]: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+        layers: [
+          { id: "owner", type: "fill", source: source.id },
+          {
+            id: "server-issued-label",
+            type: "symbol",
+            source: source.id,
+            metadata: { "honua:compositionLayerId": "owner" },
+          },
+        ],
+      },
+      styleRefs: [{ styleId: "district", layerBindings: bindings }],
+    };
+    const preview = compositionToMapPackage(state, { catalog: [source], authoritativeStyles: { owner: bound } });
+    const actual = await composeStyle(preview.mapPackage, preview.mapPackage.mapSpec, {});
+    expect(actual.layers.find((layer) => layer.id === "server-issued-label")?.layout?.["text-field"]).toEqual([
+      "get",
+      "district",
+    ]);
+    expect(actual.layers.find((layer) => layer.id === "owner")?.metadata).toMatchObject({
+      "honua:styleId": "district",
+      "honua:styleVersion": 0,
+      "honua:styleSha256": bound.definition.sha256,
+      "honua:styleServer": "https://honua.test/honua",
+    });
+    const durable = compositionToMapPackage(state, { catalog: [source] });
+    expect(durable.mapPackage.styleRefs).toEqual([{ styleId: "district", layerBindings: bindings }]);
+    expect(state.styleRefs[0]).not.toHaveProperty("body");
+  },
+);
+
+it.skipIf(styleDocumentToRefBody.length < 2)(
+  "validates only explicitly selected catalog appearances and preserves restricted outline bindings",
+  async () => {
+    const document = {
+      ...sheet,
+      layers: [
+        ...sheet.layers,
+        {
+          id: "unused-label",
+          type: "symbol",
+          source: "parcels",
+          layout: { "text-field": ["get", "unavailable"] },
+        },
+      ],
+    };
+    const bound = await fixture({
+      encodings: [{ encoding: "mapbox-style", inlineBody: JSON.stringify(document) }],
+    }).provider.bind("district", source, {
+      primaryTargetId: "owner",
+      layerBindings: [
+        { styleLayerId: "canonical-parcels", targetLayerId: "owner", layerType: "fill" },
+        {
+          styleLayerId: "canonical-parcels",
+          targetLayerId: "owner__outline",
+          layerType: "fill",
+          properties: ["filter", "visibility"],
+        },
+      ],
+    });
+    expect(bound.mappedBody?.owner?.paint).toEqual(sheet.layers[0]!.paint);
+    expect(bound.mappedBody?.owner__outline).not.toHaveProperty("paint");
+  },
+);
+
+it("derives preview bounds from the authorized descriptor's declared CRS", async () => {
+  const context = fixture({}, { srid: 4326, extent: { minX: -158, minY: 21, maxX: -157, maxY: 22 } });
+  expect(await context.provider.describeSourceBounds(source)).toEqual([-158, 21, -157, 22]);
+  const unknown = fixture({}, { srid: 999999, extent: { minX: 1, minY: 2, maxX: 3, maxY: 4 } });
+  expect(await unknown.provider.describeSourceBounds(source)).toBeUndefined();
+  const mercator = fixture(
+    {},
+    { srid: 3857, extent: { minX: 0, minY: 0, maxX: 111319.49079327357, maxY: 111325.14286638486 } },
+  );
+  const bounds = await mercator.provider.describeSourceBounds(source);
+  expect(bounds?.[2]).toBeCloseTo(1, 6);
+  expect(bounds?.[3]).toBeCloseTo(1, 6);
 });

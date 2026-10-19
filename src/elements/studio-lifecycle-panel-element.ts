@@ -334,28 +334,50 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
         const request = await this.client.requestPublish(this.#itemId, pending.versionId, {
           intent: pending.intent,
         });
-        this.#activity({
-          kind: request.status === "accepted" ? "publish-requested" : "publish-rejected",
-          itemId: this.#itemId,
-          versionId: pending.versionId,
-          message: request.status,
-        });
-        this.#actionMessage =
-          request.status === "accepted"
-            ? `Published version ${pending.versionId}.`
-            : `Publish request rejected (${request.status}) — the version's validation status must be valid or warning.`;
+        if (request.status === "awaiting-approval") {
+          this.#activity({
+            ...request,
+            kind: "publish-requested",
+            itemId: this.#itemId,
+            versionId: pending.versionId,
+            message: "AwaitingApproval",
+          });
+          this.#actionMessage = `Publication is awaiting separate human approval. Proposal ${request.proposalId}.`;
+        } else {
+          this.#activity({
+            kind: request.status === "accepted" ? "publish-requested" : "publish-rejected",
+            itemId: this.#itemId,
+            versionId: pending.versionId,
+            message: request.status,
+          });
+          this.#actionMessage =
+            request.status === "accepted"
+              ? `Published version ${pending.versionId}.`
+              : `Publish request rejected (${request.status}) — the version's validation status must be valid or warning.`;
+        }
       } else {
         const request = await this.client.requestRollback(this.#itemId, {
           targetVersionId: pending.targetVersionId,
           pointer: pending.pointer,
         });
-        this.#activity({
-          kind: "rollback-requested",
-          itemId: this.#itemId,
-          versionId: pending.targetVersionId,
-          message: pending.pointer,
-        });
-        this.#actionMessage = `Rolled back (${pending.pointer}) to version ${request.targetVersionId}.`;
+        if ("status" in request) {
+          this.#activity({
+            ...request,
+            kind: "rollback-requested",
+            itemId: this.#itemId,
+            versionId: pending.targetVersionId,
+            message: "AwaitingApproval",
+          });
+          this.#actionMessage = `Rollback is awaiting separate human approval. Proposal ${request.proposalId}.`;
+        } else {
+          this.#activity({
+            kind: "rollback-requested",
+            itemId: this.#itemId,
+            versionId: pending.targetVersionId,
+            message: pending.pointer,
+          });
+          this.#actionMessage = `Rolled back (${pending.pointer}) to version ${request.targetVersionId}.`;
+        }
       }
       this.#pendingConfirm = undefined;
       this.#confirmText = "";

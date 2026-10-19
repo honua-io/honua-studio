@@ -1,3 +1,6 @@
+import { ArtifactImportTracker, type ProcessImportReceipt, importedDataset } from "./artifact-import.js";
+import type { ImportedProcessDataset } from "./artifact-import.js";
+export type { ImportedProcessDataset, ProcessImportReceipt } from "./artifact-import.js";
 export interface LocalSourceFile {
   readonly path: string;
   readonly content: string;
@@ -15,8 +18,16 @@ export interface LocalProjectIdentity {
     readonly workspaceId: string;
   } | null;
 }
+export interface LocalReadOnlyFile {
+  readonly path: string;
+  readonly bytes: number;
+  readonly sha256: string;
+  readonly role: "fixture" | "source";
+  readonly readOnly: true;
+}
 export interface LocalProject extends LocalProjectIdentity {
   readonly files: readonly LocalSourceFile[];
+  readonly readOnlyFiles?: readonly LocalReadOnlyFile[];
   readonly ideHandoff?: { readonly kind: string; readonly workspace: string };
 }
 export interface LocalSnapshot {
@@ -46,11 +57,6 @@ class LocalProcessRequestError extends Error {
     );
   }
 }
-export interface ImportedProcessDataset {
-  readonly tableName: string;
-  readonly physicalTableName: string;
-  readonly schema: string;
-}
 export interface PublishedProcessLayer {
   readonly layerId: number;
   readonly serviceName: string;
@@ -63,9 +69,12 @@ export class LocalProcessWorkspace {
   constructor(
     private readonly options: {
       readonly csrfToken: string;
+      readonly principalId?: string;
       readonly environmentId: string;
       readonly workspaceId: () => string;
       readonly commandStorage?: Pick<Storage, "getItem" | "setItem">;
+      /** Effective file-byte capacity supplied by the authenticated host transport. */
+      readonly maxArtifactUploadBytes?: number;
       readonly fetchImpl?: typeof fetch;
     },
   ) {}
@@ -81,6 +90,7 @@ export class LocalProcessWorkspace {
     const headers = new Headers(init?.headers);
     headers.set("X-Honua-Workspace", workspaceId);
     headers.set("X-Honua-Environment", this.options.environmentId);
+    if (this.options.principalId) headers.set("X-Honua-Session-Partition", this.options.principalId);
     if ((init?.method ?? "GET") !== "GET") headers.set("X-CSRF-Token", this.options.csrfToken);
     const response = await (this.options.fetchImpl ?? fetch)(`/api/processes/${path}`, {
       ...init,
@@ -124,6 +134,26 @@ export class LocalProcessWorkspace {
   }
   async project(): Promise<LocalProject> {
     const project = await this.#json<LocalProject>("local/project");
+    if (
+      project.readOnlyFiles !== undefined &&
+      (!Array.isArray(project.readOnlyFiles) ||
+        project.readOnlyFiles.length > 10000 ||
+        project.readOnlyFiles.some(
+          (file) =>
+            !file ||
+            typeof file !== "object" ||
+            typeof file.path !== "string" ||
+            !file.path ||
+            file.path.length > 4096 ||
+            !Number.isSafeInteger(file.bytes) ||
+            file.bytes < 0 ||
+            !/^[a-f0-9]{64}$/.test(file.sha256) ||
+            !["fixture", "source"].includes(file.role) ||
+            file.readOnly !== true ||
+            Object.hasOwn(file, "content"),
+        ))
+    )
+      throw new Error("The project returned invalid read-only file metadata.");
     this.#observe(project);
     if (!project.binding) throw new Error("Bind the configured project before reading source.");
     return project;
@@ -255,36 +285,128 @@ export class LocalProcessWorkspace {
     receipt: LocalRunReceipt,
     artifactPath: string,
     tableName: string,
-  ): Promise<ImportedProcessDataset> {
+  ): Promise<ProcessImportReceipt> {
     if (receipt.status !== "succeeded") throw new Error("Only successful run artifacts may be imported.");
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(tableName))
+      throw new Error(
+        "Enter a dataset table name using letters, numbers and underscores, starting with a letter or underscore.",
+      );
     const artifact = receipt.artifacts?.find((item) => item.path === artifactPath);
     if (!artifact || !/\.(?:geojson|json|gpkg|fgb|parquet|csv)$/i.test(artifact.path))
       throw new Error("Select a supported geospatial artifact.");
-    const content = await (
-      await this.#fetch(
-        `local/runs/${encodeURIComponent(receipt.runId)}/artifacts/${artifactPath.split("/").map(encodeURIComponent).join("/")}`,
-      )
-    ).arrayBuffer();
+    if (!Number.isSafeInteger(artifact.bytes) || artifact.bytes < 0 || !/^[a-f0-9]{64}$/.test(artifact.sha256))
+      throw new Error("The artifact receipt has no valid immutable byte size and digest.");
+    const imports = this.#imports();
+    const authority = imports.capture();
+    const source = {
+      projectId: receipt.projectId,
+      snapshotDigest: receipt.snapshotDigest,
+      runId: receipt.runId,
+      path: artifact.path,
+      sha256: artifact.sha256,
+      bytes: artifact.bytes,
+      tableName,
+    };
+    const retained = await imports.reconcile(source, authority);
+    if (retained) return retained;
+    const capacity = this.options.maxArtifactUploadBytes;
+    if (typeof capacity !== "number" || !Number.isSafeInteger(capacity) || capacity <= 0 || artifact.bytes > capacity) {
+      return {
+        status: "unsupported",
+        message:
+          typeof capacity === "number" && Number.isSafeInteger(capacity) && capacity > 0
+            ? `This output contains ${artifact.bytes} bytes; this host accepts files up to ${capacity} bytes. A resumable import route is required. No artifact bytes were downloaded or uploaded.`
+            : "This host has not declared its artifact import capacity. A verified transport or resumable import route is required before artifact bytes can be downloaded or uploaded.",
+      };
+    }
+    imports.assertAuthority(authority);
+    const response = await this.#fetch(
+      `local/runs/${encodeURIComponent(receipt.runId)}/artifacts/${artifactPath.split("/").map(encodeURIComponent).join("/")}`,
+    );
+    const content = await this.#boundedArtifact(response, artifact.bytes);
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", content)), (byte) =>
       byte.toString(16).padStart(2, "0"),
     ).join("");
     if (content.byteLength !== artifact.bytes || digest !== artifact.sha256)
       throw new Error("Artifact content no longer matches the immutable receipt.");
+    imports.assertAuthority(authority);
+    const upload = imports.reserve(source, authority);
     const form = new FormData();
+    form.set("UploadId", imports.uploadId(upload));
     form.set("File", new Blob([content]), artifactPath.split("/").at(-1)!);
     form.set("TableName", tableName);
-    const imported = await this.#json<{
+    let imported: {
       success?: boolean;
       tableName?: string;
       physicalTableName?: string;
       schema?: string;
       jobId?: string;
-    }>("admin/import/upload", { method: "POST", body: form });
-    if (imported.jobId)
-      throw new Error(`Import continues as job ${imported.jobId}. Observe that job before publishing the dataset.`);
-    if (!imported.success || !imported.tableName || !imported.physicalTableName || !imported.schema)
-      throw new Error("Import did not return a verified dataset identity.");
-    return { tableName: imported.tableName, physicalTableName: imported.physicalTableName, schema: imported.schema };
+    };
+    try {
+      imported = await this.#json("admin/import/upload", { method: "POST", body: form });
+    } catch {
+      // The server may have accepted the upload before its response was lost.
+      // Preserve the exact attempt instead of issuing another mutation.
+      return imports.uncertainUpload(upload);
+    }
+    imports.assertAuthority(upload);
+    if (imported.jobId) return imports.start(imported.jobId, source, upload);
+    if (imported.success === false) {
+      imports.completeSynchronous(upload);
+      return { status: "failed", message: "The server reported that the import failed." };
+    }
+    const dataset = imported.success ? importedDataset(imported) : undefined;
+    if (!dataset) throw new Error("Import did not return a verified dataset identity.");
+    imports.completeSynchronous(upload);
+    return { status: "completed", dataset };
+  }
+  async #boundedArtifact(response: Response, expectedBytes: number): Promise<ArrayBuffer> {
+    const declared = response.headers.get("Content-Length");
+    if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) !== expectedBytes)) {
+      await response.body?.cancel();
+      throw new Error("Artifact response size does not match its immutable receipt.");
+    }
+    if (!response.body) {
+      if (expectedBytes === 0) return new ArrayBuffer(0);
+      throw new Error("Artifact response has no readable body.");
+    }
+    // The host capacity and canonical receipt were checked before this bounded
+    // allocation. Stop a dishonest/growing response before it can fill more.
+    const content = new Uint8Array(expectedBytes);
+    const reader = response.body.getReader();
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.byteLength > expectedBytes - total) {
+          await reader.cancel();
+          throw new Error("Artifact response exceeded its immutable byte size.");
+        }
+        content.set(value, total);
+        total += value.byteLength;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (total !== expectedBytes) throw new Error("Artifact response was truncated before its immutable byte size.");
+    return content.buffer;
+  }
+  #imports(): ArtifactImportTracker {
+    const storage = this.options.commandStorage ?? globalThis.localStorage;
+    if (!storage || !this.options.principalId)
+      throw new Error("A signed-in owner and durable import storage are required.");
+    return new ArtifactImportTracker({
+      storage,
+      scope: () => JSON.stringify([this.options.environmentId, this.options.principalId, this.options.workspaceId()]),
+      fetch: (path, init) => this.#fetch(path, init),
+    });
+  }
+  resumeImport(signal?: AbortSignal): Promise<ProcessImportReceipt | undefined> {
+    return this.#imports().resume(signal);
+  }
+  cancelImport(): Promise<ProcessImportReceipt | undefined> {
+    return this.#imports().cancel();
   }
   /** Publishing uses the returned physical dataset identity; no layer is fabricated from a filename. */
   async publishDataset(

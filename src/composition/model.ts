@@ -1,3 +1,5 @@
+import type { HonuaMapPackageSourceBinding } from "@honua/sdk-js/runtime";
+import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * Composition state — the pure-data, serializable model the composition
  * engine (honua-studio#8) reduces over.
@@ -285,6 +287,9 @@ export type CompositionTarget =
 /** The full composition state: a serializable, diffable projection of one composed app. */
 export interface CompositionState {
   readonly version: typeof COMPOSITION_STATE_VERSION;
+  readonly sourceBindings?: readonly HonuaMapPackageSourceBinding[];
+  readonly styleRefs?: readonly CompositionStyleDefinition[];
+  readonly mapSpec?: MapStyleDocument;
   readonly layers: readonly CompositionLayer[];
   readonly view: CompositionView;
   readonly widgets: readonly CompositionWidget[];

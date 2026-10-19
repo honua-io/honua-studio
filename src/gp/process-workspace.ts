@@ -17,14 +17,41 @@ export interface ProcessGraph {
   readonly nodes: readonly ProcessNode[];
   readonly edges: readonly ProcessEdge[];
 }
+export interface ProcessSchema {
+  readonly type?: string;
+  readonly format?: string;
+  readonly unit?: string;
+  readonly crs?: string;
+  readonly enumValues?: readonly string[];
+}
+export interface ProcessPort {
+  readonly name: string;
+  readonly title?: string;
+  readonly required?: boolean;
+  readonly schema?: ProcessSchema;
+}
+export interface ProcessNodeDefinition {
+  readonly nodeTypeId: string;
+  readonly providerId: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly category?: string;
+  readonly parameterSchemas: readonly {
+    readonly name: string;
+    readonly displayName?: string;
+    readonly description?: string;
+    readonly required: boolean;
+    readonly defaultValue?: string | null;
+    readonly schema?: ProcessSchema;
+  }[];
+  readonly inputSchemas?: readonly ProcessPort[];
+  readonly outputSchemas?: readonly ProcessPort[];
+  readonly eligibilityWarnings?: readonly string[];
+}
 export interface ProcessRegistry {
   readonly registryVersion: string;
-  readonly nodes: readonly {
-    readonly nodeTypeId: string;
-    readonly providerId: string;
-    readonly title: string;
-    readonly parameterSchemas: readonly { readonly name: string; readonly required: boolean }[];
-  }[];
+  readonly nodes: readonly ProcessNodeDefinition[];
+  readonly warnings?: readonly string[];
 }
 export interface ProcessDiagnostic {
   readonly nodeId?: string;
@@ -61,6 +88,25 @@ export function validateProcessGraph(graph: ProcessGraph, registry: ProcessRegis
         message: "Choose a built-in process from the current server registry. Custom code uses a separate sandbox run.",
       });
   }
+  for (const node of graph.nodes) {
+    const definition = catalog.get(node.nodeTypeId);
+    for (const parameter of definition?.parameterSchemas ?? []) {
+      if (
+        parameter.required &&
+        !node.parameters[parameter.name]?.trim() &&
+        !graph.edges.some(
+          (edge) => edge.kind === "Data" && edge.targetNodeId === node.nodeId && edge.targetPort === parameter.name,
+        )
+      )
+        diagnostics.push({
+          nodeId: node.nodeId,
+          fieldPath: `parameters.${parameter.name}`,
+          code: "REQUIRED_PARAMETER",
+          message: `Supply ${parameter.displayName ?? parameter.name} or connect its input.`,
+        });
+    }
+  }
+  const connectedInputs = new Set<string>();
   const incoming = new Map<string, string[]>();
   for (const edge of graph.edges) {
     if (!ids.has(edge.sourceNodeId) || !ids.has(edge.targetNodeId))
@@ -75,6 +121,37 @@ export function validateProcessGraph(graph: ProcessGraph, registry: ProcessRegis
         code: "EDGE_INPUT",
         message: "A data edge needs a target input key.",
       });
+    if (edge.kind === "Data") {
+      const source = graph.nodes.find((node) => node.nodeId === edge.sourceNodeId);
+      const target = graph.nodes.find((node) => node.nodeId === edge.targetNodeId);
+      const output = source && catalog.get(source.nodeTypeId)?.outputSchemas;
+      const input = target && catalog.get(target.nodeTypeId)?.inputSchemas;
+      const sourcePort = output?.find((port) => port.name === edge.sourcePort);
+      const targetPort = input?.find((port) => port.name === edge.targetPort);
+      if (output && !sourcePort)
+        diagnostics.push({
+          nodeId: edge.sourceNodeId,
+          fieldPath: `outputs.${edge.sourcePort ?? ""}`,
+          code: "OUTPUT_PORT",
+          message: "Choose an output port from the current registry.",
+        });
+      if (input && !targetPort)
+        diagnostics.push({
+          nodeId: edge.targetNodeId,
+          fieldPath: `inputs.${edge.targetPort ?? ""}`,
+          code: "INPUT_PORT",
+          message: "Choose an input port from the current registry.",
+        });
+      const key = JSON.stringify([edge.targetNodeId, edge.targetPort]);
+      if (connectedInputs.has(key))
+        diagnostics.push({
+          nodeId: edge.targetNodeId,
+          fieldPath: `inputs.${edge.targetPort}`,
+          code: "INPUT_CONNECTED",
+          message: "An input may have only one data connection.",
+        });
+      connectedInputs.add(key);
+    }
     incoming.set(edge.targetNodeId, [...(incoming.get(edge.targetNodeId) ?? []), edge.sourceNodeId]);
   }
   const visiting = new Set<string>();
@@ -111,6 +188,31 @@ export function snapshotProcessGraph(graph: ProcessGraph): ProcessGraph {
   return Object.freeze(snapshot);
 }
 
+/** Matches actual server paths against exact graph node identities. */
+export function normalizeProcessDiagnostics(
+  diagnostics: readonly ProcessDiagnostic[],
+  graph: ProcessGraph,
+): ProcessDiagnostic[] {
+  const ids = graph.nodes.map((node) => node.nodeId).sort((a, b) => b.length - a.length);
+  return diagnostics.map((diagnostic) => {
+    const nodeId = ids.find(
+      (id) =>
+        diagnostic.nodeId === id ||
+        ["graph.nodes", "steps"].some((root) => {
+          const prefix = `${root}[${id}]`;
+          return diagnostic.fieldPath === prefix || diagnostic.fieldPath?.startsWith(`${prefix}.`);
+        }),
+    );
+    return { ...diagnostic, nodeId };
+  });
+}
+
+export class ProcessValidationError extends Error {
+  constructor(readonly diagnostics: readonly ProcessDiagnostic[]) {
+    super(diagnostics.map((item) => `${item.nodeId ?? "graph"}: ${item.message}`).join("\n"));
+  }
+}
+
 export class ProcessServerError extends Error {
   constructor(readonly status: number) {
     super(`Processes server returned ${status}.`);
@@ -123,6 +225,7 @@ export class ServerProcessWorkspace {
     private readonly options: {
       readonly environmentId: string;
       readonly csrfToken: string;
+      readonly principalId?: string;
       readonly fetchImpl?: typeof fetch;
       readonly commandStorage?: Pick<Storage, "getItem" | "setItem">;
     },
@@ -130,6 +233,7 @@ export class ServerProcessWorkspace {
 
   async #request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers = new Headers({ accept: "application/json", "X-Honua-Environment": this.options.environmentId });
+    if (this.options.principalId) headers.set("X-Honua-Session-Partition", this.options.principalId);
     if (method !== "GET") {
       headers.set("X-CSRF-Token", this.options.csrfToken);
       headers.set("content-type", "application/json");
@@ -157,8 +261,7 @@ export class ServerProcessWorkspace {
   ): Promise<{ packageId: string; version: number; contentHash: string; validation: unknown; graph: ProcessGraph }> {
     const snapshot = snapshotProcessGraph(graph);
     const diagnostics = validateProcessGraph(snapshot, await this.registry());
-    if (diagnostics.length)
-      throw new Error(diagnostics.map((item) => `${item.nodeId ?? "graph"}: ${item.message}`).join("\n"));
+    if (diagnostics.length) throw new ProcessValidationError(diagnostics);
     const saved = await this.#request<{ packageId: string }>("POST", "console/workflow-packages", {
       name,
       graph: snapshot,
@@ -171,7 +274,13 @@ export class ServerProcessWorkspace {
       "POST",
       `console/workflow-packages/${encodeURIComponent(saved.packageId)}/versions/${version.version}/validate`,
     );
-    if (!validation.isValid) throw new Error(JSON.stringify(validation.failures ?? validation));
+    if (!validation.isValid)
+      throw new ProcessValidationError(
+        normalizeProcessDiagnostics(
+          validation.failures ?? [{ code: "VALIDATION", message: "Server validation refused this graph." }],
+          snapshot,
+        ),
+      );
     if (version.packageId !== saved.packageId || !/^[a-f0-9]{64}$/.test(version.packageHash))
       throw new Error("Server returned no verified immutable package hash.");
     return {
@@ -210,11 +319,22 @@ export class ServerProcessWorkspace {
     };
   }
 
+  #commandStorageKey(packageId: string, version: number): string {
+    if (!this.options.principalId?.trim())
+      throw new Error("A stable principal partition is required before submitting a run.");
+    return `honua.processes.command:${JSON.stringify([
+      this.options.environmentId,
+      this.options.principalId,
+      packageId,
+      version,
+    ])}`;
+  }
+
   /** Persist a command reference before submission; ambiguous acceptance must reuse it. */
   reserveCommand(packageId: string, version: number): { commandId: string; reconcileOnly: boolean } {
     const storage = this.options.commandStorage ?? globalThis.localStorage;
     if (!storage) throw new Error("Durable command storage is required before submitting a run.");
-    const key = `honua.processes.command:${this.options.environmentId}:${packageId}:${version}`;
+    const key = this.#commandStorageKey(packageId, version);
     const retained = storage.getItem(key);
     const prior = retained && !retained.startsWith("accepted:") ? retained : null;
     const commandId = prior ?? crypto.randomUUID();
@@ -227,6 +347,7 @@ export class ServerProcessWorkspace {
     if (!Number.isSafeInteger(version) || version < 1 || !commandId)
       throw new Error("Run requires an immutable version and command ID.");
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(commandId)) throw new Error("Use a bounded command identity.");
+    const storageKey = this.#commandStorageKey(packageId, version);
     const publicationId = `wfp-${commandId}`;
     const wasAttempted = reconcileOnly || this.#attempted.has(commandId);
     if (wasAttempted) {
@@ -280,9 +401,9 @@ export class ServerProcessWorkspace {
     )
       throw new Error("Server returned no matching operation receipt.");
     const storage = this.options.commandStorage ?? globalThis.localStorage;
-    const key = `honua.processes.command:${this.options.environmentId}:${packageId}:${version}`;
     // Preserve the accepted receipt before permitting an intentional subsequent run.
-    if (storage?.getItem(key) === commandId) storage.setItem(key, `accepted:${JSON.stringify({ commandId, run })}`);
+    if (storage?.getItem(storageKey) === commandId)
+      storage.setItem(storageKey, `accepted:${JSON.stringify({ commandId, run })}`);
     return run;
   }
 

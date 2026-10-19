@@ -105,3 +105,97 @@ it("refreshes accepted agent source changes only when clean and exposes conflict
   expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("human unsaved correction");
   expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("changed outside this editor");
 });
+it("keeps pending imports separate from publishable datasets and resumes only canonical success", async () => {
+  const element = document.createElement("honua-studio-custom-processes") as HonuaStudioCustomProcessesElement;
+  const resumeImport = vi
+    .fn()
+    .mockResolvedValueOnce({ status: "pending", jobId: "job-1", message: "Import processing." })
+    .mockResolvedValueOnce({ status: "completed", jobId: "job-1" })
+    .mockResolvedValueOnce({
+      status: "completed",
+      jobId: "job-1",
+      dataset: { tableName: "canonical", physicalTableName: "physical_42", schema: "honua_data" },
+    });
+  element.client = { resumeImport } as unknown as LocalProcessWorkspace;
+  document.body.append(element);
+  click(element, "resume-import");
+  await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("Import pending"));
+  expect(element.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="publish"]')!.disabled).toBe(true);
+  click(element, "resume-import");
+  await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("Import completed"));
+  expect(element.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="publish"]')!.disabled).toBe(true);
+  click(element, "resume-import");
+  await vi.waitFor(() =>
+    expect(element.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="publish"]')!.disabled).toBe(false),
+  );
+  expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("physical_42");
+  expect(element.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="map"]')!.disabled).toBe(true);
+});
+it("does not adopt an old client's delayed import result after authority replacement", async () => {
+  const element = document.createElement("honua-studio-custom-processes") as HonuaStudioCustomProcessesElement;
+  let release!: (value: unknown) => void;
+  element.client = {
+    resumeImport: () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  } as unknown as LocalProcessWorkspace;
+  document.body.append(element);
+  click(element, "resume-import");
+  element.client = { resumeImport: async () => undefined } as unknown as LocalProcessWorkspace;
+  release({
+    status: "completed",
+    jobId: "old",
+    dataset: { tableName: "old", physicalTableName: "private", schema: "private" },
+  });
+  await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("session changed"));
+  expect(element.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="publish"]')!.disabled).toBe(true);
+  expect(element.shadowRoot!.querySelector("pre")!.textContent).not.toContain('"physicalTableName"');
+});
+it("preserves source editor DOM, focus and typing during automatic import polling", async () => {
+  const element = document.createElement("honua-studio-custom-processes") as HonuaStudioCustomProcessesElement;
+  const resumeImport = vi.fn().mockResolvedValue({ status: "pending", jobId: "job-1" });
+  element.client = { resumeImport } as unknown as LocalProcessWorkspace;
+  document.body.append(element);
+  click(element, "resume-import");
+  await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("Import pending"));
+  const editor = element.shadowRoot!.querySelector("textarea")!;
+  editor.value = "unfinished source";
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+  editor.focus();
+  editor.setSelectionRange(3, 3);
+  await vi.waitFor(() => expect(resumeImport).toHaveBeenCalledTimes(2), { timeout: 2500 });
+  expect(element.shadowRoot!.querySelector("textarea")).toBe(editor);
+  expect(element.shadowRoot!.activeElement).toBe(editor);
+  expect(editor.value).toBe("unfinished source");
+  expect(editor.selectionStart).toBe(3);
+});
+
+it("shows large fixture metadata read-only without placing fixture bytes in the code editor", async () => {
+  const file = {
+    path: "fixtures/large-input.geojson",
+    bytes: 8 * 1024 * 1024,
+    sha256: "f".repeat(64),
+    role: "fixture",
+    readOnly: true,
+  };
+  const element = document.createElement("honua-studio-custom-processes") as HonuaStudioCustomProcessesElement;
+  element.client = {
+    bind: async () => identity,
+    project: async () => ({ ...project, readOnlyFiles: [file] }),
+    identity: async () => identity,
+  } as unknown as LocalProcessWorkspace;
+  document.body.append(element);
+  click(element, "load");
+  await vi.waitFor(() => expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("original source"));
+  const list = element.shadowRoot!.querySelector('[aria-label="Read-only project files"]')!;
+  expect(list.textContent).toContain(file.path);
+  expect(list.textContent).toContain(String(file.bytes));
+  expect(list.textContent).toContain(file.sha256);
+  expect(list.textContent).toContain("Fixture input");
+  expect(list.textContent).toContain("Read-only");
+  expect(list.querySelector("textarea,input,button")).toBeNull();
+  expect(element.shadowRoot!.querySelector('select[aria-label="Source file"]')!.textContent).not.toContain(file.path);
+  element.client = {} as LocalProcessWorkspace;
+  expect(element.shadowRoot!.textContent).not.toContain(file.path);
+});

@@ -2,7 +2,11 @@ import { createServer } from "node:http";
 import type { AddProtocolAction, ResourceType } from "maplibre-gl";
 import { type Mock, afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "../../src/auth/types.js";
-import { installAuthenticatedSourceProtocol, trustedSourceUrl } from "../../src/map/authenticated-source-protocol.js";
+import {
+  fetchAuthenticatedFeatureCollection,
+  installAuthenticatedSourceProtocol,
+  trustedSourceUrl,
+} from "../../src/map/authenticated-source-protocol.js";
 
 import { isCompositionSourceResolution, resolveCompositionSource } from "../../src/map/source-resolution.js";
 
@@ -293,4 +297,22 @@ describe("trusted authenticated map sources", () => {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
   });
+});
+
+it("reports an incomplete first page from the actual GeoJSON transfer-limit flag", async () => {
+  const onIncomplete = vi.fn();
+  const features = Array.from({ length: 2000 }, (_, id) => ({ type: "Feature", geometry: null, properties: { id } }));
+  const result = await fetchAuthenticatedFeatureCollection(
+    source,
+    {
+      sourceBaseUrl,
+      documentUrl,
+      getAuth: () => undefined,
+      fetchImpl: async () => response({ type: "FeatureCollection", features, exceededTransferLimit: true }),
+      onIncomplete,
+    },
+    new AbortController().signal,
+  );
+  expect(result.features).toHaveLength(2000);
+  expect(onIncomplete).toHaveBeenCalledWith(expect.stringContaining("2000 returned features"));
 });

@@ -69,6 +69,7 @@ import type { UnresolvedCompositionLayer } from "../map/map-package-projection.j
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
@@ -117,6 +118,15 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   #sourceAuthBaseUrl = runtimeMcpBaseUrl();
   #viewTransitionMs: number | undefined;
   #mapView: CompositionMapView | undefined;
+  #stylePreview: MapStyleDocument | undefined;
+  public set stylePreview(style: MapStyleDocument | undefined) {
+    this.#stylePreview = style;
+    this.#mapView?.setStylePreview(style);
+  }
+  public async editableMapStyle(): Promise<MapStyleDocument> {
+    if (!this.#mapView) throw new Error("Open the live map preview before editing its style.");
+    return this.#mapView.editableMapStyle();
+  }
   #widgetDataLoader: WidgetDataLoader | undefined;
   /**
    * Bumped whenever a projection input changes. `#ensureMapView` captures it
@@ -220,6 +230,16 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   public set sourceBaseUrl(baseUrl: string) {
     this.#sourceBaseUrl = baseUrl;
     this.#sourceAuthBaseUrl = baseUrl;
+    this.#syncWidgetDeck();
+    this.#restartMapView();
+  }
+
+  public get sourceAuthBaseUrl(): string {
+    return this.#sourceAuthBaseUrl;
+  }
+  public set sourceAuthBaseUrl(value: string) {
+    if (value === this.#sourceAuthBaseUrl) return;
+    this.#sourceAuthBaseUrl = value;
     this.#syncWidgetDeck();
     this.#restartMapView();
   }
@@ -442,6 +462,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     deck.getAuth = this.#widgetAuth;
     deck.refreshSession();
     deck.sourceAuthBaseUrl = this.#sourceAuthBaseUrl;
+    deck.sourceCatalogBaseUrl = this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? runtimeMcpBaseUrl() : undefined;
     deck.sourceBaseUrl = this.#sourceBaseUrl;
     deck.sourceCatalog = this.#sourceCatalog;
     deck.dataLoader = this.#widgetDataLoader;
@@ -675,7 +696,10 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         ...(this.#sourceCatalog?.some((source) => source.locator?.serviceId)
           ? {
               styleProvider: new AuthoritativeStyleProvider({
-                baseUrl: runtimeMcpBaseUrl(),
+                baseUrl: this.#sourceAuthBaseUrl,
+                ...(this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl()
+                  ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() }
+                  : {}),
                 documentUrl: document.baseURI,
                 getAuth: () => resolveInjectedAuth(this),
               }),
@@ -683,6 +707,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
           : {}),
         getAuth: () => resolveInjectedAuth(this),
         sourceAuthBaseUrl: this.#sourceAuthBaseUrl,
+        ...(this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { sourceCatalogBaseUrl: runtimeMcpBaseUrl() } : {}),
         projection: {
           baseUrl: this.#sourceBaseUrl,
           ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),
@@ -706,6 +731,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         return;
       }
       this.#mapView = view;
+      view.setStylePreview(this.#stylePreview);
       this.#syncSurface();
       // The readout's "not on map" flags come from the projection, which only
       // exists once the view has run — repaint it now that it does.

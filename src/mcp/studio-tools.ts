@@ -1,3 +1,5 @@
+import type { HonuaMapPackageSourceBinding } from "@honua/sdk-js/runtime";
+import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * Typed wrappers over `McpClient.callTool` for 17 `honua_studio_*` tools
  * (honua-server#3002; `gh pr diff 3016` in honua-server — draft lifecycle:
@@ -79,6 +81,9 @@ export interface StudioMcpInteractionInput {
 }
 
 export interface StudioCompositionBodyWire {
+  readonly sourceBindings?: readonly HonuaMapPackageSourceBinding[];
+  readonly styleRefs?: readonly CompositionStyleDefinition[];
+  readonly mapSpec?: MapStyleDocument;
   readonly layers: readonly StudioMcpLayerInput[];
   readonly view: StudioMcpViewInput;
   readonly widgets: readonly StudioMcpWidgetInput[];
@@ -265,6 +270,7 @@ export const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_add_layer",
   "honua_studio_remove_layer",
   "honua_studio_set_layer_style",
+  "honua_studio_set_map_style",
   "honua_studio_set_layer_visibility",
   "honua_studio_set_view",
   "honua_studio_add_widget",
@@ -339,6 +345,15 @@ export class StudioMcpToolClient {
 
   public async removeLayer(input: RemoveStudioLayerInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_layer", { ...input });
+    return structured<StudioMcpDraft>(result);
+  }
+
+  public async setMapStyle(input: {
+    readonly draftId: string;
+    readonly generation: number;
+    readonly mapSpec: MapStyleDocument;
+  }): Promise<StudioMcpDraft> {
+    const result = await this.client.callTool("honua_studio_set_map_style", { ...input });
     return structured<StudioMcpDraft>(result);
   }
 

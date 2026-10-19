@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { LocalProcessWorkspace, type LocalRunReceipt } from "../../src/gp/custom-process-workspace.js";
-const options = { csrfToken: "csrf", environmentId: "env-a", workspaceId: () => "ws-1" };
+const options = {
+  csrfToken: "csrf",
+  environmentId: "env-a",
+  principalId: "partition-a",
+  workspaceId: () => "ws-1",
+  maxArtifactUploadBytes: 4 * 1024 * 1024,
+};
 const identity = {
   projectId: "a".repeat(32),
   revision: 1,
@@ -33,6 +39,9 @@ describe("custom-code workspace adapter", () => {
     expect(new Headers(init?.headers).get("If-Match")).toBe("before");
     expect(new Headers(init?.headers).get("X-Honua-Environment")).toBe("env-a");
     expect(new Headers(init?.headers).get("X-Honua-Workspace")).toBe("ws-1");
+    for (const [, request] of vi.mocked(fetchImpl).mock.calls) {
+      expect(new Headers(request?.headers).get("X-Honua-Session-Partition")).toBe("partition-a");
+    }
     expect(init?.credentials).toBe("same-origin");
     expect(init?.body).toBe(
       JSON.stringify({ projectId: identity.projectId, expectedRevision: 1, content: "corrected" }),
@@ -104,8 +113,17 @@ describe("custom-code workspace adapter", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ success: true, data: { layerId: 47, serviceName: "analysis" } })),
       ) as unknown as typeof fetch;
-    const client = new LocalProcessWorkspace({ ...options, fetchImpl });
-    const dataset = await client.importArtifact(receipt, receipt.artifacts![0]!.path, "points");
+    const entries = new Map<string, string>();
+    const commandStorage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        entries.set(key, value);
+      },
+    };
+    const client = new LocalProcessWorkspace({ ...options, fetchImpl, commandStorage });
+    const imported = await client.importArtifact(receipt, receipt.artifacts![0]!.path, "points");
+    expect(imported.status).toBe("completed");
+    const dataset = imported.dataset!;
     expect(dataset.physicalTableName).toBe("imported_points_123");
     const layer = await client.publishDataset(dataset, "managed", "analysis", "Output points");
     expect(layer.layerId).toBe(47);
@@ -117,4 +135,268 @@ describe("custom-code workspace adapter", () => {
       table: "imported_points_123",
     });
   });
+});
+
+describe("artifact import acceptance boundaries", () => {
+  function storage() {
+    const entries = new Map<string, string>();
+    return {
+      entries,
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        entries.set(key, value);
+      },
+    };
+  }
+  async function artifact() {
+    const bytes = new TextEncoder().encode('{"type":"FeatureCollection","features":[]}');
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    return {
+      bytes,
+      receipt: {
+        ...runIdentity,
+        runId: "e".repeat(32),
+        snapshotDigest: identity.sourceDigest,
+        status: "succeeded",
+        artifacts: [{ path: "points.geojson", bytes: bytes.length, sha256: hash }],
+      } as LocalRunReceipt,
+    };
+  }
+  it("rejects invalid dataset names before downloading or reserving an upload", async () => {
+    const saved = storage();
+    const { receipt } = await artifact();
+    const fetchImpl = vi.fn();
+    const client = new LocalProcessWorkspace({ ...options, commandStorage: saved, fetchImpl });
+    await expect(client.importArtifact(receipt, "points.geojson", "")).rejects.toThrow("dataset table name");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(saved.entries.size).toBe(0);
+  });
+  it("never silently retries an upload whose accepted response was lost", async () => {
+    const saved = storage();
+    const { bytes, receipt } = await artifact();
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") throw new Error("upload response lost");
+      return new Response(bytes);
+    });
+    const first = new LocalProcessWorkspace({ ...options, commandStorage: saved, fetchImpl });
+    expect(await first.importArtifact(receipt, "points.geojson", "points")).toMatchObject({
+      status: "unknown",
+      uploadId: expect.any(String),
+    });
+    const reopened = new LocalProcessWorkspace({ ...options, commandStorage: saved, fetchImpl });
+    expect(await reopened.importArtifact(receipt, "points.geojson", "points")).toMatchObject({
+      status: "unknown",
+      uploadId: expect.any(String),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const form = fetchImpl.mock.calls[1]?.[1]?.body as FormData;
+    expect(form.get("UploadId")).toMatch(/^[a-f0-9-]{36}$/);
+    expect([...saved.entries.values()].join("")).not.toContain("csrf");
+  });
+  it("does not submit after the workspace changes while artifact bytes are downloading", async () => {
+    const saved = storage();
+    const { bytes, receipt } = await artifact();
+    let workspace = "original";
+    let release!: (response: Response) => void;
+    const fetchImpl = vi.fn(
+      (_url: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const client = new LocalProcessWorkspace({
+      ...options,
+      workspaceId: () => workspace,
+      commandStorage: saved,
+      fetchImpl,
+    });
+    const pending = client.importArtifact(receipt, "points.geojson", "points");
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    workspace = "other";
+    release(new Response(bytes));
+    await expect(pending).rejects.toThrow("workspace changed");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(saved.entries.size).toBe(0);
+  });
+  it("does not persist an old workspace upload's job under a newly selected workspace", async () => {
+    const saved = storage();
+    const { bytes, receipt } = await artifact();
+    let workspace = "original";
+    let release!: (response: Response) => void;
+    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) =>
+      init?.method === "POST"
+        ? new Promise<Response>((resolve) => {
+            release = resolve;
+          })
+        : Promise.resolve(new Response(bytes)),
+    );
+    const client = new LocalProcessWorkspace({
+      ...options,
+      workspaceId: () => workspace,
+      commandStorage: saved,
+      fetchImpl,
+    });
+    const pending = client.importArtifact(receipt, "points.geojson", "points");
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    workspace = "other";
+    release(new Response(JSON.stringify({ jobId: "accepted-original" })));
+    await expect(pending).rejects.toThrow("workspace changed");
+    expect([...saved.entries.keys()].some((key) => key.includes('"other"'))).toBe(false);
+    expect([...saved.entries.values()].every((value) => !value.includes("accepted-original"))).toBe(true);
+  });
+});
+
+it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+  "does not allocate or upload without a valid host file-byte capability (%s)",
+  async (capacity) => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const writes = vi.fn();
+    const client = new LocalProcessWorkspace({
+      ...options,
+      maxArtifactUploadBytes: capacity,
+      fetchImpl,
+      commandStorage: { getItem: () => null, setItem: writes },
+    });
+    const observed = await client.importArtifact(
+      {
+        ...runIdentity,
+        runId: "run",
+        snapshotDigest: "d".repeat(64),
+        status: "succeeded",
+        artifacts: [{ path: "features.geojson", bytes: 471, sha256: "f".repeat(64) }],
+      },
+      "features.geojson",
+      "features",
+    );
+    expect(observed.status).toBe("unsupported");
+    expect(observed.message).toContain("capacity");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
+  },
+);
+it("preflights a multi-GB declared output before any download, allocation or upload intent", async () => {
+  const fetchImpl = vi.fn() as unknown as typeof fetch;
+  const writes = vi.fn();
+  const client = new LocalProcessWorkspace({
+    ...options,
+    fetchImpl,
+    commandStorage: { getItem: () => null, setItem: writes },
+  });
+  const observed = await client.importArtifact(
+    {
+      ...runIdentity,
+      runId: "run",
+      snapshotDigest: "d".repeat(64),
+      status: "succeeded",
+      artifacts: [{ path: "features.geojson", bytes: 8 * 1024 ** 3, sha256: "f".repeat(64) }],
+    },
+    "features.geojson",
+    "features",
+  );
+  expect(observed.status).toBe("unsupported");
+  expect(observed.message).toContain("resumable");
+  expect(fetchImpl).not.toHaveBeenCalled();
+  expect(writes).not.toHaveBeenCalled();
+});
+it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+  "refuses an invalid canonical artifact size before I/O (%s)",
+  async (bytes) => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+    await expect(
+      client.importArtifact(
+        {
+          ...runIdentity,
+          runId: "run",
+          snapshotDigest: "d".repeat(64),
+          status: "succeeded",
+          artifacts: [{ path: "features.geojson", bytes, sha256: "f".repeat(64) }],
+        },
+        "features.geojson",
+        "features",
+      ),
+    ).rejects.toThrow("immutable byte size");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  },
+);
+
+it("cancels a response that exceeds the receipt instead of growing its buffer or uploading", async () => {
+  const cancel = vi.fn();
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(4));
+      },
+      cancel,
+    }),
+  );
+  const fetchImpl = vi.fn(async () => response) as typeof fetch;
+  const writes = vi.fn();
+  const client = new LocalProcessWorkspace({
+    ...options,
+    fetchImpl,
+    commandStorage: { getItem: () => null, setItem: writes },
+  });
+  await expect(
+    client.importArtifact(
+      {
+        ...runIdentity,
+        runId: "run",
+        snapshotDigest: "d".repeat(64),
+        status: "succeeded",
+        artifacts: [{ path: "features.geojson", bytes: 4, sha256: "f".repeat(64) }],
+      },
+      "features.geojson",
+      "features",
+    ),
+  ).rejects.toThrow("exceeded its immutable byte size");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetchImpl).toHaveBeenCalledOnce();
+  expect(writes).not.toHaveBeenCalled();
+});
+it("refuses a response declaring more bytes than the canonical artifact before reading it", async () => {
+  const cancel = vi.fn();
+  const response = new Response(new ReadableStream({ cancel }), { headers: { "Content-Length": "8589934592" } });
+  const fetchImpl = vi.fn(async () => response) as typeof fetch;
+  const client = new LocalProcessWorkspace({
+    ...options,
+    fetchImpl,
+    commandStorage: { getItem: () => null, setItem: vi.fn() },
+  });
+  await expect(
+    client.importArtifact(
+      {
+        ...runIdentity,
+        runId: "run",
+        snapshotDigest: "d".repeat(64),
+        status: "succeeded",
+        artifacts: [{ path: "features.geojson", bytes: 4, sha256: "f".repeat(64) }],
+      },
+      "features.geojson",
+      "features",
+    ),
+  ).rejects.toThrow("response size");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetchImpl).toHaveBeenCalledOnce();
+});
+
+it("accepts metadata-only large fixtures and rejects fixture bodies in that metadata contract", async () => {
+  const file = {
+    path: "fixtures/large-input.geojson",
+    bytes: 8 * 1024 * 1024,
+    sha256: "f".repeat(64),
+    role: "fixture",
+    readOnly: true,
+  };
+  const fetchImpl = vi
+    .fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ...identity, files: [], readOnlyFiles: [file] })))
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...identity, files: [], readOnlyFiles: [{ ...file, content: "fixture body" }] })),
+    ) as typeof fetch;
+  const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+  expect((await client.project()).readOnlyFiles).toEqual([file]);
+  await expect(client.project()).rejects.toThrow("read-only file metadata");
 });

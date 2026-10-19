@@ -237,7 +237,16 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
 
     const request = await c.requestPublish(created.itemId, version.versionId, {});
     expect(request.status).toBe("accepted");
+    if (request.status === "awaiting-approval") throw new Error("Expected immediate publication from this fixture.");
     expect(request.intent).toEqual({ route: "/studio/lc-publish", visibility: "organization" });
+    expect(await c.getPublicationRequest(created.itemId, version.versionId, request.requestId)).toEqual(request);
+    await expect(c.getPublicationRequest(created.itemId, version.versionId, "missing-request")).rejects.toSatisfy(
+      isStudioLifecycleNotFound,
+    );
+    const otherVersion = await c.saveAsVersion(created.draftId);
+    await expect(c.getPublicationRequest(created.itemId, otherVersion.versionId, request.requestId)).rejects.toSatisfy(
+      isStudioLifecycleNotFound,
+    );
 
     const items = await c.listContentItems({ q: "lc-publish" });
     expect(items.items[0]?.state).toBe("published");
@@ -267,6 +276,7 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
       pointer: "both",
       reason: "bad deploy",
     });
+    if ("status" in rollback) throw new Error("Expected immediate rollback from this fixture.");
     expect(rollback.pointers).toEqual({
       itemId: created.itemId,
       currentVersionId: v1.versionId,
@@ -348,10 +358,95 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
     return new Response(JSON.stringify(body), { status, headers: { "content-type": contentType } });
   }
 
+  it.each([4, "RequiresApproval", "requiresApproval"])(
+    "retains the approval receipt for publication and rollback when HTTP 202 status is %s",
+    async (status) => {
+      let calls = 0;
+      const fetchImpl: typeof fetch = async () => {
+        calls += 1;
+        return jsonResponse(202, {
+          data: {
+            status,
+            operationInstanceId: "operation-1",
+            proposalId: "proposal-1",
+            auditId: "audit-1",
+            correlationId: "correlation-1",
+            proposalUri: "/operations/proposals/proposal-1",
+            resourceIds: { requestId: "request-1", itemId: "item-1", versionId: "version-1", ignored: "untrusted" },
+          },
+        });
+      };
+      const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+      const expected = {
+        status: "awaiting-approval",
+        operationInstanceId: "operation-1",
+        proposalId: "proposal-1",
+        auditId: "audit-1",
+        correlationId: "correlation-1",
+        proposalUri: "/operations/proposals/proposal-1",
+        requestId: "request-1",
+        itemId: "item-1",
+        versionId: "version-1",
+      };
+      expect(await c.requestPublish("item-1", "version-1")).toEqual(expected);
+      expect(await c.requestRollback("item-1", { targetVersionId: "version-1", pointer: "both" })).toEqual(expected);
+      expect(calls).toBe(2); // Returning a receipt must not retry or execute either action.
+    },
+  );
+
+  it.each([
+    { status: 1, operationInstanceId: "operation-1", proposalId: "proposal-1" },
+    { status: "accepted", operationInstanceId: "operation-1", proposalId: "proposal-1" },
+    { status: 4, proposalId: "proposal-1" },
+    { status: 4, operationInstanceId: "operation-1", proposalId: " " },
+    null,
+  ])("refuses to report an unrecognized 202 receipt as a completed mutation: %j", async (data) => {
+    const fetchImpl: typeof fetch = async () => jsonResponse(202, { data });
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    await expect(c.requestPublish("item-1", "version-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+    await expect(c.requestRollback("item-1", { targetVersionId: "version-1", pointer: "both" })).rejects.toMatchObject({
+      status: 202,
+      code: "unknown",
+    });
+  });
+
+  it("refuses an empty 202 response instead of returning a completed result", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(null, { status: 202 });
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    await expect(c.requestPublish("item-1", "version-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+  });
+
+  it("does not cast a pending operation into a saved version", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse(202, {
+        data: { status: 4, operationInstanceId: "operation-1", proposalId: "proposal-1" },
+      });
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    await expect(c.saveAsVersion("draft-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+  });
+
   it("maps a 401 with no auth configured straight to StudioLifecycleSessionExpiredError", async () => {
     const fetchImpl = (async () => jsonResponse(401, {})) as unknown as typeof fetch;
     const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
     await expect(c.getPackageFamilies()).rejects.toBeInstanceOf(StudioLifecycleSessionExpiredError);
+  });
+
+  it("preserves the caller's publication identity through session refresh and an explicit retry", async () => {
+    const calls: { key: string | null; body: unknown }[] = [];
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      calls.push({ key: new Headers(init?.headers).get("Idempotency-Key"), body: init?.body });
+      if (calls.length === 1) return jsonResponse(401, {});
+      if (calls.length === 2) throw new TypeError("response lost");
+      return jsonResponse(202, { data: { status: 4, operationInstanceId: "operation", proposalId: "proposal" } });
+    };
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl, auth: { getAccessToken: async () => "token" } });
+    const input = { intent: { route: "/maps/map", visibility: "organization" } };
+    await expect(c.requestPublish("item", "version", input, "original-command")).rejects.toThrow("Could not reach");
+    expect(calls).toHaveLength(2);
+    await expect(c.requestPublish("item", "version", input, "original-command")).resolves.toMatchObject({
+      status: "awaiting-approval",
+    });
+    expect(calls).toEqual(Array.from({ length: 3 }, () => ({ key: "original-command", body: JSON.stringify(input) })));
   });
 
   it("a 401 WITH auth retries once with forceRefresh, then succeeds", async () => {

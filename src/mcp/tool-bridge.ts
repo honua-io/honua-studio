@@ -152,6 +152,12 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   addLayer: compositionPassthroughEntry("addLayer", "honua_studio_add_layer"),
   removeLayer: compositionPassthroughEntry("removeLayer", "honua_studio_remove_layer"),
   setLayerStyleRef: compositionPassthroughEntry("setLayerStyleRef", "honua_studio_set_layer_style"),
+  setMapStyle: compositionPassthroughEntry("setMapStyle", "honua_studio_set_map_style"),
+  honua_studio_set_map_style: {
+    vocabulary: "server-mcp",
+    serverToolName: "honua_studio_set_map_style",
+    build: (args) => finalizeCommand("setMapStyle", { mapSpec: args.mapSpec }),
+  },
   /**
    * honua-studio#24's TOC/compare/time toggles and any agent-authored "hide
    * the parcels" both land here, and both now delegate (honua-studio#31).
@@ -274,6 +280,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       const fields: Record<string, unknown> = { target: { kind: "layer", id: args.layerId } };
       const styleRef = styleRefFromString(args.styleRef);
       if (styleRef) fields.styleRef = styleRef;
+      if (args.styleBody !== undefined) fields.styleBody = args.styleBody;
       return finalizeCommand("setLayerStyleRef", fields);
     },
   },
@@ -459,8 +466,16 @@ export function buildServerToolInvocation(
     case "setLayerStyleRef":
       return {
         name: "honua_studio_set_layer_style",
-        arguments: { ...base, layerId: targetId(command.target), styleRef: command.styleRef?.styleId ?? null },
+        arguments: {
+          ...base,
+          layerId: targetId(command.target),
+          ...(command.styleBody !== undefined
+            ? { styleBody: command.styleBody }
+            : { styleRef: command.styleRef?.styleId ?? null }),
+        },
       };
+    case "setMapStyle":
+      return { name: "honua_studio_set_map_style", arguments: { ...base, mapSpec: command.mapSpec } };
     case "setVisibility":
       // Layer-only by construction: the reducer resolves this command's
       // target as a layer (`requireResolved(..., "layer", ...)`) and the
@@ -525,6 +540,9 @@ export function applyStudioDraftBody(
   if (!body) return base;
   return {
     ...base,
+    sourceBindings: body.sourceBindings,
+    styleRefs: body.styleRefs,
+    mapSpec: body.mapSpec,
     layers: (body.layers ?? []).map((layer) => studioLayerToComposition(layer)),
     view: studioViewToComposition(body.view),
     widgets: (body.widgets ?? []).map((widget) => studioWidgetToComposition(widget)),
@@ -578,6 +596,9 @@ function studioViewToComposition(view: StudioMcpViewInput | undefined): Composit
  */
 export function toStudioCompositionBody(state: CompositionState): StudioCompositionBodyWire {
   return {
+    ...(state.sourceBindings !== undefined ? { sourceBindings: state.sourceBindings } : {}),
+    ...(state.styleRefs !== undefined ? { styleRefs: state.styleRefs } : {}),
+    ...(state.mapSpec !== undefined ? { mapSpec: state.mapSpec } : {}),
     layers: state.layers.map((layer) => ({
       id: layer.id,
       sourceId: layer.sourceId,

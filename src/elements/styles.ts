@@ -128,6 +128,15 @@ export function appShellStyles(): string {
       border-radius: var(--hn-radius, 6px);
       padding: var(--hn-space-0, 2px);
     }
+    /* Console owns product navigation and the one primary conversation. */
+    :host([data-workspace-host]) slot[name="chat"],
+    :host([data-workspace-host]) .app-brand,
+    :host([data-workspace-host]) .app-nav,
+    :host([data-workspace-host]) .app-view,
+    :host([data-workspace-host]) .app-theme-controls,
+    :host([data-workspace-host]) [data-testid="live-composition-status"],
+    :host([data-workspace-host]) [data-testid="live-composition-toggle"],
+    :host([data-workspace-host]) [data-testid="live-composition-form"] { display: none; }
     .app-view {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
       gap: var(--hn-space-5, 24px); align-items: start;
@@ -138,6 +147,9 @@ export function appShellStyles(): string {
     .entity-list li:last-child { border-bottom: none; padding-bottom: 0; }
     slot[name="chat"][hidden] { display: none; }
     .app-slots { display: flex; flex-direction: column; gap: var(--hn-space-5, 24px); }
+    .app-slots[data-style-mode] { display: grid; grid-template-columns: minmax(520px, 3fr) minmax(300px, 2fr); align-items: start; }
+    .app-slots[data-style-mode] > section, .app-slots[data-style-mode] > slot { min-width: 0; }
+    @media (max-width: 1000px) { .app-slots[data-style-mode] { display: flex; } }
     /* honua-studio#23 REQ-004 — the live-composition control group. */
     .app-composition-mode { display: flex; align-items: center; gap: var(--hn-space-2, 8px); position: relative; }
     .app-composition-mode .hn-badge[data-mode="live"] {

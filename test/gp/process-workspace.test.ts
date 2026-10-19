@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type ProcessGraph,
   ServerProcessWorkspace,
+  normalizeProcessDiagnostics,
   snapshotProcessGraph,
   validateProcessGraph,
 } from "../../src/gp/process-workspace.js";
@@ -63,7 +64,12 @@ describe("Processes server adapter", () => {
         entries.set(key, value);
       },
     };
-    const first = new ServerProcessWorkspace({ environmentId: "env", csrfToken: "csrf", commandStorage: storage });
+    const first = new ServerProcessWorkspace({
+      environmentId: "env",
+      principalId: "operator-a",
+      csrfToken: "csrf",
+      commandStorage: storage,
+    });
     const command = first.reserveCommand("pkg", 1);
     expect(command.reconcileOnly).toBe(false);
     const fetchImpl = vi.fn(
@@ -71,6 +77,7 @@ describe("Processes server adapter", () => {
     ) as unknown as typeof fetch;
     const reopened = new ServerProcessWorkspace({
       environmentId: "env",
+      principalId: "operator-a",
       csrfToken: "csrf",
       commandStorage: storage,
       fetchImpl,
@@ -90,6 +97,7 @@ describe("Processes server adapter", () => {
     let commandId = "";
     const client = new ServerProcessWorkspace({
       environmentId: "env",
+      principalId: "operator-a",
       csrfToken: "csrf",
       commandStorage: storage,
       fetchImpl: vi.fn(
@@ -111,6 +119,51 @@ describe("Processes server adapter", () => {
     expect(next.reconcileOnly).toBe(false);
   });
 
+  it("isolates pending commands and accepted receipts across operators sharing a browser", async () => {
+    const entries = new Map<string, string>();
+    const commandStorage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        entries.set(key, value);
+      },
+    };
+    const options = { environmentId: "env", csrfToken: "csrf", commandStorage };
+    const operatorA = new ServerProcessWorkspace({ ...options, principalId: "operator-a" });
+    const pending = operatorA.reserveCommand("pkg", 1);
+    let acceptedCommand = "";
+    const operatorB = new ServerProcessWorkspace({
+      ...options,
+      principalId: "operator-b",
+      fetchImpl: async (input, init) => {
+        expect(new Headers(init?.headers).get("X-Honua-Session-Partition")).toBe("operator-b");
+        return Response.json({
+          data: String(input).endsWith("/runs")
+            ? { workflowRunId: "run-b", packageId: "pkg", packageVersion: 1, publicationId: `wfp-${acceptedCommand}` }
+            : {},
+        });
+      },
+    });
+    const fresh = operatorB.reserveCommand("pkg", 1);
+    acceptedCommand = fresh.commandId;
+    expect(fresh.reconcileOnly).toBe(false);
+    expect(fresh.commandId).not.toBe(pending.commandId);
+    await operatorB.run("pkg", 1, acceptedCommand);
+    expect(operatorB.reserveCommand("pkg", 1).reconcileOnly).toBe(false);
+    const renewedA = new ServerProcessWorkspace({ ...options, principalId: "operator-a", csrfToken: "renewed" });
+    expect(renewedA.reserveCommand("pkg", 1)).toEqual({ ...pending, reconcileOnly: true });
+  });
+
+  it("refuses durable submission without a principal partition before contacting the server", async () => {
+    const fetchImpl = vi.fn();
+    const commandStorage = { getItem: vi.fn(), setItem: vi.fn() };
+    const client = new ServerProcessWorkspace({ environmentId: "env", csrfToken: "csrf", fetchImpl, commandStorage });
+    expect(() => client.reserveCommand("pkg", 1)).toThrow("principal partition");
+    await expect(client.run("pkg", 1, "command")).rejects.toThrow("principal partition");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(commandStorage.getItem).not.toHaveBeenCalled();
+    expect(commandStorage.setItem).not.toHaveBeenCalled();
+  });
+
   it("delegates snapshots, compilation, run and cancellation to actual server routes", async () => {
     const bodies: unknown[] = [];
     const responses = [
@@ -126,7 +179,12 @@ describe("Processes server adapter", () => {
       bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
       return new Response(JSON.stringify({ success: true, data: responses.shift() }));
     }) as unknown as typeof fetch;
-    const client = new ServerProcessWorkspace({ environmentId: "env-a", csrfToken: "csrf", fetchImpl });
+    const client = new ServerProcessWorkspace({
+      environmentId: "env-a",
+      csrfToken: "csrf",
+      principalId: "partition-a",
+      fetchImpl,
+    });
     const prepared = await client.prepare("Buffer graph", graph);
     expect(prepared.version).toBe(2);
     expect(prepared.contentHash).toBe("a".repeat(64));
@@ -144,5 +202,57 @@ describe("Processes server adapter", () => {
       "/api/processes/admin/operations/wf-1/cancel",
     ]);
     expect(bodies[5]).toEqual({ idempotencyKey: "command-1", reconcileOnly: false });
+    for (const [, request] of vi.mocked(fetchImpl).mock.calls) {
+      expect(new Headers(request?.headers).get("X-Honua-Session-Partition")).toBe("partition-a");
+    }
   });
+});
+
+it("links real server parameter/input paths by exact node ID and retains global diagnostics", () => {
+  const graph: ProcessGraph = {
+    schemaVersion: "workflow-package.v1",
+    nodes: [{ nodeId: "raster", nodeTypeId: "process:raster", parameters: {} }],
+    edges: [],
+  };
+  expect(
+    normalizeProcessDiagnostics(
+      [
+        { code: "required", fieldPath: "graph.nodes[raster].parameters.source", message: "Required" },
+        { code: "input", fieldPath: "steps[raster].inputs.source", message: "Cannot bind" },
+        { code: "global", fieldPath: "graph.nodes[other].parameters.source", message: "Unknown" },
+        { code: "global", fieldPath: "graph", message: "Graph error" },
+      ],
+      graph,
+    ).map((item) => item.nodeId),
+  ).toEqual(["raster", "raster", undefined, undefined]);
+});
+it("does not reject artifact envelope to URI input based on schema JSON type", () => {
+  const graph: ProcessGraph = {
+    schemaVersion: "workflow-package.v1",
+    nodes: [
+      { nodeId: "raster", nodeTypeId: "process:raster", parameters: {} },
+      { nodeId: "read", nodeTypeId: "process:read", parameters: {} },
+    ],
+    edges: [{ sourceNodeId: "raster", targetNodeId: "read", kind: "Data", sourcePort: "raster", targetPort: "source" }],
+  };
+  const registry = {
+    registryVersion: "actual-shapes",
+    nodes: [
+      {
+        nodeTypeId: "process:raster",
+        providerId: "geoprocessing.process-catalog",
+        title: "Raster",
+        parameterSchemas: [],
+        outputSchemas: [{ name: "raster", schema: { type: "Structured", format: "raster" } }],
+      },
+      {
+        nodeTypeId: "process:read",
+        providerId: "geoprocessing.process-catalog",
+        title: "Read",
+        parameterSchemas: [],
+        inputSchemas: [{ name: "source", schema: { type: "Text" } }],
+      },
+    ],
+  };
+  expect(validateProcessGraph(graph, registry)).toEqual([]);
 });

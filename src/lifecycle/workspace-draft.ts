@@ -1,17 +1,21 @@
 import type { CompositionState } from "../composition/model.js";
 import { toCompositionDraftBody } from "../mcp/composition-envelope.js";
+import type { MapStyleDocument } from "../styles/map-style-edit.js";
 import { toCompositionDraft } from "./composition-draft-store.js";
 import type { StudioLifecycleClient } from "./lifecycle-client.js";
 import type { StudioPackageDraft } from "./lifecycle-types.js";
+
+type WorkspaceDraftClient = Pick<StudioLifecycleClient, "getDraft" | "replaceDraft"> &
+  Partial<Pick<StudioLifecycleClient, "setMapStyle" | "initializeDraftStyle">>;
 
 /** Human-authorized REST edits of the same durable draft used by the native agent.
  * No MCP replay, implicit conflict retry, publication or model history is involved. */
 export class WorkspaceDraftBinding {
   #draft: StudioPackageDraft | undefined;
-  public constructor(private client: Pick<StudioLifecycleClient, "getDraft" | "replaceDraft">) {}
+  public constructor(private client: WorkspaceDraftClient) {}
 
   /** Renew transport credentials without changing the observed draft identity. */
-  public rebind(client: Pick<StudioLifecycleClient, "getDraft" | "replaceDraft">): void {
+  public rebind(client: WorkspaceDraftClient): void {
     this.client = client;
   }
 
@@ -30,6 +34,32 @@ export class WorkspaceDraftBinding {
     const state = toCompositionDraft(draft).envelope.body;
     this.#draft = draft;
     return state;
+  }
+
+  public async initializeStyle(): Promise<CompositionState> {
+    const current = this.#draft;
+    if (!current || !this.client.initializeDraftStyle)
+      throw new Error("The canonical style initializer is unavailable.");
+    return this.#acceptStyle(await this.client.initializeDraftStyle(current.draftId, current.generation), current);
+  }
+
+  public async replaceStyle(mapSpec: MapStyleDocument): Promise<CompositionState> {
+    const current = this.#draft;
+    if (!current || !this.client.setMapStyle) throw new Error("The canonical style command is unavailable.");
+    return this.#acceptStyle(await this.client.setMapStyle(current.draftId, current.generation, mapSpec), current);
+  }
+
+  #acceptStyle(draft: StudioPackageDraft, current: StudioPackageDraft): CompositionState {
+    if (
+      draft?.draftId !== current.draftId ||
+      draft.packageKey !== current.packageKey ||
+      !Number.isSafeInteger(draft.generation) ||
+      draft.generation <= current.generation
+    )
+      throw new Error("The style command did not return an accepted authoritative draft.");
+    const observed = toCompositionDraft(draft).envelope.body;
+    this.#draft = draft;
+    return observed;
   }
 
   public async replace(state: CompositionState): Promise<CompositionState> {

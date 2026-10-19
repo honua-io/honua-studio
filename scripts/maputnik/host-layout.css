@@ -1,0 +1,19 @@
+/* The host owns the preview canvas; the frame fills its allocated editor panel. */
+.maputnik-layout-main > p { flex: 1; min-width: 0; padding: 12px; }
+.maputnik-layout-drawer, .maputnik-layout-code-editor { min-width: 0; }
+/* Host lifecycle owns persistence and preview navigation. */
+[data-wd-key="nav:open"], [data-wd-key="nav:export"], [data-wd-key="nav:inspect"] { display: none; }
+@media (max-width: 600px) {
+  .maputnik-layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .maputnik-toolbar { position: relative; top: auto; height: auto; flex: 0 0 auto; }
+  .maputnik-toolbar__inner { flex-wrap: wrap; }
+  .maputnik-toolbar-logo-container { flex: 0 0 100%; }
+  .maputnik-toolbar-logo { width: auto; flex-basis: auto; height: 36px; padding-top: 4px; padding-bottom: 4px; }
+  .maputnik-toolbar__actions { display: flex; flex-wrap: wrap; flex: 0 0 100%; min-width: 0; white-space: normal; overflow: visible; }
+  .maputnik-toolbar-link { height: 36px; padding: 4px 8px; }
+  .maputnik-layout-main { position: relative; top: auto; bottom: auto; height: auto; min-height: 0; flex: 1; flex-direction: column; }
+  .maputnik-layout-list { width: 100%; flex: 0 0 auto; max-height: 120px; overflow-y: auto; }
+  .maputnik-layout-drawer { width: 100%; flex: 1; min-height: 0; }
+  .maputnik-layout-code-editor { width: 100%; height: 100%; }
+  .maputnik-layout-main > p { display: none; }
+}

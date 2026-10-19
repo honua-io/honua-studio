@@ -1,9 +1,12 @@
-import type { HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
-import { validateHonuaStyle } from "@honua/sdk-js/style";
+import { toWgs84 } from "@honua/sdk-js/geometry";
+import type { HonuaStyleRefBody, HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
+import { type HonuaStyleSpecification, validateHonuaStyle } from "@honua/sdk-js/style";
 import type { AuthSession } from "../auth/types.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import { type CompositionSourceDescriptor, layerTypeForGeometry } from "../map/source-resolution.js";
 import { McpClient } from "../mcp/client.js";
+import type { CompositionStyleLayerBinding, MapStyleField } from "./map-style-edit.js";
+import { canonicalStyleRefBody } from "./style-ref-body.js";
 
 export interface AuthoritativeStyleSummary {
   readonly styleId: string;
@@ -26,10 +29,14 @@ export interface BoundAuthoritativeStyle {
   readonly stylesheetLayerId: string;
   readonly fields: readonly string[];
   readonly override: HonuaStyleRefLayerOverride;
+  readonly mappedBody?: HonuaStyleRefBody;
+  readonly layerBindings?: readonly CompositionStyleLayerBinding[];
 }
 export interface AuthoritativeStyleProviderOptions {
   readonly baseUrl: string;
   readonly documentUrl: string;
+  /** Explicit same-origin catalog alias supplied by the trusted cookie host. */
+  readonly catalogAliasBaseUrl?: string;
   readonly getAuth: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly fetchImpl?: typeof fetch;
   readonly signal?: AbortSignal;
@@ -51,13 +58,15 @@ function rejectLegacyFilter(value: unknown): void {
   const [operator, operand] = value;
   if (
     ["!has", "!in", "none"].includes(operator) ||
-    (["==", "!=", ">", ">=", "<", "<=", "in"].includes(operator) && typeof operand === "string")
+    (["==", "!=", ">", ">=", "<", "<=", "in"].includes(operator) &&
+      typeof operand === "string" &&
+      !Array.isArray(value[2]))
   )
     throw new Error("Legacy stylesheet filters are not supported; use explicit get/has expressions.");
   if (["all", "any", "!"].includes(operator)) for (const child of value.slice(1)) rejectLegacyFilter(child);
 }
 
-/** Initial subset: resource-free fill/line/circle overrides onto existing resolved sources. */
+/** Resource-free vector styles, including symbols rendered with local fonts. */
 export function parseStyleLayers(inlineBody: string): readonly Readonly<Record<string, unknown>>[] {
   if (new TextEncoder().encode(inlineBody).length > 262144) throw new Error("Stylesheet exceeds the 256 KiB limit.");
   const style = record(JSON.parse(inlineBody));
@@ -80,7 +89,7 @@ export function parseStyleLayers(inlineBody: string): readonly Readonly<Record<s
       typeof layer.id !== "string" ||
       !layer.id ||
       identities.has(layer.id) ||
-      !["fill", "line", "circle"].includes(String(layer.type))
+      !["fill", "line", "circle", "symbol"].includes(String(layer.type))
     )
       throw new Error("Stylesheet layers must have unique ids and supported vector types.");
     identities.add(layer.id);
@@ -104,6 +113,22 @@ export class AuthoritativeStyleProvider {
     if (!/^https?:$/.test(root.protocol) || root.username || root.password || root.search || root.hash)
       throw new Error("Invalid trusted style server root.");
     this.serverRoot = root.href.replace(/\/$/, "");
+  }
+
+  #catalogRoots(): readonly string[] {
+    if (this.options.catalogAliasBaseUrl === undefined) return [this.serverRoot];
+    const alias = new URL(this.options.catalogAliasBaseUrl || "/", this.options.documentUrl);
+    const root = new URL(this.serverRoot);
+    if (alias.origin !== root.origin || alias.username || alias.password || alias.search || alias.hash)
+      throw new Error("Invalid trusted catalog source alias.");
+    return [this.serverRoot, alias.href.replace(/\/$/, "")];
+  }
+  #matchesPublishedSource(url: URL, serviceName: string, layerId: number): boolean {
+    const service = serviceName.split("/").map(encodeURIComponent).join("/");
+    return this.#catalogRoots().some((root) => {
+      const published = `${root}/rest/services/${service}/FeatureServer`;
+      return url.href.replace(/\/$/, "") === published || url.href.replace(/\/$/, "") === `${published}/${layerId}`;
+    });
   }
 
   get sessionIdentity() {
@@ -198,18 +223,119 @@ export class AuthoritativeStyleProvider {
     };
   }
 
-  async bind(styleId: string, source: CompositionSourceDescriptor): Promise<BoundAuthoritativeStyle> {
+  /** Geographic preview extent from the same freshly authorized published descriptor. */
+  async describeSourceBounds(
+    source: CompositionSourceDescriptor,
+  ): Promise<readonly [number, number, number, number] | undefined> {
+    const { descriptor } = await this.#describeVerifiedSource(source);
+    const srid = descriptor.srid;
+    const bounds = descriptor.extent;
+    if (![4326, 3857, 3785, 900913, 102100, 102113].includes(Number(srid)) || !bounds || typeof bounds !== "object")
+      return;
+    const extent = bounds as Record<string, unknown>;
+    const values = [extent.minX, extent.minY, extent.maxX, extent.maxY];
+    if (!values.every((value) => typeof value === "number" && Number.isFinite(value))) return;
+    const [minX, minY, maxX, maxY] = values as number[];
+    if (minX! > maxX! || minY! > maxY!) return;
+    const projected = toWgs84(
+      {
+        type: "MultiPoint",
+        coordinates: [
+          [minX!, minY!],
+          [maxX!, maxY!],
+        ],
+      },
+      Number(srid),
+    ) as { coordinates: number[][] };
+    const [a, b] = projected.coordinates;
+    if (
+      !a ||
+      !b ||
+      ![...a, ...b].every(Number.isFinite) ||
+      Math.abs(a[0]!) > 180 ||
+      Math.abs(b[0]!) > 180 ||
+      Math.abs(a[1]!) > 90 ||
+      Math.abs(b[1]!) > 90
+    )
+      return;
+    return [a[0]!, a[1]!, b[0]!, b[1]!];
+  }
+
+  async describeSource(source: CompositionSourceDescriptor): Promise<readonly MapStyleField[]> {
+    return (await this.#describeVerifiedSource(source)).fields;
+  }
+
+  async resolveProcessSource(source: CompositionSourceDescriptor): Promise<{
+    processLayerId?: number;
+    unavailableReason?: string;
+  }> {
+    const { descriptor } = await this.#describeVerifiedSource(source);
+    const id = descriptor.processLayerId;
+    if (id !== undefined && (!Number.isSafeInteger(id) || Number(id) < 0 || Number(id) > 2147483647))
+      throw new Error("The canonical process layer identity is invalid.");
+    if (id !== undefined) return { processLayerId: Number(id) };
+    const reason = descriptor.processLayerUnavailableReason;
+    return {
+      unavailableReason:
+        typeof reason === "string" && reason.trim() && reason.length <= 1000
+          ? reason
+          : "This published source does not support the canonical streaming process binding.",
+    };
+  }
+
+  async #describeVerifiedSource(source: CompositionSourceDescriptor) {
+    const { serviceId, layerId } = source.locator ?? {};
+    if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
+      throw new Error("Select an actual published source for thematic fields.");
+    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId });
+    if (
+      descriptor.serviceId !== serviceId ||
+      descriptor.layerId !== layerId ||
+      !Array.isArray(descriptor.fields) ||
+      descriptor.fields.length > 1000 ||
+      descriptor.fieldCount !== descriptor.fields.length
+    )
+      throw new Error("The actual source field descriptor does not match.");
+    const expected = new URL(String(source.locator?.url), this.options.documentUrl);
+    if (
+      typeof descriptor.serviceName !== "string" ||
+      !this.#matchesPublishedSource(expected, descriptor.serviceName, Number(layerId))
+    )
+      throw new Error("The field descriptor does not match its actual published source.");
+    const seen = new Set<string>();
+    const fields = descriptor.fields.map((value) => {
+      const field = record(value);
+      if (typeof field.name !== "string" || !field.name || field.name.length > 256 || seen.has(field.name))
+        throw new Error("Invalid actual source field.");
+      seen.add(field.name);
+      return { name: field.name, type: typeof field.type === "string" ? field.type : "unknown" };
+    });
+    return { descriptor, fields };
+  }
+
+  async bind(
+    styleId: string,
+    source: CompositionSourceDescriptor,
+    mapping?: {
+      readonly primaryTargetId: string;
+      readonly layerBindings: readonly CompositionStyleLayerBinding[];
+    },
+  ): Promise<BoundAuthoritativeStyle> {
     const auth = this.options.getAuth();
     const { serviceId, layerId } = source.locator ?? {};
     if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
       throw new Error("An actual discovered layer identity is required for style binding.");
     const sourceUrl = new URL(String(source.locator?.url), this.options.documentUrl);
-    const root = new URL(this.serverRoot);
     if (
-      sourceUrl.origin !== root.origin ||
-      !sourceUrl.pathname.startsWith(`${root.pathname.replace(/\/$/, "")}/rest/services/`) ||
       sourceUrl.username ||
-      sourceUrl.password
+      sourceUrl.password ||
+      !this.#catalogRoots().some((root) => {
+        const base = new URL(root);
+        return (
+          sourceUrl.origin === base.origin &&
+          sourceUrl.pathname.startsWith(`${base.pathname.replace(/\/$/, "")}/rest/services/`)
+        );
+      })
     )
       throw new Error("Style binding source is outside the trusted server root.");
     const definition = await this.read(styleId);
@@ -224,32 +350,65 @@ export class AuthoritativeStyleProvider {
     )
       throw new Error("Source descriptor geometry or bounded fields do not match.");
     if (typeof descriptor.serviceName !== "string") throw new Error("Source descriptor service name is missing.");
-    const serviceUrl = `${this.serverRoot}/rest/services/${descriptor.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
-    if (
-      sourceUrl.href.replace(/\/$/, "") !== serviceUrl &&
-      sourceUrl.href.replace(/\/$/, "") !== `${serviceUrl}/${layerId}`
-    )
+    if (!this.#matchesPublishedSource(sourceUrl, descriptor.serviceName, Number(layerId)))
       throw new Error("Source locator does not match the actual descriptor.");
     const fields = descriptor.fields.map((value) => {
       const field = record(value);
       if (typeof field.name !== "string" || !field.name) throw new Error("Invalid source descriptor field.");
       return field.name;
     });
-    const compatible = definition.layers.filter((layer) => layer.type === layerTypeForGeometry(source.geometryType));
+    const primaryBindings = mapping?.layerBindings.filter(
+      (binding) => binding.targetLayerId === mapping.primaryTargetId,
+    );
+    if (primaryBindings && primaryBindings.length !== 1)
+      throw new Error("The canonical primary style binding is missing or ambiguous.");
+    const compatible = definition.layers.filter(
+      (layer) =>
+        layer.type === layerTypeForGeometry(source.geometryType) &&
+        (!primaryBindings || layer.id === primaryBindings[0]?.styleLayerId),
+    );
     if (compatible.length !== 1) throw new Error("Stylesheet must identify exactly one compatible vector layer.");
     const selected = compatible[0];
     if (!selected) throw new Error("Compatible stylesheet layer is missing.");
-    for (const field of expressionFields(selected))
-      if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
+    const appliedLayers = definition.layers.filter(
+      (layer) =>
+        (layer.id === selected.id || layer.type === "symbol") &&
+        layer.source === selected.source &&
+        layer["source-layer"] === selected["source-layer"],
+    );
+    const mappedBody = mapping
+      ? canonicalStyleRefBody(JSON.parse(definition.inlineBody) as HonuaStyleSpecification, mapping.layerBindings)
+      : undefined;
+    for (const appearance of mappedBody ? Object.values(mappedBody) : appliedLayers) {
+      const properties = Object.fromEntries(
+        (["paint", "layout", "filter"] as const)
+          .filter((key) => appearance[key] !== undefined)
+          .map((key) => [key, appearance[key]]),
+      );
+      for (const field of expressionFields(properties))
+        if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
+    }
     const override: Record<string, unknown> = {};
     for (const key of ["paint", "layout", "filter", "minzoom", "maxzoom"] as const)
       if (selected[key] !== undefined) override[key] = selected[key];
-    override.metadata = {
+    const provenance = {
       "honua:styleId": definition.styleId,
       "honua:styleVersion": definition.styleVersion,
       "honua:styleSha256": definition.sha256,
       "honua:styleServer": definition.serverRoot,
     };
+    override.metadata = provenance;
+    const previewBody = mappedBody
+      ? Object.fromEntries(
+          Object.entries(mappedBody).map(([id, appearance]) => [
+            id,
+            {
+              ...appearance,
+              metadata: { ...appearance.metadata, ...provenance },
+            },
+          ]),
+        )
+      : undefined;
     const descriptorBody = canonicalCompositionJson(descriptor);
     const descriptorSha256 = await styleContentHash(descriptorBody);
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style binding.");
@@ -261,6 +420,7 @@ export class AuthoritativeStyleProvider {
       descriptorBody,
       stylesheetLayerId: String(selected.id),
       override,
+      ...(previewBody && mapping ? { mappedBody: previewBody, layerBindings: mapping.layerBindings } : {}),
     };
   }
 }
@@ -269,10 +429,25 @@ export function expressionFields(value: unknown): readonly string[] {
   const fields = new Set<string>();
   const walk = (entry: unknown) => {
     if (Array.isArray(entry)) {
-      if ((entry[0] === "get" || entry[0] === "has") && typeof entry[1] === "string") fields.add(entry[1]);
+      if (entry[0] === "literal") return;
+      if (
+        (entry[0] === "get" || entry[0] === "has") &&
+        typeof entry[1] === "string" &&
+        (entry.length === 2 ||
+          (entry.length === 3 && Array.isArray(entry[2]) && entry[2].length === 1 && entry[2][0] === "properties"))
+      )
+        fields.add(entry[1]);
       for (const child of entry) walk(child);
     } else if (entry && typeof entry === "object") for (const child of Object.values(entry)) walk(child);
   };
   walk(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const layout = (value as Record<string, unknown>).layout;
+    if (layout && typeof layout === "object")
+      for (const key of ["text-field", "icon-image"]) {
+        const text = (layout as Record<string, unknown>)[key];
+        if (typeof text === "string") for (const match of text.matchAll(/\{([^{}]+)\}/g)) fields.add(match[1]!);
+      }
+  }
   return [...fields].sort();
 }

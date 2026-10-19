@@ -7,12 +7,14 @@ afterEach(() => {
   for (const session of sessions.splice(0)) session.dispose();
   vi.unstubAllGlobals();
 });
-function session(expiresAt = new Date(Date.now() + 60000).toISOString()) {
+function session(expiresAt = new Date(Date.now() + 60000).toISOString(), sourcePathBase?: string) {
   const result = new HostAdapterAuthSession({
     kind: "cookie",
     baseUrl: "/api/studio",
     csrfToken: "csrf",
     environmentId: "env-a",
+    principalId: "opaque-principal",
+    sourcePathBase,
     expiresAt,
     onExpired: () => () => {},
   });
@@ -54,6 +56,7 @@ describe("cookie host session", () => {
     expect(init.headers.get("x-api-key")).toBeNull();
     expect(init.headers.get("X-CSRF-Token")).toBe("csrf");
     expect(init.headers.get("X-Honua-Environment")).toBe("env-a");
+    expect(init.headers.get("X-Honua-Session-Partition")).toBe("opaque-principal");
     for (const url of [
       "https://evil.invalid/api/v1/studio/package-drafts",
       "/api/mcp",
@@ -113,4 +116,26 @@ describe("cookie host session", () => {
       auth.fetchRequest!("http://foreign.invalid/rest/services/analysis/FeatureServer/47/query"),
     ).rejects.toThrow("host origin");
   });
+});
+
+it("normalizes only the verified deployment segment for bounded metadata and query reads", async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response("{}"));
+  vi.stubGlobal("fetch", fetch);
+  const auth = session(undefined, "/honua");
+  await auth.fetchRequest!("/honua/rest/services/roads/FeatureServer/0?f=json");
+  await auth.fetchRequest!("/honua/rest/services/roads/FeatureServer/0/query?f=json&resultOffset=2000");
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+    "/api/studio/data/rest/services/roads/FeatureServer/0?f=json",
+    "/api/studio/data/rest/services/roads/FeatureServer/0/query?f=json&resultOffset=2000",
+  ]);
+  for (const path of [
+    "/honua-other/rest/services/roads/FeatureServer/0",
+    "/other/honua/rest/services/roads/FeatureServer/0",
+    "/honua/honua/rest/services/roads/FeatureServer/0",
+    "/honua/rest/services/roads/FeatureServer/0/edit",
+  ])
+    await expect(auth.fetchRequest!(path)).rejects.toThrow();
+  await expect(session().fetchRequest!("/honua/rest/services/roads/FeatureServer/0")).rejects.toThrow();
+  for (const prefix of ["/honua/", "//evil", "/honua/..", "/honua%2Fother", "https://upstream.invalid/honua"])
+    expect(() => session(undefined, prefix)).toThrow("deployment source path");
 });

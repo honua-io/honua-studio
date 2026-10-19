@@ -190,3 +190,54 @@ describe("compositionToMapPackage (honua-studio#23)", () => {
     expect(paintOf(two)).toEqual(paintOf(one));
   });
 });
+
+describe("authoritative map-local style precedence", () => {
+  it("does not resurrect a render layer intentionally removed in the visual editor", () => {
+    const state = stateFrom([{ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } }]);
+    const initial = compositionToMapPackage(state, { catalog: CATALOG }).mapPackage.mapSpec;
+    const mapSpec = {
+      ...initial,
+      layers: initial.layers.filter((layer) => layer.id !== "hi-parcels" && layer.id !== "hi-parcels__outline"),
+    };
+    const observed = compositionToMapPackage(
+      { ...state, mapSpec: mapSpec as unknown as Record<string, unknown> },
+      { catalog: CATALOG },
+    ).mapPackage.mapSpec;
+    expect(layerIds(observed)).not.toContain("hi-parcels");
+    expect(layerIds(observed)).not.toContain("hi-parcels__outline");
+  });
+  it("uses inline paint without requiring a remote style-catalog binding", () => {
+    const state = stateFrom([
+      { name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } },
+      {
+        name: "setLayerStyleRef",
+        target: { kind: "layer", id: "hi-parcels" },
+        styleBody: { "hi-parcels": { paint: { "fill-color": "#112233" } } },
+      },
+    ]);
+    const result = compositionToMapPackage(state, { catalog: CATALOG, authoritativeStyles: {} });
+    expect(result.unresolved).toEqual([]);
+    expect(result.mapPackage.styleRefs?.[0].body).toEqual({ "hi-parcels": { paint: { "fill-color": "#112233" } } });
+  });
+});
+
+it("preserves inline snapshot bodies when explicit binding metadata is also present", () => {
+  const body = { owner: { paint: { "fill-color": "#884422" } } };
+  const bindings = [{ styleLayerId: "catalog", targetLayerId: "owner", layerType: "fill" }];
+  const state = {
+    ...stateFrom([{ name: "addLayer", layer: { id: "owner", sourceId: "hi-parcels" } }]),
+    layers: [
+      {
+        id: "owner",
+        sourceId: "hi-parcels",
+        visible: true,
+        styleRef: { kind: "style-ref" as const, styleId: "snapshot" },
+      },
+    ],
+    styleRefs: [{ styleId: "snapshot", body, layerBindings: bindings }],
+  };
+  const exported = compositionToMapPackage(state, { catalog: CATALOG }).mapPackage;
+  expect(exported.styleRefs).toEqual([{ styleId: "snapshot", body }]);
+  expect(JSON.parse(JSON.stringify(exported)).styleRefs[0].body).toEqual(body);
+  expect(state.styleRefs[0].body).toEqual(body);
+});

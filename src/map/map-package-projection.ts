@@ -162,9 +162,20 @@ export function compositionToMapPackage(
   state: CompositionState,
   options: CompositionMapProjectionOptions = {},
 ): CompositionMapProjection {
-  const mapSpec = cloneStyle(options.basemap ?? createOfflineBasemapStyle());
+  const mapSpec = cloneStyle(
+    state.mapSpec
+      ? (state.mapSpec as unknown as HonuaStyleSpecification)
+      : (options.basemap ?? createOfflineBasemapStyle()),
+  );
+  const existingRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
+  const inlineBodies = Object.fromEntries((state.styleRefs ?? []).map((ref) => [ref.styleId, ref.body]));
   const sourceBindings: HonuaMapPackageSourceBinding[] = [];
-  const styleRefs: { styleId: string; body?: HonuaStyleRefBody }[] = [];
+  const styleRefs: {
+    styleId: string;
+    body?: HonuaStyleRefBody;
+    layerBindings?: readonly import("../styles/map-style-edit.js").CompositionStyleLayerBinding[];
+  }[] = [];
+  const emittedLiveRefs = new Set<string>();
   const unresolved: UnresolvedCompositionLayer[] = [];
   const renderedLayerIds: string[] = [];
   const boundSourceIds = new Set<string>();
@@ -182,6 +193,7 @@ export function compositionToMapPackage(
 
     const authoritative = options.authoritativeStyles?.[layer.id];
     const requiresAuthoritative =
+      !inlineBodies[layer.styleRef?.styleId ?? ""] &&
       options.authoritativeStyles !== undefined &&
       (authoritative !== undefined ||
         usesHonuaStyleCatalog(findCompositionSourceDescriptor(layer.sourceId, options.catalog)));
@@ -217,12 +229,50 @@ export function compositionToMapPackage(
     const styleSourceId = layer.sourceId;
     if (!boundSourceIds.has(styleSourceId)) {
       boundSourceIds.add(styleSourceId);
-      mapSpec.sources[styleSourceId] = resolution.source as HonuaStyleSpecification["sources"][string];
-      if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
+      if (!state.mapSpec)
+        mapSpec.sources[styleSourceId] = resolution.source as HonuaStyleSpecification["sources"][string];
+      const durable = state.sourceBindings?.find((binding) => binding.sourceId === styleSourceId);
+      if (durable) sourceBindings.push(structuredClone(durable));
+      else if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
     }
 
-    mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
-    if (resolution.layerType === "fill") {
+    if (!state.mapSpec && !existingRenderIds.has(layer.id))
+      mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
+    else
+      mapSpec.layers = mapSpec.layers.map((renderLayer) => {
+        const owner = renderLayer.metadata?.["honua:compositionLayerId"];
+        if (
+          renderLayer.id !== layer.id &&
+          renderLayer.id !== `${layer.id}${OUTLINE_LAYER_SUFFIX}` &&
+          owner !== layer.id
+        )
+          return renderLayer;
+        const visible = layer.visible && renderLayer.layout?.visibility !== "none";
+        const paint = { ...renderLayer.paint };
+        const opacity = options.appearance?.opacity?.[layer.id];
+        if (opacity !== undefined)
+          for (const key of renderLayer.type === "symbol"
+            ? ["text-opacity", "icon-opacity"]
+            : [`${renderLayer.type}-opacity`]) {
+            const current = paint[key] ?? 1;
+            const multiplier = Math.min(1, Math.max(0, opacity));
+            paint[key] = typeof current === "number" ? current * multiplier : ["*", current, multiplier];
+          }
+        const filter = options.appearance?.filters?.[layer.id];
+        return {
+          ...renderLayer,
+          paint,
+          layout: { ...renderLayer.layout, ...(!visible ? { visibility: "none" } : {}) },
+          ...(filter !== undefined
+            ? { filter: renderLayer.filter === undefined ? filter : ["all", renderLayer.filter, filter] }
+            : {}),
+        };
+      });
+    if (
+      !state.mapSpec &&
+      resolution.layerType === "fill" &&
+      !existingRenderIds.has(`${layer.id}${OUTLINE_LAYER_SUFFIX}`)
+    ) {
       // The outline carries the same filter, or a polygon would keep its
       // outline after its fill was filtered away — a ghost the user cannot
       // click and cannot explain.
@@ -243,6 +293,39 @@ export function compositionToMapPackage(
     renderedLayerIds.push(layer.id);
 
     if (layer.styleRef) {
+      const canonicalReference = state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId);
+      if (authoritative && !("reason" in authoritative) && authoritative.mappedBody) {
+        const body = Object.fromEntries(
+          Object.entries(authoritative.mappedBody).map(([targetId, override]) => {
+            const target = mapSpec.layers.find((render) => render.id === targetId);
+            return [
+              targetId,
+              target
+                ? compositionStyleOverride(override, target.type, layer.visible, {
+                    filter: options.appearance?.filters?.[layer.id],
+                    opacity: options.appearance?.opacity?.[layer.id],
+                  })
+                : override,
+            ];
+          }),
+        );
+        // This body is derived preview data only. Keep the exact bindings so
+        // the SDK validates every target/type and rejects stale mappings.
+        styleRefs.push({ styleId: layer.styleRef.styleId, body, layerBindings: authoritative.layerBindings });
+        continue;
+      }
+      if (
+        canonicalReference?.layerBindings &&
+        canonicalReference.body === undefined &&
+        options.authoritativeStyles === undefined
+      ) {
+        // Durable export keeps live references, never a hydrated catalog snapshot.
+        if (!emittedLiveRefs.has(canonicalReference.styleId)) {
+          emittedLiveRefs.add(canonicalReference.styleId);
+          styleRefs.push({ ...canonicalReference, body: undefined });
+        }
+        continue;
+      }
       const effective =
         authoritative && !("reason" in authoritative)
           ? compositionStyleOverride(authoritative.override, resolution.layerType, layer.visible, {
@@ -266,7 +349,7 @@ export function compositionToMapPackage(
                 }
               : {}),
           }
-        : options.styleRefBodies?.[layer.styleRef.styleId];
+        : (inlineBodies[layer.styleRef.styleId] ?? options.styleRefBodies?.[layer.styleRef.styleId]);
       const body: HonuaStyleRefBody = supplied ?? {
         [layer.id]: styleRefFallbackOverride(
           layer.styleRef.styleId,

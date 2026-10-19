@@ -149,6 +149,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #sessionUnavailable = false;
   #dataAbort = new AbortController();
   #sourceAuthBaseUrl: string | undefined;
+  #sourceCatalogBaseUrl: string | undefined;
   #onSelection: ((targets: readonly CompositionTarget[]) => void) | undefined;
   #commandDispatch: HonuaStudioCommandDispatch | undefined;
   #unrenderable: readonly UnrenderableLayerNote[] = [];
@@ -206,6 +207,12 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (this.#getAuth === getAuth) return;
     this.#getAuth = getAuth;
     this.refreshSession();
+  }
+
+  public set sourceCatalogBaseUrl(baseUrl: string | undefined) {
+    if (this.#sourceCatalogBaseUrl === baseUrl) return;
+    this.#sourceCatalogBaseUrl = baseUrl;
+    this.#resetData();
   }
 
   public set sourceAuthBaseUrl(baseUrl: string | undefined) {
@@ -705,6 +712,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.#defaultLoader ??= createCatalogWidgetDataLoader({
       baseUrl: this.#sourceBaseUrl,
       sourceAuthBaseUrl: this.#sourceAuthBaseUrl,
+      sourceCatalogBaseUrl: this.#sourceCatalogBaseUrl,
       documentUrl: this.ownerDocument.baseURI,
       getAuth: () => this.#getAuth?.(),
       ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),

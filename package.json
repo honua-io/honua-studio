@@ -1,7 +1,7 @@
 {
   "name": "@honua/studio",
   "version": "0.0.0",
-  "description": "Honua Studio \u2014 natural language to map app. Standalone shell for the JS Studio (honua-io/honua-studio#3).",
+  "description": "Honua Studio — natural language to map app. Standalone shell for the JS Studio (honua-io/honua-studio#3).",
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
@@ -29,10 +29,11 @@
     "build:blazor-host": "npm run build:blazor-assets --silent && dotnet build harness/blazor-host/StudioHost/StudioHost.csproj",
     "test:browser:blazor": "npm run build:blazor-host --silent && playwright test --grep @blazor",
     "evals:server": "node scripts/eval-server-corpus.mjs",
-    "build:console-assets": "vite build --config vite.console-assets.config.ts"
+    "build:console-assets": "vite build --config vite.console-assets.config.ts",
+    "test:console-assets": "npm run build:console-assets && playwright test --config playwright.console-assets.config.mjs"
   },
   "dependencies": {
-    "@honua/sdk-js": "0.2.2",
+    "@honua/sdk-js": "0.2.4",
     "maplibre-gl": "6.11.2"
   },
   "devDependencies": {
