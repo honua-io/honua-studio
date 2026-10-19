@@ -9,18 +9,16 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
     throw new Error("A pinned Honua host channel is required.");
   let latest: StyleSpecificationWithId | undefined;
   const pendingInputs = new Set<Element>();
-  let committing: Element | undefined;
+  let committing: { key: Element; event?: Event } | undefined;
   const inputKey = (element: Element) => element.closest(".cm-editor") ?? element;
   for (const name of ["input", "change", "focusout"])
     document.addEventListener(
       name,
       (event) => {
         if (!(event.target instanceof Element)) return;
-        const key = inputKey(event.target);
-        committing = key;
-        queueMicrotask(() => {
-          if (committing === key) committing = undefined;
-        });
+        // Native dispatch can run microtasks between capture and React's
+        // handler. The exact event remains current only during its dispatch.
+        committing = { key: inputKey(event.target), event };
       },
       true,
     );
@@ -34,12 +32,16 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
     const { id: _identity, ...style } = latest;
     return style;
   };
-  const markPending = (element: Element) => {
+  const markPending = (element: Element, event?: Event) => {
     const key = inputKey(element);
-    committing = key;
-    queueMicrotask(() => {
-      if (committing === key) committing = undefined;
-    });
+    const context = { key, event };
+    committing = context;
+    // CodeMirror's raw notification and commit share one JS stack. Native
+    // inputs use eventPhase to cross browser listener callbacks safely.
+    if (!event)
+      queueMicrotask(() => {
+        if (committing === context) committing = undefined;
+      });
     pendingInputs.add(key);
     send({ type: "honua:style-input" });
   };
@@ -54,7 +56,7 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
         !event.target.closest(".cm-editor") &&
         event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")
       )
-        markPending(event.target);
+        markPending(event.target, event);
     },
     true,
   );
@@ -67,7 +69,7 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
         !event.target.closest(".maputnik-layer-editor,.maputnik-code-editor")
       )
         return;
-      markPending(event.target);
+      markPending(event.target, event);
     },
     true,
   );
@@ -119,7 +121,7 @@ export async function createStyleStore(onStyleChanged: OnStyleChangedCallback): 
       latest = style;
       // Only a save from this field's actual commit event acknowledges its
       // buffer. Merely focusing a field cannot authorize an unrelated save.
-      if (committing) pendingInputs.delete(committing);
+      if (committing && (!committing.event || committing.event.eventPhase !== 0)) pendingInputs.delete(committing.key);
       const snapshot = documentStyle();
       if (JSON.stringify(snapshot).length <= 1048576) send({ type: "honua:style-change", style: snapshot });
       return style;
