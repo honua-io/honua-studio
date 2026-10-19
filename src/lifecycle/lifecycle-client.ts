@@ -307,6 +307,14 @@ export class StudioLifecycleClient {
     );
   }
 
+  /** Read a publication receipt without submitting or replaying a mutation. */
+  public getPublicationRequest(itemId: string, versionId: string, requestId: string): Promise<StudioPublicationRequest> {
+    return this.#request(
+      "GET",
+      `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests/${encodeURIComponent(requestId)}`,
+    );
+  }
+
   /**
    * Persists a rollback request and moves the current, published, or both
    * pointers to an earlier version. REQ-009: call this ONLY from a

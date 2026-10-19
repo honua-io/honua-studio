@@ -611,6 +611,34 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     }
   }
 
+  /** Read an active item's publication receipt without flushing edits or submitting a mutation. */
+  public async readWorkspacePublication(
+    versionId: string,
+    requestId: string,
+  ): ReturnType<StudioLifecycleClient["getPublicationRequest"]> {
+    const binding = this.#workspaceDraft;
+    const generation = this.#workspaceAuthGeneration;
+    const identity = binding?.identity;
+    if (!binding || !identity) throw new Error("Open a map draft before reading its publication.");
+    if (![versionId, requestId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id)))
+      throw new Error("Version and publication request IDs are required.");
+    const current = () => {
+      if (binding !== this.#workspaceDraft || generation !== this.#workspaceAuthGeneration)
+        throw new Error("The workspace session or map changed.");
+    };
+    current();
+    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
+    const draft = await client.getDraft(identity.draftId);
+    current();
+    if (draft.draftId !== identity.draftId || draft.packageKey !== identity.packageKey)
+      throw new Error("The publication draft does not belong to the active map.");
+    const receipt = await client.getPublicationRequest(draft.itemId, versionId, requestId);
+    current();
+    if (receipt.itemId !== draft.itemId || receipt.versionId !== versionId || receipt.requestId !== requestId)
+      throw new Error("The publication receipt does not belong to the selected version.");
+    return receipt;
+  }
+
   /** Reopen a version of the active map as a new draft, preserving the saved version. */
   public reopenWorkspaceVersion(versionId: string): Promise<void> {
     return this.#withWorkspaceLifecycle(async (client, identity, current, generation) => {

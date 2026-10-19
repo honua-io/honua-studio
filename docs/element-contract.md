@@ -77,6 +77,14 @@ submitted review is refused. An `awaiting-approval` receipt retains operation
 and proposal identifiers and does not mean the map is published. These methods
 do not themselves provide a durable host recovery UI after browser reload.
 
+`readWorkspacePublication(versionId, requestId)` reads the publication receipt for
+the active draft's server-owned item and selected version. It checks the current map/session before and
+after the read and rejects mismatched receipt identifiers. It does not flush
+draft edits or submit a mutation. Pending publication responses retain the
+server's request, item and version identifiers when available, so hosts can
+refresh an existing receipt. A missing receipt does not prove rejection or
+success; a separately governed approval may still be pending.
+
 **Events** (all `CustomEvent`, `bubbles: true, composed: true` — cross the
 shadow boundary): `honua-studio-ready` (base contract, see below),
 `honua-studio-navigate` (`{ path, replace? }` — host-owned mode only, a

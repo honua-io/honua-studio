@@ -1692,6 +1692,17 @@ function createStudioLifecycleRestRouter(store) {
           return true;
         }
 
+        const publicationMatch = /^\/publish-requests\/([^/]+)$/.exec(versionRest);
+        if (publicationMatch && method === "GET") {
+          if (!requireItemOr404(itemId, res)) return true;
+          if (!requireVersionOr404(itemId, versionId, res)) return true;
+          const request = store.publicationRequests.get(decodeURIComponent(publicationMatch[1]));
+          if (!request || request.itemId !== itemId || request.versionId !== versionId) {
+            problemResponse(res, 404, "Not found", "Studio publication request was not found.");
+          } else apiResponse(res, 200, request);
+          return true;
+        }
+
         if (versionRest === "/publish-requests" && method === "POST") {
           if (!requireItemOr404(itemId, res)) return true;
           const version = requireVersionOr404(itemId, versionId, res);
