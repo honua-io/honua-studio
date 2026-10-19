@@ -49,3 +49,62 @@ it("refreshes the same actual SDK session catalog with fresh approval and absent
     session.close();
   }
 });
+
+it("starts bounded and switches workflow views on the same SDK session without granting process execution", async () => {
+  const requestedViews: string[] = [];
+  let initializations = 0;
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    const request = JSON.parse(String(init?.body));
+    if (request.method === "notifications/initialized") return new Response(null, { status: 202 });
+    let result: object;
+    if (request.method === "initialize") {
+      initializations++;
+      expect(request.params._meta["honua.io/workflow-view"]).toBe("workspace");
+      result = { protocolVersion: "2025-03-26", capabilities: { tools: {} } };
+    } else {
+      expect(request.method).toBe("tools/list");
+      expect(new Headers(init?.headers).get("mcp-session-id")).toBe("workspace-session");
+      const view = request.params?.view ?? "workspace";
+      requestedViews.push(view);
+      result = {
+        _meta: { view, revision: `${view}.v1` },
+        tools: [
+          {
+            name: view === "processes" ? "honua_workspace_local_process_run" : "honua_workspace_get_turn",
+            description: "Canonical server capability",
+            inputSchema: { type: "object", properties: {} },
+            _meta: {
+              "honua.studio": {
+                family: view === "processes" ? "honua.workspace.local-process" : "honua.workspace.canonical",
+                view,
+                revision: `${view}.v1`,
+              },
+            },
+          },
+        ],
+      };
+    }
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), {
+      headers: { "content-type": "application/json", "mcp-session-id": "workspace-session" },
+    });
+  };
+  const session = createWorkspaceAgentSession({
+    fetchImpl,
+    system: () => "Shared Console context",
+    toolFamilies: ["honua.workspace.canonical"],
+  });
+  try {
+    await session.refreshTools();
+    expect(session.tools.map((tool) => tool.name)).toContain("honua_client_select_workflow_view");
+    expect(session.tools.map((tool) => tool.name)).toContain("honua_workspace_get_turn");
+    await session.selectWorkflowView("processes");
+    expect(session.tools.map((tool) => tool.name)).not.toContain("honua_workspace_local_process_run");
+    expect(session.tools.map((tool) => tool.name)).not.toContain("honua_workspace_get_turn");
+    await session.selectWorkflowView("workspace");
+    expect(session.tools.map((tool) => tool.name)).toContain("honua_workspace_get_turn");
+    expect(initializations).toBe(1);
+    expect(requestedViews).toEqual(["workspace", "processes", "workspace"]);
+  } finally {
+    session.close();
+  }
+});
