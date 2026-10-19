@@ -111,19 +111,24 @@ if (mode === "schema") {
   const expected = identity();
   requireCurrentReview(current(expected), expected);
   fs.mkdirSync(directory, { recursive: true });
-  const archiveFile = path.join(directory, "source.zip");
-  try {
-    const archive = execFileSync("gh", ["api", `repos/${expected.repository}/zipball/${expected.headSha}`], {
-      timeout: 60000,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    fs.writeFileSync(archiveFile, archive);
-    const extractor = fileURLToPath(new URL("./lib/review-source-archive.py", import.meta.url));
-    console.log(
-      execFileSync("python3", [extractor, archiveFile, path.join(directory, "head")], { encoding: "utf8" }).trim(),
-    );
-  } finally {
-    fs.rmSync(archiveFile, { force: true });
+  for (const [snapshot, sha] of [
+    ["head", expected.headSha],
+    ["base", expected.baseSha],
+  ]) {
+    const archiveFile = path.join(directory, `${snapshot}.zip`);
+    try {
+      const archive = execFileSync("gh", ["api", `repos/${expected.repository}/zipball/${sha}`], {
+        timeout: 60000,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      fs.writeFileSync(archiveFile, archive);
+      const extractor = fileURLToPath(new URL("./lib/review-source-archive.py", import.meta.url));
+      console.log(
+        execFileSync("python3", [extractor, archiveFile, path.join(directory, snapshot)], { encoding: "utf8" }).trim(),
+      );
+    } finally {
+      fs.rmSync(archiveFile, { force: true });
+    }
   }
   const diff = gh([
     "api",
@@ -138,7 +143,12 @@ if (mode === "schema") {
   const expected = boundedJson(metadataFile);
   const raw = process.env.STRUCTURED_REVIEW_RESULT;
   if (!raw || Buffer.byteLength(raw) > 100000) throw new Error("No bounded structured reviewer result was returned.");
-  const result = validateReviewResult(JSON.parse(raw), expected, path.join(directory, "head"));
+  const result = validateReviewResult(
+    JSON.parse(raw),
+    expected,
+    path.join(directory, "head"),
+    path.join(directory, "base"),
+  );
   requireCurrentReview(current(expected), expected);
   fs.writeFileSync(
     path.join(directory, "validated-result.json"),

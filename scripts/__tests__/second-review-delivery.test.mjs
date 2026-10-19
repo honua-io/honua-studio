@@ -27,6 +27,7 @@ const result = () => ({ headSha: expected.headSha, verdict: "no-findings", block
 const finding = () => ({
   kind: "fix",
   priority: "P1",
+  snapshot: "head",
   path: "src/map.ts",
   line: 1,
   title: "Retain the original command",
@@ -188,6 +189,8 @@ test("finding bounds and embedded review markers cannot forge another receipt", 
     { detail: `<!-- claude-second-review: ${"c".repeat(40)} -->` },
     { priority: "P99" },
     { kind: "command" },
+    { snapshot: "worktree" },
+    { snapshot: undefined },
   ]) {
     assert.throws(() =>
       reviewBody({ ...result(), verdict: "findings", findings: [{ ...finding(), ...change }] }, expected),
@@ -220,6 +223,61 @@ test("checks finding locations against actual pinned source without executing it
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("base locations preserve findings on deleted or renamed files and removed lines", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-deleted-source-"));
+  const head = path.join(root, "head");
+  const base = path.join(root, "base");
+  try {
+    for (const directory of [head, base]) fs.mkdirSync(path.join(directory, "src"), { recursive: true });
+    fs.writeFileSync(path.join(base, "src/deleted.ts"), "old context\nremoved behavior\n");
+    fs.writeFileSync(path.join(base, "src/old-name.ts"), "renamed behavior\n");
+    fs.writeFileSync(path.join(head, "src/new-name.ts"), "renamed behavior\n");
+    fs.writeFileSync(path.join(base, "src/map.ts"), "context\nremoved behavior\n");
+    fs.writeFileSync(path.join(head, "src/map.ts"), "context");
+    for (const [file, line] of [
+      ["deleted.ts", 2],
+      ["old-name.ts", 1],
+      ["map.ts", 2],
+    ]) {
+      const location = { ...finding(), snapshot: "base", path: `src/${file}`, line };
+      const value = { ...result(), verdict: "findings", findings: [location] };
+      assert.equal(validateReviewResult(value, expected, head, base), value);
+      assert.ok(reviewBody(value, expected).includes(`src/${file}:${line} (base snapshot)`));
+      assert.throws(() =>
+        validateReviewResult({ ...value, findings: [{ ...location, snapshot: "head" }] }, expected, head, base),
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("base locations retain source containment and actual line bounds", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-base-boundary-"));
+  const base = path.join(root, "base");
+  try {
+    fs.mkdirSync(base);
+    fs.writeFileSync(path.join(base, "deleted.ts"), "removed behavior\n");
+    const location = { ...finding(), snapshot: "base", path: "deleted.ts" };
+    const value = { ...result(), verdict: "findings", findings: [location] };
+    assert.equal(validateReviewResult(value, expected, undefined, base), value);
+    assert.throws(() => validateReviewResult(value, expected, root));
+    for (const change of [{ line: 99 }, { path: "missing.ts" }, { path: "../secret" }])
+      assert.throws(() =>
+        validateReviewResult({ ...value, findings: [{ ...location, ...change }] }, expected, root, base),
+      );
+    if (process.platform !== "win32") {
+      fs.writeFileSync(path.join(root, "secret"), "outside the admitted source\n");
+      fs.symlinkSync(path.join(root, "secret"), path.join(base, "link.ts"));
+      assert.throws(() =>
+        validateReviewResult({ ...value, findings: [{ ...location, path: "link.ts" }] }, expected, root, base),
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -327,6 +385,8 @@ test("old formal reviews and resolved threads cannot admit a new-head collector"
 
 function runPublisher({
   mutateArtifact,
+  collectedResult = result(),
+  publishAfterValidation = false,
   env = {},
   initialReceipt,
   repeat = false,
@@ -339,7 +399,7 @@ function runPublisher({
     const output = path.join(root, ".claude-second-review");
     fs.mkdirSync(bin);
     fs.mkdirSync(output);
-    const artifact = { schemaVersion: 1, expected, result: result() };
+    const artifact = { schemaVersion: 1, expected, result: collectedResult };
     mutateArtifact?.(artifact);
     fs.writeFileSync(path.join(output, "validated-result.json"), JSON.stringify(artifact));
     fs.writeFileSync(
@@ -351,11 +411,17 @@ function runPublisher({
         "python3",
         [
           "-c",
-          "import zipfile\nwith zipfile.ZipFile('fixture.zip','w') as z:\n z.writestr('repo/src/map.ts',\"throw new Error('never execute');\\n\")",
+          "import zipfile\nfor filename in ['fixture.zip','base-fixture.zip']:\n with zipfile.ZipFile(filename,'w') as z:\n  z.writestr('repo/src/map.ts',\"throw new Error('never execute');\\n\")\n  if filename=='base-fixture.zip': z.writestr('repo/src/deleted.ts','removed behavior\\n')",
         ],
         { cwd: root, encoding: "utf8", timeout: 15000 },
       );
       assert.equal(fixture.status, 0, fixture.stderr);
+    }
+    if (command === "validate") {
+      fs.writeFileSync(path.join(output, "identity.json"), JSON.stringify(expected));
+      for (const snapshot of ["head", "base"]) fs.mkdirSync(path.join(output, snapshot, "src"), { recursive: true });
+      fs.writeFileSync(path.join(output, "head/src/map.ts"), "current behavior\n");
+      fs.writeFileSync(path.join(output, "base/src/deleted.ts"), "removed behavior\n");
     }
     if (initialReceipt) fs.writeFileSync(path.join(root, "receipt.json"), JSON.stringify(initialReceipt));
     const stub = `#!${process.execPath}
@@ -368,7 +434,7 @@ if(process.env.ADVANCED_BASE==='true')p.baseRefOid='c'.repeat(40);
 if(process.env.RETARGETED_BASE==='true')p.baseRefName='other';
 console.log(JSON.stringify(p));
 }else if(a[0]==='api'&&a[1].includes('/compare/'))console.log('diff --git a/src/map.ts b/src/map.ts');
-else if(a[0]==='api'&&a[1].includes('/zipball/'))process.stdout.write(fs.readFileSync('fixture.zip'));
+else if(a[0]==='api'&&a[1].includes('/zipball/'))process.stdout.write(fs.readFileSync(a[1].endsWith('/'+process.env.BASE_SHA)?'base-fixture.zip':'fixture.zip'));
 else if(a[0]==='api'&&a[1].includes('/pulls/'))console.log(process.env.TEST_PIN_PR);
 else if(a[0]==='api'&&a[1].includes('/actions/workflows/'))console.log(process.env.TEST_REVIEW_RUNS);
 else if(a[0]==='api'&&a[1].endsWith('/rerun')&&a.includes('POST'))console.log('{}');
@@ -395,6 +461,7 @@ else process.exit(90);
       BASE_SHA: expected.baseSha,
       BASE_REF_NAME: expected.baseRefName,
       REVIEW_MODE: expected.mode,
+      STRUCTURED_REVIEW_RESULT: JSON.stringify(collectedResult),
       TEST_PR: JSON.stringify(pr()),
       TEST_PIN_PR: JSON.stringify(restPr()),
       TEST_REVIEW_RUNS: JSON.stringify({ total_count: 1, workflow_runs: [reviewRun] }),
@@ -403,6 +470,15 @@ else process.exit(90);
     const runs = [
       spawnSync(process.execPath, [script, command], { cwd: root, env: childEnv, encoding: "utf8", timeout: 15000 }),
     ];
+    if (publishAfterValidation && runs[0].status === 0)
+      runs.push(
+        spawnSync(process.execPath, [script, "publish"], {
+          cwd: root,
+          env: childEnv,
+          encoding: "utf8",
+          timeout: 15000,
+        }),
+      );
     if (repeat)
       runs.push(
         spawnSync(process.execPath, [script, command], {
@@ -429,7 +505,11 @@ else process.exit(90);
       source: fs.existsSync(path.join(output, "head/src/map.ts"))
         ? fs.readFileSync(path.join(output, "head/src/map.ts"), "utf8")
         : null,
-      archiveRemoved: !fs.existsSync(path.join(output, "source.zip")),
+      baseDeletedSource: fs.existsSync(path.join(output, "base/src/deleted.ts"))
+        ? fs.readFileSync(path.join(output, "base/src/deleted.ts"), "utf8")
+        : null,
+      headHasDeletedSource: fs.existsSync(path.join(output, "head/src/deleted.ts")),
+      archiveRemoved: ["source.zip", "head.zip", "base.zip"].every((name) => !fs.existsSync(path.join(output, name))),
       outputs: fs.existsSync(path.join(root, "outputs")) ? fs.readFileSync(path.join(root, "outputs"), "utf8") : "",
     };
   } finally {
@@ -499,12 +579,17 @@ test("a successful PR review with an observed authenticated receipt coalesces wi
   assert.equal(posts(succeeded).length, 0);
 });
 
-test("the actual collector reads only the admitted commit archive and removes the compressed input", () => {
+test("the actual collector reads both admitted commit archives and removes compressed inputs", () => {
   const value = runPublisher({ command: "prepare" });
   assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
   assert.ok(
     value.trace.some(
       (args) => args[0] === "api" && args[1] === `repos/${expected.repository}/zipball/${expected.headSha}`,
+    ),
+  );
+  assert.ok(
+    value.trace.some(
+      (args) => args[0] === "api" && args[1] === `repos/${expected.repository}/zipball/${expected.baseSha}`,
     ),
   );
   assert.ok(
@@ -516,9 +601,33 @@ test("the actual collector reads only the admitted commit archive and removes th
     ),
   );
   assert.equal(value.source, "throw new Error('never execute');\n");
+  assert.equal(value.baseDeletedSource, "removed behavior\n");
+  assert.equal(value.headHasDeletedSource, false);
   assert.equal(value.prepared, true);
   assert.equal(value.archiveRemoved, true);
   assert.equal(posts(value).length, 0);
+});
+
+test("the actual validator and publisher deliver a deleted-source finding and refuse the wrong snapshot or line", () => {
+  const location = { ...finding(), snapshot: "base", path: "src/deleted.ts" };
+  const value = runPublisher({
+    command: "validate",
+    publishAfterValidation: true,
+    collectedResult: { ...result(), verdict: "findings", findings: [location] },
+  });
+  assert.equal(value.runs.length, 2);
+  for (const run of value.runs) assert.equal(run.status, 0, run.stderr);
+  assert.equal(posts(value).length, 1);
+  assert.ok(value.receipt.body.includes("src/deleted.ts:1 (base snapshot)"));
+  for (const change of [{ snapshot: "head" }, { line: 99 }]) {
+    const invalid = runPublisher({
+      command: "validate",
+      publishAfterValidation: true,
+      collectedResult: { ...result(), verdict: "findings", findings: [{ ...location, ...change }] },
+    });
+    assert.notEqual(invalid.runs[0].status, 0);
+    assert.equal(posts(invalid).length, 0);
+  }
 });
 
 test("collection and publication use an immutable comparison despite unrelated target merges, but reject retargeting", () => {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const fields = ["headSha", "verdict", "blockedReason", "findings"];
-const findingFields = ["kind", "priority", "path", "line", "title", "detail"];
+const findingFields = ["kind", "priority", "snapshot", "path", "line", "title", "detail"];
 const reviewers = new Set(["claude[bot]", "claude", "github-actions[bot]"]);
 const auditDisclaimer = "Post-merge audit; this result does not establish historical pre-merge clearance.";
 
@@ -72,6 +72,7 @@ export const reviewResultSchema = {
         properties: {
           kind: { type: "string", enum: ["fix", "question"] },
           priority: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
+          snapshot: { type: "string", enum: ["head", "base"] },
           path: { type: "string", maxLength: 500 },
           line: { type: "integer", minimum: 1, maximum: 1000000 },
           title: { type: "string", maxLength: 160 },
@@ -103,7 +104,7 @@ function text(value, limit, empty = false) {
     !markerText.test(value)
   );
 }
-export function validateReviewResult(result, expected, snapshotDirectory) {
+export function validateReviewResult(result, expected, snapshotDirectory, baseSnapshotDirectory) {
   if (
     !/^[a-f0-9]{40}$/u.test(expected.headSha) ||
     !/^[a-f0-9]{40}$/u.test(expected.baseSha) ||
@@ -129,6 +130,7 @@ export function validateReviewResult(result, expected, snapshotDirectory) {
       !exactKeys(finding, findingFields) ||
       !["fix", "question"].includes(finding.kind) ||
       !["P0", "P1", "P2", "P3"].includes(finding.priority) ||
+      !["head", "base"].includes(finding.snapshot) ||
       !text(finding.path, 500) ||
       /[\\\n\r]/u.test(finding.path) ||
       finding.path.startsWith("/") ||
@@ -141,8 +143,10 @@ export function validateReviewResult(result, expected, snapshotDirectory) {
       !text(finding.detail, 2000)
     )
       throw new Error("Invalid review finding.");
-    if (snapshotDirectory) {
-      const root = fs.realpathSync(snapshotDirectory);
+    if (snapshotDirectory || baseSnapshotDirectory) {
+      const source = finding.snapshot === "base" ? baseSnapshotDirectory : snapshotDirectory;
+      if (!source) throw new Error("The finding's pinned source snapshot is unavailable.");
+      const root = fs.realpathSync(source);
       const file = fs.realpathSync(path.join(root, finding.path));
       if (!file.startsWith(root + path.sep) || !fs.statSync(file).isFile())
         throw new Error("Finding is outside the reviewed snapshot.");
@@ -206,7 +210,7 @@ export function reviewBody(result, expected) {
   const audit = expected.mode === "post-merge-audit" ? `\n\n${auditDisclaimer}` : "";
   const findings = result.findings.map(
     (finding) =>
-      `- **${finding.priority} ${finding.kind === "question" ? "Question: " : ""}${finding.title}** — ${finding.path}:${finding.line}\n\n  ${finding.detail.replaceAll("\n", "\n  ")}`,
+      `- **${finding.priority} ${finding.kind === "question" ? "Question: " : ""}${finding.title}** — ${finding.path}:${finding.line}${finding.snapshot === "base" ? " (base snapshot)" : ""}\n\n  ${finding.detail.replaceAll("\n", "\n  ")}`,
   );
   return `${reviewMarker(expected)}\n${reviewContext(expected)}${audit}\n\n${findings.length ? findings.join("\n\n") : "No findings."}\n`;
 }
