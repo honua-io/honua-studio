@@ -28,6 +28,7 @@
  * @module
  */
 
+import type { StudioPublicationIdentifiers } from "@honua/sdk-js/studio";
 import type { AuthSession, AuthState, AuthStatus, SessionAdapter } from "../auth/types.js";
 import type { ActivityLogEntry } from "../chat/activity-log.js";
 import type { StudioAiStopReason } from "../chat/ai-contract.js";
@@ -305,7 +306,7 @@ export interface HonuaStudioOpenItemDetail {
  * `studio-lifecycle-panel-element.ts`'s module doc and
  * `test/lifecycle/human-gate.test.ts`.
  */
-export interface HonuaStudioLifecycleActivityDetail {
+export interface HonuaStudioLifecycleActivityDetail extends StudioPublicationIdentifiers {
   readonly kind:
     | "draft-loaded"
     | "draft-validated"

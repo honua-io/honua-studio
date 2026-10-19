@@ -237,6 +237,7 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
 
     const request = await c.requestPublish(created.itemId, version.versionId, {});
     expect(request.status).toBe("accepted");
+    if (request.status === "awaiting-approval") throw new Error("Expected immediate publication from this fixture.");
     expect(request.intent).toEqual({ route: "/studio/lc-publish", visibility: "organization" });
 
     const items = await c.listContentItems({ q: "lc-publish" });
@@ -267,6 +268,7 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
       pointer: "both",
       reason: "bad deploy",
     });
+    if ("status" in rollback) throw new Error("Expected immediate rollback from this fixture.");
     expect(rollback.pointers).toEqual({
       itemId: created.itemId,
       currentVersionId: v1.versionId,
@@ -347,6 +349,69 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
   function jsonResponse(status: number, body: unknown, contentType = "application/json"): Response {
     return new Response(JSON.stringify(body), { status, headers: { "content-type": contentType } });
   }
+
+  it.each([4, "RequiresApproval", "requiresApproval"])(
+    "retains the approval receipt for publication and rollback when HTTP 202 status is %s",
+    async (status) => {
+      let calls = 0;
+      const fetchImpl: typeof fetch = async () => {
+        calls += 1;
+        return jsonResponse(202, {
+          data: {
+            status,
+            operationInstanceId: "operation-1",
+            proposalId: "proposal-1",
+            auditId: "audit-1",
+            correlationId: "correlation-1",
+            proposalUri: "/operations/proposals/proposal-1",
+          },
+        });
+      };
+      const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+      const expected = {
+        status: "awaiting-approval",
+        operationInstanceId: "operation-1",
+        proposalId: "proposal-1",
+        auditId: "audit-1",
+        correlationId: "correlation-1",
+        proposalUri: "/operations/proposals/proposal-1",
+      };
+      expect(await c.requestPublish("item-1", "version-1")).toEqual(expected);
+      expect(await c.requestRollback("item-1", { targetVersionId: "version-1", pointer: "both" })).toEqual(expected);
+      expect(calls).toBe(2); // Returning a receipt must not retry or execute either action.
+    },
+  );
+
+  it.each([
+    { status: 1, operationInstanceId: "operation-1", proposalId: "proposal-1" },
+    { status: "accepted", operationInstanceId: "operation-1", proposalId: "proposal-1" },
+    { status: 4, proposalId: "proposal-1" },
+    { status: 4, operationInstanceId: "operation-1", proposalId: " " },
+    null,
+  ])("refuses to report an unrecognized 202 receipt as a completed mutation: %j", async (data) => {
+    const fetchImpl: typeof fetch = async () => jsonResponse(202, { data });
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    await expect(c.requestPublish("item-1", "version-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+    await expect(c.requestRollback("item-1", { targetVersionId: "version-1", pointer: "both" })).rejects.toMatchObject({
+      status: 202,
+      code: "unknown",
+    });
+  });
+
+  it("refuses an empty 202 response instead of returning a completed result", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(null, { status: 202 });
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    await expect(c.requestPublish("item-1", "version-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+  });
+
+  it("does not cast a pending operation into a saved version", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse(202, {
+        data: { status: 4, operationInstanceId: "operation-1", proposalId: "proposal-1" },
+      });
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    await expect(c.saveAsVersion("draft-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+  });
 
   it("maps a 401 with no auth configured straight to StudioLifecycleSessionExpiredError", async () => {
     const fetchImpl = (async () => jsonResponse(401, {})) as unknown as typeof fetch;

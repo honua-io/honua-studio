@@ -1,4 +1,5 @@
 import type { MapStyleDocument } from "../styles/map-style-edit.js";
+import { type StudioApprovalPending, readStudioApprovalPending } from "./approval-pending.js";
 /**
  * REST client for honua-server's Studio package lifecycle API
  * (`docs/internal/admin-api/studio-package-lifecycle.md`, issue #1180) plus
@@ -296,11 +297,13 @@ export class StudioLifecycleClient {
     itemId: string,
     versionId: string,
     request: StudioPublishRequestInput = {},
-  ): Promise<StudioPublicationRequest> {
+  ): Promise<StudioPublicationRequest | StudioApprovalPending> {
     return this.#request(
       "POST",
       `/content-items/${encodeURIComponent(itemId)}/versions/${encodeURIComponent(versionId)}/publish-requests`,
       request,
+      undefined,
+      true,
     );
   }
 
@@ -310,8 +313,17 @@ export class StudioLifecycleClient {
    * human-confirmed UI interaction — never from a chat/tool-call/activity-log
    * event handler.
    */
-  public requestRollback(itemId: string, request: StudioRollbackRequestInput): Promise<StudioRollbackRequest> {
-    return this.#request("POST", `/content-items/${encodeURIComponent(itemId)}/rollback-requests`, request);
+  public requestRollback(
+    itemId: string,
+    request: StudioRollbackRequestInput,
+  ): Promise<StudioRollbackRequest | StudioApprovalPending> {
+    return this.#request(
+      "POST",
+      `/content-items/${encodeURIComponent(itemId)}/rollback-requests`,
+      request,
+      undefined,
+      true,
+    );
   }
 
   // -- transport ----------------------------------------------------------------
@@ -337,7 +349,13 @@ export class StudioLifecycleClient {
     });
   }
 
-  async #request<T>(method: string, path: string, body?: unknown, commandId?: string): Promise<T> {
+  async #request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    commandId?: string,
+    allowApproval = false,
+  ): Promise<T> {
     const url = `${this.#baseUrl}/v1/studio${path}`;
     let response: Response;
     try {
@@ -362,8 +380,17 @@ export class StudioLifecycleClient {
     }
     if (response.status === 204) return undefined as T;
     const text = await response.text();
-    if (!text) return undefined as T;
+    if (!text && response.status !== 202) return undefined as T;
+    if (!text)
+      throw new StudioLifecycleError("unknown", "The pending action returned no operation receipt.", { status: 202 });
     const envelope = JSON.parse(text) as StudioApiResponse<T> | { data?: T };
+    if (response.status === 202) {
+      const pending = readStudioApprovalPending(envelope.data);
+      if (allowApproval && pending) return pending as T;
+      throw new StudioLifecycleError("unknown", "The action is pending; no completed result was returned.", {
+        status: 202,
+      });
+    }
     return (envelope as StudioApiResponse<T>).data as T;
   }
 
