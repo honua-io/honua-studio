@@ -66,6 +66,7 @@ import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import type { StudioContentVersion } from "../lifecycle/lifecycle-types.js";
 import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
@@ -486,35 +487,105 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
   public attachWorkspaceDraft(draftId: string): Promise<void> {
     const generation = this.#workspaceAuthGeneration;
-    const run = this.#workspaceDraftQueue.then(async () => {
-      if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
-      if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
-      const previous = this.#workspaceDraft?.identity;
-      // Observe prospectively: a refused read must not advance the active binding's generation.
-      const binding = new WorkspaceDraftBinding(
-        new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
-      );
-      const state = await binding.observe(draftId);
-      if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
-      if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
-      // A same-principal lease can renew while the prospective GET is in flight.
-      // Adopt its observed state with the current transport, not the expired lease.
-      binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
-      this.#workspaceDraft = binding;
-      this.#workspaceDraftConflict = false;
-      const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
-      const attach = reset
-        ? this.composition.resetBaseline.bind(this.composition)
-        : this.composition.replaceState.bind(this.composition);
-      attach({
-        ...state,
-        pins: this.composition.state.pins,
-        annotations: this.composition.state.annotations,
-      });
-      this.#announceWorkspaceDraft();
-    });
+    const run = this.#workspaceDraftQueue.then(() => this.#observeWorkspaceDraft(draftId, generation));
     this.#workspaceDraftQueue = run.catch(() => undefined);
     return run;
+  }
+
+  /** Save the active server draft as an immutable version; never publish it. */
+  public saveWorkspaceVersion(): Promise<StudioContentVersion> {
+    return this.#withWorkspaceLifecycle(async (client, identity, current) => {
+      const version = await client.saveAsVersion(identity.draftId);
+      current();
+      return version;
+    });
+  }
+
+  /** List versions belonging to the active draft's server-owned content item. */
+  public listWorkspaceVersions(): Promise<readonly StudioContentVersion[]> {
+    return this.#withWorkspaceLifecycle(async (client, identity, current) => {
+      const draft = await client.getDraft(identity.draftId);
+      current();
+      const result = await client.listVersions(draft.itemId);
+      current();
+      return result.versions;
+    });
+  }
+
+  /** Reopen a version of the active map as a new draft, preserving the saved version. */
+  public reopenWorkspaceVersion(versionId: string): Promise<void> {
+    return this.#withWorkspaceLifecycle(async (client, identity, current, generation) => {
+      const draft = await client.getDraft(identity.draftId);
+      current();
+      const reopened = await client.reopenVersion(draft.itemId, versionId);
+      current();
+      if (reopened.itemId !== draft.itemId || reopened.packageKey !== identity.packageKey)
+        throw new Error("The reopened version does not belong to the active map.");
+      await this.#observeWorkspaceDraft(reopened.draftId, generation);
+    });
+  }
+
+  async #withWorkspaceLifecycle<T>(
+    action: (
+      client: StudioLifecycleClient,
+      identity: { draftId: string; generation: number; packageKey: string },
+      current: () => void,
+      generation: number,
+    ) => Promise<T>,
+  ): Promise<T> {
+    const binding = this.#workspaceDraft;
+    const generation = this.#workspaceAuthGeneration;
+    const identity = binding?.identity;
+    if (!binding || !identity) throw new Error("Open a map draft before using saved versions.");
+    await this.prepareWorkspaceTurn();
+    const current = () => {
+      if (generation !== this.#workspaceAuthGeneration || binding !== this.#workspaceDraft)
+        throw new Error("The workspace session or map changed.");
+      if (this.#historyBusy || this.#workspaceDraftConflict || this.#hasDirtyWorkspaceForm())
+        throw new Error("Save or explicitly reload pending Studio edits before using saved versions.");
+    };
+    const run = this.#workspaceDraftQueue.then(async () => {
+      current();
+      return action(
+        new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
+        identity,
+        current,
+        generation,
+      );
+    });
+    this.#workspaceDraftQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  async #observeWorkspaceDraft(draftId: string, generation: number): Promise<void> {
+    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
+    const previous = this.#workspaceDraft?.identity;
+    // Observe prospectively: a refused read must not advance the active binding's generation.
+    const binding = new WorkspaceDraftBinding(
+      new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
+    );
+    const state = await binding.observe(draftId);
+    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
+    // A same-principal lease can renew while the prospective GET is in flight.
+    // Adopt its observed state with the current transport, not the expired lease.
+    binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
+    this.#workspaceDraft = binding;
+    this.#workspaceDraftConflict = false;
+    const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
+    const attach = reset
+      ? this.composition.resetBaseline.bind(this.composition)
+      : this.composition.replaceState.bind(this.composition);
+    attach({
+      ...state,
+      pins: this.composition.state.pins,
+      annotations: this.composition.state.annotations,
+    });
+    this.#announceWorkspaceDraft();
   }
 
   /** Idle observation for external draft changes; never discard an unsaved form value. */
@@ -1557,6 +1628,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
         try {
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+          if (binding !== this.#workspaceDraft) throw new Error("The active map changed before the edit began.");
           const target = applyCompositionCommands(this.composition.state, commands).state;
           const observed =
             commands.length === 1 && commands[0]?.name === "setMapStyle"
@@ -1572,7 +1644,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           this.#announceWorkspaceDraft();
           return { ok: true };
         } catch (error) {
-          if (generation === this.#workspaceAuthGeneration) this.#workspaceDraftConflict = true;
+          if (generation === this.#workspaceAuthGeneration && binding === this.#workspaceDraft)
+            this.#workspaceDraftConflict = true;
           return { ok: false, reason: error instanceof Error ? error.message : String(error) };
         }
       });

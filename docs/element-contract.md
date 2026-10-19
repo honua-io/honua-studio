@@ -47,6 +47,20 @@ default). Both are also reachable from the header's own control
 (honua-studio#23 REQ-004) — the "Fixture mode" / "Live · &lt;key&gt;" badge
 plus a "Go live…" form; there is no test-hook-only path.
 
+For the Console-owned workspace, `createWorkspaceDraft(packageKey)` and
+`attachWorkspaceDraft(draftId)` bind the canvas to a server draft.
+`prepareWorkspaceTurn()` waits for accepted visual edits and returns its
+current draft identity; it refuses unresolved edits or conflicts.
+`saveWorkspaceVersion()` saves that draft as an immutable version,
+`listWorkspaceVersions()` reads versions of the same server-owned content
+item, and `reopenWorkspaceVersion(versionId)` opens a version of that item
+as a new draft. These methods use the current injected session and do not
+publish. They reject stale results after a session or active-map change.
+Reopening emits `honua-workspace-draft-change` with the new
+`{ draftId, generation, packageKey }`, allowing the host conversation to
+follow the same draft. The host should await each action, show failures,
+and require another explicit action before retrying a failed mutation.
+
 **Events** (all `CustomEvent`, `bubbles: true, composed: true` — cross the
 shadow boundary): `honua-studio-ready` (base contract, see below),
 `honua-studio-navigate` (`{ path, replace? }` — host-owned mode only, a

@@ -131,6 +131,12 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   use the landed `honua_studio_*` tools, following visibility delegation in
   [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
   static `serverToolName` table until sdk-js#1397 supplies discovery.
+- **Embedded workspace versions use the server lifecycle.** Hosts can save
+  the active map as an immutable version, list its versions, and reopen one
+  as a new draft through the [element methods](docs/element-contract.md).
+  Pending visual edits settle first; a session or map change rejects stale
+  results. This does not publish the map or qualify the complete installed
+  Console journey.
 - **Sharing follows server policy and stays Preview**
   ([#26](https://github.com/honua-io/honua-studio/issues/26)). The self-hosted
   fixture smoke submits a canonical immutable-version proposal, keeps the

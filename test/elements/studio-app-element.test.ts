@@ -236,6 +236,118 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     }
   });
 
+  it("saves, lists and reopens the active server map without publishing", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "saved-map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const reopened = { ...draft, draftId: "reopened", generation: 0 };
+    const version = { itemId: "item", versionId: "v1", versionNumber: 1 } as Awaited<
+      ReturnType<StudioLifecycleClient["saveAsVersion"]>
+    >;
+    const get = vi
+      .spyOn(StudioLifecycleClient.prototype, "getDraft")
+      .mockImplementation(async (id) => (id === "reopened" ? reopened : draft));
+    const save = vi.spyOn(StudioLifecycleClient.prototype, "saveAsVersion").mockResolvedValue(version);
+    const list = vi
+      .spyOn(StudioLifecycleClient.prototype, "listVersions")
+      .mockResolvedValue({ itemId: "item", versions: [version] });
+    const reopen = vi.spyOn(StudioLifecycleClient.prototype, "reopenVersion").mockResolvedValue(reopened);
+    try {
+      const app = mount();
+      await expect(app.saveWorkspaceVersion()).rejects.toThrow("Open a map draft");
+      await app.attachWorkspaceDraft("original");
+      expect(await app.saveWorkspaceVersion()).toBe(version);
+      expect(save).toHaveBeenCalledExactlyOnceWith("original");
+      expect(await app.listWorkspaceVersions()).toEqual([version]);
+      expect(list).toHaveBeenCalledExactlyOnceWith("item");
+      await app.reopenWorkspaceVersion("v1");
+      expect(reopen).toHaveBeenCalledExactlyOnceWith("item", "v1");
+      expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "reopened", generation: 0, packageKey: "saved-map" });
+    } finally {
+      get.mockRestore();
+      save.mockRestore();
+      list.mockRestore();
+      reopen.mockRestore();
+    }
+  });
+
+  it("does not adopt a reopened map after the operator session changes", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "saved-map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    let finish!: (value: typeof draft) => void;
+    const reopen = vi.spyOn(StudioLifecycleClient.prototype, "reopenVersion").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      const pending = app.reopenWorkspaceVersion("v1");
+      const refused = expect(pending).rejects.toThrow("session or map changed");
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
+      app.session = fixtureSession();
+      finish({ ...draft, draftId: "reopened" });
+      await refused;
+      expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+      expect(get).not.toHaveBeenCalledWith("reopened");
+    } finally {
+      get.mockRestore();
+      reopen.mockRestore();
+    }
+  });
+
+  it("does not replay an old queued canvas edit into a reopened map", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "saved-map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const opened = { ...draft, draftId: "reopened", generation: 0 };
+    const get = vi
+      .spyOn(StudioLifecycleClient.prototype, "getDraft")
+      .mockImplementation(async (id) => (id === "reopened" ? opened : draft));
+    let finish!: (value: typeof draft) => void;
+    const reopen = vi.spyOn(StudioLifecycleClient.prototype, "reopenVersion").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft");
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      const pending = app.reopenWorkspaceVersion("v1");
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
+      const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+      const edit = canvas.commandDispatch!([{ name: "addLayer", layer: { id: "old-edit", sourceId: "roads" } }]);
+      finish(opened);
+      await pending;
+      expect(await edit).toMatchObject({ ok: false });
+      expect(replace).not.toHaveBeenCalled();
+      expect(app.composition.state.layers).toEqual([]);
+      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("reopened");
+    } finally {
+      get.mockRestore();
+      reopen.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
   it("ignores an old in-flight draft observation after a session swap", async () => {
     let resolve!: (value: Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>) => void;
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(
