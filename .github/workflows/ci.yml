@@ -72,6 +72,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test review delivery policy
+        run: node --test scripts/__tests__/second-review-delivery.test.mjs
+
       - name: Unit tests
         run: npm test
 

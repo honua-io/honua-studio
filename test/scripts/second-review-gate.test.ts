@@ -213,7 +213,15 @@ describe("sequential review mode admission", () => {
     const value = input(audit);
     const marker = evaluateSecondReview(input(!audit)).marker;
     expect(
-      evaluateSecondReview({ ...value, comments: [{ user: { login: "claude" }, body: marker }] }).shouldReview,
+      evaluateSecondReview({
+        ...value,
+        comments: [
+          {
+            user: { login: "claude", type: "Bot" },
+            body: `${marker}\nPost-merge audit; this result does not establish historical pre-merge clearance.`,
+          },
+        ],
+      }).shouldReview,
     ).toBe(true);
   });
   it.each([false, true])("does not trust an author's forged marker in mode %s", (audit) => {
@@ -228,14 +236,16 @@ describe("sequential review mode admission", () => {
     (login) => {
       for (const audit of [false, true]) {
         const value = input(audit);
-        const marker = evaluateSecondReview(value).marker;
-        expect(evaluateSecondReview({ ...value, comments: [{ user: { login }, body: marker }] }).shouldReview).toBe(
-          false,
-        );
+        const marker =
+          evaluateSecondReview(value).marker +
+          (audit ? "\nPost-merge audit; this result does not establish historical pre-merge clearance." : "");
+        expect(
+          evaluateSecondReview({ ...value, comments: [{ user: { login, type: "Bot" }, body: marker }] }).shouldReview,
+        ).toBe(false);
         expect(
           evaluateSecondReview({
             ...value,
-            comments: [{ user: { login }, body: marker.replace(head, "c".repeat(40)) }],
+            comments: [{ user: { login, type: "Bot" }, body: marker.replace(head, "c".repeat(40)) }],
           }).shouldReview,
         ).toBe(true);
       }
@@ -291,15 +301,20 @@ describe("sequential review mode admission", () => {
     expect(workflow).toContain("--max-turns 80");
     expect(workflow).toContain("timeout-minutes: 20");
     expect(workflow).toContain("github.workflow_sha");
-    const reviewJob = workflow.split("\n  review:\n")[1];
+    const reviewJob = workflow.split("\n  review:\n")[1].split("\n  publish:\n")[0];
+    const publisher = workflow.split("\n  publish:\n")[1];
     expect(reviewJob).toMatch(/allowed_bots: chatgpt-codex-connector\[bot\]\n/);
     expect(reviewJob.match(/allowed_bots:/g)).toHaveLength(1);
-    expect(reviewJob).toContain("additional_permissions: |\n            contents: read\n");
+    expect(reviewJob).toContain("pull-requests: read");
+    expect(reviewJob).toContain("github_token: ${{ github.token }}");
+    expect(reviewJob).not.toContain("pull-requests: write");
     expect(reviewJob).toContain("ref: ${{ github.workflow_sha }}");
-    expect(reviewJob).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
-    expect(reviewJob).toContain("contents/PATH --method GET -f ref=${{ needs.gate.outputs.head_sha }}");
-    expect(reviewJob).toContain("Never execute PR code");
-    expect(workflow).toContain("does not\n            establish historical pre-merge clearance");
+    expect(reviewJob).toContain("ref: ${{ needs.gate.outputs.head_sha }}\n          path: .claude-second-review/head");
+    expect(reviewJob).toContain('--disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"');
+    expect(publisher).toContain("ref: ${{ github.workflow_sha }}");
+    expect(publisher).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
+    expect(publisher).toContain("node scripts/second-review-delivery.mjs publish");
+    expect(publisher).toContain("node scripts/second-review-delivery.mjs verify");
     expect(workflow).not.toContain("--max-turns 40");
   });
 });

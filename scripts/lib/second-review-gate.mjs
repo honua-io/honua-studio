@@ -1,4 +1,4 @@
-const TRUSTED_REVIEWERS = new Set(["claude[bot]", "claude", "github-actions[bot]"]);
+import { matchingReceipt } from "./second-review-delivery.mjs";
 
 /** Only the installed connector's latest summary can attest comment-only completion. */
 export function completedFirstPassCommit(comments, firstPassReviewer = "chatgpt-codex-connector") {
@@ -59,9 +59,7 @@ export function evaluateSecondReview({
     comment_completion_threads_resolved:
       recordedFirstPass || !completedSummary || threads.every((thread) => thread.isResolved),
     threads_resolved: firstThreads.every((thread) => thread.isResolved),
-    not_already_reviewed: !comments.some(
-      (comment) => TRUSTED_REVIEWERS.has(comment.user?.login) && comment.body?.includes(marker),
-    ),
+    not_already_reviewed: !matchingReceipt(comments, { headSha, mode }),
   };
   const resolvedThreads = firstThreads
     .filter((thread) => thread.isResolved)
