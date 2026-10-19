@@ -70,12 +70,15 @@ test("Console bundle hashes files and exposes the canonical import transports", 
       submission: null,
     });
     expect(requests).toHaveLength(3);
+    const taskPath = "/api/v1/agent/workspaces/original-workspace/dataset-import-tasks/original-task/versions/3";
+    const expectedPaths = [
+      taskPath,
+      `${taskPath}/upload/capabilities?contentHash=${"a".repeat(64)}`,
+      `${taskPath}/submission?contentHash=${"a".repeat(64)}`,
+    ];
     for (const [index, request] of requests.entries()) {
       expect(request.method).toBe("GET");
-      expect(request.path).toContain(
-        "/api/v1/agent/workspaces/original-workspace/dataset-import-tasks/original-task/versions/3",
-      );
-      expect(request.path).toContain(`contentHash=${"a".repeat(64)}`);
+      expect(request.path).toBe(expectedPaths[index]);
       expect(request.authentication).toBe(`fresh-${index + 1}`);
     }
   } finally {
