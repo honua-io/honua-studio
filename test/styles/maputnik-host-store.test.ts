@@ -22,6 +22,11 @@ it("does not accept an invalid field when another field commits a valid change",
     const pending = createStyleStore(() => {});
     send({ type: "honua:style-load", style });
     const store = await pending;
+    const commitInput = (field: Element, next: unknown) => {
+      // The upstream callback runs inside React's native input dispatch.
+      field.addEventListener("input", () => store.save(next), { once: true });
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    };
     const app = document.createElement("div");
     app.id = "app";
     const panel = document.createElement("div");
@@ -34,13 +39,11 @@ it("does not accept an invalid field when another field commits a valid change",
     invalid.value = "{ invalid JSON";
     invalid.dispatchEvent(new Event("input", { bubbles: true }));
     valid.value = "Accepted";
-    valid.dispatchEvent(new Event("input", { bubbles: true }));
-    store.save({ ...style, id: "honua-host-draft", name: "Accepted" });
+    commitInput(valid, { ...style, id: "honua-host-draft", name: "Accepted" });
     send({ type: "honua:style-flush", requestId: "first" });
     await vi.waitFor(() => expect(messages.find((message) => message.requestId === "first")?.settled).toBe(false));
     invalid.value = "{}";
-    invalid.dispatchEvent(new Event("input", { bubbles: true }));
-    store.save({ ...style, id: "honua-host-draft", name: "Corrected" });
+    commitInput(invalid, { ...style, id: "honua-host-draft", name: "Corrected" });
     send({ type: "honua:style-flush", requestId: "corrected" });
     await vi.waitFor(() => expect(messages.find((message) => message.requestId === "corrected")?.settled).toBe(true));
     const code = document.createElement("div");
@@ -49,8 +52,7 @@ it("does not accept an invalid field when another field commits a valid change",
     code.append(content);
     panel.append(code);
     window.dispatchEvent(new CustomEvent("honua:style-raw-input", { detail: { element: content } }));
-    valid.dispatchEvent(new Event("input", { bubbles: true }));
-    store.save({ ...style, id: "honua-host-draft", name: "Other valid edit" });
+    commitInput(valid, { ...style, id: "honua-host-draft", name: "Other valid edit" });
     send({ type: "honua:style-flush", requestId: "raw-json" });
     await vi.waitFor(() => expect(messages.find((message) => message.requestId === "raw-json")?.settled).toBe(false));
     send({ type: "honua:style-load", style });
@@ -63,6 +65,19 @@ it("does not accept an invalid field when another field commits a valid change",
     send({ type: "honua:style-flush", requestId: "accepted-json" });
     await vi.waitFor(() =>
       expect(messages.find((message) => message.requestId === "accepted-json")?.settled).toBe(true),
+    );
+    send({ type: "honua:style-unlock" });
+    valid.dispatchEvent(new Event("input", { bubbles: true }));
+    store.save({ ...style, id: "honua-host-draft", name: "Unrelated save after native dispatch" });
+    send({ type: "honua:style-flush", requestId: "native-ended" });
+    await vi.waitFor(() =>
+      expect(messages.find((message) => message.requestId === "native-ended")?.settled).toBe(false),
+    );
+    send({ type: "honua:style-unlock" });
+    commitInput(valid, { ...style, id: "honua-host-draft", name: "Actual native commit" });
+    send({ type: "honua:style-flush", requestId: "native-accepted" });
+    await vi.waitFor(() =>
+      expect(messages.find((message) => message.requestId === "native-accepted")?.settled).toBe(true),
     );
     send({ type: "honua:style-unlock" });
     invalid.value = "{ invalid focused field";
