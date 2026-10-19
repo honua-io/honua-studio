@@ -2133,7 +2133,7 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
 //
 // So the fixture now serves features, the same way a real honua-server does:
 // OGC API – Features (`/ogc/collections/{id}/items`) for the `ogc-features`
-// datasets and a GeoServices `/query?f=geojson` for the FeatureServer one.
+// datasets and GeoServices metadata + paged JSON/GeoJSON queries for FeatureServer.
 // The geometry is **generated, not copied** — a deterministic grid over Oʻahu,
 // clearly synthetic, sized so the whole collection fits in one bounded
 // response. Nothing here claims to be real parcel data; it is fixture data
@@ -2759,10 +2759,9 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
     // ── Feature data planes the composition map reads (honua-studio#23) ──
     //
     // Deliberately unauthenticated, matching honua-server's own posture for
-    // published read-only collections: MapLibre fetches a GeoJSON source URL
-    // directly from the renderer, with no opportunity to attach the session
-    // bearer the REST client uses. Studio's data plane is read-only either
-    // way (#1 REQ-005 / server ADR-0028) — only GET is served here.
+    // published read-only collections. The SDK paging adapter also reads
+    // layer metadata and GeoServices feature pages before projecting GeoJSON.
+    // Only GET is served here (#1 REQ-005 / server ADR-0028).
     if (pathname === "/ogc/collections" && req.method === "GET") {
       json(res, 200, {
         collections: catalogDatasets
@@ -2783,22 +2782,83 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       json(res, 200, collection, { "access-control-allow-origin": "*" });
       return;
     }
-    const featureServerMatch = /^\/rest\/services\/([^/]+)\/FeatureServer\/(\d+)\/query$/.exec(pathname);
+    const featureServerMatch = /^\/rest\/services\/([^/]+)\/FeatureServer\/(\d+)(\/query)?$/.exec(pathname);
     if (featureServerMatch && req.method === "GET") {
       const serviceId = decodeURIComponent(featureServerMatch[1]);
-      const count = Number.parseInt(requestUrl.searchParams.get("resultRecordCount") ?? "", 10);
-      const collection = fixtureFeatureCollection(serviceId, Number.isNaN(count) ? undefined : count);
-      if (!collection) {
+      const collection = fixtureFeatureCollection(serviceId);
+      if (!collection || featureServerMatch[2] !== "0") {
         json(res, 404, { error: "not_found", serviceId });
         return;
       }
-      // Only the `f=geojson` shape the SDK's MapLibre projection asks for —
-      // this fixture is not a GeoServices implementation.
-      if (requestUrl.searchParams.get("f") !== "geojson") {
-        json(res, 400, { error: "unsupported_format", supported: ["geojson"] });
+      const geometryType = {
+        Point: "esriGeometryPoint",
+        LineString: "esriGeometryPolyline",
+        Polygon: "esriGeometryPolygon",
+      }[collection.features[0].geometry.type];
+      const fields = [
+        { name: "OBJECTID", type: "esriFieldTypeOID", alias: "OBJECTID" },
+        ...Object.keys(collection.features[0].properties).map((name) => ({
+          name,
+          type: "esriFieldTypeString",
+          alias: name,
+        })),
+      ];
+      const metadata = {
+        id: 0,
+        name: serviceId,
+        type: "Feature Layer",
+        geometryType,
+        fields,
+        objectIdField: "OBJECTID",
+        objectIdFieldName: "OBJECTID",
+        maxRecordCount: 2000,
+        spatialReference: { wkid: 4326 },
+        advancedQueryCapabilities: { supportsPagination: true },
+      };
+      if (!featureServerMatch[3]) {
+        json(res, 200, metadata, { "access-control-allow-origin": "*" });
         return;
       }
-      json(res, 200, collection, { "access-control-allow-origin": "*" });
+      const count = Number(requestUrl.searchParams.get("resultRecordCount") ?? 2000);
+      const offset = Number(requestUrl.searchParams.get("resultOffset") ?? 0);
+      if (!Number.isInteger(count) || count < 1 || count > 2000 || !Number.isInteger(offset) || offset < 0) {
+        json(res, 400, { error: { code: 400, message: "Invalid fixture pagination." } });
+        return;
+      }
+      const features = collection.features.slice(offset, offset + count);
+      const exceededTransferLimit = offset + features.length < collection.features.length;
+      const format = requestUrl.searchParams.get("f");
+      if (format === "geojson") {
+        json(
+          res,
+          200,
+          { ...collection, features, numberReturned: features.length, exceededTransferLimit },
+          { "access-control-allow-origin": "*" },
+        );
+        return;
+      }
+      if (format !== "json" && format !== "pjson") {
+        json(res, 400, { error: "unsupported_format", supported: ["json", "geojson"] });
+        return;
+      }
+      json(
+        res,
+        200,
+        {
+          ...metadata,
+          exceededTransferLimit,
+          features: features.map((feature) => ({
+            attributes: { ...feature.properties, OBJECTID: feature.id },
+            geometry:
+              feature.geometry.type === "Point"
+                ? { x: feature.geometry.coordinates[0], y: feature.geometry.coordinates[1] }
+                : feature.geometry.type === "LineString"
+                  ? { paths: [feature.geometry.coordinates] }
+                  : { rings: feature.geometry.coordinates.map((ring) => [...ring].reverse()) },
+          })),
+        },
+        { "access-control-allow-origin": "*" },
+      );
       return;
     }
 
