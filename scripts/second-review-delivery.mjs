@@ -7,6 +7,7 @@ import {
   requireCurrentReview,
   reviewBody,
   reviewResultSchema,
+  selectEligibleReviewRun,
   validateReviewResult,
 } from "./lib/second-review-delivery.mjs";
 
@@ -59,6 +60,25 @@ function current(expected) {
 const mode = process.argv[2];
 if (mode === "schema") {
   console.log(JSON.stringify(reviewResultSchema));
+} else if (mode === "requeue") {
+  const expected = identity();
+  requireCurrentReview(current(expected), expected);
+  const runs = JSON.parse(
+    gh([
+      "api",
+      `repos/${expected.repository}/actions/workflows/claude-second-review.yml/runs?event=pull_request&head_sha=${expected.headSha}&per_page=100`,
+    ]),
+  );
+  const eligible = selectEligibleReviewRun(runs, expected);
+  requireCurrentReview(current(expected), expected);
+  if (eligible.conclusion === "success") {
+    console.log(`PR-associated review run ${eligible.id} already succeeded for ${expected.headSha}.`);
+  } else {
+    // Rerun the whole eligible workflow: rerunning only the failed publisher
+    // would reuse the old gate's "not admitted" outputs indefinitely.
+    gh(["api", `repos/${expected.repository}/actions/runs/${eligible.id}/rerun`, "--method", "POST"]);
+    console.log(`Requeued PR-associated review run ${eligible.id} for ${expected.headSha}.`);
+  }
 } else if (mode === "prepare") {
   const expected = identity();
   requireCurrentReview(current(expected), expected);
@@ -153,4 +173,4 @@ if (mode === "schema") {
       throw new Error("The expected review receipt was not observed.");
     console.log(`Posted and verified review receipt ${receipt.id} for ${expected.headSha}.`);
   }
-} else throw new Error("Expected schema, prepare, validate, existing, verify or publish.");
+} else throw new Error("Expected schema, requeue, prepare, validate, existing, verify or publish.");

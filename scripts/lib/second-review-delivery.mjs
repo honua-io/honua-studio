@@ -4,6 +4,33 @@ import path from "node:path";
 const fields = ["headSha", "verdict", "blockedReason", "findings"];
 const findingFields = ["kind", "priority", "path", "line", "title", "detail"];
 const reviewers = new Set(["claude[bot]", "claude", "github-actions[bot]"]);
+
+/** Comment/dispatch events must hand off to an actual PR-associated run. */
+export function selectEligibleReviewRun(response, expected) {
+  if (
+    expected.mode !== "second-review" ||
+    !Array.isArray(response?.workflow_runs) ||
+    response.total_count > response.workflow_runs.length
+  )
+    throw new Error("Incomplete eligible review run discovery.");
+  const matches = response.workflow_runs.filter(
+    (run) =>
+      Number.isSafeInteger(run.id) &&
+      run.id > 0 &&
+      run.event === "pull_request" &&
+      run.path === ".github/workflows/claude-second-review.yml" &&
+      run.head_sha === expected.headSha &&
+      run.head_repository?.full_name === expected.repository &&
+      run.pull_requests?.some(
+        (pr) =>
+          pr.number === expected.prNumber && pr.head?.sha === expected.headSha && pr.base?.sha === expected.baseSha,
+      ),
+  );
+  const latest = matches.sort((a, b) => b.id - a.id)[0];
+  if (!latest) throw new Error("No exact-head PR-associated review run was found.");
+  if (latest.status !== "completed") throw new Error("The eligible PR review is still active; let it finish.");
+  return latest;
+}
 const markerText = /<!--\s*claude-(?:second-review|post-merge-audit):/u;
 export const reviewResultSchema = {
   type: "object",

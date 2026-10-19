@@ -9,6 +9,7 @@ import {
   matchingReceipt,
   requireCurrentReview,
   reviewBody,
+  selectEligibleReviewRun,
   validateReviewResult,
 } from "../lib/second-review-delivery.mjs";
 import { evaluateSecondReview } from "../lib/second-review-gate.mjs";
@@ -35,6 +36,36 @@ const pr = () => ({
   state: "OPEN",
   isDraft: false,
   mergedAt: null,
+});
+const eligibleRun = () => ({
+  id: 123,
+  event: "pull_request",
+  path: ".github/workflows/claude-second-review.yml",
+  head_sha: expected.headSha,
+  head_repository: { full_name: expected.repository },
+  pull_requests: [{ number: expected.prNumber, head: { sha: expected.headSha }, base: { sha: expected.baseSha } }],
+  status: "completed",
+  conclusion: "failure",
+});
+
+test("comment admission selects only the exact PR-associated head/base/repository workflow", () => {
+  const run = eligibleRun();
+  assert.equal(selectEligibleReviewRun({ total_count: 1, workflow_runs: [run] }, expected), run);
+  for (const change of [
+    { event: "issue_comment" },
+    { event: "workflow_dispatch" },
+    { head_sha: "c".repeat(40) },
+    { head_repository: { full_name: "untrusted/fork" } },
+    { path: ".github/workflows/other.yml" },
+    { pull_requests: [{ number: 999, head: { sha: expected.headSha }, base: { sha: expected.baseSha } }] },
+    { pull_requests: [{ number: expected.prNumber, head: { sha: expected.headSha }, base: { sha: "c".repeat(40) } }] },
+    { status: "in_progress" },
+  ])
+    assert.throws(() => selectEligibleReviewRun({ total_count: 1, workflow_runs: [{ ...run, ...change }] }, expected));
+  assert.throws(() => selectEligibleReviewRun({ total_count: 101, workflow_runs: [run] }, expected));
+  assert.throws(() =>
+    selectEligibleReviewRun({ total_count: 1, workflow_runs: [run] }, { ...expected, mode: "post-merge-audit" }),
+  );
 });
 
 test("completed results produce the exact current-head receipt", () => {
@@ -163,7 +194,14 @@ test("admission and delivery agree on authenticated current-head receipts", () =
   );
 });
 
-function runPublisher({ mutateArtifact, env = {}, initialReceipt, repeat = false, command = "publish" } = {}) {
+function runPublisher({
+  mutateArtifact,
+  env = {},
+  initialReceipt,
+  repeat = false,
+  command = "publish",
+  reviewRun = eligibleRun(),
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-publisher-"));
   try {
     const bin = path.join(root, "bin");
@@ -194,6 +232,8 @@ if(process.env.CHANGED_HEAD==='true'||process.env.CHANGE_AFTER_POST==='true'&&fs
 console.log(JSON.stringify(p));
 }else if(a[0]==='pr'&&a[1]==='diff')console.log('diff --git a/src/map.ts b/src/map.ts');
 else if(a[0]==='api'&&a[1].includes('/zipball/'))process.stdout.write(fs.readFileSync('fixture.zip'));
+else if(a[0]==='api'&&a[1].includes('/actions/workflows/'))console.log(process.env.TEST_REVIEW_RUNS);
+else if(a[0]==='api'&&a[1].endsWith('/rerun')&&a.includes('POST'))console.log('{}');
 else if(a.includes('--method')){
 const body=JSON.parse(fs.readFileSync(a[a.indexOf('--input')+1],'utf8')).body;
 const r={id:99,user:{login:'github-actions[bot]',type:process.env.SPOOFED_USER==='true'?'User':'Bot'},body};
@@ -217,6 +257,7 @@ else process.exit(90);
       BASE_SHA: expected.baseSha,
       REVIEW_MODE: expected.mode,
       TEST_PR: JSON.stringify(pr()),
+      TEST_REVIEW_RUNS: JSON.stringify({ total_count: 1, workflow_runs: [reviewRun] }),
       GITHUB_OUTPUT: path.join(root, "outputs"),
     };
     const runs = [
@@ -255,6 +296,27 @@ else process.exit(90);
   }
 }
 const posts = (value) => value.trace.filter((args) => args.includes("POST"));
+
+test("comment/manual admission requeues the whole exact-head PR workflow, not only its failed publisher", () => {
+  const value = runPublisher({ command: "requeue" });
+  assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
+  assert.deepEqual(posts(value), [["api", `repos/${expected.repository}/actions/runs/123/rerun`, "--method", "POST"]]);
+});
+
+test("requeue refuses stale/foreign events and does not rerun successful or still-active PR reviews", () => {
+  for (const options of [
+    { env: { CHANGED_HEAD: "true" } },
+    { reviewRun: { ...eligibleRun(), event: "workflow_dispatch" } },
+    { reviewRun: { ...eligibleRun(), status: "in_progress" } },
+  ]) {
+    const value = runPublisher({ command: "requeue", ...options });
+    assert.notEqual(value.runs[0].status, 0);
+    assert.equal(posts(value).length, 0);
+  }
+  const succeeded = runPublisher({ command: "requeue", reviewRun: { ...eligibleRun(), conclusion: "success" } });
+  assert.equal(succeeded.runs[0].status, 0, succeeded.runs[0].stderr);
+  assert.equal(posts(succeeded).length, 0);
+});
 
 test("the actual collector reads only the admitted commit archive and removes the compressed input", () => {
   const value = runPublisher({ command: "prepare" });
@@ -350,7 +412,16 @@ test("the required review check belongs to the trusted publisher and the model h
   assert.doesNotMatch(collect, /ref: \$\{\{ needs.gate.outputs.head_sha \}\}/u);
   assert.match(collect, /--disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"/u);
   assert.match(publish, /name: Claude second-pass review/u);
-  assert.match(publish, /if: always\(\) && needs.gate.result != 'skipped'/u);
+  assert.match(publish, /always\(\) && needs.gate.result != 'skipped'/u);
+  for (const job of [collect, publish]) {
+    assert.match(job, /github.event_name == 'pull_request'/u);
+    assert.match(job, /github.event_name == 'pull_request_review'/u);
+    assert.match(job, /needs.gate.outputs.review_mode == 'post-merge-audit'/u);
+  }
+  const requeue = workflow.split("\n  requeue:\n")[1].split("\n  review:\n")[0];
+  assert.match(requeue, /actions: write/u);
+  assert.doesNotMatch(requeue, /secrets\.|pull-requests: write/u);
+  assert.match(requeue, /node scripts\/second-review-delivery.mjs requeue/u);
   assert.match(publish, /node scripts\/second-review-delivery.mjs verify/u);
   assert.match(publish, /ELIGIBLE: \$\{\{ needs.gate.outputs.eligible_for_receipt \}\}/u);
   assert.match(publish, /artifact-ids: \$\{\{ needs.review.outputs.artifact_id \}\}/u);
@@ -363,5 +434,6 @@ test("candidate archive extraction preserves inert data and rejects boundary esc
     timeout: 15000,
     env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
   });
+  assert.ifError(execution.error);
   assert.equal(execution.status, 0, execution.stderr);
 });

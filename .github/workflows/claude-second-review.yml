@@ -160,10 +160,48 @@ jobs:
           [[ "$base" =~ ^[a-f0-9]{40}$ ]]
           echo "base_sha=$base" >> "$GITHUB_OUTPUT"
 
+  requeue:
+    name: Re-evaluate the admitted PR review
+    needs: gate
+    # These events can admit a review, but their workflow-job checks cannot
+    # satisfy PR branch protection. Rerun the exact PR-associated workflow.
+    if: >-
+      needs.gate.outputs.eligible_for_receipt == 'true' &&
+      needs.gate.outputs.review_mode == 'second-review' &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+      BASE_SHA: ${{ needs.gate.outputs.base_sha }}
+      REVIEW_MODE: ${{ needs.gate.outputs.review_mode }}
+    steps:
+      - name: Check out the active workflow implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.3
+      - name: Requeue only the exact PR-associated workflow
+        run: node scripts/second-review-delivery.mjs requeue
+
   review:
     name: Collect second-review result
     needs: gate
-    if: needs.gate.outputs.should_review == 'true'
+    if: >-
+      needs.gate.outputs.should_review == 'true' &&
+      (github.event_name == 'pull_request' ||
+       github.event_name == 'pull_request_review' ||
+       needs.gate.outputs.review_mode == 'post-merge-audit')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -253,7 +291,11 @@ jobs:
     # Preserve the required check name; it completes only after the receipt exists.
     name: Claude second-pass review
     needs: [gate, review]
-    if: always() && needs.gate.result != 'skipped'
+    if: >-
+      always() && needs.gate.result != 'skipped' &&
+      (github.event_name == 'pull_request' ||
+       github.event_name == 'pull_request_review' ||
+       needs.gate.outputs.review_mode == 'post-merge-audit')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
