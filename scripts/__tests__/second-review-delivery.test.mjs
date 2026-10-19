@@ -173,15 +173,28 @@ function runPublisher({ mutateArtifact, env = {}, initialReceipt, repeat = false
     const artifact = { schemaVersion: 1, expected, result: result() };
     mutateArtifact?.(artifact);
     fs.writeFileSync(path.join(output, "validated-result.json"), JSON.stringify(artifact));
+    if (command === "prepare") {
+      const fixture = spawnSync(
+        "python3",
+        [
+          "-c",
+          "import zipfile\nwith zipfile.ZipFile('fixture.zip','w') as z:\n z.writestr('repo/src/map.ts',\"throw new Error('never execute');\\n\")",
+        ],
+        { cwd: root, encoding: "utf8", timeout: 15000 },
+      );
+      assert.equal(fixture.status, 0, fixture.stderr);
+    }
     if (initialReceipt) fs.writeFileSync(path.join(root, "receipt.json"), JSON.stringify(initialReceipt));
     const stub = `#!${process.execPath}
 const fs=require('node:fs');const a=process.argv.slice(2);fs.appendFileSync('trace.jsonl',JSON.stringify(a)+'\\n');
 const receipt=()=>JSON.parse(fs.readFileSync('receipt.json','utf8'));
 if(a[0]==='pr'&&a[1]==='view'){
 const p=JSON.parse(process.env.TEST_PR);
-if(process.env.CHANGED_HEAD==='true'||process.env.CHANGE_AFTER_POST==='true'&&fs.existsSync('receipt.json'))p.headRefOid='c'.repeat(40);
+if(process.env.CHANGED_HEAD==='true'||process.env.CHANGE_AFTER_POST==='true'&&fs.existsSync('receipt.json')||process.env.CHANGE_AFTER_SNAPSHOT==='true'&&fs.existsSync('.claude-second-review/head'))p.headRefOid='c'.repeat(40);
 console.log(JSON.stringify(p));
-}else if(a.includes('--method')){
+}else if(a[0]==='pr'&&a[1]==='diff')console.log('diff --git a/src/map.ts b/src/map.ts');
+else if(a[0]==='api'&&a[1].includes('/zipball/'))process.stdout.write(fs.readFileSync('fixture.zip'));
+else if(a.includes('--method')){
 const body=JSON.parse(fs.readFileSync(a[a.indexOf('--input')+1],'utf8')).body;
 const r={id:99,user:{login:'github-actions[bot]',type:process.env.SPOOFED_USER==='true'?'User':'Bot'},body};
 fs.writeFileSync('receipt.json',JSON.stringify(r));
@@ -231,12 +244,40 @@ else process.exit(90);
       receipt: fs.existsSync(path.join(root, "receipt.json"))
         ? JSON.parse(fs.readFileSync(path.join(root, "receipt.json"), "utf8"))
         : null,
+      prepared: fs.existsSync(path.join(output, "identity.json")),
+      source: fs.existsSync(path.join(output, "head/src/map.ts"))
+        ? fs.readFileSync(path.join(output, "head/src/map.ts"), "utf8")
+        : null,
+      archiveRemoved: !fs.existsSync(path.join(output, "source.zip")),
     };
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
 const posts = (value) => value.trace.filter((args) => args.includes("POST"));
+
+test("the actual collector reads only the admitted commit archive and removes the compressed input", () => {
+  const value = runPublisher({ command: "prepare" });
+  assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
+  assert.deepEqual(
+    value.trace.filter((args) => args.includes("api")),
+    [["api", `repos/${expected.repository}/zipball/${expected.headSha}`]],
+  );
+  assert.equal(value.source, "throw new Error('never execute');\n");
+  assert.equal(value.prepared, true);
+  assert.equal(value.archiveRemoved, true);
+  assert.equal(posts(value).length, 0);
+});
+
+test("the actual collector rejects head changes before and after source download", () => {
+  for (const env of [{ CHANGED_HEAD: "true" }, { CHANGE_AFTER_SNAPSHOT: "true" }]) {
+    const value = runPublisher({ command: "prepare", env });
+    assert.notEqual(value.runs[0].status, 0);
+    assert.equal(value.prepared, false);
+    assert.equal(value.archiveRemoved, true);
+    assert.equal(posts(value).length, 0);
+  }
+});
 
 test("the actual publisher posts once and verifies its observed receipt", () => {
   const value = runPublisher();
@@ -306,10 +347,21 @@ test("the required review check belongs to the trusted publisher and the model h
   assert.match(collect, /pull-requests: read/u);
   assert.doesNotMatch(collect, /pull-requests: write|id-token: write/u);
   assert.match(collect, /github_token: \$\{\{ github.token \}\}/u);
+  assert.doesNotMatch(collect, /ref: \$\{\{ needs.gate.outputs.head_sha \}\}/u);
   assert.match(collect, /--disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"/u);
   assert.match(publish, /name: Claude second-pass review/u);
   assert.match(publish, /if: always\(\) && needs.gate.result != 'skipped'/u);
   assert.match(publish, /node scripts\/second-review-delivery.mjs verify/u);
   assert.match(publish, /ELIGIBLE: \$\{\{ needs.gate.outputs.eligible_for_receipt \}\}/u);
   assert.match(publish, /artifact-ids: \$\{\{ needs.review.outputs.artifact_id \}\}/u);
+});
+
+test("candidate archive extraction preserves inert data and rejects boundary escapes", () => {
+  const suite = fileURLToPath(new URL("./review-source-archive.test.py", import.meta.url));
+  const execution = spawnSync("python3", [suite], {
+    encoding: "utf8",
+    timeout: 15000,
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+  });
+  assert.equal(execution.status, 0, execution.stderr);
 });

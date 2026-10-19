@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   matchingReceipt,
   requireCurrentReview,
@@ -61,10 +62,21 @@ if (mode === "schema") {
 } else if (mode === "prepare") {
   const expected = identity();
   requireCurrentReview(current(expected), expected);
-  const actual = execFileSync("git", ["-C", path.join(directory, "head"), "rev-parse", "HEAD"], {
-    encoding: "utf8",
-  }).trim();
-  if (actual !== expected.headSha) throw new Error("Snapshot does not match the admitted head.");
+  fs.mkdirSync(directory, { recursive: true });
+  const archiveFile = path.join(directory, "source.zip");
+  try {
+    const archive = execFileSync("gh", ["api", `repos/${expected.repository}/zipball/${expected.headSha}`], {
+      timeout: 60000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    fs.writeFileSync(archiveFile, archive);
+    const extractor = fileURLToPath(new URL("./lib/review-source-archive.py", import.meta.url));
+    console.log(
+      execFileSync("python3", [extractor, archiveFile, path.join(directory, "head")], { encoding: "utf8" }).trim(),
+    );
+  } finally {
+    fs.rmSync(archiveFile, { force: true });
+  }
   const diff = gh(["pr", "diff", String(expected.prNumber), "--repo", expected.repository, "--color", "never"]);
   requireCurrentReview(current(expected), expected);
   fs.writeFileSync(path.join(directory, "current.diff"), diff);

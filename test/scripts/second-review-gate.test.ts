@@ -309,7 +309,8 @@ describe("sequential review mode admission", () => {
     expect(reviewJob).toContain("github_token: ${{ github.token }}");
     expect(reviewJob).not.toContain("pull-requests: write");
     expect(reviewJob).toContain("ref: ${{ github.workflow_sha }}");
-    expect(reviewJob).toContain("ref: ${{ needs.gate.outputs.head_sha }}\n          path: .claude-second-review/head");
+    expect(reviewJob).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");
+    expect(reviewJob).toContain("node scripts/second-review-delivery.mjs prepare");
     expect(reviewJob).toContain('--disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"');
     expect(publisher).toContain("ref: ${{ github.workflow_sha }}");
     expect(publisher).not.toContain("ref: ${{ needs.gate.outputs.head_sha }}");

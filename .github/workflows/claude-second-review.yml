@@ -185,13 +185,6 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22.23.3
-      # This nested checkout is data only: no candidate scripts/configuration run.
-      - name: Materialize the admitted source snapshot
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: ${{ needs.gate.outputs.head_sha }}
-          path: .claude-second-review/head
-          persist-credentials: false
       - name: Prepare pinned review inputs
         id: schema
         env:
@@ -199,7 +192,11 @@ jobs:
           THREADS_DIGEST_BASE64: ${{ needs.gate.outputs.threads_digest_base64 }}
         run: |
           set -euo pipefail
+          mkdir -p .claude-second-review
           printf '%s' "$THREADS_DIGEST_BASE64" | base64 -d > .claude-second-review/resolved-threads.md
+          # Download the exact admitted commit as inert source data. The trusted
+          # extractor rejects unsafe paths and never creates Git metadata, links
+          # or executables; no candidate checkout/configuration/scripts run.
           node scripts/second-review-delivery.mjs prepare
           echo "json=$(node scripts/second-review-delivery.mjs schema)" >> "$GITHUB_OUTPUT"
       - name: Collect structured review
