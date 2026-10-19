@@ -39,7 +39,8 @@ export function selectEligibleReviewRun(response, expected) {
       Number.isSafeInteger(run.id) &&
       run.id > 0 &&
       run.event === "pull_request" &&
-      run.path === ".github/workflows/claude-second-review.yml" &&
+      typeof run.path === "string" &&
+      /^\.github\/workflows\/claude-second-review\.yml(?:@\S+)?$/u.test(run.path) &&
       run.head_sha === expected.headSha &&
       run.head_repository?.full_name === expected.repository &&
       run.pull_requests?.some(

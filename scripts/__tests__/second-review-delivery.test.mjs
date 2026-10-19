@@ -99,6 +99,10 @@ test("comment admission selects only the exact PR-associated head/base/repositor
     { head_sha: "c".repeat(40) },
     { head_repository: { full_name: "untrusted/fork" } },
     { path: ".github/workflows/other.yml" },
+    { path: ".github/workflows/other.yml@main" },
+    { path: ".github/workflows/claude-second-review.yml.backup@main" },
+    { path: ".github/workflows/claude-second-review.yml@" },
+    { path: undefined },
     {
       pull_requests: [
         { number: 999, head: { sha: expected.headSha }, base: { sha: expected.baseSha, ref: expected.baseRefName } },
@@ -127,6 +131,13 @@ test("comment admission selects only the exact PR-associated head/base/repositor
     ],
   };
   assert.equal(selectEligibleReviewRun({ total_count: 1, workflow_runs: [advanced] }, expected), advanced);
+});
+
+test("review discovery accepts GitHub's bare and ref-qualified workflow paths", () => {
+  for (const suffix of ["", "@main", "@refs/pull/108/merge", `@${expected.headSha}`]) {
+    const run = { ...eligibleRun(), path: `.github/workflows/claude-second-review.yml${suffix}` };
+    assert.equal(selectEligibleReviewRun({ total_count: 1, workflow_runs: [run] }, expected), run);
+  }
 });
 
 test("completed results produce the exact current-head receipt", () => {
@@ -435,7 +446,10 @@ test("the actual base-pinning CLI uses canonical PR metadata without any mutatio
 });
 
 test("comment/manual admission requeues the whole exact-head PR workflow, not only its failed publisher", () => {
-  const value = runPublisher({ command: "requeue" });
+  const value = runPublisher({
+    command: "requeue",
+    reviewRun: { ...eligibleRun(), path: ".github/workflows/claude-second-review.yml@main" },
+  });
   assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
   assert.deepEqual(posts(value), [["api", `repos/${expected.repository}/actions/runs/123/rerun`, "--method", "POST"]]);
 });
