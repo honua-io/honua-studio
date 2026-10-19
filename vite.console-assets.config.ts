@@ -9,7 +9,7 @@ import { type SdkPayloadReceipt, verifySdkPayload } from "./scripts/lib/verify-s
 // Standalone builds retain their published SDK compatibility; this host bundle
 // cannot silently fall back to those older semantics.
 const sdkReceiptBytes = readFileSync(resolve("scripts/sdk-review-receipt.json"));
-const sdkReceiptSha256 = "97ee301b41e3f2e513d91586aa737179c9f1cfc02996caa3ac02875b74482d4c";
+const sdkReceiptSha256 = "b5bc126a1c21c216f6ef6bdbd41287bfd15816fd0c7858f1ff5cd0ddfab9938c";
 if (createHash("sha256").update(sdkReceiptBytes).digest("hex") !== sdkReceiptSha256)
   throw new Error("The Console SDK review receipt changed without explicit qualification.");
 const sdkReceipt = JSON.parse(sdkReceiptBytes.toString("utf8")) as SdkPayloadReceipt;

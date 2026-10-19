@@ -29,7 +29,8 @@
     "build:blazor-host": "npm run build:blazor-assets --silent && dotnet build harness/blazor-host/StudioHost/StudioHost.csproj",
     "test:browser:blazor": "npm run build:blazor-host --silent && playwright test --grep @blazor",
     "evals:server": "node scripts/eval-server-corpus.mjs",
-    "build:console-assets": "vite build --config vite.console-assets.config.ts"
+    "build:console-assets": "vite build --config vite.console-assets.config.ts",
+    "test:console-assets": "npm run build:console-assets && playwright test --config playwright.console-assets.config.mjs"
   },
   "dependencies": {
     "@honua/sdk-js": "0.2.2",

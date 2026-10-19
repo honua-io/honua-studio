@@ -13,6 +13,12 @@ The standalone shell and embed harnesses are compatibility and development
 surfaces, not a separate product. Repository consolidation is still pending;
 Console currently depends on the qualified editor bundle from this repository.
 
+The Console review bundle also exposes the canonical SDK clients for dataset
+tasks, uploads, submission status, and bounded file hashing. Its browser packaging
+check is `npm run test:console-assets`; see [the reviewed SDK setup](docs/embed-session.md).
+These exports do not establish deployment readiness or a completed large-file
+import → query → map journey.
+
 - **BYOM** — bring your own model: Studio talks to honua-server's Studio AI
   proxy, so the provider is the operator's choice (Bedrock, any hosted API, or
   a local model) and no key ever reaches the browser. Live turns use the SDK's

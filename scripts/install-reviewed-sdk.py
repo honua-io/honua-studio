@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
 
-RECEIPT_SHA256 = "97ee301b41e3f2e513d91586aa737179c9f1cfc02996caa3ac02875b74482d4c"
+RECEIPT_SHA256 = "b5bc126a1c21c216f6ef6bdbd41287bfd15816fd0c7858f1ff5cd0ddfab9938c"
 MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 256 * 1024 * 1024
 

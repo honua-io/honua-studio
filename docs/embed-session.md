@@ -239,8 +239,8 @@ conversation into its transcript projection without changing the SDK's model his
 it returns false while that bridge streams. The host owns the visible conversation.
 
 Review bundles currently use the separately packed SDK artifact from
-`c23d8b285c346cd5faed1c990d6b5263a65b0187`, including schema-aware dispatch and
-canonical live-style bindings. This is not a published 0.2.3 release. Record its
+`b42c2c5e099574403c67dca5fd63fe1120e15feb`, including schema-aware dispatch,
+canonical live-style bindings, and the dataset import transports. This is not a published 0.2.3 release. Record its
 actual tarball SHA and Studio commit in the embedding application's manifest.
 
 `build:console-assets` verifies every installed SDK package file against the
@@ -254,11 +254,20 @@ npm run build:console-assets
 ```
 
 The installer checks archive SHA-256
-`a1ebfdfdcecd15fc25168e4da8fb9000414ea995fa787ce9c7922f1ccf2cfa90`,
-all 2,086 payload hashes, and the installed dependency versions against the lock.
+`96a936c40a6f7a8da2f38633d7dfbbdbdcfd50d4f99df129a2eec0616ffbcafd`,
+all 2,110 payload hashes, and the installed dependency versions against the lock.
 It does not run npm dependency resolution. The build emits `SDK-PROVENANCE.json`
 and license notices. Release qualification requires the actual immutable published
 SDK release, updated pins/provenance, and repeated native-session qualification.
+
+The Console entry exports `DatasetImportTaskClient`, `DatasetImportUploadClient`,
+`DatasetImportSubmissionClient`, and `hashDatasetImportFile` from that SDK.
+Console supplies fresh authenticated headers and its workspace-bound BFF transport;
+these exports do not grant import authority or enable a host that is not ready.
+After installing the reviewed SDK and pinned Maputnik assets, run
+`npm run test:console-assets` to build the bundle and exercise its real hashing
+and read transports in Chromium. This packaging check uses controlled HTTP
+responses; live import, query, and map qualification remains separate.
 
 Before capturing a turn, `await studio.prepareWorkspaceTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching
