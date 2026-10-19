@@ -190,6 +190,7 @@ studio.session = {
   kind: "cookie",
   baseUrl: "/api/studio",
   environmentId: session.environmentId,
+  principalId: session.principalId,
   expiresAt: session.expiresAt,
   csrfToken: session.csrfToken,
   onExpired: subscribeToHostExpiry,
@@ -202,6 +203,11 @@ expiry or a 401 stops further transport. The host BFF must independently authori
 and bound every route. Cookie transport permits Studio REST, read-only layer
 catalog MCP discovery, and bounded feature queries. It never lends human
 credentials to the model's canonical tools.
+
+`principalId` is the host's stable opaque user partition, not a credential. Pass
+the same partition to `ServerProcessWorkspace`; run submission requires it.
+Pending process commands and accepted receipts are retained separately for each
+environment and principal, so switching users cannot adopt another user's run.
 
 Build `npm run build:console-assets` for `dist-console/console.js`, `style.css`,
 and its complete dynamic chunk/worker directory. This production entry exports
@@ -239,7 +245,7 @@ conversation into its transcript projection without changing the SDK's model his
 it returns false while that bridge streams. The host owns the visible conversation.
 
 Review bundles currently use the separately packed SDK artifact from
-`4c879cad01288b2382f6664a1ac8c14fd0b9453d`, including schema-aware dispatch,
+`50d8f1d6fcbbcee89f666949722c6b7ac904e5c4`, including schema-aware dispatch,
 canonical live-style bindings, and the dataset import transports. This is not a published 0.2.3 release. Record its
 actual tarball SHA and Studio commit in the embedding application's manifest.
 
@@ -254,8 +260,8 @@ npm run build:console-assets
 ```
 
 The installer checks archive SHA-256
-`fb58463d79ec75409ec18d6f0ef76f9f4fa3db57dc11e1d97a1dd33f499f634d`,
-all 2,110 payload hashes, and the installed dependency versions against the lock.
+`4592fae1917971394a54e33487b345476cdbfe40dddeb819e5661c30f41a1d8b`,
+all 2,113 payload hashes, and the installed dependency versions against the lock.
 It does not run npm dependency resolution. The build emits `SDK-PROVENANCE.json`
 and license notices. Release qualification requires the actual immutable published
 SDK release, updated pins/provenance, and repeated native-session qualification.

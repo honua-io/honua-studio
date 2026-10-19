@@ -319,11 +319,22 @@ export class ServerProcessWorkspace {
     };
   }
 
+  #commandStorageKey(packageId: string, version: number): string {
+    if (!this.options.principalId?.trim())
+      throw new Error("A stable principal partition is required before submitting a run.");
+    return `honua.processes.command:${JSON.stringify([
+      this.options.environmentId,
+      this.options.principalId,
+      packageId,
+      version,
+    ])}`;
+  }
+
   /** Persist a command reference before submission; ambiguous acceptance must reuse it. */
   reserveCommand(packageId: string, version: number): { commandId: string; reconcileOnly: boolean } {
     const storage = this.options.commandStorage ?? globalThis.localStorage;
     if (!storage) throw new Error("Durable command storage is required before submitting a run.");
-    const key = `honua.processes.command:${this.options.environmentId}:${packageId}:${version}`;
+    const key = this.#commandStorageKey(packageId, version);
     const retained = storage.getItem(key);
     const prior = retained && !retained.startsWith("accepted:") ? retained : null;
     const commandId = prior ?? crypto.randomUUID();
@@ -336,6 +347,7 @@ export class ServerProcessWorkspace {
     if (!Number.isSafeInteger(version) || version < 1 || !commandId)
       throw new Error("Run requires an immutable version and command ID.");
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(commandId)) throw new Error("Use a bounded command identity.");
+    const storageKey = this.#commandStorageKey(packageId, version);
     const publicationId = `wfp-${commandId}`;
     const wasAttempted = reconcileOnly || this.#attempted.has(commandId);
     if (wasAttempted) {
@@ -389,9 +401,9 @@ export class ServerProcessWorkspace {
     )
       throw new Error("Server returned no matching operation receipt.");
     const storage = this.options.commandStorage ?? globalThis.localStorage;
-    const key = `honua.processes.command:${this.options.environmentId}:${packageId}:${version}`;
     // Preserve the accepted receipt before permitting an intentional subsequent run.
-    if (storage?.getItem(key) === commandId) storage.setItem(key, `accepted:${JSON.stringify({ commandId, run })}`);
+    if (storage?.getItem(storageKey) === commandId)
+      storage.setItem(storageKey, `accepted:${JSON.stringify({ commandId, run })}`);
     return run;
   }
 

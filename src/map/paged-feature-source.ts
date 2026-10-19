@@ -32,37 +32,49 @@ export async function loadPagedFeatureSource(
         (init?.method ?? "GET").toUpperCase() !== "GET"
       )
         throw new Error("The SDK source adapter requested an unsupported route or method.");
-      const token = await authority?.getAccessToken();
-      if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
-      const headers = new Headers(init?.headers);
-      headers.delete("authorization");
-      headers.delete("x-api-key");
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-      const response = await (options.fetchImpl ?? authority?.fetchRequest ?? fetch)(url.href, {
-        ...init,
-        headers,
-        signal,
-        credentials: "omit",
-        redirect: "error",
-        cache: "no-store",
-      });
-      if (response.redirected || authority !== options.getAuth())
-        throw new Error("The Studio source authority changed or redirected.");
-      if (response.ok) {
-        const body = (await response.clone().json()) as {
-          error?: unknown;
-          exceededTransferLimit?: boolean;
-          features?: unknown[];
-        };
-        if (body.error) throw new Error("The source server refused the SDK query.");
-        if (url.pathname.endsWith("/query")) {
-          pages++;
-          incomplete =
-            body.exceededTransferLimit === true ||
-            (body.exceededTransferLimit === undefined && body.features?.length === 2000);
-        } else metadataObserved = true;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const token = await authority?.getAccessToken(attempt === 1 ? { forceRefresh: true } : undefined);
+        signal.throwIfAborted();
+        if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
+        const headers = new Headers(init?.headers);
+        headers.delete("authorization");
+        headers.delete("x-api-key");
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+        const response = await (options.fetchImpl ?? authority?.fetchRequest ?? fetch)(url.href, {
+          ...init,
+          headers,
+          signal,
+          credentials: "omit",
+          redirect: "error",
+          cache: "no-store",
+        });
+        if (response.redirected || authority !== options.getAuth())
+          throw new Error("The Studio source authority changed or redirected.");
+        const body = response.ok
+          ? ((await response.clone().json()) as {
+              error?: { code?: unknown };
+              exceededTransferLimit?: boolean;
+              features?: unknown[];
+            })
+          : undefined;
+        signal.throwIfAborted();
+        if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
+        if (response.status === 401 || body?.error?.code === 499) {
+          if (attempt === 0 && authority) continue;
+          throw new Error("The Studio session cannot authorize this source query.");
+        }
+        if (body?.error) throw new Error("The source server refused the SDK query.");
+        if (body) {
+          if (url.pathname.endsWith("/query")) {
+            pages++;
+            incomplete =
+              body.exceededTransferLimit === true ||
+              (body.exceededTransferLimit === undefined && body.features?.length === 2000);
+          } else metadataObserved = true;
+        }
+        return response;
       }
-      return response;
+      throw new Error("The Studio session cannot authorize this source query.");
     },
   });
   const source = await loadHonuaFeatureServiceGeoJson(client, `${root}${layerPath}`, {

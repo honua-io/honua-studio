@@ -64,7 +64,12 @@ describe("Processes server adapter", () => {
         entries.set(key, value);
       },
     };
-    const first = new ServerProcessWorkspace({ environmentId: "env", csrfToken: "csrf", commandStorage: storage });
+    const first = new ServerProcessWorkspace({
+      environmentId: "env",
+      principalId: "operator-a",
+      csrfToken: "csrf",
+      commandStorage: storage,
+    });
     const command = first.reserveCommand("pkg", 1);
     expect(command.reconcileOnly).toBe(false);
     const fetchImpl = vi.fn(
@@ -72,6 +77,7 @@ describe("Processes server adapter", () => {
     ) as unknown as typeof fetch;
     const reopened = new ServerProcessWorkspace({
       environmentId: "env",
+      principalId: "operator-a",
       csrfToken: "csrf",
       commandStorage: storage,
       fetchImpl,
@@ -91,6 +97,7 @@ describe("Processes server adapter", () => {
     let commandId = "";
     const client = new ServerProcessWorkspace({
       environmentId: "env",
+      principalId: "operator-a",
       csrfToken: "csrf",
       commandStorage: storage,
       fetchImpl: vi.fn(
@@ -110,6 +117,51 @@ describe("Processes server adapter", () => {
     const next = client.reserveCommand("pkg", 1);
     expect(next.commandId).not.toBe(commandId);
     expect(next.reconcileOnly).toBe(false);
+  });
+
+  it("isolates pending commands and accepted receipts across operators sharing a browser", async () => {
+    const entries = new Map<string, string>();
+    const commandStorage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        entries.set(key, value);
+      },
+    };
+    const options = { environmentId: "env", csrfToken: "csrf", commandStorage };
+    const operatorA = new ServerProcessWorkspace({ ...options, principalId: "operator-a" });
+    const pending = operatorA.reserveCommand("pkg", 1);
+    let acceptedCommand = "";
+    const operatorB = new ServerProcessWorkspace({
+      ...options,
+      principalId: "operator-b",
+      fetchImpl: async (input, init) => {
+        expect(new Headers(init?.headers).get("X-Honua-Session-Partition")).toBe("operator-b");
+        return Response.json({
+          data: String(input).endsWith("/runs")
+            ? { workflowRunId: "run-b", packageId: "pkg", packageVersion: 1, publicationId: `wfp-${acceptedCommand}` }
+            : {},
+        });
+      },
+    });
+    const fresh = operatorB.reserveCommand("pkg", 1);
+    acceptedCommand = fresh.commandId;
+    expect(fresh.reconcileOnly).toBe(false);
+    expect(fresh.commandId).not.toBe(pending.commandId);
+    await operatorB.run("pkg", 1, acceptedCommand);
+    expect(operatorB.reserveCommand("pkg", 1).reconcileOnly).toBe(false);
+    const renewedA = new ServerProcessWorkspace({ ...options, principalId: "operator-a", csrfToken: "renewed" });
+    expect(renewedA.reserveCommand("pkg", 1)).toEqual({ ...pending, reconcileOnly: true });
+  });
+
+  it("refuses durable submission without a principal partition before contacting the server", async () => {
+    const fetchImpl = vi.fn();
+    const commandStorage = { getItem: vi.fn(), setItem: vi.fn() };
+    const client = new ServerProcessWorkspace({ environmentId: "env", csrfToken: "csrf", fetchImpl, commandStorage });
+    expect(() => client.reserveCommand("pkg", 1)).toThrow("principal partition");
+    await expect(client.run("pkg", 1, "command")).rejects.toThrow("principal partition");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(commandStorage.getItem).not.toHaveBeenCalled();
+    expect(commandStorage.setItem).not.toHaveBeenCalled();
   });
 
   it("delegates snapshots, compilation, run and cancellation to actual server routes", async () => {
