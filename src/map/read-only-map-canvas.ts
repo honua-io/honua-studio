@@ -69,7 +69,7 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
   const renderer = new CompositionMapView({
     container: options.container,
     controller,
-    projection,
+    projection: { ...projection, sourceAuthority: "current-reader" },
     styleProvider: options.styleProvider,
     // Even anonymous viewers use the bounded feature transport. No session
     // means unauthenticated GETs with credentials omitted, never host authority.
@@ -84,7 +84,14 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
       return renderer.status;
     },
     get statusDetail() {
-      return renderer.statusDetail;
+      const unresolved = renderer.projection?.unresolved ?? [];
+      if (unresolved.length === 0) return renderer.statusDetail;
+      const names = unresolved.slice(0, 3).map(({ layerId }) => layerId.slice(0, 64));
+      const more = unresolved.length > names.length ? ` and ${unresolved.length - names.length} more` : "";
+      const summary =
+        `${unresolved.length} map layer${unresolved.length === 1 ? "" : "s"} unavailable to this reader: ` +
+        `${names.join(", ")}${more}.`;
+      return renderer.statusDetail ? `${renderer.statusDetail} ${summary}` : summary;
     },
     get projection() {
       return renderer.projection ? structuredClone(renderer.projection) : undefined;

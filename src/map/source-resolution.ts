@@ -130,6 +130,54 @@ export function hasCompositionSourceOverride(layer: CompositionLayer): boolean {
   return honuaMetadata(layer)?.source !== undefined;
 }
 
+/** Inline GeoJSON is self-contained; a URL or tile source still needs the current reader's catalog authority. */
+export function isStaticInlineCompositionSource(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (!isPlainObject(value) || value.type !== "geojson" || !isPlainObject(value.data)) return false;
+  if (
+    ![
+      "FeatureCollection",
+      "Feature",
+      "GeometryCollection",
+      "Point",
+      "MultiPoint",
+      "LineString",
+      "MultiLineString",
+      "Polygon",
+      "MultiPolygon",
+    ].includes(String(value.data.type))
+  )
+    return false;
+  return !["url", "urls", "tiles"].some((key) => key in value);
+}
+
+/** Explicit tile/image assets can use the audience's anonymous map-resource transport. */
+export function isAnonymousMapAssetSource(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (!isPlainObject(value)) return false;
+  if (!["raster", "vector", "raster-dem", "image", "video"].includes(String(value.type))) return false;
+  if (value.url !== undefined && typeof value.url !== "string") return false;
+  if (
+    value.tiles !== undefined &&
+    (!Array.isArray(value.tiles) || !value.tiles.every((url) => typeof url === "string"))
+  )
+    return false;
+  if (value.urls !== undefined && (!Array.isArray(value.urls) || !value.urls.every((url) => typeof url === "string")))
+    return false;
+  const urls = [
+    ...(typeof value.url === "string" ? [value.url] : []),
+    ...(Array.isArray(value.tiles) ? value.tiles : []),
+    ...(Array.isArray(value.urls) ? value.urls : []),
+  ];
+  if (urls.length === 0 || !urls.every((url) => typeof url === "string")) return false;
+  return urls.every((url) => {
+    try {
+      const parsed = new URL(url, "https://audience.invalid/");
+      return /^https?:$/.test(parsed.protocol) && !parsed.username && !parsed.password;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
  * Geometry type -> MapLibre layer archetype. Deliberately generous about
  * spelling: a Honua catalog may report GeoJSON (`Polygon`, `MultiPolygon`),

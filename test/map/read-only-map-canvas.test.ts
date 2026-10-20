@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { readCompositionBody } from "../../src/lifecycle/composition-draft-store.js";
 import type {
   CompositionMapFactory,
   CompositionMapFactoryOptions,
   CompositionMapLike,
 } from "../../src/map/composition-map-view.js";
+import { compositionToMapPackage } from "../../src/map/map-package-projection.js";
 import { createReadOnlyMapCanvas } from "../../src/map/read-only-map-canvas.js";
 
 const catalog = [
@@ -58,6 +60,225 @@ function mapHarness() {
 const container = {} as HTMLElement;
 
 describe("read-only map canvas", () => {
+  it("rebinds a full authored Maputnik style while retaining layers, inline style and durable bindings", async () => {
+    const harness = mapHarness();
+    const oldUrl = "/api/operator/rest/services/old/FeatureServer/1/query?f=geojson";
+    const published = {
+      layers: [{ id: "parcels", sourceId: "service/1", type: "fill", visible: true, styleRef: "inline" }],
+      view: { center: [-157.85, 21.3], zoom: 10 },
+      sourceBindings: [
+        { sourceId: "service/1", protocol: "geoservices_feature_service", locator: { url: oldUrl, layerId: 1 } },
+      ],
+      styleRefs: [{ styleId: "inline", body: { thematic: { paint: { "fill-color": "#224466" } } } }],
+      mapSpec: {
+        version: 8,
+        sources: {
+          "service/1": { type: "geojson", data: oldUrl },
+          inset: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+        },
+        layers: [
+          { id: "background", type: "background", paint: { "background-color": "#fafafa" } },
+          { id: "inset", type: "circle", source: "inset", paint: { "circle-radius": 3 } },
+          {
+            id: "thematic",
+            type: "fill",
+            source: "service/1",
+            filter: ["==", ["get", "kind"], "park"],
+            paint: { "fill-color": "#112233", "fill-opacity": 0.65 },
+            layout: { visibility: "visible" },
+            metadata: { "honua:compositionLayerId": "parcels", authored: true },
+          },
+          {
+            id: "labels",
+            type: "symbol",
+            source: "service/1",
+            layout: { "text-field": ["get", "name"] },
+            paint: { "text-color": "#334455" },
+            metadata: { "honua:compositionLayerId": "parcels" },
+          },
+        ],
+      },
+    };
+    const original = structuredClone(published);
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: published,
+      projection: { catalog, sourceAuthority: "authored" },
+      mapFactory: harness.factory,
+    });
+    const style = harness.captured[0].style;
+    expect(style.sources["service/1"]).toEqual({
+      type: "geojson",
+      data: "/rest/services/parcels/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+    });
+    expect(harness.captured[0].anonymousStyleResources).toBe(true);
+    expect(harness.captured[0].authorizedFeatureUrls).toEqual([
+      "/rest/services/parcels/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+    ]);
+    expect(style.sources.inset).toEqual(original.mapSpec.sources.inset);
+    expect(style.layers.map((layer) => layer.id)).toEqual(["background", "inset", "thematic", "labels"]);
+    expect(style.layers[2]).toMatchObject({
+      filter: ["==", ["get", "kind"], "park"],
+      paint: { "fill-color": "#224466", "fill-opacity": 0.65 },
+      layout: { visibility: "visible" },
+      metadata: { "honua:compositionLayerId": "parcels", authored: true },
+    });
+    expect(style.layers[3]).toMatchObject({
+      layout: { "text-field": ["get", "name"] },
+      paint: { "text-color": "#334455" },
+    });
+    expect(harness.captured[0].center).toEqual([-157.85, 21.3]);
+    expect(canvas.projection?.mapPackage.sourceBindings?.[0]?.locator.url).toBe(
+      "/rest/services/parcels/FeatureServer/1",
+    );
+    expect(published).toEqual(original);
+    expect(JSON.stringify(style)).not.toContain("/api/operator/");
+    canvas.dispose();
+  });
+
+  it("omits denied catalog-owned layers and URL overrides while reporting the gap", async () => {
+    const harness = mapHarness();
+    const deniedUrl = "https://operator.example/private/query";
+    const published = {
+      layers: [
+        {
+          id: "parcels",
+          sourceId: "service/1",
+          type: "fill",
+          visible: true,
+          metadata: { honua: { source: { type: "geojson", data: deniedUrl } } },
+        },
+        {
+          id: "secret",
+          sourceId: "missing",
+          type: "fill",
+          visible: true,
+          metadata: { honua: { source: { type: "geojson", data: deniedUrl } } },
+        },
+        { id: "static", sourceId: "static", type: "circle", visible: true },
+      ],
+      view: {},
+      mapSpec: {
+        version: 8,
+        sources: {
+          "service/1": { type: "geojson", data: deniedUrl },
+          missing: { type: "geojson", data: deniedUrl },
+          static: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+          orphan: { type: "geojson", data: deniedUrl },
+          publicBasemap: { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 },
+        },
+        layers: [
+          { id: "parcels", type: "fill", source: "service/1" },
+          {
+            id: "secret-fill",
+            type: "fill",
+            source: "missing",
+            metadata: { "honua:compositionLayerId": "secret" },
+          },
+          { id: "static", type: "circle", source: "static" },
+          { id: "orphan-render", type: "circle", source: "orphan" },
+          { id: "public-basemap", type: "raster", source: "publicBasemap" },
+        ],
+      },
+    };
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: published,
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    const style = harness.captured[0].style;
+    expect(style.layers.map((layer) => layer.id)).toEqual(["parcels", "static", "public-basemap"]);
+    expect(Object.keys(style.sources).sort()).toEqual(["publicBasemap", "service/1", "static"]);
+    expect(JSON.stringify(style)).not.toContain(deniedUrl);
+    expect(canvas.projection?.renderedLayerIds).toEqual(["parcels", "static"]);
+    expect(canvas.projection?.unresolved.map(({ layerId }) => layerId)).toContain("secret");
+    expect(canvas.statusDetail).toContain("secret");
+    expect(canvas.statusDetail).toContain("unavailable");
+    canvas.dispose();
+  });
+
+  it("keeps the editor's authored projection unchanged unless audience mode is selected", () => {
+    const saved = {
+      ...body(),
+      mapSpec: {
+        version: 8,
+        sources: { "service/1": { type: "geojson", data: "/saved/query" } },
+        layers: [{ id: "parcels", type: "fill", source: "service/1" }],
+      },
+    };
+    const projection = compositionToMapPackage(readCompositionBody(saved), { catalog });
+    expect(projection.mapPackage.mapSpec.sources["service/1"]).toEqual(saved.mapSpec.sources["service/1"]);
+  });
+
+  it("retains explicit raster overrides for the audience on a separate anonymous asset transport", async () => {
+    const raster = { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 };
+    const published = {
+      layers: [
+        { id: "imagery", sourceId: "imagery", type: "raster", visible: true, metadata: { honua: { source: raster } } },
+      ],
+      view: {},
+      mapSpec: {
+        version: 8,
+        sources: { imagery: raster },
+        layers: [{ id: "imagery", type: "raster", source: "imagery" }],
+      },
+    };
+    expect(compositionToMapPackage(readCompositionBody(published)).mapPackage.mapSpec.sources.imagery).toEqual(raster);
+    const harness = mapHarness();
+    const canvas = await createReadOnlyMapCanvas({ container, body: published, mapFactory: harness.factory });
+    expect(harness.captured[0].style.sources.imagery).toEqual(raster);
+    expect(harness.captured[0].style.layers.map((layer) => layer.id)).toContain("imagery");
+    expect(harness.captured[0].anonymousStyleResources).toBe(true);
+    expect(harness.captured[0].authorizedFeatureUrls).toEqual([]);
+    expect(canvas.projection?.unresolved).toEqual([]);
+    canvas.dispose();
+  });
+
+  it("reports and omits vector source-layer render layers when the current catalog supplies GeoJSON", async () => {
+    const harness = mapHarness();
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      projection: { catalog },
+      mapFactory: harness.factory,
+      body: {
+        layers: [{ id: "parcels", sourceId: "service/1", type: "fill", visible: true }],
+        view: {},
+        mapSpec: {
+          version: 8,
+          sources: {
+            "service/1": { type: "vector", tiles: ["https://old.example/parcels/{z}/{x}/{y}.pbf"] },
+            basemap: { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 },
+          },
+          layers: [
+            { id: "base", type: "raster", source: "basemap" },
+            {
+              id: "thematic",
+              type: "fill",
+              source: "service/1",
+              "source-layer": "parcel-tiles",
+              paint: { "fill-color": "#224466" },
+              metadata: { "honua:compositionLayerId": "parcels" },
+            },
+            {
+              id: "labels",
+              type: "symbol",
+              source: "service/1",
+              metadata: { "honua:compositionLayerId": "parcels" },
+            },
+          ],
+        },
+      },
+    });
+    expect(harness.captured[0].style.layers.map((layer) => layer.id)).toEqual(["base"]);
+    expect(harness.captured[0].style.sources).not.toHaveProperty("service/1");
+    expect(harness.captured[0].style.sources).toHaveProperty("basemap");
+    expect(canvas.projection?.renderedLayerIds).toEqual([]);
+    expect(canvas.projection?.unresolved).toMatchObject([{ layerId: "parcels", sourceId: "service/1" }]);
+    expect(canvas.statusDetail).toContain("parcels");
+    canvas.dispose();
+  });
+
   it("notifies hosts after asynchronous features paint and camera changes, then detaches on disposal", async () => {
     const harness = mapHarness();
     harness.setFeatures([]);

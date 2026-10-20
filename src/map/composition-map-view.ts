@@ -45,6 +45,7 @@ import type { AuthSession } from "../auth/types.js";
 import type { CompositionController } from "../composition/controller.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
+import { installAnonymousMapResourceProtocol } from "./anonymous-map-resource-protocol.js";
 import { type SourceProtocolRegistry, installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
 import type { BasemapStyle } from "./basemap.js";
 import {
@@ -106,6 +107,10 @@ export interface CompositionMapFactoryOptions {
   readonly legacySourceBaseUrl?: string;
   readonly onSourceError?: (error: Error) => void;
   readonly onSourceIncomplete?: (message: string) => void;
+  /** Published audience styles use a separate credential-free path for raster, basemap and style assets. */
+  readonly anonymousStyleResources?: boolean;
+  /** Exact current-reader feature URLs allowed to enter the bearer transport. */
+  readonly authorizedFeatureUrls?: readonly string[];
 }
 
 export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => Promise<CompositionMapLike>;
@@ -176,7 +181,7 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
   }
   const registry = namespace as unknown as SourceProtocolRegistry;
   if (
-    options.getAuth &&
+    (options.getAuth || options.anonymousStyleResources) &&
     (typeof registry.addProtocol !== "function" || typeof registry.removeProtocol !== "function")
   ) {
     throw new Error("maplibre-gl did not export the source protocol registry.");
@@ -190,6 +195,20 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
         onError: options.onSourceError,
         onIncomplete: options.onSourceIncomplete,
         pagedFeatureServices: true,
+        ...(options.authorizedFeatureUrls
+          ? {
+              allowedSourceUrls: new Set(
+                options.authorizedFeatureUrls.map((url) => new URL(url, document.baseURI).href),
+              ),
+            }
+          : {}),
+      })
+    : undefined;
+  const anonymous = options.anonymousStyleResources
+    ? installAnonymousMapResourceProtocol(registry, {
+        documentUrl: document.baseURI,
+        style: options.style,
+        onError: options.onSourceError,
       })
     : undefined;
   try {
@@ -199,12 +218,22 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
       center: [...options.center],
       zoom: options.zoom,
       attributionControl: { compact: false, customAttribution: options.attributionText },
-      ...(transport ? { transformRequest: transport.transformRequest } : {}),
+      ...(transport || anonymous
+        ? {
+            transformRequest: (url: string, type: import("maplibre-gl").ResourceType) => {
+              const authenticated = transport?.transformRequest(url, type);
+              if (authenticated && authenticated.url !== url) return authenticated;
+              return anonymous?.transformRequest(url, type) ?? { url };
+            },
+          }
+        : {}),
     });
     if (transport) map.on("remove", () => transport.dispose());
+    if (anonymous) map.on("remove", () => anonymous.dispose());
     return map;
   } catch (error) {
     transport?.dispose();
+    anonymous?.dispose();
     throw error;
   }
 };
@@ -394,6 +423,13 @@ export class CompositionMapView {
     const projection = this.#project();
     const initialView = projection.mapPackage.initialView;
     const style = await this.#composeSafely(projection.mapPackage);
+    const audience = this.#options.projection?.sourceAuthority === "current-reader";
+    const authorizedFeatureUrls = audience
+      ? projection.mapPackage.sourceBindings.flatMap((binding) => {
+          const source = projection.mapPackage.mapSpec.sources[binding.sourceId];
+          return source?.type === "geojson" && typeof source.data === "string" ? [source.data] : [];
+        })
+      : undefined;
     try {
       const factory = this.#options.mapFactory ?? defaultCompositionMapFactory;
       this.#map = await factory({
@@ -413,6 +449,8 @@ export class CompositionMapView {
           this.#statusDetail = `Map source could not load: ${error.message}`;
           this.#notify();
         },
+        anonymousStyleResources: audience,
+        authorizedFeatureUrls,
       });
     } catch (error) {
       this.#status = "unavailable";
