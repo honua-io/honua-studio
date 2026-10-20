@@ -7,7 +7,7 @@ import { type SdkPayloadReceipt, verifySdkPayload } from "./scripts/lib/verify-s
 // Verify the installed public package against its registry archive and lockfile.
 // This receipt identifies package bytes; installed workflow qualification is separate.
 const sdkReceiptBytes = readFileSync(resolve("scripts/sdk-public-receipt.json"));
-const sdkReceiptSha256 = "310b38fe74561be1cf350ab215ea57e33303046706e0df772c6002fd804d3d58";
+const sdkReceiptSha256 = "222295cfb2a3f7b0bf8223f37fa6b6c1ee235aaf02436ef803301525986d04a7";
 if (createHash("sha256").update(sdkReceiptBytes).digest("hex") !== sdkReceiptSha256)
   throw new Error("The public SDK receipt changed without explicit qualification.");
 const sdkReceipt = JSON.parse(sdkReceiptBytes.toString("utf8")) as SdkPayloadReceipt & {
@@ -21,7 +21,7 @@ const installedSdk = JSON.parse(readFileSync(resolve("node_modules/@honua/sdk-js
 const lockedSdk = JSON.parse(readFileSync(resolve("package-lock.json"), "utf8")).packages["node_modules/@honua/sdk-js"];
 if (
   sdkReceipt.name !== "@honua/sdk-js" ||
-  sdkReceipt.version !== "0.2.4" ||
+  sdkReceipt.version !== "0.2.6" ||
   sdkReceipt.registry !== "https://registry.npmjs.org" ||
   installedSdk.name !== sdkReceipt.name ||
   installedSdk.version !== sdkReceipt.version ||
