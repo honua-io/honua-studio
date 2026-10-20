@@ -118,7 +118,7 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   (`src/gp/job-client.ts`, [#35](https://github.com/honua-io/honua-studio/issues/35))
   continues to use the fixture job store.
 - **Fixture chat and MCP clients remain local.** The
-  `@honua/sdk-js` pin is `0.2.6`
+  `@honua/sdk-js` pin is `0.2.7`
   ([#30](https://github.com/honua-io/honua-studio/issues/30)), which carries
   the SDK's declarative interaction compiler and Studio lifecycle client —
   both now in use, the second behind `src/lifecycle/composition-draft-store.ts`.
@@ -281,7 +281,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — public SDK 0.2.6 checkpoint: 1420 tests across 124 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); installed end-to-end workflow qualification remains pending |
+| `npm test` | Unit tests (Vitest) — public SDK 0.2.7 checkpoint: 1420 tests across 124 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); installed end-to-end workflow qualification remains pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs 31 Playwright boot/harness/journey/accessibility tests (chromium); local fixture checkpoint passed with retries disabled |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
