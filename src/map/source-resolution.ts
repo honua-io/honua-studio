@@ -18,8 +18,9 @@
  *     protocol.
  *  2. **The catalog says so.** A discovered descriptor's explicit locator
  *     supplies the real service/layer or collection identity; geometry
- *     selects its renderer. Older host catalogs without locators retain
- *     their existing route convention. Unknown geometry is a visible failure.
+ *     supplies the default renderer unless the layer declares its presentation.
+ *     Older host catalogs without locators retain their existing route convention.
+ *     Unknown geometry without an authored type is a visible failure.
  *  3. **Nothing says so.** The layer resolves to `undefined` with a reason.
  *     It is NOT silently dropped: the projection records it in
  *     `unresolved[]`, the canvas surfaces it, and the readout still lists
@@ -168,11 +169,21 @@ export function resolveCompositionSource(
   const baseUrl = trimTrailingSlash(options.baseUrl ?? DEFAULT_BASE_URL);
   const limit = options.featureLimit ?? DEFAULT_FEATURE_LIMIT;
 
+  // Presentation belongs to the authored layer; catalog geometry only supplies
+  // the default for older drafts that do not specify a type.
+  const authoredType = layer.type;
+  if (authoredType !== undefined && authoredType !== "fill" && authoredType !== "line" && authoredType !== "circle") {
+    return {
+      reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the composition map cannot render yet.`,
+    };
+  }
+
   const metadata = honuaMetadata(layer);
   const inlineSource = metadata?.source;
   if (isPlainObject(inlineSource)) {
     const declaredType = typeof metadata?.layerType === "string" ? metadata.layerType : undefined;
     const layerType =
+      authoredType ??
       (declaredType as CompositionLayerType | undefined) ??
       layerTypeForGeometry(typeof metadata?.geometryType === "string" ? metadata.geometryType : undefined);
     return { source: inlineSource, layerType: layerType ?? "fill" };
@@ -194,7 +205,8 @@ export function resolveCompositionSource(
     };
   }
 
-  if (!geometryLayerType) {
+  const layerType = authoredType ?? geometryLayerType;
+  if (!layerType) {
     return { reason: `Source "${layer.sourceId}" has no supported geometry type in the catalog.` };
   }
 
@@ -219,7 +231,7 @@ export function resolveCompositionSource(
         type: "geojson",
         data: `${collectionRoot}/collections/${encodeURIComponent(collectionId)}/items?f=json&limit=${limit}`,
       },
-      layerType: geometryLayerType,
+      layerType,
     };
   }
   if (protocol === "geoservices-feature-service") {
@@ -247,7 +259,7 @@ export function resolveCompositionSource(
         type: "geojson",
         data: `${serviceUrl}/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=${limit}`,
       },
-      layerType: geometryLayerType,
+      layerType,
     };
   }
 

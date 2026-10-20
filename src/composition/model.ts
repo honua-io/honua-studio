@@ -48,6 +48,8 @@ export interface CompositionStyleRef {
 export interface CompositionLayer {
   readonly id: string;
   readonly sourceId: string;
+  /** Authored presentation; retained even when this runtime cannot render it. */
+  readonly type?: string;
   readonly title?: string;
   readonly visible: boolean;
   readonly styleRef?: CompositionStyleRef;
