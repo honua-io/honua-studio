@@ -156,6 +156,7 @@ jobs:
 
       - name: Pin the review base
         id: base
+        if: steps.evaluate.outputs.eligible_for_receipt == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         # Pin the REST PR base snapshot, including the original base retained
