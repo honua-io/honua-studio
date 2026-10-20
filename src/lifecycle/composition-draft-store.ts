@@ -77,7 +77,7 @@ export function createLifecycleCompositionDraftStore(
     async replace(draftId: string, request: CompositionDraftReplaceRequest): Promise<CompositionDraft> {
       const current = await run(() => drafts.get(draftId));
       // Refuse foreign render-only bodies rather than overwriting them with an empty composition.
-      toCompositionState(current.envelope?.body);
+      readCompositionBody(current.envelope?.body);
       return toCompositionDraft(
         await run(() =>
           drafts.replace(draftId, {
@@ -148,7 +148,7 @@ export function toCompositionDraft(draft: {
     ...(draft.itemId !== undefined ? { itemId: draft.itemId } : {}),
     packageKey: draft.packageKey,
     generation: draft.generation,
-    envelope: { body: toCompositionState(draft.envelope?.body) },
+    envelope: { body: readCompositionBody(draft.envelope?.body) },
   };
 }
 
@@ -169,7 +169,7 @@ export function toCompositionDraft(draft: {
  * `pins`/`annotations` come back empty — see the module doc's lossiness
  * note; they are not in the durable envelope to begin with.
  */
-function toCompositionState(body: unknown): CompositionState {
+export function readCompositionBody(body: unknown): CompositionState {
   if (typeof body !== "object" || body === null) {
     throw new CompositionDraftError("validation", "The draft envelope carries no composition body.");
   }
