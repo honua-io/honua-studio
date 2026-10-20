@@ -90,9 +90,22 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
       return renderer.projection ? structuredClone(renderer.projection) : undefined;
     },
     get renderedFeatureCount() {
-      const layers = renderer.projection?.renderedLayerIds;
-      if (!layers?.length || !renderer.map?.queryRenderedFeatures) return 0;
-      return renderer.map.queryRenderedFeatures(undefined, { layers: [...layers] }).length;
+      const map = renderer.map;
+      const projection = renderer.projection;
+      if (!projection?.renderedLayerIds.length || !map?.queryRenderedFeatures) return 0;
+      const owners = new Set(projection.renderedLayerIds);
+      const styleLayers = map.getStyle ? map.getStyle()?.layers : projection.mapPackage.mapSpec.layers;
+      const layers = (styleLayers ?? []).flatMap((layer) => {
+        if (typeof layer.id !== "string") return [];
+        const metadata = layer.metadata;
+        const owner =
+          metadata && typeof metadata === "object"
+            ? (metadata as Readonly<Record<string, unknown>>)["honua:compositionLayerId"]
+            : undefined;
+        return owners.has(layer.id) || (typeof owner === "string" && owners.has(owner)) ? [layer.id] : [];
+      });
+      if (!layers.length) return 0;
+      return map.queryRenderedFeatures(undefined, { layers }).length;
     },
     settled: () => renderer.settled(),
     resize: () => renderer.resize(),

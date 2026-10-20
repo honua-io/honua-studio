@@ -47,6 +47,7 @@ function mapHarness() {
   return {
     captured,
     factory,
+    map,
     remove,
     setFeatures: (next: readonly unknown[]) => {
       features = next;
@@ -58,6 +59,39 @@ function mapHarness() {
 const container = {} as HTMLElement;
 
 describe("read-only map canvas", () => {
+  it("counts actual owned visual-editor render layers when the original primary layer was removed", async () => {
+    const harness = mapHarness();
+    const renderLayers = [
+      { id: "basemap-land", type: "fill" },
+      { id: "parcels-themed", type: "fill", source: "service/1", metadata: { "honua:compositionLayerId": "parcels" } },
+    ];
+    harness.map.getStyle = () => ({ layers: renderLayers });
+    const query = vi.fn((_point, options) => (options?.layers?.includes("parcels-themed") ? [{ id: 1 }] : []));
+    harness.map.queryRenderedFeatures = query;
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: {
+        ...body(),
+        mapSpec: {
+          version: 8,
+          sources: { "service/1": { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+          layers: renderLayers.slice(1),
+        },
+      },
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    expect(canvas.renderedFeatureCount).toBe(1);
+    expect(canvas.statusDetail).toBeUndefined();
+    expect(harness.captured[0].style).toMatchObject({
+      layers: expect.arrayContaining([expect.objectContaining({ id: "parcels-themed" })]),
+    });
+    expect(query).toHaveBeenLastCalledWith(undefined, { layers: ["parcels-themed"] });
+    harness.map.getStyle = () => ({ layers: [] });
+    expect(canvas.renderedFeatureCount).toBe(0);
+    canvas.dispose();
+  });
+
   it("notifies hosts after asynchronous features paint and camera changes, then detaches on disposal", async () => {
     const harness = mapHarness();
     harness.setFeatures([]);
