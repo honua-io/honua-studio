@@ -380,6 +380,7 @@ function applyAddLayer(
   const nextLayer: CompositionLayer = {
     id: layer.id,
     sourceId: layer.sourceId,
+    ...(layer.type !== undefined ? { type: layer.type } : {}),
     visible: layer.visible ?? true,
     ...(layer.title !== undefined ? { title: layer.title } : {}),
     ...(layer.styleRef !== undefined ? { styleRef: layer.styleRef } : {}),

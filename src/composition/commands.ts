@@ -47,6 +47,8 @@ import {
 export interface AddLayerInput {
   readonly id: string;
   readonly sourceId: string;
+  /** Authored presentation; retained even when this runtime cannot render it. */
+  readonly type?: string;
   readonly title?: string;
   readonly visible?: boolean;
   readonly styleRef?: CompositionStyleRef;
@@ -210,6 +212,8 @@ function validateAddLayer(input: Record<string, unknown>): CompositionCommandVal
   }
   if (!isNonEmptyString(layer.id)) errors.push("layer.layer.id must be a non-empty string");
   if (!isNonEmptyString(layer.sourceId)) errors.push("layer.layer.sourceId must be a non-empty string");
+  if (layer.type !== undefined && !isNonEmptyString(layer.type))
+    errors.push("layer.layer.type must be a non-empty string");
   if (layer.title !== undefined && typeof layer.title !== "string") errors.push("layer.layer.title must be a string");
   if (layer.visible !== undefined && typeof layer.visible !== "boolean") {
     errors.push("layer.layer.visible must be a boolean");

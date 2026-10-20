@@ -249,6 +249,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
         // decorative layer is still addressable by its own id).
         sourceId: isNonEmptyString(layerInput.sourceId) ? layerInput.sourceId : layerInput.id,
       };
+      if (layerInput.type !== undefined) layer.type = layerInput.type;
       if (typeof layerInput.title === "string") layer.title = layerInput.title;
       if (typeof layerInput.visible === "boolean") layer.visible = layerInput.visible;
       const styleRef = styleRefFromString(layerInput.styleRef);
@@ -452,6 +453,7 @@ export function buildServerToolInvocation(
   switch (command.name) {
     case "addLayer": {
       const layer: Record<string, unknown> = { id: command.layer.id, sourceId: command.layer.sourceId };
+      if (command.layer.type !== undefined) layer.type = command.layer.type;
       if (command.layer.title !== undefined) layer.title = command.layer.title;
       if (command.layer.visible !== undefined) layer.visible = command.layer.visible;
       if (command.layer.styleRef !== undefined) layer.styleRef = command.layer.styleRef.styleId;
@@ -566,6 +568,7 @@ function studioLayerToComposition(layer: StudioMcpLayerInput): CompositionState[
   return {
     id: layer.id,
     sourceId: layer.sourceId ?? layer.id,
+    ...(layer.type !== undefined ? { type: layer.type } : {}),
     visible: layer.visible ?? true,
     ...(layer.title !== undefined ? { title: layer.title } : {}),
     ...(styleRefFromString(layer.styleRef) ? { styleRef: styleRefFromString(layer.styleRef) } : {}),
@@ -602,6 +605,7 @@ export function toStudioCompositionBody(state: CompositionState): StudioComposit
     layers: state.layers.map((layer) => ({
       id: layer.id,
       sourceId: layer.sourceId,
+      ...(layer.type !== undefined ? { type: layer.type } : {}),
       ...(layer.title !== undefined ? { title: layer.title } : {}),
       visible: layer.visible,
       ...(layer.styleRef !== undefined ? { styleRef: layer.styleRef.styleId } : {}),
