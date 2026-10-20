@@ -6,6 +6,7 @@ import {
   type CompositionMapViewOptions,
 } from "./composition-map-view.js";
 import type { CompositionMapProjection } from "./map-package-projection.js";
+import { findCompositionSourceDescriptor, usesHonuaStyleCatalog } from "./source-resolution.js";
 
 /**
  * The host supplies a canonical body and source/style reads authorized for the
@@ -43,8 +44,18 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
   // caller's object or acquire the editor controller behind another tab.
   const state = readCompositionBody(structuredClone(options.body));
   const projection = options.projection ? structuredClone(options.projection) : undefined;
-  if (state.layers.some((layer) => layer.styleRef) && !options.styleProvider) {
-    throw new Error("Published style references require an authoritative style reader; a preset is not a substitute.");
+  for (const layer of state.layers) {
+    if (!layer.styleRef) continue;
+    const embedded = state.styleRefs?.some(
+      (reference) => reference.styleId === layer.styleRef?.styleId && reference.body !== undefined,
+    );
+    if (embedded) continue;
+    const source = findCompositionSourceDescriptor(layer.sourceId, projection?.catalog);
+    if (!options.styleProvider || !usesHonuaStyleCatalog(source)) {
+      throw new Error(
+        "Published style references require an embedded body or an authoritative style reader for their source; a preset is not a substitute.",
+      );
+    }
   }
   const controller = new CompositionController(state);
   let disposed = false;

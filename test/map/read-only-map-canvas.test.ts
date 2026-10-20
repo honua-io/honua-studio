@@ -160,6 +160,45 @@ describe("read-only map canvas", () => {
     expect(harness.captured).toEqual([]);
   });
 
+  it("renders an embedded canonical style without requiring a catalog reader", async () => {
+    const harness = mapHarness();
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: {
+        ...body(),
+        layers: [{ ...body().layers[0], styleRef: "parcels-style" }],
+        styleRefs: [{ styleId: "parcels-style", body: { parcels: { paint: { "fill-color": "#123456" } } } }],
+      },
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    expect(canvas.projection?.unresolved).toEqual([]);
+    expect(canvas.projection?.mapPackage.styleRefs?.[0]?.body?.parcels.paint?.["fill-color"]).toBe("#123456");
+    expect(JSON.stringify(harness.captured[0].style)).toContain("#123456");
+    expect(JSON.stringify(harness.captured[0].style)).not.toContain("honua:styleRefFallback");
+    canvas.dispose();
+  });
+
+  it("refuses unresolved external style references even when a provider is present", async () => {
+    const harness = mapHarness();
+    const bind = vi.fn(async () => {
+      throw new Error("No authoritative catalog for this source");
+    });
+    await expect(
+      createReadOnlyMapCanvas({
+        container,
+        body: { ...body(), layers: [{ ...body().layers[0], styleRef: "external-style" }] },
+        projection: {
+          catalog: catalog.map((source) => ({ ...source, locator: { url: source.locator.url, layerId: 1 } })),
+        },
+        mapFactory: harness.factory,
+        styleProvider: { bind, sessionIdentity: undefined },
+      }),
+    ).rejects.toThrow("an authoritative style reader for their source");
+    expect(bind).not.toHaveBeenCalled();
+    expect(harness.captured).toEqual([]);
+  });
+
   it("reports renderer failure without claiming a ready map or rendered features", async () => {
     const canvas = await createReadOnlyMapCanvas({
       container,

@@ -634,8 +634,9 @@ the audience's current authority. This renderer does not authorize publication
 or grant access to data. Omit `getAuth` for anonymous bounded requests with
 credentials omitted; an authenticated host supplies only the current viewer's
 session. Dispose and recreate the canvas when the target, viewer or version
-changes. Referenced styles require an authoritative `styleProvider`; the canvas
-refuses a preset substitution when that reader is absent.
+changes. Referenced styles use their canonical embedded body when present.
+Live references require an authoritative `styleProvider` and a source supported
+by that reader; unresolved references cannot silently substitute a preset.
 
 This export supplies the map canvas only. Console audience-route integration,
 app widgets, installed public-artifact rendering and audience access remain
