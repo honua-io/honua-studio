@@ -145,12 +145,13 @@ native model and visual workflow qualification remains pending.
   Pending visual edits settle first; a session or map change rejects stale
   results. This does not publish the map or qualify the complete installed
   Console journey.
-- **A read-only map canvas is available to hosts.** `createReadOnlyMapCanvas`
-  reuses the editor renderer over an owned composition/source snapshot, without
-  an editor controller or lifecycle write path. Audience-route integration and
-  actual published map/app rendering remain unqualified; the JSON publication
-  endpoint alone is not a rendered application. See the
-  [canvas contract](docs/element-contract.md#read-only-map-canvas).
+- **Read-only composition views are available to hosts.**
+  `createReadOnlyCompositionView` mounts the map and widget deck over one private
+  controller, with bounded current-reader source transport and local controls.
+  `createReadOnlyMapCanvas` remains available for map-only hosts. Both avoid an
+  editor or lifecycle write path. Audience-route integration and actual published
+  map/app rendering remain unqualified until the integrated host journey passes.
+  See the [canvas contract](docs/element-contract.md#read-only-map-canvas).
 - **Embedded publication has an explicit host review boundary.** Hosts can
   review a saved version, then submit its publication with a retained command
   identity. Changed session, map or immutable content is refused; retries keep
@@ -287,7 +288,7 @@ Other commands:
 | `npm run build` / `npm run preview` | Production build / preview it locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
-| `npm test` | Unit tests (Vitest) — public SDK 0.2.7 checkpoint: 1444 tests across 126 files, including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); installed end-to-end workflow qualification remains pending |
+| `npm test` | Unit tests (Vitest), including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); current audience integration totals and installed end-to-end workflow qualification remain pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs 31 Playwright boot/harness/journey/accessibility tests (chromium); local fixture checkpoint passed with retries disabled |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
