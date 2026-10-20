@@ -392,6 +392,7 @@ function runPublisher({
   repeat = false,
   command = "publish",
   reviewRun = eligibleRun(),
+  pinMetadata = restPr(),
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-publisher-"));
   try {
@@ -463,7 +464,7 @@ else process.exit(90);
       REVIEW_MODE: expected.mode,
       STRUCTURED_REVIEW_RESULT: JSON.stringify(collectedResult),
       TEST_PR: JSON.stringify(pr()),
-      TEST_PIN_PR: JSON.stringify(restPr()),
+      TEST_PIN_PR: JSON.stringify(pinMetadata),
       TEST_REVIEW_RUNS: JSON.stringify({ total_count: 1, workflow_runs: [reviewRun] }),
       GITHUB_OUTPUT: path.join(root, "outputs"),
     };
@@ -523,6 +524,21 @@ test("the actual base-pinning CLI uses canonical PR metadata without any mutatio
   assert.equal(value.runs[0].status, 0, value.runs[0].stderr);
   assert.equal(value.outputs, `base_sha=${expected.baseSha}\nbase_ref_name=${expected.baseRefName}\n`);
   assert.equal(posts(value).length, 0);
+});
+
+test("base-pinning refuses head, target and lifecycle races without producing a review identity or receipt", () => {
+  for (const pinMetadata of [
+    { ...restPr(), head: { ...restPr().head, sha: "c".repeat(40) } },
+    { ...restPr(), base: { ...restPr().base, ref: "other" } },
+    { ...restPr(), state: "closed", merged_at: "2026-10-19T22:00:00Z" },
+  ]) {
+    const value = runPublisher({ command: "pin-base", pinMetadata });
+    assert.notEqual(value.runs[0].status, 0);
+    assert.match(value.runs[0].stderr, /PR snapshot changed/u);
+    assert.equal(value.outputs, "");
+    assert.equal(value.receipt, null);
+    assert.equal(posts(value).length, 0);
+  }
 });
 
 test("comment/manual admission requeues the whole exact-head PR workflow, not only its failed publisher", () => {
@@ -715,6 +731,8 @@ test("the required review check belongs to the trusted publisher and the model h
   );
   const collect = workflow.split("\n  review:\n")[1].split("\n  publish:\n")[0];
   const publish = workflow.split("\n  publish:\n")[1];
+  const basePin = workflow.split("      - name: Pin the review base\n")[1].split("\n  requeue:\n")[0];
+  assert.match(basePin, /if: steps.evaluate.outputs.eligible_for_receipt == 'true'/u);
   assert.match(collect, /pull-requests: read/u);
   assert.doesNotMatch(collect, /pull-requests: write|id-token: write/u);
   assert.match(collect, /github_token: \$\{\{ github.token \}\}/u);
