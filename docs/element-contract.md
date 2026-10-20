@@ -625,6 +625,9 @@ composition `body`, a container, and the actual source catalog in `projection`.
 The canvas owns a snapshot of the body and projection, supports resize and
 disposal, and reports unresolved layers and the actual rendered-feature count.
 It exposes no editor controller, agent session, or lifecycle write methods.
+`onChange` also fires when MapLibre becomes idle after asynchronous source
+rendering or camera changes, so hosts can refresh the feature count. `settled()`
+waits for composition updates; it does not promise that remote sources painted.
 
 The host must read the active published version and resolve its sources under
 the audience's current authority. This renderer does not authorize publication

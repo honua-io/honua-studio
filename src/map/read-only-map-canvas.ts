@@ -47,6 +47,10 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
     throw new Error("Published style references require an authoritative style reader; a preset is not a substitute.");
   }
   const controller = new CompositionController(state);
+  let disposed = false;
+  const notify = () => {
+    if (!disposed) options.onChange?.(canvas);
+  };
   const renderer = new CompositionMapView({
     container: options.container,
     controller,
@@ -58,7 +62,7 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
     sourceAuthBaseUrl: options.sourceAuthBaseUrl,
     sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
     mapFactory: options.mapFactory,
-    onChange: () => options.onChange?.(canvas),
+    onChange: notify,
   });
   const canvas: ReadOnlyMapCanvas = Object.freeze({
     get status() {
@@ -77,10 +81,17 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
     },
     settled: () => renderer.settled(),
     resize: () => renderer.resize(),
-    dispose: () => renderer.dispose(),
+    dispose: () => {
+      disposed = true;
+      renderer.map?.off?.("idle", notify);
+      renderer.dispose();
+    },
   });
   try {
     await renderer.start();
+    // Construction completes before remote sources paint. Notify again after
+    // every completed render, including camera changes that alter the count.
+    renderer.map?.on("idle", notify);
   } catch (error) {
     renderer.dispose();
     throw error;

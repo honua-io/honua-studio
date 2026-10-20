@@ -27,26 +27,60 @@ function body() {
 function mapHarness() {
   const captured: CompositionMapFactoryOptions[] = [];
   const remove = vi.fn();
+  const listeners = new Map<string, (event: unknown) => void>();
+  let features: readonly unknown[] = [{ id: 1 }];
   const map: CompositionMapLike = {
     setStyle: vi.fn(),
     jumpTo: vi.fn(),
     easeTo: vi.fn(),
     fitBounds: vi.fn(),
-    on: vi.fn(),
+    on: vi.fn((type, listener) => listeners.set(type, listener)),
+    off: vi.fn((type) => listeners.delete(type)),
     resize: vi.fn(),
     remove,
-    queryRenderedFeatures: (_point, options) => (options?.layers?.includes("parcels") ? [{ id: 1 }] : []),
+    queryRenderedFeatures: (_point, options) => (options?.layers?.includes("parcels") ? features : []),
   };
   const factory: CompositionMapFactory = async (options) => {
     captured.push(options);
     return map;
   };
-  return { captured, factory, remove };
+  return {
+    captured,
+    factory,
+    remove,
+    setFeatures: (next: readonly unknown[]) => {
+      features = next;
+    },
+    emit: (type: string) => listeners.get(type)?.({}),
+  };
 }
 
 const container = {} as HTMLElement;
 
 describe("read-only map canvas", () => {
+  it("notifies hosts after asynchronous features paint and camera changes, then detaches on disposal", async () => {
+    const harness = mapHarness();
+    harness.setFeatures([]);
+    const counts: number[] = [];
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: body(),
+      projection: { catalog },
+      mapFactory: harness.factory,
+      onChange: (current) => counts.push(current.renderedFeatureCount),
+    });
+    expect(counts).toEqual([0]);
+    harness.setFeatures([{ id: 1 }]);
+    harness.emit("idle");
+    expect(counts).toEqual([0, 1]);
+    harness.setFeatures([]);
+    harness.emit("idle");
+    expect(counts).toEqual([0, 1, 0]);
+    canvas.dispose();
+    harness.emit("idle");
+    expect(counts).toEqual([0, 1, 0]);
+  });
+
   it("uses the active renderer and bounded anonymous transport without a synthetic editor session", async () => {
     const harness = mapHarness();
     const canvas = await createReadOnlyMapCanvas({
