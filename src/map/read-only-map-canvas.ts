@@ -6,7 +6,7 @@ import {
   CompositionMapView,
   type CompositionMapViewOptions,
 } from "./composition-map-view.js";
-import type { CompositionMapProjection } from "./map-package-projection.js";
+import { type CompositionMapProjection, compositionToMapPackage } from "./map-package-projection.js";
 import {
   findCompositionSourceDescriptor,
   hasCompositionSourceOverride,
@@ -58,8 +58,15 @@ export interface StartedReadOnlyMapCanvas {
 export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControllerOptions): StartedReadOnlyMapCanvas {
   const state = options.controller.state;
   const projection = options.projection ? structuredClone(options.projection) : undefined;
+  const audienceProjection = { ...projection, sourceAuthority: "current-reader" as const };
+  const unavailable = new Set(
+    compositionToMapPackage(state, audienceProjection).unresolved.map(({ layerId }) => layerId),
+  );
   for (const layer of state.layers) {
     if (!layer.styleRef) continue;
+    // A source already denied by this reader's projection needs no style
+    // lookup. The projection will omit its render layers and report the gap.
+    if (unavailable.has(layer.id)) continue;
     const embedded = state.styleRefs?.some(
       (reference) => reference.styleId === layer.styleRef?.styleId && reference.body !== undefined,
     );
@@ -78,7 +85,7 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
   const renderer = new CompositionMapView({
     container: options.container,
     controller: options.controller,
-    projection: { ...projection, sourceAuthority: "current-reader" },
+    projection: audienceProjection,
     styleProvider: options.styleProvider,
     // Even anonymous viewers use the bounded feature transport. No session
     // means unauthenticated GETs with credentials omitted, never host authority.

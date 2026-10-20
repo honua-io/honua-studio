@@ -415,6 +415,54 @@ describe("read-only map canvas", () => {
     expect(harness.captured).toEqual([]);
   });
 
+  it("keeps a styled current-reader layer while omitting a denied styled layer without reading its style", async () => {
+    const harness = mapHarness();
+    const bind = vi.fn(async () => ({
+      definition: {
+        styleId: "allowed-style",
+        title: "Allowed",
+        description: "Reader style",
+        styleVersion: 1,
+        sha256: "hash",
+        inlineBody: "{}",
+        serverRoot: "https://viewer.test",
+        observedAt: "2026-10-20T00:00:00Z",
+        layers: [],
+      },
+      sourceId: "service/1",
+      descriptorSha256: "descriptor-hash",
+      descriptorBody: "{}",
+      stylesheetLayerId: "allowed",
+      fields: [],
+      override: { paint: { "fill-color": "#123456" } },
+    }));
+    const getAuth = vi.fn(() => undefined);
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: {
+        layers: [
+          { id: "parcels", sourceId: "service/1", type: "fill", visible: true, styleRef: "allowed-style" },
+          { id: "secret", sourceId: "denied", type: "fill", visible: true, styleRef: "denied-style" },
+        ],
+        view: {},
+      },
+      projection: { catalog },
+      mapFactory: harness.factory,
+      styleProvider: { bind, sessionIdentity: undefined },
+      getAuth,
+    });
+    expect(bind).toHaveBeenCalledExactlyOnceWith("allowed-style", catalog[0]);
+    expect(getAuth).not.toHaveBeenCalled();
+    expect(canvas.projection?.renderedLayerIds).toEqual(["parcels"]);
+    expect(canvas.projection?.unresolved).toMatchObject([{ layerId: "secret", sourceId: "denied" }]);
+    expect(canvas.statusDetail).toContain("secret");
+    expect(harness.captured[0].authorizedFeatureUrls).toEqual([
+      "/rest/services/parcels/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+    ]);
+    expect(JSON.stringify(harness.captured[0].style)).not.toContain("denied-style");
+    canvas.dispose();
+  });
+
   it("renders an embedded canonical style without requiring a catalog reader", async () => {
     const harness = mapHarness();
     const canvas = await createReadOnlyMapCanvas({
