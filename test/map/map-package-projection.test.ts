@@ -26,6 +26,24 @@ function layerIds(mapSpec: { layers: readonly { id: string }[] }): string[] {
 }
 
 describe("compositionToMapPackage (honua-studio#23)", () => {
+  it("preserves raster override rendering, visibility and opacity", () => {
+    const source = { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 };
+    const state = stateFrom([
+      {
+        name: "addLayer",
+        layer: { id: "imagery", sourceId: "imagery", type: "raster", visible: false, metadata: { honua: { source } } },
+      },
+    ]);
+    const projection = compositionToMapPackage(state, { appearance: { opacity: { imagery: 0.42 } } });
+    expect(projection.unresolved).toEqual([]);
+    expect(projection.mapPackage.mapSpec.sources.imagery).toEqual(source);
+    expect(projection.mapPackage.mapSpec.layers.find((layer) => layer.id === "imagery")).toMatchObject({
+      type: "raster",
+      paint: { "raster-opacity": 0.42 },
+      layout: { visibility: "none" },
+    });
+  });
+
   it("projects an empty composition to the vendored basemap alone", () => {
     const { mapPackage, renderedLayerIds, unresolved } = compositionToMapPackage(createEmptyCompositionState(), {
       catalog: CATALOG,

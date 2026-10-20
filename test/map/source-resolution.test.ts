@@ -21,6 +21,16 @@ function layer(overrides: Partial<CompositionLayer> & { id: string; sourceId: st
 }
 
 describe("resolveCompositionSource (honua-studio#23)", () => {
+  it("retains an explicitly authored raster override without admitting catalog-only rasters", () => {
+    const source = { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 };
+    const authored = layer({ id: "imagery", sourceId: "imagery", type: "raster" });
+    expect(resolveCompositionSource({ ...authored, metadata: { honua: { source } } })).toEqual({
+      source,
+      layerType: "raster",
+    });
+    expect(isCompositionSourceResolution(resolveCompositionSource(authored))).toBe(false);
+  });
+
   it("projects an ogc-features dataset onto the collection items route and a geojson source", () => {
     const resolution = resolveCompositionSource(layer({ id: "hi-parcels", sourceId: "hi-parcels" }), {
       catalog: CATALOG,

@@ -12,9 +12,10 @@ Status is **v0.1 Preview, not GA**. The self-hosted image, `/config.json`, and t
 no `v*` tag has been published, and there is still no hosted instance. Live turns use
 `StudioAgentSession` over the server proxy. `npm run test:self-hosted-preview` drives that loop in the
 browser against the built image and a local BYOM planner (compose, save, reopen, propose, then a separate
-approver). It does not claim a hosted model or a GHCR digest. **Layer rendering is vector-only** (OGC API
-Features or a GeoServices FeatureServer); anything else resolves to a visible "unrenderable" note with a
-reason — raster is #36, 3D is #37–#39. `README.md` is the truth-checked status surface (#44): read its tables
+approver). It does not claim a hosted model or a GHCR digest. **Catalog-backed rendering is vector-only** (OGC API
+Features or a GeoServices FeatureServer); other catalog sources resolve to a visible "unrenderable" note.
+Existing explicit `metadata.honua.source` raster-tile overrides are retained. Native raster service
+adapters remain #36; 3D remains #37–#39. `README.md` is the truth-checked status surface (#44): read its tables
 before claiming a capability, and update them (test counts included) when you change one.
 
 ## Tech Stack
