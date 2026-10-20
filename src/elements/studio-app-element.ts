@@ -1641,6 +1641,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       baseUrl,
       auth: this.auth,
       mcpClient: new StudioAuthoringMcpClient({ baseUrl, auth: this.auth, workflowView: "setup" }),
+      workflowKnowledge: true,
       tools: [...this.agentToolDefinitions(kit)],
       execute: async (call) => {
         // Local runtime tools execute through the kit. The compatibility

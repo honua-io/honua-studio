@@ -20,6 +20,7 @@ export function createWorkspaceAgentSession(options: {
   return createStudioAgentSession({
     baseUrl: "/api",
     mcpWorkflowView: "workspace",
+    workflowKnowledge: true,
     certification: options.certification,
     transcriptVerifier: options.transcriptVerifier,
     fetchImpl: options.fetchImpl,

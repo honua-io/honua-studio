@@ -1,5 +1,45 @@
 import { expect, it } from "vitest";
+import { mintFixtureAccessToken, startMockServer } from "../mock-server.mjs";
 import { createWorkspaceAgentSession, workspaceAgentFeatures } from "../src/workspace-agent.js";
+
+it("sends shared workflow guidance with fresh host context through the real SDK and fixture proxy", async () => {
+  const server = await startMockServer({ model: "byom-preview" });
+  const token = mintFixtureAccessToken();
+  const requests: { system?: string; tools?: { name: string }[] }[] = [];
+  let context = "Current authorized target alpha";
+  const session = createWorkspaceAgentSession({
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "http://studio.test").pathname.replace(/^\/api/, "");
+      if (path === "/v1/studio/ai/chat") requests.push(JSON.parse(String(init?.body)));
+      const headers = new Headers(init?.headers);
+      headers.set("authorization", `Bearer ${token}`);
+      return fetch(`${server.url}${path}`, { ...init, headers });
+    },
+    system: async () => context,
+    toolFamilies: ["honua.workspace.canonical"],
+    toolApproval: () => false,
+  });
+  try {
+    expect((await session.chat("Explain the selected target.")).status).toBe("completed");
+    context = "Current authorized target beta";
+    expect((await session.chat("Explain the current target.")).status).toBe("completed");
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.system).toContain('"schemaVersion":"honua.agent-workflow-knowledge/v1"');
+      expect(request.system).toContain('"id":"local-bootstrap"');
+      expect(request.system).toContain('"id":"studio-map-and-publication"');
+      expect(request.system).toContain("not authorization or execution evidence");
+      expect(request.tools?.some((tool) => tool.name === "honua_agent_install_local")).not.toBe(true);
+      expect(request.tools?.some((tool) => tool.name === "honua_studio_propose_publication")).not.toBe(true);
+    }
+    expect(requests[0]?.system).toContain("Current authorized target alpha");
+    expect(requests[1]?.system).toContain("Current authorized target beta");
+    expect(requests[1]?.system).not.toContain("Current authorized target alpha");
+  } finally {
+    session.close();
+    await server.close();
+  }
+});
 
 it("refreshes the same actual SDK session catalog with fresh approval and absent descriptors", async () => {
   let devopsApproved = true;

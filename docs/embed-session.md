@@ -244,7 +244,7 @@ draft is attached. `setWorkspaceConversation(messages)` projects authorized host
 conversation into its transcript projection without changing the SDK's model history;
 it returns false while that bridge streams. The host owns the visible conversation.
 
-The Console bundle uses the public `@honua/sdk-js@0.2.4` package. Install the
+The Console bundle uses the public `@honua/sdk-js@0.2.6` package. Install the
 locked dependency graph normally:
 
 ```sh
@@ -255,7 +255,7 @@ npm run build:console-assets
 Build the pinned Maputnik assets first as described in the editor setup. The
 build checks every installed SDK file against `scripts/sdk-public-receipt.json`,
 and checks its version, tarball URL and registry integrity against the lockfile.
-The receipt identifies release source `1b098478f710861a5b861bcd7d4598601d30fcb6`;
+The receipt identifies release source `45e2fb2c7c35216521319f0e3447661988f2981f`;
 `SDK-PROVENANCE.json` and license notices travel with the bundle. Registry package
 verification does not establish installed workflow or cloud qualification.
 
