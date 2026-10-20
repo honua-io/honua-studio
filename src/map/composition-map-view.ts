@@ -101,7 +101,7 @@ export interface CompositionMapFactoryOptions {
   readonly center: readonly [number, number];
   readonly zoom: number;
   readonly attributionText: string;
-  readonly getAuth?: () => AuthSession | undefined;
+  readonly getAuth?: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly sourceBaseUrl?: string;
   readonly legacySourceBaseUrl?: string;
   readonly onSourceError?: (error: Error) => void;
@@ -117,7 +117,7 @@ export interface CompositionMapViewOptions {
   readonly container: HTMLElement;
   readonly controller: CompositionController;
   readonly projection?: CompositionMapProjectionOptions;
-  readonly getAuth?: () => AuthSession | undefined;
+  readonly getAuth?: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly sourceAuthBaseUrl?: string;
   readonly sourceCatalogBaseUrl?: string;
   /** Overrides the dynamic `maplibre-gl` import — the seam unit tests use. */

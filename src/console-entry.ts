@@ -38,3 +38,10 @@ export {
   type ReadOnlyMapCanvas,
   type ReadOnlyMapCanvasOptions,
 } from "./map/read-only-map-canvas.js";
+
+export {
+  createReadOnlyCompositionView,
+  type ReadOnlyCompositionView,
+  type ReadOnlyCompositionViewOptions,
+  type ReadOnlyCompositionDocument,
+} from "./map/read-only-composition-view.js";

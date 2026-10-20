@@ -1,4 +1,5 @@
 import { CompositionController } from "../composition/controller.js";
+import type { CompositionTarget } from "../composition/model.js";
 import { readCompositionBody } from "../lifecycle/composition-draft-store.js";
 import {
   type CompositionMapStatus,
@@ -43,10 +44,19 @@ export interface ReadOnlyMapCanvas {
   dispose(): void;
 }
 
-export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions): Promise<ReadOnlyMapCanvas> {
-  // Own the snapshot. An asynchronous render must not adopt later edits to the
-  // caller's object or acquire the editor controller behind another tab.
-  const state = readCompositionBody(structuredClone(options.body));
+/** Internal seam for a read-only composition view: the map and widgets share this private controller. */
+export interface ReadOnlyMapControllerOptions extends Omit<ReadOnlyMapCanvasOptions, "body"> {
+  readonly controller: CompositionController;
+  readonly onSelection?: (targets: readonly CompositionTarget[]) => void;
+}
+
+export interface StartedReadOnlyMapCanvas {
+  readonly canvas: ReadOnlyMapCanvas;
+  readonly ready: Promise<void>;
+}
+
+export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControllerOptions): StartedReadOnlyMapCanvas {
+  const state = options.controller.state;
   const projection = options.projection ? structuredClone(options.projection) : undefined;
   for (const layer of state.layers) {
     if (!layer.styleRef) continue;
@@ -61,14 +71,13 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
       );
     }
   }
-  const controller = new CompositionController(state);
   let disposed = false;
   const notify = () => {
     if (!disposed) options.onChange?.(canvas);
   };
   const renderer = new CompositionMapView({
     container: options.container,
-    controller,
+    controller: options.controller,
     projection,
     styleProvider: options.styleProvider,
     // Even anonymous viewers use the bounded feature transport. No session
@@ -77,6 +86,7 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
     sourceAuthBaseUrl: options.sourceAuthBaseUrl,
     sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
     mapFactory: options.mapFactory,
+    onSelection: options.onSelection,
     onChange: notify,
   });
   const canvas: ReadOnlyMapCanvas = Object.freeze({
@@ -115,14 +125,25 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
       renderer.dispose();
     },
   });
-  try {
-    await renderer.start();
-    // Construction completes before remote sources paint. Notify again after
-    // every completed render, including camera changes that alter the count.
-    renderer.map?.on("idle", notify);
-  } catch (error) {
-    renderer.dispose();
-    throw error;
-  }
+  const ready = renderer.start().then(
+    () => {
+      // Construction completes before remote sources paint. Notify again after
+      // every completed render, including camera changes that alter the count.
+      if (!disposed) renderer.map?.on("idle", notify);
+    },
+    (error: unknown) => {
+      renderer.dispose();
+      throw error;
+    },
+  );
+  return { canvas, ready };
+}
+
+export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions): Promise<ReadOnlyMapCanvas> {
+  // Own the snapshot. An asynchronous render must not adopt later edits to the
+  // caller's object or acquire the editor controller behind another tab.
+  const controller = new CompositionController(readCompositionBody(structuredClone(options.body)));
+  const { canvas, ready } = startReadOnlyMapCanvasForController({ ...options, controller });
+  await ready;
   return canvas;
 }

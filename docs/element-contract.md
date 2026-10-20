@@ -638,7 +638,17 @@ changes. Referenced styles use their canonical embedded body when present.
 Live references require an authoritative `styleProvider` and a source supported
 by that reader; unresolved references cannot silently substitute a preset.
 
-This export supplies the map canvas only. Console audience-route integration,
-app widgets, installed public-artifact rendering and audience access remain
-separate qualification work; the existing JSON publication resolver alone does
-not establish a rendered application.
+`createReadOnlyCompositionView(options)` supplies a map and widget deck using
+one private composition controller. The host passes separate `container` and
+`widgetContainer` elements, the canonical body and current-reader projection,
+and a stable `getAudienceTransport()` object for one viewer principal and
+target. The widget loader admits only current-reader catalog sources and calls
+that transport for bounded feature GETs. Intrinsic TOC, compare, and time
+interactions update only the private controller. `reload({ body, projection })`
+replaces the view; `dispose()` removes both map and deck and invalidates pending
+work. Hosts must replace the transport object and reload or dispose when the
+principal or target changes. The view exposes no editor or lifecycle writer.
+
+Console audience-route integration, installed public-artifact rendering and
+audience access remain separate qualification work; the existing JSON
+publication resolver alone does not establish a rendered application.
