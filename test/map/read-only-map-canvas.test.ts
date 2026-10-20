@@ -199,6 +199,33 @@ describe("read-only map canvas", () => {
     expect(harness.captured).toEqual([]);
   });
 
+  it("refuses a live catalog style on an overridden source even when its id matches the catalog", async () => {
+    const harness = mapHarness();
+    const bind = vi.fn(async () => {
+      throw new Error("Overridden sources cannot inherit catalog authority");
+    });
+    await expect(
+      createReadOnlyMapCanvas({
+        container,
+        body: {
+          ...body(),
+          layers: [
+            {
+              ...body().layers[0],
+              styleRef: "shared-style",
+              metadata: { honua: { source: { type: "geojson", data: { type: "FeatureCollection", features: [] } } } },
+            },
+          ],
+        },
+        projection: { catalog },
+        mapFactory: harness.factory,
+        styleProvider: { bind, sessionIdentity: undefined },
+      }),
+    ).rejects.toThrow("an authoritative style reader for their source");
+    expect(bind).not.toHaveBeenCalled();
+    expect(harness.captured).toEqual([]);
+  });
+
   it("reports renderer failure without claiming a ready map or rendered features", async () => {
     const canvas = await createReadOnlyMapCanvas({
       container,

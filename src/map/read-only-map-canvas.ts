@@ -6,7 +6,11 @@ import {
   type CompositionMapViewOptions,
 } from "./composition-map-view.js";
 import type { CompositionMapProjection } from "./map-package-projection.js";
-import { findCompositionSourceDescriptor, usesHonuaStyleCatalog } from "./source-resolution.js";
+import {
+  findCompositionSourceDescriptor,
+  hasCompositionSourceOverride,
+  usesHonuaStyleCatalog,
+} from "./source-resolution.js";
 
 /**
  * The host supplies a canonical body and source/style reads authorized for the
@@ -51,7 +55,7 @@ export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions)
     );
     if (embedded) continue;
     const source = findCompositionSourceDescriptor(layer.sourceId, projection?.catalog);
-    if (!options.styleProvider || !usesHonuaStyleCatalog(source)) {
+    if (hasCompositionSourceOverride(layer) || !options.styleProvider || !usesHonuaStyleCatalog(source)) {
       throw new Error(
         "Published style references require an embedded body or an authoritative style reader for their source; a preset is not a substitute.",
       );
