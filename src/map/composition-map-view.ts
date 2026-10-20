@@ -511,12 +511,30 @@ export class CompositionMapView {
     if (!provider) return;
     const bindings: Record<string, BoundAuthoritativeStyle | { reason: string }> = {};
     const state = this.#options.controller.state;
+    const denied = new Set(
+      this.#options.projection?.sourceAuthority === "current-reader"
+        ? compositionToMapPackage(state, { ...this.#options.projection, authoritativeStyles: undefined }).unresolved.map(
+            ({ layerId }) => layerId,
+          )
+        : [],
+    );
+    const candidates = state.layers.filter(
+      (layer) =>
+        layer.styleRef &&
+        !denied.has(layer.id) &&
+        !state.styleRefs?.some((ref) => ref.styleId === layer.styleRef?.styleId && ref.body !== undefined),
+    );
+    if (candidates.length === 0) {
+      this.#styleBindings.clear();
+      this.#authoritativeStyles = {};
+      return;
+    }
     const session = provider.sessionIdentity;
     const refreshEpoch = this.#styleRefreshEpoch;
     if (session !== this.#styleSession) this.#styleBindings.clear();
     this.#styleSession = session;
     const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
-    for (const layer of state.layers) {
+    for (const layer of candidates) {
       if (
         !layer.styleRef ||
         state.styleRefs?.some((ref) => ref.styleId === layer.styleRef?.styleId && ref.body !== undefined)

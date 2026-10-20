@@ -646,8 +646,10 @@ target. The widget loader admits only current-reader catalog sources and calls
 that transport for bounded feature GETs. Intrinsic TOC, compare, and time
 interactions update only the private controller. `reload({ body, projection })`
 replaces the view; `dispose()` removes both map and deck and invalidates pending
-work. Hosts must replace the transport object and reload or dispose when the
-principal or target changes. The view exposes no editor or lifecycle writer.
+work. Hosts must dispose and recreate the view and its style provider when the
+principal, target or source catalog changes. The provider owns an immutable
+catalog snapshot; `reload` reuses that reader and catalog epoch. The view
+exposes no editor or lifecycle writer.
 
 Console audience-route integration, installed public-artifact rendering and
 audience access remain separate qualification work; the existing JSON

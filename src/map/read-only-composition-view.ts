@@ -43,12 +43,13 @@ export interface ReadOnlyCompositionViewOptions extends Omit<ReadOnlyMapCanvasOp
   readonly onChange?: (view: ReadOnlyCompositionView) => void;
 }
 
-/** One private map/widget state. Reload replaces it; intrinsic controls never touch a draft or agent session. */
+/** One private map/widget state. Recreate with its style provider when the reader catalog changes. */
 export interface ReadOnlyCompositionView {
   readonly status: CompositionMapStatus;
   readonly statusDetail: string | undefined;
   readonly projection: CompositionMapProjection | undefined;
   readonly renderedFeatureCount: number;
+  /** Replace composition using the same reader/catalog epoch; new catalogs require a new view and style provider. */
   reload(document: ReadOnlyCompositionDocument): Promise<void>;
   settled(): Promise<void>;
   resize(): void;

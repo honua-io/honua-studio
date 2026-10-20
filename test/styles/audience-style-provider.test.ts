@@ -66,6 +66,25 @@ function fixture(options: { tag?: string | null; descriptor?: unknown; sheet?: u
 }
 
 describe("current-reader audience style provider", () => {
+  it("does not acquire the reader transport for a canvas whose only styled source is denied", async () => {
+    const getTransport = vi.fn(() => { throw new Error("Denied layer attempted an authority lookup."); });
+    const provider = new AudienceStyleProvider({
+      styleBaseUrl: "/api/studio/viewer/styles", documentUrl: "https://console.test/", catalog: [], getTransport,
+    });
+    const map: CompositionMapLike = {
+      setStyle: vi.fn(), jumpTo: vi.fn(), easeTo: vi.fn(), fitBounds: vi.fn(), on: vi.fn(), off: vi.fn(), resize: vi.fn(), remove: vi.fn(),
+    };
+    const canvas = await createReadOnlyMapCanvas({
+      container: {} as HTMLElement,
+      body: { layers: [{ id: "denied", sourceId: source.id, type: "fill", visible: true, styleRef: "district" }], view: {} },
+      projection: { catalog: [] }, styleProvider: provider, mapFactory: async () => map,
+    });
+    expect(canvas.projection?.renderedLayerIds).toEqual([]);
+    expect(canvas.statusDetail).toContain("denied");
+    expect(getTransport).not.toHaveBeenCalled();
+    canvas.dispose();
+  });
+
   it("binds the actual stylesheet revision to current layer metadata through two bounded host GETs", async () => {
     const current = fixture();
     const binding = await current.provider.bind("district", source);
