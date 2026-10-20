@@ -172,14 +172,20 @@ export function resolveCompositionSource(
   // Presentation belongs to the authored layer; catalog geometry only supplies
   // the default for older drafts that do not specify a type.
   const authoredType = layer.type;
-  if (authoredType !== undefined && authoredType !== "fill" && authoredType !== "line" && authoredType !== "circle") {
+  const metadata = honuaMetadata(layer);
+  const inlineSource = metadata?.source;
+  if (
+    authoredType !== undefined &&
+    authoredType !== "fill" &&
+    authoredType !== "line" &&
+    authoredType !== "circle" &&
+    !(authoredType === "raster" && isPlainObject(inlineSource))
+  ) {
     return {
       reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the composition map cannot render yet.`,
     };
   }
 
-  const metadata = honuaMetadata(layer);
-  const inlineSource = metadata?.source;
   if (isPlainObject(inlineSource)) {
     const declaredType = typeof metadata?.layerType === "string" ? metadata.layerType : undefined;
     const layerType =

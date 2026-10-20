@@ -616,3 +616,29 @@ without a composition layers array still fail explicitly.
 These are draft-admission requirements, not proof of portable rendering or
 publication. Actual validation remains a server operation, and publication
 retains its separate human gate.
+
+### Read-only map canvas
+
+The Console bundle exports `createReadOnlyMapCanvas(options)` to render a
+composition with the same map runtime used by the editor. Pass the canonical
+composition `body`, a container, and the actual source catalog in `projection`.
+The canvas owns a snapshot of the body and projection, supports resize and
+disposal, and reports unresolved layers and the actual rendered-feature count.
+It exposes no editor controller, agent session, or lifecycle write methods.
+`onChange` also fires when MapLibre becomes idle after asynchronous source
+rendering or camera changes, so hosts can refresh the feature count. `settled()`
+waits for composition updates; it does not promise that remote sources painted.
+
+The host must read the active published version and resolve its sources under
+the audience's current authority. This renderer does not authorize publication
+or grant access to data. Omit `getAuth` for anonymous bounded requests with
+credentials omitted; an authenticated host supplies only the current viewer's
+session. Dispose and recreate the canvas when the target, viewer or version
+changes. Referenced styles use their canonical embedded body when present.
+Live references require an authoritative `styleProvider` and a source supported
+by that reader; unresolved references cannot silently substitute a preset.
+
+This export supplies the map canvas only. Console audience-route integration,
+app widgets, installed public-artifact rendering and audience access remain
+separate qualification work; the existing JSON publication resolver alone does
+not establish a rendered application.
