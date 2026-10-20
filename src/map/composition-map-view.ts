@@ -1,5 +1,5 @@
 import type { LiveStyleObservation } from "../evals/authoritative-style-evidence.js";
-import type { AuthoritativeStyleProvider, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
+import type { AuthoritativeStyleReader, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 import type { MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * The live MapLibre surface (honua-studio#23 REQ-001) — the thing that makes
@@ -118,7 +118,7 @@ export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => P
 export type CompositionMapStatus = "idle" | "starting" | "ready" | "unavailable";
 
 export interface CompositionMapViewOptions {
-  readonly styleProvider?: Pick<AuthoritativeStyleProvider, "bind" | "sessionIdentity">;
+  readonly styleProvider?: AuthoritativeStyleReader;
   readonly container: HTMLElement;
   readonly controller: CompositionController;
   readonly projection?: CompositionMapProjectionOptions;
