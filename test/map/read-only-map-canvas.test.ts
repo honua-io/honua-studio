@@ -415,7 +415,7 @@ describe("read-only map canvas", () => {
     canvas.dispose();
   });
 
-  it("reports and omits vector source-layer render layers when the current catalog supplies GeoJSON", async () => {
+  it("omits invalid vector source-layer renders while keeping approved GeoJSON siblings", async () => {
     const harness = mapHarness();
     const canvas = await createReadOnlyMapCanvas({
       container,
@@ -450,12 +450,15 @@ describe("read-only map canvas", () => {
         },
       },
     });
-    expect(harness.captured[0].style.layers.map((layer) => layer.id)).toEqual(["base"]);
-    expect(harness.captured[0].style.sources).not.toHaveProperty("service/1");
+    expect(harness.captured[0].style.layers.map((layer) => layer.id)).toEqual(["base", "labels"]);
+    expect(canvas.projection?.mapPackage.mapSpec.sources["service/1"]).toEqual({
+      type: "geojson",
+      data: "/rest/services/parcels/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+    });
     expect(harness.captured[0].style.sources).toHaveProperty("basemap");
-    expect(canvas.projection?.renderedLayerIds).toEqual([]);
-    expect(canvas.projection?.unresolved).toMatchObject([{ layerId: "parcels", sourceId: "service/1" }]);
-    expect(canvas.statusDetail).toContain("parcels");
+    expect(canvas.projection?.renderedLayerIds).toEqual(["parcels"]);
+    expect(canvas.projection?.unresolved).toMatchObject([{ layerId: "thematic", sourceId: "service/1" }]);
+    expect(canvas.statusDetail).toContain("thematic");
     canvas.dispose();
   });
 
