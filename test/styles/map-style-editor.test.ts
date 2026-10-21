@@ -265,6 +265,9 @@ it("treats an actual OID field as numeric categories", async () => {
     },
   );
   await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "OBJECTID";
+  field.dispatchEvent(new Event("change"));
   const values = container.querySelector<HTMLTextAreaElement>(
     'textarea[aria-label="Explicit thematic values, one per line"]',
   )!;
@@ -315,12 +318,16 @@ it("revalidates every applied owner after frame flush before save", async () => 
   const apply = [...container.querySelectorAll("button")].find(
     (button) => button.textContent === "Preview thematic colors",
   )!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
   mode.value = "breaks";
   values.value = "10";
   apply.click();
   owner.value = "water";
   owner.dispatchEvent(new Event("change"));
   await editor.refreshThematicFields();
+  field.value = "quality";
+  field.dispatchEvent(new Event("change"));
   mode.value = "categories";
   values.value = "Good";
   apply.click();
@@ -355,6 +362,9 @@ it("refuses a same-name thematic field whose actual type changed", async () => {
     },
   );
   await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
   const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
   const values = container.querySelector<HTMLTextAreaElement>(
     'textarea[aria-label="Explicit thematic values, one per line"]',
@@ -389,6 +399,9 @@ it("blocks saving an applied thematic preview while its field refresh is pending
     { layers: [{ id: "roads", sourceId: "roads" }], getFields },
   );
   await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
   const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
   const values = container.querySelector<HTMLTextAreaElement>(
     'textarea[aria-label="Explicit thematic values, one per line"]',
@@ -425,6 +438,9 @@ it("refuses save when disposal happens during post-flush field revalidation", as
     { layers: [{ id: "roads", sourceId: "roads" }], getFields },
   );
   await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
   const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
   const values = container.querySelector<HTMLTextAreaElement>(
     'textarea[aria-label="Explicit thematic values, one per line"]',
@@ -450,6 +466,9 @@ it("allows an unrelated advanced Maputnik replacement after removing its themati
     { layers: [{ id: "roads", sourceId: "roads" }], getFields: async () => fields },
   );
   await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
   const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
   const values = container.querySelector<HTMLTextAreaElement>(
     'textarea[aria-label="Explicit thematic values, one per line"]',
