@@ -326,10 +326,23 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           // If appending the deck throws, the map's ready promise still needs
           // a rejection observer after we dispose its canvas.
           void started.ready.catch(() => {});
+          // Creating the element or starting the map can synchronously trigger
+          // a host reload. Never install that superseded candidate over the
+          // newer view, even though its own ready promise has not settled yet.
+          if (disposed || selected !== generation) {
+            candidateCanvas.dispose();
+            candidateDeck.remove();
+            candidateDeck.composition = undefined;
+            candidateDeck.dataLoader = undefined;
+            return;
+          }
           current = { canvas: started.canvas, deck };
           candidateDeck = undefined;
           candidateCanvas = undefined;
           options.widgetContainer.appendChild(deck);
+          // A custom element's connected callback can also reenter reload.
+          // That reload clears this installed candidate before installing its own.
+          if (disposed || selected !== generation) return;
           deck.composition = controller;
           notify();
           await started.ready;
@@ -354,7 +367,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           throw error;
         }
       })();
-      pending = work;
+      if (!disposed && selected === generation) pending = work;
       return work;
     },
     settled() {

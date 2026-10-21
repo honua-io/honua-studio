@@ -61,6 +61,34 @@ function mapHarness() {
 const container = {} as HTMLElement;
 
 describe("read-only map canvas", () => {
+  it.each([false, true])(
+    "rejects ambiguous exact catalog sources regardless of order or saved source (reverse=%s)",
+    (reverse) => {
+      const duplicate = {
+        ...catalog[0],
+        locator: { ...catalog[0].locator, url: "/rest/services/different/FeatureServer" },
+      };
+      const currentCatalog = reverse ? [duplicate, ...catalog] : [...catalog, duplicate];
+      for (const source of [
+        { type: "geojson", data: "/rest/services/operator/FeatureServer/1/query?f=geojson" },
+        { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+      ]) {
+        const state = readCompositionBody({
+          ...body(),
+          mapSpec: {
+            version: 8,
+            sources: { "service/1": source },
+            layers: [{ id: "parcels", type: "fill", source: "service/1" }],
+          },
+        });
+        const result = compositionToMapPackage(state, { catalog: currentCatalog, sourceAuthority: "current-reader" });
+        expect(result.renderedLayerIds).toEqual([]);
+        expect(result.mapPackage.mapSpec?.sources["service/1"]).toBeUndefined();
+        expect(result.unresolved).toEqual([expect.objectContaining({ reason: expect.stringContaining("ambiguous") })]);
+      }
+    },
+  );
+
   it("counts actual owned visual-editor render layers when the original primary layer was removed", async () => {
     const harness = mapHarness();
     const renderLayers = [

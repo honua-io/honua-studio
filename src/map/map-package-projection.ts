@@ -161,6 +161,8 @@ function resolveAudienceSource(
   savedSource: unknown,
   options: CompositionMapProjectionOptions,
 ): ReturnType<typeof resolveCompositionSource> {
+  if ((options.catalog?.filter((entry) => entry.id === layer.sourceId).length ?? 0) > 1)
+    return { reason: `Source "${layer.sourceId}" has ambiguous entries in the current-reader catalog.` };
   const metadata = layer.metadata?.honua;
   const honua =
     metadata && typeof metadata === "object" && !Array.isArray(metadata)

@@ -24,6 +24,71 @@ function registry() {
 }
 
 describe("published anonymous map resources", () => {
+  it("admits validated style-import origins without granting undeclared or credential-bearing origins", async () => {
+    const network = registry();
+    const fetchImpl = vi.fn(async () => new Response("{}", { headers: { "content-type": "application/json" } }));
+    const style = {
+      version: 8 as const,
+      sources: {},
+      layers: [],
+      imports: [
+        { id: "fragment", url: "https://fragments.example/style.json" },
+        { id: "bad", url: "https://secret:password@private.example/style.json" },
+        { id: "file", url: "file:///private/style.json" },
+        null,
+      ],
+    };
+    const anonymous = installAnonymousMapResourceProtocol(network, { documentUrl, style, fetchImpl });
+    const invoke = (url: string) => network.run(anonymous.transformRequest(url).url);
+    await expect(invoke("https://fragments.example/style.json")).resolves.toEqual({ data: {} });
+    await expect(invoke("https://private.example/style.json")).rejects.toThrow("origin is not declared");
+    await expect(invoke("https://unlisted.example/style.json")).rejects.toThrow("origin is not declared");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://fragments.example/style.json",
+      expect.objectContaining({ credentials: "omit", headers: {}, redirect: "error" }),
+    );
+    anonymous.dispose();
+  });
+
+  it("bounds buffering for empty and tiny fragments and cancels an overflow", async () => {
+    const network = registry();
+    const canceled = vi.fn();
+    const empty = new Uint8Array(0);
+    let read = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        read++;
+        if (read <= 1024) controller.enqueue(read % 2 === 0 ? new Uint8Array([7]) : empty);
+        else controller.close();
+      },
+    });
+    const fetchImpl = vi.fn(async () => new Response(stream));
+    const anonymous = installAnonymousMapResourceProtocol(network, {
+      documentUrl,
+      style: { version: 8, sources: { tiles: { type: "raster", tiles: [tile] } }, layers: [] },
+      fetchImpl,
+    });
+    const invoke = () => network.run(anonymous.transformRequest(tile).url);
+    const result = await invoke();
+    expect(new Uint8Array(result.data as ArrayBuffer)).toEqual(new Uint8Array(512).fill(7));
+    let chunks = 0;
+    fetchImpl.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            chunks++;
+            controller.enqueue(new Uint8Array(chunks === 1 ? 16 * 1024 * 1024 : 1));
+          },
+          cancel: canceled,
+        }),
+      ),
+    );
+    await expect(invoke()).rejects.toThrow("size limit");
+    expect(canceled).toHaveBeenCalledTimes(1);
+    anonymous.dispose();
+  });
+
   it("loads declared raster and basemap assets without touching a host bearer or cookies", async () => {
     const fetchImpl = vi.fn(
       async () =>

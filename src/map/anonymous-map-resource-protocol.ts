@@ -40,38 +40,53 @@ function declaredOrigins(style: HonuaStyleSpecification, documentUrl: string): R
   add(style.glyphs);
   if (Array.isArray(style.sprite)) for (const entry of style.sprite) add(entry.url);
   else add(style.sprite);
+  const imports = (style as unknown as Record<string, unknown>).imports;
+  if (Array.isArray(imports))
+    for (const entry of imports) if (entry && typeof entry === "object" && !Array.isArray(entry)) add(entry.url);
   return origins;
 }
 
 async function boundedBody(response: Response, signal: AbortSignal): Promise<ArrayBuffer> {
   const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > MAX_RESOURCE_BYTES) throw new Error("Map asset exceeds the size limit.");
+  if (Number.isFinite(length) && length > MAX_RESOURCE_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Map asset exceeds the size limit.");
+  }
   if (!response.body) return new ArrayBuffer(0);
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  let bytes = new Uint8Array(0);
   let total = 0;
+  const abort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", abort, { once: true });
   try {
     while (true) {
       signal.throwIfAborted();
       const { done, value } = await reader.read();
+      signal.throwIfAborted();
       if (done) break;
-      total += value.byteLength;
-      if (total > MAX_RESOURCE_BYTES) throw new Error("Map asset exceeds the size limit.");
-      chunks.push(value);
+      const nextTotal = total + value.byteLength;
+      if (nextTotal > MAX_RESOURCE_BYTES) throw new Error("Map asset exceeds the size limit.");
+      if (nextTotal > bytes.byteLength) {
+        let capacity = Math.max(bytes.byteLength, 1024);
+        while (capacity < nextTotal) capacity = Math.min(capacity * 2, MAX_RESOURCE_BYTES);
+        const expanded = new Uint8Array(capacity);
+        expanded.set(bytes.subarray(0, total));
+        bytes = expanded;
+      }
+      bytes.set(value, total);
+      total = nextTotal;
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);
     throw error;
   } finally {
+    signal.removeEventListener("abort", abort);
     reader.releaseLock();
   }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes.buffer;
+  signal.throwIfAborted();
+  return bytes.buffer.slice(0, total);
 }
 
 /** MapLibre custom protocol for published tile/style assets. It never reads the auth session. */
@@ -100,7 +115,10 @@ export function installAnonymousMapResourceProtocol(
         referrerPolicy: "no-referrer",
         signal: controller.signal,
       });
-      if (!response.ok || response.redirected) throw new Error(`Map asset request failed (${response.status}).`);
+      if (!response.ok || response.redirected) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`Map asset request failed (${response.status}).`);
+      }
       const buffer = await boundedBody(response, controller.signal);
       if (disposed) throw new Error("Map asset transport is disposed.");
       const json =

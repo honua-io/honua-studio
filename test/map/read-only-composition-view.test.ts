@@ -357,31 +357,57 @@ describe("read-only published composition view", () => {
     view.dispose();
   });
 
-  it("shows denied widget metadata and makes zero data or auth calls", async () => {
-    const host = hosts();
-    const map = mapHarness();
-    const fetchRequest = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
-      throw new Error("Denied widget attempted a read.");
-    });
-    const getAudienceTransport = vi.fn(() => ({ fetchRequest }));
-    const view = createReadOnlyCompositionView({
-      container: host.map,
-      widgetContainer: host.widgets,
-      body: body([{ id: "denied", kind: "table", sourceId: "private/9" }]),
-      projection: { catalog, baseUrl: sourceRoot },
-      sourceAuthBaseUrl: sourceRoot,
-      documentUrl: `${origin}/maps/published/map/map-1`,
-      getAudienceTransport,
-      mapFactory: map.factory,
-    });
-    await view.settled();
-    await until(() =>
-      (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("not in the current-reader catalog"),
-    );
-    expect(fetchRequest).not.toHaveBeenCalled();
-    expect(getAudienceTransport).not.toHaveBeenCalled();
-    view.dispose();
-  });
+  it.each(["missing", "duplicate", "duplicate-reversed"])(
+    "shows denied %s widget metadata and makes zero data or auth calls",
+    async (kind) => {
+      const host = hosts();
+      const map = mapHarness();
+      const fetchRequest = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+        throw new Error("Denied widget attempted a read.");
+      });
+      const getAudienceTransport = vi.fn(() => ({ fetchRequest }));
+      const view = createReadOnlyCompositionView({
+        container: host.map,
+        widgetContainer: host.widgets,
+        body: {
+          ...body([{ id: "denied", kind: "table", sourceId: kind === "missing" ? "private/9" : "service/1" }]),
+          layers: [],
+        },
+        projection: {
+          catalog:
+            kind === "missing"
+              ? catalog
+              : kind === "duplicate"
+                ? [
+                    ...catalog,
+                    {
+                      ...catalog[0],
+                      locator: { ...catalog[0].locator, url: `${sourceRoot}/rest/services/other/FeatureServer` },
+                    },
+                  ]
+                : [
+                    {
+                      ...catalog[0],
+                      locator: { ...catalog[0].locator, url: `${sourceRoot}/rest/services/other/FeatureServer` },
+                    },
+                    ...catalog,
+                  ],
+          baseUrl: sourceRoot,
+        },
+        sourceAuthBaseUrl: sourceRoot,
+        documentUrl: `${origin}/maps/published/map/map-1`,
+        getAudienceTransport,
+        mapFactory: map.factory,
+      });
+      await view.settled();
+      await until(() =>
+        (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("not in the current-reader catalog"),
+      );
+      expect(fetchRequest).not.toHaveBeenCalled();
+      expect(getAudienceTransport).not.toHaveBeenCalled();
+      view.dispose();
+    },
+  );
 
   it("cleans a detached widget deck when map style preflight fails, then reloads without stale work", async () => {
     const host = hosts();
@@ -437,6 +463,52 @@ describe("read-only published composition view", () => {
     expect(deck(host.widgets)).toBeTruthy();
     view.dispose();
     createElement.mockRestore();
+  });
+
+  it("keeps the newer composition when an older reload resumes after a reentrant reload", async () => {
+    const host = hosts();
+    const map = mapHarness();
+    const view = createReadOnlyCompositionView({
+      container: host.map,
+      widgetContainer: host.widgets,
+      body: body(),
+      projection: { catalog, baseUrl: sourceRoot },
+      sourceAuthBaseUrl: sourceRoot,
+      documentUrl: `${origin}/maps/published/map/map-1`,
+      getAudienceTransport: () => undefined,
+      mapFactory: map.factory,
+    });
+    await view.settled();
+    const originalCreateElement = document.createElement.bind(document);
+    let newer: Promise<void> | undefined;
+    let triggered = false;
+    const createElement = vi.spyOn(document, "createElement").mockImplementation(((tag: string) => {
+      if (tag === "honua-studio-widget-deck" && !triggered) {
+        triggered = true;
+        newer = view.reload({
+          body: body([{ id: "newer", kind: "toc" }]),
+          projection: { catalog, baseUrl: sourceRoot },
+        });
+      }
+      return originalCreateElement(tag);
+    }) as typeof document.createElement);
+    try {
+      const older = view.reload({
+        body: body([{ id: "older", kind: "toc" }]),
+        projection: { catalog, baseUrl: sourceRoot },
+      });
+      await Promise.all([older, newer]);
+      await view.settled();
+      expect(view.status).toBe("ready");
+      expect(host.widgets.querySelectorAll("honua-studio-widget-deck")).toHaveLength(1);
+      expect(deck(host.widgets)?.composition?.state.widgets[0]?.id).toBe("newer");
+      expect(map.removed[0]).toHaveBeenCalledTimes(1);
+      expect(map.removed[1]).not.toHaveBeenCalled();
+      expect(map.removed[2]).toHaveBeenCalledTimes(1);
+    } finally {
+      createElement.mockRestore();
+      view.dispose();
+    }
   });
 
   it("aborts an old widget read on reload and discards its late answer", async () => {

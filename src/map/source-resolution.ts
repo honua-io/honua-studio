@@ -77,8 +77,8 @@ export function findCompositionSourceDescriptor(
   sourceId: string,
   catalog: readonly CompositionSourceDescriptor[] = [],
 ): CompositionSourceDescriptor | undefined {
-  const exact = catalog.find((entry) => entry.id === sourceId);
-  if (exact) return exact;
+  const exact = catalog.filter((entry) => entry.id === sourceId);
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : undefined;
   const matches = catalog.filter((entry) => entry.locator?.serviceId === sourceId);
   return matches.length === 1 ? matches[0] : undefined;
 }
