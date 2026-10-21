@@ -260,6 +260,7 @@ export function compositionToMapPackage(
   const renderedLayerIds: string[] = [];
   const boundSourceIds = new Set<string>();
   const deniedSourceIds = new Set<string>();
+  const deniedRenderLayerIds = new Set<string>();
   const audience = options.sourceAuthority === "current-reader";
 
   for (const layer of state.layers) {
@@ -459,20 +460,25 @@ export function compositionToMapPackage(
   }
 
   if (audience) {
+    const refuseRenderLayer = (renderLayer: HonuaLayerSpecification, reason: string) => {
+      deniedRenderLayerIds.add(renderLayer.id);
+      // A primary or outline render ID is evidence that the composition
+      // owner itself failed. Auxiliary visual layers are refused on their
+      // own; authored metadata cannot taint a healthy sibling render layer.
+      const canonicalOwner = state.layers.find(
+        (layer) => renderLayer.id === layer.id || renderLayer.id === `${layer.id}${OUTLINE_LAYER_SUFFIX}`,
+      )?.id;
+      const layerId = canonicalOwner ?? renderLayer.id;
+      if (!unresolved.some((entry) => entry.layerId === layerId))
+        unresolved.push({ layerId, sourceId: renderLayer.source ?? "", reason });
+    };
     for (const renderLayer of mapSpec.layers) {
       if (renderLayer.source === undefined || renderLayer["source-layer"] === undefined) continue;
       if (mapSpec.sources[renderLayer.source]?.type !== "geojson") continue;
-      const declaredOwner = renderLayer.metadata?.["honua:compositionLayerId"];
-      const owner =
-        typeof declaredOwner === "string" && state.layers.some((layer) => layer.id === declaredOwner)
-          ? declaredOwner
-          : (state.layers.find((layer) => ownedByCompositionLayer(renderLayer, layer.id))?.id ?? renderLayer.id);
-      if (!unresolved.some((entry) => entry.layerId === owner))
-        unresolved.push({
-          layerId: owner,
-          sourceId: renderLayer.source,
-          reason: "An authored vector source-layer cannot render from a current-reader GeoJSON source.",
-        });
+      refuseRenderLayer(
+        renderLayer,
+        "An authored vector source-layer cannot render from a current-reader GeoJSON source.",
+      );
     }
     // A failed layer can share its source with a successful layer. A source
     // authority/conflict failure taints that whole source; a presentation or
@@ -483,19 +489,39 @@ export function compositionToMapPackage(
       deniedSourceIds.add(sourceId);
       for (const renderLayer of mapSpec.layers) {
         if (renderLayer.source !== sourceId) continue;
-        const owner = renderLayer.metadata?.["honua:compositionLayerId"];
-        const layerId = typeof owner === "string" ? owner : renderLayer.id;
-        if (!unresolved.some((entry) => entry.layerId === layerId))
-          unresolved.push({ layerId, sourceId, reason: "Source unavailable to this reader." });
+        refuseRenderLayer(renderLayer, "Source unavailable to this reader.");
       }
     }
     for (const sourceId of deniedSourceIds) delete mapSpec.sources[sourceId];
-    const failedLayerIds = new Set(unresolved.map((entry) => entry.layerId));
+    const compositionIds = new Set(state.layers.map((layer) => layer.id));
+    const failedLayerIds = new Set(
+      unresolved.filter((entry) => compositionIds.has(entry.layerId)).map((entry) => entry.layerId),
+    );
     mapSpec.layers = mapSpec.layers.filter((renderLayer) => {
+      if (deniedRenderLayerIds.has(renderLayer.id)) return false;
       if (typeof renderLayer.source === "string" && deniedSourceIds.has(renderLayer.source)) return false;
       for (const layerId of failedLayerIds) if (ownedByCompositionLayer(renderLayer, layerId)) return false;
       return true;
     });
+    for (let index = renderedLayerIds.length - 1; index >= 0; index--) {
+      const ownerId = renderedLayerIds[index];
+      const owner = state.layers.find((layer) => layer.id === ownerId);
+      if (
+        owner &&
+        mapSpec.layers.some(
+          (renderLayer) => renderLayer.source === owner.sourceId && ownedByCompositionLayer(renderLayer, ownerId),
+        )
+      )
+        continue;
+      renderedLayerIds.splice(index, 1);
+      if (!unresolved.some((entry) => entry.layerId === ownerId)) {
+        unresolved.push({
+          layerId: ownerId,
+          sourceId: owner?.sourceId ?? "",
+          reason: "No approved render layer remains for this composition layer.",
+        });
+      }
+    }
     for (let index = renderedLayerIds.length - 1; index >= 0; index--)
       if (failedLayerIds.has(renderedLayerIds[index])) renderedLayerIds.splice(index, 1);
     const usedSourceIds = new Set(mapSpec.layers.map((layer) => layer.source).filter((id): id is string => !!id));

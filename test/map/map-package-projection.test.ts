@@ -337,3 +337,98 @@ it("preserves inline snapshot bodies when explicit binding metadata is also pres
   expect(JSON.parse(JSON.stringify(exported)).styleRefs[0].body).toEqual(body);
   expect(state.styleRefs[0].body).toEqual(body);
 });
+
+function audienceStyle(
+  layers: readonly Record<string, unknown>[],
+  extraSources: Record<string, unknown> = {},
+  primarySourceLayer = false,
+) {
+  return {
+    ...stateFrom([{ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } }]),
+    mapSpec: {
+      version: 8,
+      sources: {
+        "hi-parcels": { type: "geojson", data: "/api/old/ogc/features/collections/hi-parcels/items" },
+        ...extraSources,
+      },
+      layers: [
+        {
+          id: "parcels",
+          type: "fill",
+          source: "hi-parcels",
+          ...(primarySourceLayer ? { "source-layer": "old-vector-layer" } : {}),
+        },
+        ...layers,
+      ],
+    },
+  } as CompositionState;
+}
+
+it("drops a denied auxiliary source without tainting its valid composition owner", () => {
+  const state = audienceStyle(
+    [
+      {
+        id: "legacy-labels",
+        type: "symbol",
+        source: "operator-private",
+        metadata: { "honua:compositionLayerId": "parcels" },
+      },
+    ],
+    { "operator-private": { type: "geojson", data: "https://operator.test/private/query" } },
+  );
+  const original = structuredClone(state);
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual(["parcels"]);
+  expect(layerIds(result.mapPackage.mapSpec)).toContain("parcels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("legacy-labels");
+  expect(result.mapPackage.mapSpec.sources["operator-private"]).toBeUndefined();
+  expect(result.unresolved).toEqual([
+    expect.objectContaining({ layerId: "legacy-labels", sourceId: "operator-private" }),
+  ]);
+  expect(state).toEqual(original);
+});
+
+it("drops a GeoJSON source-layer auxiliary even with stale owner metadata", () => {
+  const state = audienceStyle([
+    {
+      id: "legacy-labels",
+      type: "symbol",
+      source: "hi-parcels",
+      "source-layer": "old-vector-layer",
+      metadata: { "honua:compositionLayerId": "parcels" },
+    },
+    {
+      id: "orphan-labels",
+      type: "symbol",
+      source: "hi-parcels",
+      "source-layer": "old-vector-layer",
+      metadata: { "honua:compositionLayerId": "no-such-owner" },
+    },
+    {
+      id: "approved-decoration",
+      type: "circle",
+      source: "hi-parcels",
+      metadata: { "honua:compositionLayerId": "legacy-labels" },
+    },
+  ]);
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual(["parcels"]);
+  expect(layerIds(result.mapPackage.mapSpec)).toContain("parcels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("legacy-labels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("orphan-labels");
+  expect(layerIds(result.mapPackage.mapSpec)).toContain("approved-decoration");
+  expect(result.unresolved.map(({ layerId }) => layerId).sort()).toEqual(["legacy-labels", "orphan-labels"]);
+});
+
+it("still fails the owner closed when its primary GeoJSON render layer is invalid", () => {
+  const state = audienceStyle(
+    [{ id: "parcels-themed", type: "fill", source: "hi-parcels", metadata: { "honua:compositionLayerId": "parcels" } }],
+    {},
+    true,
+  );
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual([]);
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels-themed");
+  expect(result.unresolved).toEqual([expect.objectContaining({ layerId: "parcels" })]);
+});
