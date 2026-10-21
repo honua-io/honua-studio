@@ -58,6 +58,7 @@ import {
   paletteColorFor,
   styleRefFallbackOverride,
 } from "./style-presets.js";
+import { resolveVisualLayerOwner } from "./visual-layer-owner.js";
 
 export { DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX };
 
@@ -120,12 +121,12 @@ function cloneStyle(style: BasemapStyle): HonuaStyleSpecification {
   };
 }
 
-function ownedByCompositionLayer(renderLayer: HonuaLayerSpecification, layerId: string): boolean {
-  return (
-    renderLayer.id === layerId ||
-    renderLayer.id === `${layerId}${OUTLINE_LAYER_SUFFIX}` ||
-    renderLayer.metadata?.["honua:compositionLayerId"] === layerId
-  );
+function ownedByCompositionLayer(
+  renderLayer: HonuaLayerSpecification,
+  layerId: string,
+  knownOwners: ReadonlySet<string>,
+): boolean {
+  return resolveVisualLayerOwner(renderLayer, knownOwners).owner === layerId;
 }
 
 // These options affect GeoJSON presentation or feature identity, never its
@@ -248,6 +249,7 @@ export function compositionToMapPackage(
       : (options.basemap ?? createOfflineBasemapStyle()),
   );
   const existingRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
+  const knownOwnerIds = new Set(state.layers.map((layer) => layer.id));
   const inlineBodies = Object.fromEntries((state.styleRefs ?? []).map((ref) => [ref.styleId, ref.body]));
   const sourceBindings: HonuaMapPackageSourceBinding[] = [];
   const styleRefs: {
@@ -344,7 +346,7 @@ export function compositionToMapPackage(
       mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
     else
       mapSpec.layers = mapSpec.layers.map((renderLayer) => {
-        if (!ownedByCompositionLayer(renderLayer, layer.id)) return renderLayer;
+        if (!ownedByCompositionLayer(renderLayer, layer.id, knownOwnerIds)) return renderLayer;
         const visible = layer.visible && renderLayer.layout?.visibility !== "none";
         const paint = { ...renderLayer.paint };
         const opacity = options.appearance?.opacity?.[layer.id];
@@ -500,7 +502,8 @@ export function compositionToMapPackage(
     mapSpec.layers = mapSpec.layers.filter((renderLayer) => {
       if (deniedRenderLayerIds.has(renderLayer.id)) return false;
       if (typeof renderLayer.source === "string" && deniedSourceIds.has(renderLayer.source)) return false;
-      for (const layerId of failedLayerIds) if (ownedByCompositionLayer(renderLayer, layerId)) return false;
+      for (const layerId of failedLayerIds)
+        if (ownedByCompositionLayer(renderLayer, layerId, knownOwnerIds)) return false;
       return true;
     });
     for (let index = renderedLayerIds.length - 1; index >= 0; index--) {
@@ -509,7 +512,8 @@ export function compositionToMapPackage(
       if (
         owner &&
         mapSpec.layers.some(
-          (renderLayer) => renderLayer.source === owner.sourceId && ownedByCompositionLayer(renderLayer, ownerId),
+          (renderLayer) =>
+            renderLayer.source === owner.sourceId && ownedByCompositionLayer(renderLayer, ownerId, knownOwnerIds),
         )
       )
         continue;
@@ -517,7 +521,9 @@ export function compositionToMapPackage(
       failedLayerIds.add(ownerId);
       // A visual on another approved source cannot paint under a failed
       // composition owner merely because it survived the earlier source filter.
-      mapSpec.layers = mapSpec.layers.filter((renderLayer) => !ownedByCompositionLayer(renderLayer, ownerId));
+      mapSpec.layers = mapSpec.layers.filter(
+        (renderLayer) => !ownedByCompositionLayer(renderLayer, ownerId, knownOwnerIds),
+      );
       if (!unresolved.some((entry) => entry.layerId === ownerId)) {
         unresolved.push({
           layerId: ownerId,

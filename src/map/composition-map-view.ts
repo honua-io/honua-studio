@@ -48,7 +48,6 @@ import type { CompositionTarget, CompositionView } from "../composition/model.js
 import { installAnonymousMapResourceProtocol } from "./anonymous-map-resource-protocol.js";
 import { type SourceProtocolRegistry, installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
 import type { BasemapStyle } from "./basemap.js";
-import { OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import {
   type CompositionLayerAppearance,
   type CompositionMapProjection,
@@ -61,6 +60,7 @@ import {
   hasCompositionSourceOverride,
   usesHonuaStyleCatalog,
 } from "./source-resolution.js";
+import { resolveVisualLayerOwner } from "./visual-layer-owner.js";
 
 /**
  * The structural slice of `maplibre-gl`'s `Map` this module uses. Declared
@@ -801,16 +801,10 @@ export function ownedVisualLayerIds(
   for (const layer of layers) {
     if (!isRecord(layer) || typeof layer.id !== "string") continue;
     if (isBasemapLayerId(layer.id)) continue;
-    const metadataOwner = isRecord(layer.metadata) ? layer.metadata["honua:compositionLayerId"] : undefined;
-    const exactOwner = owners.has(layer.id) ? layer.id : undefined;
-    const outlineOwner = layer.id.endsWith(OUTLINE_LAYER_SUFFIX)
-      ? layer.id.slice(0, -OUTLINE_LAYER_SUFFIX.length)
-      : undefined;
-    const canonicalOwner = exactOwner ?? (outlineOwner && owners.has(outlineOwner) ? outlineOwner : undefined);
+    const { owner, conflictingMetadata } = resolveVisualLayerOwner(layer, owners);
     // A primary or outline ID is canonical evidence of ownership. Conflicting
     // metadata cannot silently retarget a click to another composition layer.
-    if (canonicalOwner && typeof metadataOwner === "string" && metadataOwner !== canonicalOwner) continue;
-    const owner = canonicalOwner ?? metadataOwner;
+    if (conflictingMetadata) continue;
     if (typeof owner === "string" && owners.has(owner)) result.set(layer.id, owner);
   }
   return result;

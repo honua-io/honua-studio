@@ -457,6 +457,52 @@ it("removes an owner's mismatched visual after finding no source-matched render 
   expect(state.mapSpec).toEqual(original.mapSpec);
 });
 
+it.each([
+  [["parcels", "roads"], "parcels"],
+  [["roads", "parcels"], "parcels"],
+  [["parcels", "roads"], "stale-owner"],
+  [["roads", "parcels"], "stale-owner"],
+])("retains canonical sibling visuals after failed-owner pruning (order=%j, metadata=%s)", (order, metadataOwner) => {
+  const base = stateFrom(
+    order.map((id) => ({
+      name: "addLayer",
+      layer: { id, sourceId: id === "parcels" ? "hi-parcels" : "hi-roads", type: id === "parcels" ? "fill" : "line" },
+    })),
+  );
+  const state: CompositionState = {
+    ...base,
+    mapSpec: {
+      version: 8,
+      sources: {
+        "hi-parcels": { type: "geojson", data: "/api/old/ogc/features/collections/hi-parcels/items" },
+        "hi-roads": { type: "geojson", data: "/api/old/ogc/features/collections/hi-roads/items" },
+        inline: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+      },
+      layers: [
+        { id: "parcels-label", type: "symbol", source: "inline", metadata: { "honua:compositionLayerId": "parcels" } },
+        { id: "roads", type: "line", source: "hi-roads", metadata: { "honua:compositionLayerId": metadataOwner } },
+        {
+          id: "roads__outline",
+          type: "line",
+          source: "hi-roads",
+          metadata: { "honua:compositionLayerId": metadataOwner },
+        },
+      ],
+    } as unknown as Record<string, unknown>,
+  };
+  const original = structuredClone(state);
+
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+
+  expect(result.renderedLayerIds).toEqual(["roads"]);
+  expect(result.mapPackage.legend).toEqual([{ label: "roads", color: paletteColorFor("roads") }]);
+  expect(layerIds(result.mapPackage.mapSpec)).toEqual(["roads", "roads__outline"]);
+  expect(result.unresolved).toEqual([
+    expect.objectContaining({ layerId: "parcels", reason: expect.stringContaining("No approved render layer") }),
+  ]);
+  expect(state).toEqual(original);
+});
+
 it("prunes refused style targets while composing a separately styled approved source", async () => {
   const base = stateFrom([
     { name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } },
