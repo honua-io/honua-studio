@@ -277,11 +277,12 @@ it("refreshes actual fields without replacing advanced dirty Maputnik edits", as
   await refresh;
   expect(editor.dirty).toBe(true);
   expect(onPreview).toHaveBeenLastCalledWith(advanced);
+  expect(field.textContent).toContain("new field");
   const afterDispose = editor.refreshThematicFields();
   editor.dispose();
   pending[4]!([{ name: "late", type: "string" }]);
   await afterDispose;
-  expect(field.textContent).toContain("new field");
+  expect(field.textContent).not.toContain("late");
 });
 
 it("shared visual save uses canonical callback readback without injecting map ownership", async () => {
