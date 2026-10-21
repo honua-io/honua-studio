@@ -32,9 +32,21 @@ export {
 export { createSharedStylePreview, type SharedStylePreviewOptions } from "./styles/shared-style-preview.js";
 
 export { AuthoritativeStyleProvider } from "./styles/authoritative-style-provider.js";
+export {
+  AudienceStyleProvider,
+  type AudienceStyleProviderOptions,
+  type AudienceStyleTransport,
+} from "./styles/audience-style-provider.js";
 
 export {
   createReadOnlyMapCanvas,
   type ReadOnlyMapCanvas,
   type ReadOnlyMapCanvasOptions,
 } from "./map/read-only-map-canvas.js";
+
+export {
+  createReadOnlyCompositionView,
+  type ReadOnlyCompositionView,
+  type ReadOnlyCompositionViewOptions,
+  type ReadOnlyCompositionDocument,
+} from "./map/read-only-composition-view.js";

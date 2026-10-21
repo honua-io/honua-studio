@@ -631,14 +631,33 @@ waits for composition updates; it does not promise that remote sources painted.
 
 The host must read the active published version and resolve its sources under
 the audience's current authority. This renderer does not authorize publication
-or grant access to data. Omit `getAuth` for anonymous bounded requests with
-credentials omitted; an authenticated host supplies only the current viewer's
-session. Dispose and recreate the canvas when the target, viewer or version
+or grant access to data. Catalog-backed feature reads require `getAuth` to
+return the host's current-reader `fetchRequest`, even for an anonymous reader
+with no token; those requests omit browser credentials. An inline or static map
+may omit `getAuth`. Catalog reads never fall back to a global browser fetch.
+Map previews limit each feature response or service page to 16 MiB before JSON
+parsing; oversized responses report a source error and cancel the body.
+Dispose and recreate the canvas when the target, viewer or version
 changes. Referenced styles use their canonical embedded body when present.
 Live references require an authoritative `styleProvider` and a source supported
 by that reader; unresolved references cannot silently substitute a preset.
 
-This export supplies the map canvas only. Console audience-route integration,
-app widgets, installed public-artifact rendering and audience access remain
-separate qualification work; the existing JSON publication resolver alone does
-not establish a rendered application.
+`createReadOnlyCompositionView(options)` supplies a map and widget deck using
+one private composition controller. The host passes separate `container` and
+`widgetContainer` elements, the canonical body and current-reader projection,
+and a stable `getAudienceTransport()` object for one viewer principal and
+target. The widget loader admits only current-reader catalog sources and calls
+that transport for feature GETs limited to 500 rows and a 16 MiB response before
+JSON parsing. Overflow, cancellation and reader changes cancel the response.
+The configured catalog root participates in the same URL trust check as the
+map. Intrinsic TOC, compare, and time
+interactions update only the private controller. `reload({ body, projection })`
+replaces the view; `dispose()` removes both map and deck and invalidates pending
+work. Hosts must dispose and recreate the view and its style provider when the
+principal, target or source catalog changes. The provider owns an immutable
+catalog snapshot; `reload` reuses that reader and catalog epoch. The view
+exposes no editor or lifecycle writer.
+
+Console audience-route integration, installed public-artifact rendering and
+audience access remain separate qualification work; the existing JSON
+publication resolver alone does not establish a rendered application.

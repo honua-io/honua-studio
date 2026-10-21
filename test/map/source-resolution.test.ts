@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CompositionLayer } from "../../src/composition/model.js";
 import {
   type CompositionSourceDescriptor,
+  findCompositionSourceDescriptor,
   isCompositionSourceResolution,
   layerTypeForGeometry,
   resolveCompositionSource,
@@ -120,6 +121,20 @@ describe("resolveCompositionSource (honua-studio#23)", () => {
 });
 
 describe("explicit discovered locators", () => {
+  it("refuses duplicate exact IDs in either order without falling back to a service alias", () => {
+    const descriptors = [
+      { id: "same", protocol: "ogc-features", geometryType: "Point", locator: { url: "/one", collectionId: "one" } },
+      { id: "same", protocol: "ogc-features", geometryType: "Point", locator: { url: "/two", collectionId: "two" } },
+      { id: "alias", locator: { serviceId: "same" } },
+    ];
+    for (const catalog of [descriptors, [...descriptors].reverse()]) {
+      expect(findCompositionSourceDescriptor("same", catalog)).toBeUndefined();
+      expect(
+        isCompositionSourceResolution(resolveCompositionSource(layer({ id: "points", sourceId: "same" }), { catalog })),
+      ).toBe(false);
+    }
+  });
+
   it("uses actual GeoServices service URL and layer 7 instead of guessing layer zero", () => {
     const result = resolveCompositionSource(layer({ id: "roads", sourceId: "service/7" }), {
       catalog: [

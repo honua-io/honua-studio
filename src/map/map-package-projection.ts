@@ -36,7 +36,7 @@ import { compositionStyleOverride } from "../styles/composition-style-override.j
 import type { HonuaMapPackage, HonuaMapPackageSourceBinding, HonuaStyleRefBody } from "@honua/sdk-js/runtime";
 import type { HonuaLayerSpecification, HonuaStyleSpecification } from "@honua/sdk-js/style";
 
-import type { CompositionLayer, CompositionState } from "../composition/model.js";
+import { type CompositionLayer, type CompositionState, canonicalCompositionJson } from "../composition/model.js";
 import type { BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 import { type BasemapStyle, createOfflineBasemapStyle } from "./basemap.js";
 import { BASEMAP_ID_PREFIX, DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX } from "./constants.js";
@@ -45,7 +45,9 @@ import {
   type CompositionSourceDescriptor,
   findCompositionSourceDescriptor,
   hasCompositionSourceOverride,
+  isAnonymousMapAssetSource,
   isCompositionSourceResolution,
+  isStaticInlineCompositionSource,
   resolveCompositionSource,
   usesHonuaStyleCatalog,
 } from "./source-resolution.js";
@@ -86,6 +88,8 @@ export interface CompositionMapProjectionOptions {
    * `../interactions/studio-interactions.ts`).
    */
   readonly appearance?: CompositionLayerAppearance;
+  /** Read-only rendering resolves live sources against the current reader's catalog, even in full map specs. */
+  readonly sourceAuthority?: "authored" | "current-reader";
 }
 
 /** Per-composition-layer runtime appearance. Mirrors `../interactions/studio-interactions.ts`'s `StudioLayerAppearance`, declared here so `src/map/` does not depend on the interaction runtime. */
@@ -114,6 +118,82 @@ function cloneStyle(style: BasemapStyle): HonuaStyleSpecification {
     sources: { ...style.sources },
     layers: style.layers.map((layer) => ({ ...layer })),
   };
+}
+
+function ownedByCompositionLayer(renderLayer: HonuaLayerSpecification, layerId: string): boolean {
+  return (
+    renderLayer.id === layerId ||
+    renderLayer.id === `${layerId}${OUTLINE_LAYER_SUFFIX}` ||
+    renderLayer.metadata?.["honua:compositionLayerId"] === layerId
+  );
+}
+
+// These options affect GeoJSON presentation or feature identity, never its
+// network authority. The current-reader resolution alone supplies type/data.
+const GEOJSON_SOURCE_OPTIONS = new Set([
+  "attribution",
+  "maxzoom",
+  "buffer",
+  "tolerance",
+  "cluster",
+  "clusterRadius",
+  "clusterMaxZoom",
+  "clusterMinPoints",
+  "clusterProperties",
+  "lineMetrics",
+  "generateId",
+  "promoteId",
+  "filter",
+]);
+
+function rebindAudienceGeoJson(
+  saved: HonuaStyleSpecification["sources"][string] | undefined,
+  source: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  if (saved?.type !== "geojson" || source.type !== "geojson") return source;
+  const options = Object.fromEntries(Object.entries(saved).filter(([key]) => GEOJSON_SOURCE_OPTIONS.has(key)));
+  return { ...structuredClone(options), ...source };
+}
+
+/** Resolve an audience source without letting a saved URL in either source escape hatch authorize itself. */
+function resolveAudienceSource(
+  layer: CompositionLayer,
+  savedSource: unknown,
+  options: CompositionMapProjectionOptions,
+): ReturnType<typeof resolveCompositionSource> {
+  if ((options.catalog?.filter((entry) => entry.id === layer.sourceId).length ?? 0) > 1)
+    return { reason: `Source "${layer.sourceId}" has ambiguous entries in the current-reader catalog.` };
+  const metadata = layer.metadata?.honua;
+  const honua =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : undefined;
+  const override = honua?.source;
+  const descriptor = findCompositionSourceDescriptor(layer.sourceId, options.catalog);
+  const featureCatalogSource =
+    descriptor?.protocol === "ogc-features" || descriptor?.protocol === "geoservices-feature-service";
+  if (isStaticInlineCompositionSource(override) || (isAnonymousMapAssetSource(override) && !featureCatalogSource))
+    return resolveCompositionSource(layer, options);
+
+  // Feature catalog descriptors authorize their network sources; the saved
+  // URL and URL override cannot replace them. Self-contained or anonymous
+  // tile/image sources with no catalog identity retain authored semantics.
+  if (!descriptor && override !== undefined)
+    return {
+      reason: `Source "${layer.sourceId}" has a network override without an audience-approved catalog source.`,
+    };
+  const source =
+    !descriptor && (isStaticInlineCompositionSource(savedSource) || isAnonymousMapAssetSource(savedSource))
+      ? savedSource
+      : undefined;
+  const resolvedLayer: CompositionLayer = {
+    ...layer,
+    metadata: {
+      ...layer.metadata,
+      honua: { ...honua, ...(source ? { source } : { source: undefined }) },
+    },
+  };
+  return resolveCompositionSource(resolvedLayer, options);
 }
 
 /** The MapLibre layer type a composed layer renders as. Kept separate from the archetype so `raster` can never reach a vector paint helper. */
@@ -179,15 +259,39 @@ export function compositionToMapPackage(
   const unresolved: UnresolvedCompositionLayer[] = [];
   const renderedLayerIds: string[] = [];
   const boundSourceIds = new Set<string>();
+  const deniedSourceIds = new Set<string>();
+  const deniedRenderLayerIds = new Set<string>();
+  const audience = options.sourceAuthority === "current-reader";
 
   for (const layer of state.layers) {
-    const resolution = resolveCompositionSource(layer, {
+    const resolveOptions = {
       ...(options.catalog !== undefined ? { catalog: options.catalog } : {}),
       ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
       ...(options.featureLimit !== undefined ? { featureLimit: options.featureLimit } : {}),
-    });
+    };
+    const resolution = audience
+      ? resolveAudienceSource(layer, mapSpec.sources[layer.sourceId], resolveOptions)
+      : resolveCompositionSource(layer, resolveOptions);
     if (!isCompositionSourceResolution(resolution)) {
       unresolved.push({ layerId: layer.id, sourceId: layer.sourceId, reason: resolution.reason });
+      if (audience && resolution.scope !== "layer") deniedSourceIds.add(layer.sourceId);
+      continue;
+    }
+    const resolvedSource =
+      audience && state.mapSpec && resolution.binding
+        ? rebindAudienceGeoJson(mapSpec.sources[layer.sourceId], resolution.source)
+        : resolution.source;
+    if (
+      audience &&
+      boundSourceIds.has(layer.sourceId) &&
+      canonicalCompositionJson(mapSpec.sources[layer.sourceId]) !== canonicalCompositionJson(resolvedSource)
+    ) {
+      deniedSourceIds.add(layer.sourceId);
+      unresolved.push({
+        layerId: layer.id,
+        sourceId: layer.sourceId,
+        reason: "Conflicting source definitions for the same map source.",
+      });
       continue;
     }
 
@@ -229,10 +333,10 @@ export function compositionToMapPackage(
     const styleSourceId = layer.sourceId;
     if (!boundSourceIds.has(styleSourceId)) {
       boundSourceIds.add(styleSourceId);
-      if (!state.mapSpec)
-        mapSpec.sources[styleSourceId] = resolution.source as HonuaStyleSpecification["sources"][string];
+      if (!state.mapSpec || audience)
+        mapSpec.sources[styleSourceId] = resolvedSource as HonuaStyleSpecification["sources"][string];
       const durable = state.sourceBindings?.find((binding) => binding.sourceId === styleSourceId);
-      if (durable) sourceBindings.push(structuredClone(durable));
+      if (durable && !audience) sourceBindings.push(structuredClone(durable));
       else if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
     }
 
@@ -240,13 +344,7 @@ export function compositionToMapPackage(
       mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
     else
       mapSpec.layers = mapSpec.layers.map((renderLayer) => {
-        const owner = renderLayer.metadata?.["honua:compositionLayerId"];
-        if (
-          renderLayer.id !== layer.id &&
-          renderLayer.id !== `${layer.id}${OUTLINE_LAYER_SUFFIX}` &&
-          owner !== layer.id
-        )
-          return renderLayer;
+        if (!ownedByCompositionLayer(renderLayer, layer.id)) return renderLayer;
         const visible = layer.visible && renderLayer.layout?.visibility !== "none";
         const paint = { ...renderLayer.paint };
         const opacity = options.appearance?.opacity?.[layer.id];
@@ -358,6 +456,110 @@ export function compositionToMapPackage(
         ),
       };
       styleRefs.push({ styleId: layer.styleRef.styleId, body });
+    }
+  }
+
+  if (audience) {
+    const refuseRenderLayer = (renderLayer: HonuaLayerSpecification, reason: string) => {
+      deniedRenderLayerIds.add(renderLayer.id);
+      // A primary or outline render ID is evidence that the composition
+      // owner itself failed. Auxiliary visual layers are refused on their
+      // own; authored metadata cannot taint a healthy sibling render layer.
+      const canonicalOwner = state.layers.find(
+        (layer) => renderLayer.id === layer.id || renderLayer.id === `${layer.id}${OUTLINE_LAYER_SUFFIX}`,
+      )?.id;
+      const layerId = canonicalOwner ?? renderLayer.id;
+      if (!unresolved.some((entry) => entry.layerId === layerId))
+        unresolved.push({ layerId, sourceId: renderLayer.source ?? "", reason });
+    };
+    for (const renderLayer of mapSpec.layers) {
+      if (renderLayer.source === undefined || renderLayer["source-layer"] === undefined) continue;
+      if (mapSpec.sources[renderLayer.source]?.type !== "geojson") continue;
+      refuseRenderLayer(
+        renderLayer,
+        "An authored vector source-layer cannot render from a current-reader GeoJSON source.",
+      );
+    }
+    // A failed layer can share its source with a successful layer. A source
+    // authority/conflict failure taints that whole source; a presentation or
+    // style failure only drops the failed layer's owned render layers.
+    for (const [sourceId, source] of Object.entries(mapSpec.sources)) {
+      if (boundSourceIds.has(sourceId) || isStaticInlineCompositionSource(source) || isAnonymousMapAssetSource(source))
+        continue;
+      deniedSourceIds.add(sourceId);
+      for (const renderLayer of mapSpec.layers) {
+        if (renderLayer.source !== sourceId) continue;
+        refuseRenderLayer(renderLayer, "Source unavailable to this reader.");
+      }
+    }
+    for (const sourceId of deniedSourceIds) delete mapSpec.sources[sourceId];
+    const compositionIds = new Set(state.layers.map((layer) => layer.id));
+    const failedLayerIds = new Set(
+      unresolved.filter((entry) => compositionIds.has(entry.layerId)).map((entry) => entry.layerId),
+    );
+    mapSpec.layers = mapSpec.layers.filter((renderLayer) => {
+      if (deniedRenderLayerIds.has(renderLayer.id)) return false;
+      if (typeof renderLayer.source === "string" && deniedSourceIds.has(renderLayer.source)) return false;
+      for (const layerId of failedLayerIds) if (ownedByCompositionLayer(renderLayer, layerId)) return false;
+      return true;
+    });
+    for (let index = renderedLayerIds.length - 1; index >= 0; index--) {
+      const ownerId = renderedLayerIds[index];
+      const owner = state.layers.find((layer) => layer.id === ownerId);
+      if (
+        owner &&
+        mapSpec.layers.some(
+          (renderLayer) => renderLayer.source === owner.sourceId && ownedByCompositionLayer(renderLayer, ownerId),
+        )
+      )
+        continue;
+      renderedLayerIds.splice(index, 1);
+      if (!unresolved.some((entry) => entry.layerId === ownerId)) {
+        unresolved.push({
+          layerId: ownerId,
+          sourceId: owner?.sourceId ?? "",
+          reason: "No approved render layer remains for this composition layer.",
+        });
+      }
+    }
+    for (let index = renderedLayerIds.length - 1; index >= 0; index--)
+      if (failedLayerIds.has(renderedLayerIds[index])) renderedLayerIds.splice(index, 1);
+    const usedSourceIds = new Set(mapSpec.layers.map((layer) => layer.source).filter((id): id is string => !!id));
+    for (const sourceId of boundSourceIds) if (!usedSourceIds.has(sourceId)) delete mapSpec.sources[sourceId];
+    for (let index = sourceBindings.length - 1; index >= 0; index--)
+      if (!usedSourceIds.has(sourceBindings[index].sourceId)) sourceBindings.splice(index, 1);
+    for (let index = renderedLayerIds.length - 1; index >= 0; index--) {
+      const rendered = state.layers.find((layer) => layer.id === renderedLayerIds[index]);
+      if (rendered && deniedSourceIds.has(rendered.sourceId)) {
+        renderedLayerIds.splice(index, 1);
+        if (!failedLayerIds.has(rendered.id))
+          unresolved.push({
+            layerId: rendered.id,
+            sourceId: rendered.sourceId,
+            reason: "Source unavailable to this reader.",
+          });
+      }
+    }
+    // The audience projection may keep an owner's healthy render layer while
+    // refusing another visual layer. Derived style targets must follow the
+    // approved render set or the SDK rejects the entire composed style.
+    const approvedRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
+    for (let index = styleRefs.length - 1; index >= 0; index--) {
+      const reference = styleRefs[index];
+      const body =
+        reference.body === undefined
+          ? undefined
+          : Object.fromEntries(Object.entries(reference.body).filter(([targetId]) => approvedRenderIds.has(targetId)));
+      const layerBindings = reference.layerBindings?.filter((binding) => approvedRenderIds.has(binding.targetLayerId));
+      if (body !== undefined ? Object.keys(body).length === 0 : layerBindings?.length === 0) {
+        styleRefs.splice(index, 1);
+        continue;
+      }
+      styleRefs[index] = {
+        styleId: reference.styleId,
+        ...(body === undefined ? {} : { body }),
+        ...(layerBindings === undefined ? {} : { layerBindings }),
+      };
     }
   }
 

@@ -1,6 +1,7 @@
 import { HonuaClient } from "@honua/sdk-js";
 import { loadHonuaFeatureServiceGeoJson } from "@honua/sdk-js/map";
 import { type AuthenticatedSourceOptions, trustedSourceUrl } from "./authenticated-source-protocol.js";
+import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 
 /** Uses the SDK's canonical feature query/paging and geometry conversion. */
 export async function loadPagedFeatureSource(
@@ -48,10 +49,13 @@ export async function loadPagedFeatureSource(
           redirect: "error",
           cache: "no-store",
         });
-        if (response.redirected || authority !== options.getAuth())
+        if (response.redirected || authority !== options.getAuth()) {
+          await response.body?.cancel().catch(() => undefined);
           throw new Error("The Studio source authority changed or redirected.");
+        }
+        const bytes = await readBoundedFeatureBody(response, signal, () => authority === options.getAuth());
         const body = response.ok
-          ? ((await response.clone().json()) as {
+          ? (parseFeatureResponseBody(bytes) as {
               error?: { code?: unknown };
               exceededTransferLimit?: boolean;
               features?: unknown[];
@@ -72,7 +76,11 @@ export async function loadPagedFeatureSource(
               (body.exceededTransferLimit === undefined && body.features?.length === 2000);
           } else metadataObserved = true;
         }
-        return response;
+        return new Response(bytes.byteLength ? bytes : null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
       }
       throw new Error("The Studio session cannot authorize this source query.");
     },

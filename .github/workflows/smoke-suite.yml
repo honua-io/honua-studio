@@ -1,6 +1,6 @@
 name: Smoke suite
 
-# The three end-to-end smokes run directly for PRs/pushes and are called by
+# The end-to-end smokes run directly for PRs/pushes and are called by
 # `release.yml` for every `v*` tag, so release smokes use the packaged revision.
 # Direct PR triggers preserve the existing branch-protection check names;
 # calling this from ci.yml would add a caller prefix to those required names.
@@ -91,6 +91,56 @@ jobs:
         with:
           name: playwright-report
           path: .tmp/playwright-output
+          if-no-files-found: ignore
+
+  console-assets-smoke:
+    name: Production Console assets + audience browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned Maputnik source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: maplibre/maputnik
+          ref: 66377f5dcf14275e205869f0c6549b2e86d7d879
+          path: .tmp/maputnik-upstream
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build provenance-bound embedded Maputnik
+        run: node scripts/vendor-maputnik.mjs .tmp/maputnik-upstream
+
+      - name: Install Playwright chromium
+        run: npm run test:browser:install
+
+      - name: Build production Console bundle and exercise its public exports
+        run: npm run test:console-assets
+
+      - name: Retain checked Console bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: console-studio-assets-${{ github.sha }}
+          path: dist-console/
+          if-no-files-found: error
+
+      - name: Upload Console browser evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-console-assets
+          path: .tmp/console-assets-output
           if-no-files-found: ignore
 
   blazor-host-smoke:

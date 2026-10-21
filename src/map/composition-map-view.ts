@@ -1,5 +1,5 @@
 import type { LiveStyleObservation } from "../evals/authoritative-style-evidence.js";
-import type { AuthoritativeStyleProvider, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
+import type { AuthoritativeStyleReader, BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 import type { MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * The live MapLibre surface (honua-studio#23 REQ-001) — the thing that makes
@@ -45,8 +45,10 @@ import type { AuthSession } from "../auth/types.js";
 import type { CompositionController } from "../composition/controller.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import type { CompositionTarget, CompositionView } from "../composition/model.js";
+import { installAnonymousMapResourceProtocol } from "./anonymous-map-resource-protocol.js";
 import { type SourceProtocolRegistry, installAuthenticatedSourceProtocol } from "./authenticated-source-protocol.js";
 import type { BasemapStyle } from "./basemap.js";
+import { OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import {
   type CompositionLayerAppearance,
   type CompositionMapProjection,
@@ -101,11 +103,15 @@ export interface CompositionMapFactoryOptions {
   readonly center: readonly [number, number];
   readonly zoom: number;
   readonly attributionText: string;
-  readonly getAuth?: () => AuthSession | undefined;
+  readonly getAuth?: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly sourceBaseUrl?: string;
   readonly legacySourceBaseUrl?: string;
   readonly onSourceError?: (error: Error) => void;
   readonly onSourceIncomplete?: (message: string) => void;
+  /** Published audience styles use a separate credential-free path for raster, basemap and style assets. */
+  readonly anonymousStyleResources?: boolean;
+  /** Exact current-reader feature URLs allowed to enter the bearer transport. */
+  readonly authorizedFeatureUrls?: readonly string[];
 }
 
 export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => Promise<CompositionMapLike>;
@@ -113,11 +119,11 @@ export type CompositionMapFactory = (options: CompositionMapFactoryOptions) => P
 export type CompositionMapStatus = "idle" | "starting" | "ready" | "unavailable";
 
 export interface CompositionMapViewOptions {
-  readonly styleProvider?: Pick<AuthoritativeStyleProvider, "bind" | "sessionIdentity">;
+  readonly styleProvider?: AuthoritativeStyleReader;
   readonly container: HTMLElement;
   readonly controller: CompositionController;
   readonly projection?: CompositionMapProjectionOptions;
-  readonly getAuth?: () => AuthSession | undefined;
+  readonly getAuth?: () => Pick<AuthSession, "getAccessToken" | "fetchRequest"> | undefined;
   readonly sourceAuthBaseUrl?: string;
   readonly sourceCatalogBaseUrl?: string;
   /** Overrides the dynamic `maplibre-gl` import — the seam unit tests use. */
@@ -176,22 +182,54 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
   }
   const registry = namespace as unknown as SourceProtocolRegistry;
   if (
-    options.getAuth &&
+    (options.getAuth || options.anonymousStyleResources || options.authorizedFeatureUrls) &&
     (typeof registry.addProtocol !== "function" || typeof registry.removeProtocol !== "function")
   ) {
     throw new Error("maplibre-gl did not export the source protocol registry.");
   }
-  const transport = options.getAuth
-    ? installAuthenticatedSourceProtocol(registry, {
-        getAuth: options.getAuth,
-        sourceBaseUrl: options.sourceBaseUrl ?? "/api",
-        legacySourceBaseUrl: options.legacySourceBaseUrl,
-        documentUrl: document.baseURI,
-        onError: options.onSourceError,
-        onIncomplete: options.onSourceIncomplete,
-        pagedFeatureServices: true,
-      })
-    : undefined;
+  const normalizeUrl = (url: string): string | undefined => {
+    try {
+      return new URL(url, document.baseURI).href;
+    } catch {
+      return undefined;
+    }
+  };
+  const catalogFeatureUrls = new Set(
+    options.authorizedFeatureUrls?.map(normalizeUrl).filter((url) => url !== undefined),
+  );
+  const unavailableAuth = {
+    getAccessToken: async () => undefined,
+    fetchRequest: async (): Promise<Response> => {
+      throw new Error("Current-reader map transport is unavailable.");
+    },
+  };
+  const transport =
+    options.getAuth || options.authorizedFeatureUrls
+      ? installAuthenticatedSourceProtocol(registry, {
+          getAuth: options.authorizedFeatureUrls
+            ? () => {
+                const reader = options.getAuth?.();
+                return reader?.fetchRequest ? reader : unavailableAuth;
+              }
+            : (options.getAuth ?? (() => unavailableAuth)),
+          sourceBaseUrl: options.sourceBaseUrl ?? "/api",
+          legacySourceBaseUrl: options.legacySourceBaseUrl,
+          documentUrl: document.baseURI,
+          onError: options.onSourceError,
+          onIncomplete: options.onSourceIncomplete,
+          pagedFeatureServices: true,
+          ...(options.authorizedFeatureUrls ? { allowedSourceUrls: catalogFeatureUrls } : {}),
+        })
+      : undefined;
+  const anonymous =
+    options.anonymousStyleResources || options.authorizedFeatureUrls
+      ? installAnonymousMapResourceProtocol(registry, {
+          documentUrl: document.baseURI,
+          style: options.style,
+          deniedResourceUrls: catalogFeatureUrls,
+          onError: options.onSourceError,
+        })
+      : undefined;
   try {
     const map = new MapConstructor({
       container: options.container,
@@ -199,12 +237,27 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
       center: [...options.center],
       zoom: options.zoom,
       attributionControl: { compact: false, customAttribution: options.attributionText },
-      ...(transport ? { transformRequest: transport.transformRequest } : {}),
+      ...(transport || anonymous
+        ? {
+            transformRequest: (url: string, type: import("maplibre-gl").ResourceType) => {
+              const authenticated = transport?.transformRequest(url, type);
+              if (authenticated && authenticated.url !== url) return authenticated;
+              // A catalog feature source rejected by the trusted endpoint
+              // guard must not become an anonymous style asset request.
+              const normalized = normalizeUrl(url);
+              if (normalized && catalogFeatureUrls.has(normalized))
+                return anonymous?.transformRequest("honua-denied-feature-source:", type) ?? { url: "about:blank" };
+              return options.anonymousStyleResources ? (anonymous?.transformRequest(url, type) ?? { url }) : { url };
+            },
+          }
+        : {}),
     });
     if (transport) map.on("remove", () => transport.dispose());
+    if (anonymous) map.on("remove", () => anonymous.dispose());
     return map;
   } catch (error) {
     transport?.dispose();
+    anonymous?.dispose();
     throw error;
   }
 };
@@ -394,6 +447,13 @@ export class CompositionMapView {
     const projection = this.#project();
     const initialView = projection.mapPackage.initialView;
     const style = await this.#composeSafely(projection.mapPackage);
+    const audience = this.#options.projection?.sourceAuthority === "current-reader";
+    const authorizedFeatureUrls = audience
+      ? projection.mapPackage.sourceBindings.flatMap((binding) => {
+          const source = projection.mapPackage.mapSpec.sources[binding.sourceId];
+          return source?.type === "geojson" && typeof source.data === "string" ? [source.data] : [];
+        })
+      : undefined;
     try {
       const factory = this.#options.mapFactory ?? defaultCompositionMapFactory;
       this.#map = await factory({
@@ -413,6 +473,8 @@ export class CompositionMapView {
           this.#statusDetail = `Map source could not load: ${error.message}`;
           this.#notify();
         },
+        anonymousStyleResources: audience,
+        authorizedFeatureUrls,
       });
     } catch (error) {
       this.#status = "unavailable";
@@ -473,12 +535,31 @@ export class CompositionMapView {
     if (!provider) return;
     const bindings: Record<string, BoundAuthoritativeStyle | { reason: string }> = {};
     const state = this.#options.controller.state;
+    const denied = new Set(
+      this.#options.projection?.sourceAuthority === "current-reader"
+        ? compositionToMapPackage(state, {
+            ...this.#options.projection,
+            authoritativeStyles: undefined,
+          }).unresolved.map(({ layerId }) => layerId)
+        : [],
+    );
+    const candidates = state.layers.filter(
+      (layer) =>
+        layer.styleRef &&
+        !denied.has(layer.id) &&
+        !state.styleRefs?.some((ref) => ref.styleId === layer.styleRef?.styleId && ref.body !== undefined),
+    );
+    if (candidates.length === 0) {
+      this.#styleBindings.clear();
+      this.#authoritativeStyles = {};
+      return;
+    }
     const session = provider.sessionIdentity;
     const refreshEpoch = this.#styleRefreshEpoch;
     if (session !== this.#styleSession) this.#styleBindings.clear();
     this.#styleSession = session;
     const retained = new Map<string, { binding: BoundAuthoritativeStyle; readAt: number }>();
-    for (const layer of state.layers) {
+    for (const layer of candidates) {
       if (
         !layer.styleRef ||
         state.styleRefs?.some((ref) => ref.styleId === layer.styleRef?.styleId && ref.body !== undefined)
@@ -689,10 +770,13 @@ export class CompositionMapView {
       if (point) this.#options.onMapClick?.(point);
       const onSelection = this.#options.onSelection;
       if (!onSelection) return;
-      const layerIds = this.#projection?.renderedLayerIds ?? [];
-      if (layerIds.length === 0) return;
-      const features = map.queryRenderedFeatures?.(event.point, { layers: [...layerIds] }) ?? [];
-      const targets = compositionTargetsFromFeatures(features);
+      const owners = this.#projection?.renderedLayerIds ?? [];
+      if (owners.length === 0) return;
+      const layers = map.getStyle?.()?.layers ?? this.#projection?.mapPackage.mapSpec.layers ?? [];
+      const visualOwners = ownedVisualLayerIds(layers, owners);
+      if (visualOwners.size === 0) return;
+      const features = map.queryRenderedFeatures?.(event.point, { layers: [...visualOwners.keys()] }) ?? [];
+      const targets = compositionTargetsFromFeatures(features, visualOwners, this.#options.controller.state.layers);
       if (targets.length > 0) onSelection(targets);
     });
   }
@@ -708,13 +792,45 @@ export class CompositionMapView {
  * is a more precise deictic reference than "this layer", and #1 REQ-012's
  * chip wants the most specific one available.
  */
-export function compositionTargetsFromFeatures(features: readonly unknown[]): CompositionTarget[] {
+export function ownedVisualLayerIds(
+  layers: readonly unknown[],
+  renderedLayerIds: readonly string[],
+): ReadonlyMap<string, string> {
+  const owners = new Set(renderedLayerIds);
+  const result = new Map<string, string>();
+  for (const layer of layers) {
+    if (!isRecord(layer) || typeof layer.id !== "string") continue;
+    if (isBasemapLayerId(layer.id)) continue;
+    const metadataOwner = isRecord(layer.metadata) ? layer.metadata["honua:compositionLayerId"] : undefined;
+    const exactOwner = owners.has(layer.id) ? layer.id : undefined;
+    const outlineOwner = layer.id.endsWith(OUTLINE_LAYER_SUFFIX)
+      ? layer.id.slice(0, -OUTLINE_LAYER_SUFFIX.length)
+      : undefined;
+    const canonicalOwner = exactOwner ?? (outlineOwner && owners.has(outlineOwner) ? outlineOwner : undefined);
+    // A primary or outline ID is canonical evidence of ownership. Conflicting
+    // metadata cannot silently retarget a click to another composition layer.
+    if (canonicalOwner && typeof metadataOwner === "string" && metadataOwner !== canonicalOwner) continue;
+    const owner = canonicalOwner ?? metadataOwner;
+    if (typeof owner === "string" && owners.has(owner)) result.set(layer.id, owner);
+  }
+  return result;
+}
+
+export function compositionTargetsFromFeatures(
+  features: readonly unknown[],
+  visualOwners?: ReadonlyMap<string, string>,
+  compositionLayers?: readonly { readonly id: string; readonly sourceId: string }[],
+): CompositionTarget[] {
   const first = features[0];
   if (!isRecord(first)) return [];
-  const layerId = isRecord(first.layer) && typeof first.layer.id === "string" ? first.layer.id : undefined;
-  if (!layerId || isBasemapLayerId(layerId)) return [];
+  const visualId = isRecord(first.layer) && typeof first.layer.id === "string" ? first.layer.id : undefined;
+  if (!visualId || isBasemapLayerId(visualId)) return [];
+  const layerId = visualOwners ? visualOwners.get(visualId) : visualId;
+  if (!layerId) return [];
   const targets: CompositionTarget[] = [];
-  const sourceId = typeof first.source === "string" ? first.source : undefined;
+  const compositionSource = compositionLayers?.find((layer) => layer.id === layerId)?.sourceId;
+  if (compositionLayers && !compositionSource) return [];
+  const sourceId = compositionSource ?? (typeof first.source === "string" ? first.source : undefined);
   const featureId = first.id;
   if (sourceId && (typeof featureId === "string" || typeof featureId === "number")) {
     targets.push({ kind: "feature", sourceId, featureId });

@@ -1,5 +1,6 @@
-import type { AddProtocolAction, RequestTransformFunction } from "maplibre-gl";
+import type { AddProtocolAction, RequestParameters, ResourceType } from "maplibre-gl";
 import type { AuthSession } from "../auth/types.js";
+import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 import { loadPagedFeatureSource } from "./paged-feature-source.js";
 
 export interface SourceProtocolRegistry {
@@ -17,6 +18,8 @@ export interface AuthenticatedSourceOptions {
   readonly onIncomplete?: (message: string) => void;
   readonly pagedFeatureServices?: boolean;
   readonly fetchImpl?: typeof fetch;
+  /** Audience canvases narrow bearer use to URLs resolved from their current-reader catalog. */
+  readonly allowedSourceUrls?: ReadonlySet<string>;
 }
 
 let nextProtocol = 0;
@@ -62,7 +65,8 @@ export async function fetchAuthenticatedFeatureCollection(
   label = "Map source",
 ): Promise<Record<string, unknown>> {
   const target = trustedSourceUrl(url, options.sourceBaseUrl, options.documentUrl, options.legacySourceBaseUrl);
-  if (!target) throw new Error(`${label} is outside the trusted Honua feature endpoints.`);
+  if (!target || (options.allowedSourceUrls && !options.allowedSourceUrls.has(target.href)))
+    throw new Error(`${label} is outside the trusted Honua feature endpoints.`);
   for (let attempt = 0; attempt < 2; attempt++) {
     signal.throwIfAborted();
     const auth = options.getAuth();
@@ -78,8 +82,12 @@ export async function fetchAuthenticatedFeatureCollection(
       credentials: "omit",
       cache: "no-store",
     });
-    if (response.redirected) throw new Error(`${label} redirects are not allowed.`);
-    const body: unknown = response.ok ? await response.json() : undefined;
+    if (response.redirected) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`${label} redirects are not allowed.`);
+    }
+    const bytes = await readBoundedFeatureBody(response, signal, () => auth === options.getAuth());
+    const body: unknown = response.ok ? parseFeatureResponseBody(bytes) : undefined;
     signal.throwIfAborted();
     if (auth !== options.getAuth())
       throw new Error(`The Studio session changed during the ${label.toLowerCase()} request.`);
@@ -122,7 +130,8 @@ export function installAuthenticatedSourceProtocol(
         options.documentUrl,
         options.legacySourceBaseUrl,
       );
-      if (!target) throw new Error("Map source is outside the trusted Honua feature endpoints.");
+      if (!target || (options.allowedSourceUrls && !options.allowedSourceUrls.has(target.href)))
+        throw new Error("Map source is outside the trusted Honua feature endpoints.");
       pending.add(controller);
       const data =
         options.pagedFeatureServices && /\/FeatureServer\/\d+\/query$/.test(target.pathname)
@@ -139,11 +148,16 @@ export function installAuthenticatedSourceProtocol(
     }
   };
   registry.addProtocol(scheme, handler);
-  const transformRequest: RequestTransformFunction = (url, resourceType) => {
+  const transformRequest = (url: string, resourceType?: ResourceType): RequestParameters => {
     const trusted =
       resourceType === "Source" &&
       trustedSourceUrl(url, options.sourceBaseUrl, options.documentUrl, options.legacySourceBaseUrl);
-    return { url: trusted ? `${prefix}${encodeURIComponent(trusted.href)}` : url };
+    return {
+      url:
+        trusted && (!options.allowedSourceUrls || options.allowedSourceUrls.has(trusted.href))
+          ? `${prefix}${encodeURIComponent(trusted.href)}`
+          : url,
+    };
   };
   return {
     transformRequest,

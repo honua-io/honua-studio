@@ -1,3 +1,4 @@
+import { composeStyle } from "@honua/sdk-js/runtime";
 import { describe, expect, it } from "vitest";
 
 import { CompositionHistory } from "../../src/composition/history.js";
@@ -26,6 +27,84 @@ function layerIds(mapSpec: { layers: readonly { id: string }[] }): string[] {
 }
 
 describe("compositionToMapPackage (honua-studio#23)", () => {
+  it.each([false, true])("preserves shared inline sources with reordered object keys (reverse=%s)", (reverse) => {
+    const sources = [
+      {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [1, 2] },
+              properties: { name: "A", nested: { x: 1, y: 2 } },
+            },
+          ],
+        },
+      },
+      {
+        data: {
+          features: [
+            {
+              properties: { nested: { y: 2, x: 1 }, name: "A" },
+              geometry: { coordinates: [1, 2], type: "Point" },
+              type: "Feature",
+            },
+          ],
+          type: "FeatureCollection",
+        },
+        type: "geojson",
+      },
+    ];
+    if (reverse) sources.reverse();
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: sources.map((source, i) => ({
+        id: `points-${i}`,
+        sourceId: "shared",
+        type: "circle",
+        visible: true,
+        metadata: { honua: { source } },
+      })),
+    };
+    const original = structuredClone(state);
+    const result = compositionToMapPackage(state, { sourceAuthority: "current-reader" });
+    expect(result.unresolved).toEqual([]);
+    expect(result.renderedLayerIds).toEqual(["points-0", "points-1"]);
+    expect(result.mapPackage.mapSpec.sources.shared).toEqual(sources[0]);
+    expect(state).toEqual(original);
+  });
+
+  it("still rejects shared inline sources with different ordered coordinates", () => {
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: [
+        [1, 2],
+        [2, 1],
+      ].map((coordinates, i) => ({
+        id: `points-${i}`,
+        sourceId: "shared",
+        type: "circle",
+        visible: true,
+        metadata: {
+          honua: {
+            source: {
+              type: "geojson",
+              data: {
+                type: "FeatureCollection",
+                features: [{ type: "Feature", geometry: { type: "Point", coordinates }, properties: {} }],
+              },
+            },
+          },
+        },
+      })),
+    };
+    const result = compositionToMapPackage(state, { sourceAuthority: "current-reader" });
+    expect(result.renderedLayerIds).toEqual([]);
+    expect(result.mapPackage.mapSpec.sources.shared).toBeUndefined();
+    expect(result.unresolved.map(({ layerId }) => layerId).sort()).toEqual(["points-0", "points-1"]);
+  });
+
   it("preserves raster override rendering, visibility and opacity", () => {
     const source = { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 };
     const state = stateFrom([
@@ -258,4 +337,165 @@ it("preserves inline snapshot bodies when explicit binding metadata is also pres
   expect(exported.styleRefs).toEqual([{ styleId: "snapshot", body }]);
   expect(JSON.parse(JSON.stringify(exported)).styleRefs[0].body).toEqual(body);
   expect(state.styleRefs[0].body).toEqual(body);
+});
+
+function audienceStyle(
+  layers: readonly Record<string, unknown>[],
+  extraSources: Record<string, unknown> = {},
+  primarySourceLayer = false,
+) {
+  return {
+    ...stateFrom([{ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } }]),
+    mapSpec: {
+      version: 8,
+      sources: {
+        "hi-parcels": { type: "geojson", data: "/api/old/ogc/features/collections/hi-parcels/items" },
+        ...extraSources,
+      },
+      layers: [
+        {
+          id: "parcels",
+          type: "fill",
+          source: "hi-parcels",
+          ...(primarySourceLayer ? { "source-layer": "old-vector-layer" } : {}),
+        },
+        ...layers,
+      ],
+    },
+  } as CompositionState;
+}
+
+it("drops a denied auxiliary source without tainting its valid composition owner", () => {
+  const state = audienceStyle(
+    [
+      {
+        id: "legacy-labels",
+        type: "symbol",
+        source: "operator-private",
+        metadata: { "honua:compositionLayerId": "parcels" },
+      },
+    ],
+    { "operator-private": { type: "geojson", data: "https://operator.test/private/query" } },
+  );
+  const original = structuredClone(state);
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual(["parcels"]);
+  expect(layerIds(result.mapPackage.mapSpec)).toContain("parcels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("legacy-labels");
+  expect(result.mapPackage.mapSpec.sources["operator-private"]).toBeUndefined();
+  expect(result.unresolved).toEqual([
+    expect.objectContaining({ layerId: "legacy-labels", sourceId: "operator-private" }),
+  ]);
+  expect(state).toEqual(original);
+});
+
+it("drops a GeoJSON source-layer auxiliary even with stale owner metadata", () => {
+  const state = audienceStyle([
+    {
+      id: "legacy-labels",
+      type: "symbol",
+      source: "hi-parcels",
+      "source-layer": "old-vector-layer",
+      metadata: { "honua:compositionLayerId": "parcels" },
+    },
+    {
+      id: "orphan-labels",
+      type: "symbol",
+      source: "hi-parcels",
+      "source-layer": "old-vector-layer",
+      metadata: { "honua:compositionLayerId": "no-such-owner" },
+    },
+    {
+      id: "approved-decoration",
+      type: "circle",
+      source: "hi-parcels",
+      metadata: { "honua:compositionLayerId": "legacy-labels" },
+    },
+  ]);
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual(["parcels"]);
+  expect(layerIds(result.mapPackage.mapSpec)).toContain("parcels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("legacy-labels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("orphan-labels");
+  expect(layerIds(result.mapPackage.mapSpec)).toContain("approved-decoration");
+  expect(result.unresolved.map(({ layerId }) => layerId).sort()).toEqual(["legacy-labels", "orphan-labels"]);
+});
+
+it("still fails the owner closed when its primary GeoJSON render layer is invalid", () => {
+  const state = audienceStyle(
+    [{ id: "parcels-themed", type: "fill", source: "hi-parcels", metadata: { "honua:compositionLayerId": "parcels" } }],
+    {},
+    true,
+  );
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual([]);
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels");
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels-themed");
+  expect(result.unresolved).toEqual([expect.objectContaining({ layerId: "parcels" })]);
+});
+
+it("prunes refused style targets while composing a separately styled approved source", async () => {
+  const base = stateFrom([
+    { name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } },
+    { name: "addLayer", layer: { id: "roads", sourceId: "hi-roads", type: "line" } },
+  ]);
+  const authored = compositionToMapPackage(base, { catalog: CATALOG }).mapPackage.mapSpec;
+  const state: CompositionState = {
+    ...base,
+    layers: base.layers.map((layer) => ({
+      ...layer,
+      styleRef: { kind: "style-ref" as const, styleId: layer.id === "roads" ? "roads-style" : "parcels-style" },
+    })),
+    styleRefs: [
+      { styleId: "parcels-style", body: { parcels: { paint: { "fill-color": "#225588" } } } },
+      {
+        styleId: "roads-style",
+        body: {
+          parcels: { paint: { "fill-color": "#225588" } },
+          roads: { paint: { "line-color": "#ff6600" } },
+        },
+      },
+    ],
+    mapSpec: {
+      ...authored,
+      layers: authored.layers.map((layer) =>
+        layer.id === "parcels" ? { ...layer, "source-layer": "invalid-on-geojson" } : layer,
+      ),
+    } as unknown as Record<string, unknown>,
+  };
+  const original = structuredClone(state);
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual(["roads"]);
+  expect(result.mapPackage.styleRefs).toEqual([
+    { styleId: "roads-style", body: { roads: { paint: { "line-color": "#ff6600" } } } },
+  ]);
+  const composed = await composeStyle(result.mapPackage, result.mapPackage.mapSpec, {});
+  expect(composed.layers.find((layer) => layer.id === "roads")?.paint?.["line-color"]).toBe("#ff6600");
+  expect(state).toEqual(original);
+});
+
+it("retains only approved targets in a live shared-style reference", () => {
+  const base = stateFrom([
+    { name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } },
+    { name: "addLayer", layer: { id: "roads", sourceId: "hi-roads", type: "line" } },
+  ]);
+  const authored = compositionToMapPackage(base, { catalog: CATALOG }).mapPackage.mapSpec;
+  const bindings = [
+    { styleLayerId: "catalog-fill", targetLayerId: "parcels", layerType: "fill" },
+    { styleLayerId: "catalog-line", targetLayerId: "roads", layerType: "line" },
+  ];
+  const state: CompositionState = {
+    ...base,
+    layers: base.layers.map((layer) => ({ ...layer, styleRef: { kind: "style-ref" as const, styleId: "shared" } })),
+    styleRefs: [{ styleId: "shared", layerBindings: bindings }],
+    mapSpec: {
+      ...authored,
+      layers: authored.layers.map((layer) =>
+        layer.id === "parcels" ? { ...layer, "source-layer": "invalid-on-geojson" } : layer,
+      ),
+    } as unknown as Record<string, unknown>,
+  };
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.mapPackage.styleRefs).toEqual([{ styleId: "shared", layerBindings: [bindings[1]] }]);
+  expect(state.styleRefs?.[0]?.layerBindings).toEqual(bindings);
 });

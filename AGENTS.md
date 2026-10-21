@@ -54,15 +54,16 @@ From the repo root; copied from `package.json` / CI. Do not invent variants.
 - **Unit tests:** `npm test` (`vitest run`); watch `npm run test:watch`; a subset with `npx vitest run test/evals`
 - **Review delivery policy:** `node --test scripts/__tests__/second-review-delivery.test.mjs` (also runs in normal CI and review admission)
 - **Browser:** `npm run test:browser:install` once (Playwright chromium), then `npm run test:browser` — builds first, runs every spec except `@blazor`/`@live`
+- **Production Console bundle:** `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`, then `npm run test:console-assets` — builds the production Console assets and exercises their public exports in Chromium; the normal smoke suite runs this with the pinned upstream source and retains the checked bundle.
 - **Blazor host lane:** `npm run test:browser:blazor`, wrapping `npm run build:blazor-host` (= `build:blazor-assets` plus a scoped `dotnet build` of `harness/blazor-host/StudioHost`); needs the .NET SDK, see that dir's README
 - **Live lane:** `npm run test:browser:live` — `@live` journeys against a real deployment; skips unless `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set (the key is injected server-side by the proxy as `X-API-Key`, never bundled)
 - **Self-hosted preview receipt:** `npm run test:self-hosted-preview` — requires the `honua-studio:ci` image and Playwright chromium. Container smoke builds the image, then runs this. No demo credential.
 
 CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`) and `build`.
-`smoke-suite.yml` runs directly on the same events for `container-smoke`, `browser-smoke` and `blazor-host-smoke`
+`smoke-suite.yml` runs directly on the same events for `container-smoke`, `browser-smoke`, `console-assets-smoke` and `blazor-host-smoke`
 (builds the host, then `npx playwright test --grep @blazor`), preserving the existing required check names.
 `smoke-suite.yml` also exposes `workflow_call` so `release.yml`
-runs the identical three smokes — and `needs:` them — before it pushes a versioned image to GHCR; it declares its own
+runs the identical smokes — and `needs:` them — before it pushes a versioned image to GHCR; it declares its own
 `NODE_VERSION`/`DOTNET_VERSION` because a reusable workflow does not inherit the caller's `env`.
 `pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR, and `claude-second-review.yml` the
 second-pass review once the first pass's threads are resolved (both under "Pull Requests").

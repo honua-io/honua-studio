@@ -32,6 +32,11 @@ export interface BoundAuthoritativeStyle {
   readonly mappedBody?: HonuaStyleRefBody;
   readonly layerBindings?: readonly CompositionStyleLayerBinding[];
 }
+/** A renderer needs a binding and opaque identity, never the reader's credential interface. */
+export type AuthoritativeStyleReader = Pick<AuthoritativeStyleProvider, "bind"> & {
+  readonly sessionIdentity: object | undefined;
+};
+
 export interface AuthoritativeStyleProviderOptions {
   readonly baseUrl: string;
   readonly documentUrl: string;
@@ -357,72 +362,85 @@ export class AuthoritativeStyleProvider {
       if (typeof field.name !== "string" || !field.name) throw new Error("Invalid source descriptor field.");
       return field.name;
     });
-    const primaryBindings = mapping?.layerBindings.filter(
-      (binding) => binding.targetLayerId === mapping.primaryTargetId,
-    );
-    if (primaryBindings && primaryBindings.length !== 1)
-      throw new Error("The canonical primary style binding is missing or ambiguous.");
-    const compatible = definition.layers.filter(
-      (layer) =>
-        layer.type === layerTypeForGeometry(source.geometryType) &&
-        (!primaryBindings || layer.id === primaryBindings[0]?.styleLayerId),
-    );
-    if (compatible.length !== 1) throw new Error("Stylesheet must identify exactly one compatible vector layer.");
-    const selected = compatible[0];
-    if (!selected) throw new Error("Compatible stylesheet layer is missing.");
-    const appliedLayers = definition.layers.filter(
-      (layer) =>
-        (layer.id === selected.id || layer.type === "symbol") &&
-        layer.source === selected.source &&
-        layer["source-layer"] === selected["source-layer"],
-    );
-    const mappedBody = mapping
-      ? canonicalStyleRefBody(JSON.parse(definition.inlineBody) as HonuaStyleSpecification, mapping.layerBindings)
-      : undefined;
-    for (const appearance of mappedBody ? Object.values(mappedBody) : appliedLayers) {
-      const properties = Object.fromEntries(
-        (["paint", "layout", "filter"] as const)
-          .filter((key) => appearance[key] !== undefined)
-          .map((key) => [key, appearance[key]]),
-      );
-      for (const field of expressionFields(properties))
-        if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
-    }
-    const override: Record<string, unknown> = {};
-    for (const key of ["paint", "layout", "filter", "minzoom", "maxzoom"] as const)
-      if (selected[key] !== undefined) override[key] = selected[key];
-    const provenance = {
-      "honua:styleId": definition.styleId,
-      "honua:styleVersion": definition.styleVersion,
-      "honua:styleSha256": definition.sha256,
-      "honua:styleServer": definition.serverRoot,
-    };
-    override.metadata = provenance;
-    const previewBody = mappedBody
-      ? Object.fromEntries(
-          Object.entries(mappedBody).map(([id, appearance]) => [
-            id,
-            {
-              ...appearance,
-              metadata: { ...appearance.metadata, ...provenance },
-            },
-          ]),
-        )
-      : undefined;
-    const descriptorBody = canonicalCompositionJson(descriptor);
-    const descriptorSha256 = await styleContentHash(descriptorBody);
+    const binding = await bindAuthoritativeStyleDefinition(definition, source, descriptor, fields, mapping);
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style binding.");
-    return {
-      definition,
-      sourceId: source.id,
-      fields,
-      descriptorSha256,
-      descriptorBody,
-      stylesheetLayerId: String(selected.id),
-      override,
-      ...(previewBody && mapping ? { mappedBody: previewBody, layerBindings: mapping.layerBindings } : {}),
-    };
+    return binding;
   }
+}
+
+/** Shared presentation binding after each transport has independently authorized its real source metadata. */
+export async function bindAuthoritativeStyleDefinition(
+  definition: AuthoritativeStyleDefinition,
+  source: CompositionSourceDescriptor,
+  descriptor: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
+  mapping?: {
+    readonly primaryTargetId: string;
+    readonly layerBindings: readonly CompositionStyleLayerBinding[];
+  },
+): Promise<BoundAuthoritativeStyle> {
+  const primaryBindings = mapping?.layerBindings.filter((binding) => binding.targetLayerId === mapping.primaryTargetId);
+  if (primaryBindings && primaryBindings.length !== 1)
+    throw new Error("The canonical primary style binding is missing or ambiguous.");
+  const compatible = definition.layers.filter(
+    (layer) =>
+      layer.type === layerTypeForGeometry(source.geometryType) &&
+      (!primaryBindings || layer.id === primaryBindings[0]?.styleLayerId),
+  );
+  if (compatible.length !== 1) throw new Error("Stylesheet must identify exactly one compatible vector layer.");
+  const selected = compatible[0];
+  if (!selected) throw new Error("Compatible stylesheet layer is missing.");
+  const appliedLayers = definition.layers.filter(
+    (layer) =>
+      (layer.id === selected.id || layer.type === "symbol") &&
+      layer.source === selected.source &&
+      layer["source-layer"] === selected["source-layer"],
+  );
+  const mappedBody = mapping
+    ? canonicalStyleRefBody(JSON.parse(definition.inlineBody) as HonuaStyleSpecification, mapping.layerBindings)
+    : undefined;
+  for (const appearance of mappedBody ? Object.values(mappedBody) : appliedLayers) {
+    const properties = Object.fromEntries(
+      (["paint", "layout", "filter"] as const)
+        .filter((key) => appearance[key] !== undefined)
+        .map((key) => [key, appearance[key]]),
+    );
+    for (const field of expressionFields(properties))
+      if (!fields.includes(field)) throw new Error(`Stylesheet references missing field "${field}".`);
+  }
+  const override: Record<string, unknown> = {};
+  for (const key of ["paint", "layout", "filter", "minzoom", "maxzoom"] as const)
+    if (selected[key] !== undefined) override[key] = selected[key];
+  const provenance = {
+    "honua:styleId": definition.styleId,
+    "honua:styleVersion": definition.styleVersion,
+    "honua:styleSha256": definition.sha256,
+    "honua:styleServer": definition.serverRoot,
+  };
+  override.metadata = provenance;
+  const previewBody = mappedBody
+    ? Object.fromEntries(
+        Object.entries(mappedBody).map(([id, appearance]) => [
+          id,
+          {
+            ...appearance,
+            metadata: { ...appearance.metadata, ...provenance },
+          },
+        ]),
+      )
+    : undefined;
+  const descriptorBody = canonicalCompositionJson(descriptor);
+  const descriptorSha256 = await styleContentHash(descriptorBody);
+  return {
+    definition,
+    sourceId: source.id,
+    fields,
+    descriptorSha256,
+    descriptorBody,
+    stylesheetLayerId: String(selected.id),
+    override,
+    ...(previewBody && mapping ? { mappedBody: previewBody, layerBindings: mapping.layerBindings } : {}),
+  };
 }
 
 export function expressionFields(value: unknown): readonly string[] {

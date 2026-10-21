@@ -316,3 +316,79 @@ it("reports an incomplete first page from the actual GeoJSON transfer-limit flag
   expect(result.features).toHaveLength(2000);
   expect(onIncomplete).toHaveBeenCalledWith(expect.stringContaining("2000 returned features"));
 });
+
+it("reads fragmented and empty feature chunks as one bounded collection", async () => {
+  const encoded = new TextEncoder().encode(JSON.stringify(collection));
+  const fetchImpl = vi.fn(
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(0));
+            for (let offset = 0; offset < encoded.length; offset += 3)
+              controller.enqueue(encoded.slice(offset, offset + 3));
+            controller.close();
+          },
+        }),
+      ),
+  );
+  const result = await fetchAuthenticatedFeatureCollection(
+    source,
+    { sourceBaseUrl, documentUrl, getAuth: () => undefined, fetchImpl },
+    new AbortController().signal,
+  );
+  expect(result).toEqual(collection);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+});
+
+it.each(["declared", "streamed"])("cancels an oversized %s feature response", async (kind) => {
+  const cancel = vi.fn();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (kind === "streamed") controller.enqueue(new Uint8Array(16 * 1024 * 1024 + 1));
+    },
+    cancel,
+  });
+  const fetchImpl = vi.fn(
+    async () =>
+      new Response(stream, {
+        headers: kind === "declared" ? { "content-length": String(16 * 1024 * 1024 + 1) } : {},
+      }),
+  );
+  await expect(
+    fetchAuthenticatedFeatureCollection(
+      source,
+      { sourceBaseUrl, documentUrl, getAuth: () => undefined, fetchImpl },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("16 MiB");
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+});
+
+it("cancels a pending feature body when the reader aborts", async () => {
+  const cancel = vi.fn();
+  const abort = new AbortController();
+  let reading: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => {
+    reading = resolve;
+  });
+  const fetchImpl = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        pull() {
+          reading?.();
+        },
+        cancel,
+      }),
+    );
+  const pending = fetchAuthenticatedFeatureCollection(
+    source,
+    { sourceBaseUrl, documentUrl, getAuth: () => undefined, fetchImpl },
+    abort.signal,
+  );
+  await started;
+  abort.abort();
+  await expect(pending).rejects.toThrow();
+  expect(cancel).toHaveBeenCalledTimes(1);
+});

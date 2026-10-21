@@ -77,8 +77,8 @@ export function findCompositionSourceDescriptor(
   sourceId: string,
   catalog: readonly CompositionSourceDescriptor[] = [],
 ): CompositionSourceDescriptor | undefined {
-  const exact = catalog.find((entry) => entry.id === sourceId);
-  if (exact) return exact;
+  const exact = catalog.filter((entry) => entry.id === sourceId);
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : undefined;
   const matches = catalog.filter((entry) => entry.locator?.serviceId === sourceId);
   return matches.length === 1 ? matches[0] : undefined;
 }
@@ -100,6 +100,8 @@ export interface CompositionSourceResolution {
 
 export interface CompositionSourceResolutionFailure {
   readonly reason: string;
+  /** A presentation failure affects only this layer; all other failures deny the source by default. */
+  readonly scope?: "layer" | "source";
 }
 
 export interface ResolveCompositionSourceOptions {
@@ -128,6 +130,54 @@ function honuaMetadata(layer: CompositionLayer): Record<string, unknown> | undef
 /** An explicit renderer source cannot inherit provenance from an unrelated catalog locator. */
 export function hasCompositionSourceOverride(layer: CompositionLayer): boolean {
   return honuaMetadata(layer)?.source !== undefined;
+}
+
+/** Inline GeoJSON is self-contained; a URL or tile source still needs the current reader's catalog authority. */
+export function isStaticInlineCompositionSource(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (!isPlainObject(value) || value.type !== "geojson" || !isPlainObject(value.data)) return false;
+  if (
+    ![
+      "FeatureCollection",
+      "Feature",
+      "GeometryCollection",
+      "Point",
+      "MultiPoint",
+      "LineString",
+      "MultiLineString",
+      "Polygon",
+      "MultiPolygon",
+    ].includes(String(value.data.type))
+  )
+    return false;
+  return !["url", "urls", "tiles"].some((key) => key in value);
+}
+
+/** Explicit tile/image assets can use the audience's anonymous map-resource transport. */
+export function isAnonymousMapAssetSource(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (!isPlainObject(value)) return false;
+  if (!["raster", "vector", "raster-dem", "image", "video"].includes(String(value.type))) return false;
+  if (value.url !== undefined && typeof value.url !== "string") return false;
+  if (
+    value.tiles !== undefined &&
+    (!Array.isArray(value.tiles) || !value.tiles.every((url) => typeof url === "string"))
+  )
+    return false;
+  if (value.urls !== undefined && (!Array.isArray(value.urls) || !value.urls.every((url) => typeof url === "string")))
+    return false;
+  const urls = [
+    ...(typeof value.url === "string" ? [value.url] : []),
+    ...(Array.isArray(value.tiles) ? value.tiles : []),
+    ...(Array.isArray(value.urls) ? value.urls : []),
+  ];
+  if (urls.length === 0 || !urls.every((url) => typeof url === "string")) return false;
+  return urls.every((url) => {
+    try {
+      const parsed = new URL(url, "https://audience.invalid/");
+      return /^https?:$/.test(parsed.protocol) && !parsed.username && !parsed.password;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
@@ -183,6 +233,7 @@ export function resolveCompositionSource(
   ) {
     return {
       reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the composition map cannot render yet.`,
+      scope: "layer",
     };
   }
 
@@ -208,12 +259,13 @@ export function resolveCompositionSource(
   if (geometryLayerType === "raster") {
     return {
       reason: `Source "${layer.sourceId}" is raster (${descriptor.geometryType}); the composition map renders vector sources only so far.`,
+      scope: "layer",
     };
   }
 
   const layerType = authoredType ?? geometryLayerType;
   if (!layerType) {
-    return { reason: `Source "${layer.sourceId}" has no supported geometry type in the catalog.` };
+    return { reason: `Source "${layer.sourceId}" has no supported geometry type in the catalog.`, scope: "layer" };
   }
 
   const locator = descriptor.locator;
