@@ -126,7 +126,7 @@ function ownedByCompositionLayer(
   layerId: string,
   knownOwners: ReadonlySet<string>,
 ): boolean {
-  return resolveVisualLayerOwner(renderLayer, knownOwners).owner === layerId;
+  return resolveVisualLayerOwner(renderLayer, knownOwners) === layerId;
 }
 
 // These options affect GeoJSON presentation or feature identity, never its

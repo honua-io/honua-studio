@@ -123,10 +123,20 @@ describe("read-only map canvas", () => {
     canvas.dispose();
   });
 
-  it("counts a primary and its automatic outline once, but retains an outline-only visual", async () => {
+  it("counts canonical visuals with stale metadata once, including an outline-only visual", async () => {
     const harness = mapHarness();
-    const primary = { id: "parcels", type: "fill", source: "service/1" };
-    const outline = { id: "parcels__outline", type: "line", source: "service/1" };
+    const primary = {
+      id: "parcels",
+      type: "fill",
+      source: "service/1",
+      metadata: { "honua:compositionLayerId": "other-owner" },
+    };
+    const outline = {
+      id: "parcels__outline",
+      type: "line",
+      source: "service/1",
+      metadata: { "honua:compositionLayerId": "other-owner" },
+    };
     let visualLayers = [primary, outline];
     harness.map.getStyle = () => ({ layers: visualLayers });
     const query = vi.fn(

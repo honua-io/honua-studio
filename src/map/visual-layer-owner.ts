@@ -4,7 +4,7 @@ import { OUTLINE_LAYER_SUFFIX } from "./constants.js";
 export function resolveVisualLayerOwner(
   layer: { readonly id: string; readonly metadata?: unknown },
   knownOwners: ReadonlySet<string>,
-): { readonly owner: string | undefined; readonly conflictingMetadata: boolean } {
+): string | undefined {
   const metadata = layer.metadata;
   const metadataOwner =
     metadata && typeof metadata === "object"
@@ -18,11 +18,7 @@ export function resolveVisualLayerOwner(
     : outlineOwner && knownOwners.has(outlineOwner)
       ? outlineOwner
       : undefined;
-  return {
-    owner:
-      canonicalOwner ??
-      (typeof metadataOwner === "string" && knownOwners.has(metadataOwner) ? metadataOwner : undefined),
-    conflictingMetadata:
-      canonicalOwner !== undefined && typeof metadataOwner === "string" && metadataOwner !== canonicalOwner,
-  };
+  return (
+    canonicalOwner ?? (typeof metadataOwner === "string" && knownOwners.has(metadataOwner) ? metadataOwner : undefined)
+  );
 }
