@@ -88,7 +88,7 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       throw new Error("Current-reader map transport is unavailable.");
     },
   };
-  const tokenlessReaders = new WeakMap<object, NonNullable<ReturnType<NonNullable<typeof options.getAuth>>>>();
+  const readerAdapters = new WeakMap<object, Pick<AuthSession, "getAccessToken" | "fetchRequest">>();
   const renderer = new CompositionMapView({
     container: options.container,
     controller: options.controller,
@@ -99,16 +99,16 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
     getAuth: () => {
       const reader = options.getAuth?.();
       if (typeof reader?.fetchRequest !== "function") return unavailableAuth;
-      if (typeof reader.getAccessToken === "function") return reader;
-      let tokenless = tokenlessReaders.get(reader);
-      if (!tokenless) {
-        tokenless = {
-          getAccessToken: async () => undefined,
+      let adapter = readerAdapters.get(reader);
+      if (!adapter) {
+        adapter = {
+          getAccessToken:
+            typeof reader.getAccessToken === "function" ? reader.getAccessToken.bind(reader) : async () => undefined,
           fetchRequest: reader.fetchRequest.bind(reader),
         };
-        tokenlessReaders.set(reader, tokenless);
+        readerAdapters.set(reader, adapter);
       }
-      return tokenless;
+      return adapter;
     },
     sourceAuthBaseUrl: options.sourceAuthBaseUrl,
     sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
