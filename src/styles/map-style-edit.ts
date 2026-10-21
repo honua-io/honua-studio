@@ -89,6 +89,13 @@ export interface MapStyleField {
   readonly type: string;
 }
 
+/** Numeric source types used by both thematic entry and expression validation. */
+export function isNumericMapStyleField(field: MapStyleField): boolean {
+  return (
+    /int|number|decimal|double|float|numeric|single/i.test(field.type) || /^(?:esriFieldType)?OID$/i.test(field.type)
+  );
+}
+
 /** New render layers require an explicit/unique owner from the actual composition. */
 export function bindNewRenderLayerOwners(
   anchor: MapStyleDocument,
@@ -127,7 +134,7 @@ export function thematicMapStyle(
   let expression: unknown[];
   if (mode === "breaks") {
     if (
-      !/int|number|decimal|double|float|numeric|single/i.test(field.type) ||
+      !isNumericMapStyleField(field) ||
       values.some(
         (value, index) =>
           typeof value !== "number" || !Number.isFinite(value) || (index > 0 && values[index - 1] >= value),

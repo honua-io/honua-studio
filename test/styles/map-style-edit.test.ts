@@ -57,6 +57,21 @@ describe("map-local authorized style editing", () => {
         ["#ff0000", "#000000"],
       ),
     ).toThrow("numeric field");
+    const oid = thematicMapStyle(
+      style,
+      { id: "roads", sourceId: "roads" },
+      { name: "OBJECTID", type: "esriFieldTypeOID" },
+      "categories",
+      [1],
+      ["#ff0000", "#000000"],
+    );
+    expect((oid.layers as any[])[0].paint["line-color"]).toEqual([
+      "match",
+      ["get", "OBJECTID"],
+      1,
+      "#ff0000",
+      "#000000",
+    ]);
   });
 
   it("accepts thematic paint and labels on an existing source", () => {
