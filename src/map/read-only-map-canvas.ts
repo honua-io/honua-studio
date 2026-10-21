@@ -1,3 +1,4 @@
+import type { AuthSession } from "../auth/types.js";
 import { CompositionController } from "../composition/controller.js";
 import type { CompositionTarget } from "../composition/model.js";
 import { readCompositionBody } from "../lifecycle/composition-draft-store.js";
@@ -7,7 +8,6 @@ import {
   type CompositionMapViewOptions,
   ownedVisualLayerIds,
 } from "./composition-map-view.js";
-import { OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import { type CompositionMapProjection, compositionToMapPackage } from "./map-package-projection.js";
 import {
   findCompositionSourceDescriptor,
@@ -23,15 +23,13 @@ import {
 export interface ReadOnlyMapCanvasOptions
   extends Pick<
     CompositionMapViewOptions,
-    | "container"
-    | "projection"
-    | "getAuth"
-    | "sourceAuthBaseUrl"
-    | "sourceCatalogBaseUrl"
-    | "mapFactory"
-    | "styleProvider"
+    "container" | "projection" | "sourceAuthBaseUrl" | "sourceCatalogBaseUrl" | "mapFactory" | "styleProvider"
   > {
   readonly body: unknown;
+  /** Anonymous hosts may supply only their current-reader GET transport. */
+  readonly getAuth?: () =>
+    | (Pick<AuthSession, "fetchRequest"> & Partial<Pick<AuthSession, "getAccessToken">>)
+    | undefined;
   readonly onChange?: (canvas: ReadOnlyMapCanvas) => void;
 }
 
@@ -90,6 +88,7 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       throw new Error("Current-reader map transport is unavailable.");
     },
   };
+  const readerAdapters = new WeakMap<object, Pick<AuthSession, "getAccessToken" | "fetchRequest">>();
   const renderer = new CompositionMapView({
     container: options.container,
     controller: options.controller,
@@ -99,7 +98,17 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
     // Missing readers refuse the read instead of falling back to global fetch.
     getAuth: () => {
       const reader = options.getAuth?.();
-      return reader?.fetchRequest ? reader : unavailableAuth;
+      if (typeof reader?.fetchRequest !== "function") return unavailableAuth;
+      let adapter = readerAdapters.get(reader);
+      if (!adapter) {
+        adapter = {
+          getAccessToken:
+            typeof reader.getAccessToken === "function" ? reader.getAccessToken.bind(reader) : async () => undefined,
+          fetchRequest: reader.fetchRequest.bind(reader),
+        };
+        readerAdapters.set(reader, adapter);
+      }
+      return adapter;
     },
     sourceAuthBaseUrl: options.sourceAuthBaseUrl,
     sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
@@ -130,16 +139,53 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       if (!projection?.renderedLayerIds.length || !map?.queryRenderedFeatures) return 0;
       const styleLayers = map.getStyle?.()?.layers ?? projection.mapPackage.mapSpec.layers;
       const visualOwners = ownedVisualLayerIds(styleLayers ?? [], projection.renderedLayerIds);
-      const layers = [...visualOwners]
-        .filter(([id, owner]) => {
-          if (id !== `${owner}${OUTLINE_LAYER_SUFFIX}`) return true;
-          // The automatic outline paints the same features as another owned visual.
-          // Keep it when it is the owner's only approved render layer.
-          return ![...visualOwners].some(([otherId, otherOwner]) => otherId !== id && otherOwner === owner);
-        })
-        .map(([id]) => id);
+      const layers = [...visualOwners.keys()];
       if (!layers.length) return 0;
-      return map.queryRenderedFeatures(undefined, { layers }).length;
+      const features = map.queryRenderedFeatures(undefined, { layers });
+      const seenIds = new Set<string>();
+      const shapeCounts = new Map<string, { perVisual: Map<string, number>; maximum: number }>();
+      let count = 0;
+      for (const feature of features) {
+        if (!feature || typeof feature !== "object") {
+          count++;
+          continue;
+        }
+        const hit = feature as Record<string, unknown>;
+        const layer = hit.layer;
+        const layerId = layer && typeof layer === "object" ? (layer as Record<string, unknown>).id : undefined;
+        const owner = typeof layerId === "string" ? visualOwners.get(layerId) : undefined;
+        if (!owner || typeof layerId !== "string") {
+          count++;
+          continue;
+        }
+        const source = typeof hit.source === "string" ? hit.source : "";
+        const sourceLayer = typeof hit.sourceLayer === "string" ? hit.sourceLayer : "";
+        if (typeof hit.id === "string" || typeof hit.id === "number") {
+          const identity = JSON.stringify([owner, source, sourceLayer, hit.id]);
+          if (!seenIds.has(identity)) {
+            seenIds.add(identity);
+            count++;
+          }
+        } else if (hit.geometry !== undefined && hit.properties !== undefined) {
+          // Identical idless records within one visual may be distinct features.
+          // Cross-visual copies count only the largest multiplicity observed.
+          const identity = JSON.stringify([owner, source, sourceLayer, hit.geometry, hit.properties]);
+          let shape = shapeCounts.get(identity);
+          if (!shape) {
+            shape = { perVisual: new Map(), maximum: 0 };
+            shapeCounts.set(identity, shape);
+          }
+          const visualCount = (shape.perVisual.get(layerId) ?? 0) + 1;
+          shape.perVisual.set(layerId, visualCount);
+          if (visualCount > shape.maximum) {
+            shape.maximum = visualCount;
+            count++;
+          }
+        } else {
+          count++;
+        }
+      }
+      return count;
     },
     settled: () => renderer.settled(),
     resize: () => renderer.resize(),

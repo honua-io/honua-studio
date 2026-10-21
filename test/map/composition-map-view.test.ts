@@ -114,11 +114,11 @@ async function startView(overrides: Partial<CompositionMapViewOptions> = {}) {
 }
 
 describe("CompositionMapView (honua-studio#23)", () => {
-  it("keeps outline ownership and refuses conflicting primary-layer metadata", () => {
+  it("keeps canonical primary and outline ownership despite conflicting metadata", () => {
     expect([
       ...ownedVisualLayerIds(
         [
-          { id: "hi-parcels__outline" },
+          { id: "hi-parcels__outline", metadata: { "honua:compositionLayerId": "hi-roads" } },
           { id: "hi-parcels", metadata: { "honua:compositionLayerId": "hi-roads" } },
           { id: "styled-road", metadata: { "honua:compositionLayerId": "hi-roads" } },
         ],
@@ -126,6 +126,7 @@ describe("CompositionMapView (honua-studio#23)", () => {
       ),
     ]).toEqual([
       ["hi-parcels__outline", "hi-parcels"],
+      ["hi-parcels", "hi-parcels"],
       ["styled-road", "hi-roads"],
     ]);
   });

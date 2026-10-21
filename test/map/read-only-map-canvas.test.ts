@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { readCompositionBody } from "../../src/lifecycle/composition-draft-store.js";
+import { fetchAuthenticatedFeatureCollection } from "../../src/map/authenticated-source-protocol.js";
 import type {
   CompositionMapFactory,
   CompositionMapFactoryOptions,
@@ -122,13 +123,25 @@ describe("read-only map canvas", () => {
     canvas.dispose();
   });
 
-  it("counts a primary and its automatic outline once, but retains an outline-only visual", async () => {
+  it("counts canonical visuals with stale metadata once, including an outline-only visual", async () => {
     const harness = mapHarness();
-    const primary = { id: "parcels", type: "fill", source: "service/1" };
-    const outline = { id: "parcels__outline", type: "line", source: "service/1" };
+    const primary = {
+      id: "parcels",
+      type: "fill",
+      source: "service/1",
+      metadata: { "honua:compositionLayerId": "other-owner" },
+    };
+    const outline = {
+      id: "parcels__outline",
+      type: "line",
+      source: "service/1",
+      metadata: { "honua:compositionLayerId": "other-owner" },
+    };
     let visualLayers = [primary, outline];
     harness.map.getStyle = () => ({ layers: visualLayers });
-    const query = vi.fn((_point, options) => options?.layers?.map((id: string) => ({ id })) ?? []);
+    const query = vi.fn(
+      (_point, options) => options?.layers?.map((id: string) => ({ id: 1, source: "service/1", layer: { id } })) ?? [],
+    );
     harness.map.queryRenderedFeatures = query;
     const canvas = await createReadOnlyMapCanvas({
       container,
@@ -144,10 +157,68 @@ describe("read-only map canvas", () => {
       mapFactory: harness.factory,
     });
     expect(canvas.renderedFeatureCount).toBe(1);
-    expect(query).toHaveBeenLastCalledWith(undefined, { layers: ["parcels"] });
+    expect(query).toHaveBeenLastCalledWith(undefined, { layers: ["parcels", "parcels__outline"] });
     visualLayers = [outline];
     expect(canvas.renderedFeatureCount).toBe(1);
     expect(query).toHaveBeenLastCalledWith(undefined, { layers: ["parcels__outline"] });
+    canvas.dispose();
+  });
+
+  it("deduplicates across thematic and label visuals while retaining same-visual idless multiplicity", async () => {
+    const harness = mapHarness();
+    const primary = { id: "parcels", type: "fill", source: "service/1" };
+    const label = {
+      id: "parcels-labels",
+      type: "symbol",
+      source: "service/1",
+      metadata: { "honua:compositionLayerId": "parcels" },
+    };
+    harness.map.getStyle = () => ({ layers: [primary, label] });
+    const query = vi.fn(() => [
+      { id: 1, source: "service/1", layer: { id: "parcels" } },
+      { id: 1, source: "service/1", layer: { id: "parcels-labels" } },
+      { id: 2, source: "service/1", layer: { id: "parcels-labels" } },
+      {
+        source: "service/1",
+        layer: { id: "parcels" },
+        geometry: { type: "Point", coordinates: [1, 2] },
+        properties: { name: "idless" },
+      },
+      {
+        source: "service/1",
+        layer: { id: "parcels" },
+        geometry: { type: "Point", coordinates: [1, 2] },
+        properties: { name: "idless" },
+      },
+      {
+        source: "service/1",
+        layer: { id: "parcels-labels" },
+        geometry: { type: "Point", coordinates: [1, 2] },
+        properties: { name: "idless" },
+      },
+      {
+        source: "service/1",
+        layer: { id: "parcels-labels" },
+        geometry: { type: "Point", coordinates: [1, 2] },
+        properties: { name: "idless" },
+      },
+    ]);
+    harness.map.queryRenderedFeatures = query;
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: {
+        ...body(),
+        mapSpec: {
+          version: 8,
+          sources: { "service/1": { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+          layers: [primary, label],
+        },
+      },
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    expect(canvas.renderedFeatureCount).toBe(4);
+    expect(query).toHaveBeenCalledWith(undefined, { layers: ["parcels", "parcels-labels"] });
     canvas.dispose();
   });
 
@@ -534,6 +605,33 @@ describe("read-only map canvas", () => {
       "Current-reader map transport is unavailable",
     );
     expect(canvas).not.toHaveProperty("controller");
+    canvas.dispose();
+  });
+
+  it("uses a stable tokenless adapter for a map-only host's current-reader fetchRequest", async () => {
+    const harness = mapHarness();
+    const fetchRequest = vi.fn(async () => Response.json({ type: "FeatureCollection", features: [] }));
+    const hostReader = { fetchRequest };
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: body(),
+      projection: { catalog, baseUrl: "/api" },
+      getAuth: () => hostReader,
+      mapFactory: harness.factory,
+    });
+    const getAuth = harness.captured[0].getAuth;
+    expect(getAuth?.()).toBe(getAuth?.());
+    const result = await fetchAuthenticatedFeatureCollection(
+      "https://viewer.test/rest/services/parcels/FeatureServer/1/query?f=geojson",
+      { sourceBaseUrl: "https://viewer.test/api", documentUrl: "https://viewer.test/", getAuth: getAuth! },
+      new AbortController().signal,
+    );
+    expect(result).toEqual({ type: "FeatureCollection", features: [] });
+    expect(fetchRequest).toHaveBeenCalledOnce();
+    expect(fetchRequest).toHaveBeenCalledWith(
+      "https://viewer.test/rest/services/parcels/FeatureServer/1/query?f=geojson",
+      expect.objectContaining({ credentials: "omit", headers: {} }),
+    );
     canvas.dispose();
   });
 
