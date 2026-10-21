@@ -36,11 +36,12 @@ export interface MapStyleEditorOptions {
 }
 
 function explicitThematicValues(input: string, numeric: boolean): readonly (string | number)[] {
-  const lines = input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = input.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length < 1 || lines.length > 5)
     throw new Error("Provide one to five explicit categories or numeric breaks.");
   if (!numeric) return lines;
-  return lines.map((line) => {
+  return lines.map((raw) => {
+    const line = raw.trim();
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(line) || !Number.isFinite(Number(line)))
       throw new Error("Enter one finite numeric value per line.");
     return Number(line);
@@ -317,6 +318,7 @@ export class MapStyleEditor {
     apply.textContent = "Preview thematic colors";
     apply.disabled = true;
     let fields: readonly MapStyleField[] = [];
+    let chosenFieldName: string | undefined;
     const load = async () => {
       if (this.#disposed) return;
       const current = ++this.#fieldLoadEpoch;
@@ -332,7 +334,14 @@ export class MapStyleEditor {
         if (this.#disposed || current !== this.#fieldLoadEpoch || owner.value !== selected.id) return;
         fields = observed;
         for (const actual of observed) field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
-        apply.disabled = !observed.length;
+        if (chosenFieldName !== undefined) {
+          if (observed.some((actual) => actual.name === chosenFieldName)) field.value = chosenFieldName;
+          else {
+            field.selectedIndex = -1;
+            this.#status.textContent = "The selected source field is unavailable. Choose a current described field.";
+          }
+        } else if (observed.length) chosenFieldName = field.value;
+        apply.disabled = !fields.some((actual) => actual.name === field.value);
         this.#frame.contentWindow?.postMessage(
           { type: "honua:style-fields", channel: this.#channel, sourceId: selected.sourceId, fields: observed },
           "*",
@@ -342,7 +351,14 @@ export class MapStyleEditor {
       }
     };
     this.#refreshFields = load;
-    owner.addEventListener("change", () => void load());
+    owner.addEventListener("change", () => {
+      chosenFieldName = undefined;
+      void load();
+    });
+    field.addEventListener("change", () => {
+      chosenFieldName = field.value || undefined;
+      apply.disabled = !fields.some((actual) => actual.name === field.value);
+    });
     values.addEventListener("input", () => {
       this.#setDirty(true);
       this.#invalid = "Apply or discard the pending thematic values.";

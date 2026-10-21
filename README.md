@@ -44,7 +44,20 @@ import → query → map journey.
   [Honua Console](https://github.com/honua-io/honua-console)'s `/studio`
   surface is honua-io/honua-console#324, scheduled for 2026.2.
 
-The current visual styling follow-up is under qualification. It adds a pinned credential-free Maputnik frame over the same authorized map draft, explicit map-local versus shared-catalog save callbacks, host-only navigation/chat, and SDK-paged feature preview. These source changes do not yet establish browser label rendering, shared-symbol publication, actual large-layer coverage, or a new production asset receipt. Font/sprite resource transport and the full public artifact journey remain unfinished.
+The current visual styling follow-up is under qualification. It adds a pinned
+credential-free Maputnik frame over the same authorized map draft, explicit
+map-local versus shared-catalog save callbacks, host-only navigation/chat,
+and SDK-paged feature preview. When the host supplies authorized layers and
+`getFields`, the editor offers one-to-five explicit thematic categories or
+numeric breaks, entered one per line over an actual described field. It
+preserves category text as entered and validates numeric values before preview.
+The host may call `refreshThematicFields()` after its authorized field context
+changes; an unavailable selected field requires a new explicit choice, and
+refresh does not discard unsaved style edits. The advanced Maputnik editor
+remains available. These source changes do not yet establish browser label
+rendering, shared-symbol publication, actual large-layer coverage, or a new
+production asset receipt. Font/sprite resource transport and the full public
+artifact journey remain unfinished.
 
 ## Status
 

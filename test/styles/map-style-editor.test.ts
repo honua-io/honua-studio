@@ -167,7 +167,7 @@ it("previews typed categories and numeric breaks over actual fields without JSON
   const apply = [...container.querySelectorAll("button")].find(
     (button) => button.textContent === "Preview thematic colors",
   )!;
-  values.value = "Residential\nCommercial";
+  values.value = " Residential \nCommercial";
   values.dispatchEvent(new Event("input"));
   expect(editor.dirty).toBe(true);
   expect(onDirty).toHaveBeenCalledWith(true);
@@ -177,13 +177,14 @@ it("previews typed categories and numeric breaks over actual fields without JSON
       layers: [
         expect.objectContaining({
           paint: {
-            "line-color": ["match", ["get", "class"], "Residential", "#eff3ff", "Commercial", "#c6dbef", "#9ecae1"],
+            "line-color": ["match", ["get", "class"], " Residential ", "#eff3ff", "Commercial", "#c6dbef", "#9ecae1"],
           },
         }),
       ],
     }),
   );
   fields.value = "speed";
+  fields.dispatchEvent(new Event("change"));
   mode.value = "breaks";
   mode.dispatchEvent(new Event("change"));
   values.value = "10\n25";
@@ -204,6 +205,50 @@ it("previews typed categories and numeric breaks over actual fields without JSON
   expect(editor.dirty).toBe(true);
   await editor.discard();
   expect(editor.dirty).toBe(false);
+});
+
+it("keeps the chosen actual field on refresh and refuses a removed field until explicit reselection", async () => {
+  let currentFields = [
+    { name: "class", type: "string" },
+    { name: "speed", type: "number" },
+  ];
+  const { container, editor, onPreview } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    { layers: [{ id: "roads", sourceId: "roads" }], getFields: async () => currentFields },
+  );
+  await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  )!;
+  const apply = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview thematic colors",
+  )!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
+  mode.value = "breaks";
+  values.value = "10\n20";
+  currentFields = [
+    { name: "status", type: "string" },
+    { name: "speed", type: "number" },
+  ];
+  await editor.refreshThematicFields();
+  expect(field.value).toBe("speed");
+  apply.click();
+  expect(onPreview).toHaveBeenCalledOnce();
+  currentFields = [{ name: "status", type: "string" }];
+  await editor.refreshThematicFields();
+  expect(field.value).toBe("");
+  expect(apply.disabled).toBe(true);
+  expect(container.textContent).toContain("selected source field is unavailable");
+  expect(onPreview).toHaveBeenCalledOnce();
+  field.value = "status";
+  field.dispatchEvent(new Event("change"));
+  expect(apply.disabled).toBe(false);
+  apply.click();
+  expect(container.textContent).toContain("actual numeric field");
+  expect(onPreview).toHaveBeenCalledOnce();
 });
 
 it("refreshes actual fields without replacing advanced dirty Maputnik edits", async () => {
