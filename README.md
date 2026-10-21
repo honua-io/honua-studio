@@ -16,6 +16,9 @@ Console currently depends on the qualified editor bundle from this repository.
 The Console bundle also exposes the canonical SDK clients for dataset
 tasks, uploads, submission status, and bounded file hashing. Its browser packaging
 check is `npm run test:console-assets`; see [the public SDK setup](docs/embed-session.md).
+The normal smoke suite builds the pinned Maputnik integration, runs these
+production bundle checks in Chromium, and retains the checked assets with their
+provenance. Console integration uses the bundle from the accepted revision.
 These exports do not establish deployment readiness or a completed large-file
 import → query → map journey.
 
