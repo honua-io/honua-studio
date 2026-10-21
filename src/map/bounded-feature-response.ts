@@ -13,7 +13,7 @@ export async function readBoundedFeatureBody(
   }
   if (!response.body) {
     signal.throwIfAborted();
-    if (!isCurrent()) throw new Error("The Studio source authority changed.");
+    if (!isCurrent()) throw new Error("The Studio session changed during the source request.");
     return new ArrayBuffer(0);
   }
   const reader = response.body.getReader();
@@ -26,10 +26,10 @@ export async function readBoundedFeatureBody(
   try {
     while (true) {
       signal.throwIfAborted();
-      if (!isCurrent()) throw new Error("The Studio source authority changed.");
+      if (!isCurrent()) throw new Error("The Studio session changed during the source request.");
       const { done, value } = await reader.read();
       signal.throwIfAborted();
-      if (!isCurrent()) throw new Error("The Studio source authority changed.");
+      if (!isCurrent()) throw new Error("The Studio session changed during the source request.");
       if (done) break;
       const nextTotal = total + value.byteLength;
       if (nextTotal > FEATURE_RESPONSE_BYTES_LIMIT) throw new Error("Feature response exceeds the 16 MiB size limit.");
@@ -51,7 +51,7 @@ export async function readBoundedFeatureBody(
     reader.releaseLock();
   }
   signal.throwIfAborted();
-  if (!isCurrent()) throw new Error("The Studio source authority changed.");
+  if (!isCurrent()) throw new Error("The Studio session changed during the source request.");
   return bytes.buffer.slice(0, total);
 }
 
