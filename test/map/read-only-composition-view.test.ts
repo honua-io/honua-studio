@@ -501,10 +501,15 @@ describe("read-only published composition view", () => {
       await view.settled();
       expect(view.status).toBe("ready");
       expect(host.widgets.querySelectorAll("honua-studio-widget-deck")).toHaveLength(1);
-      expect(deck(host.widgets)?.composition?.state.widgets[0]?.id).toBe("newer");
+      expect(
+        host.widgets.querySelector<HonuaStudioWidgetDeckElement>("honua-studio-widget-deck")?.composition?.state
+          .widgets[0]?.id,
+      ).toBe("newer");
       expect(map.removed[0]).toHaveBeenCalledTimes(1);
       expect(map.removed[1]).not.toHaveBeenCalled();
-      expect(map.removed[2]).toHaveBeenCalledTimes(1);
+      // Disposing the superseded canvas before its async startup prevents a
+      // third MapLibre instance from being constructed at all.
+      expect(map.maps).toHaveLength(2);
     } finally {
       createElement.mockRestore();
       view.dispose();
