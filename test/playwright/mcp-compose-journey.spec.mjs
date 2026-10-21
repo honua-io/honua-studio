@@ -18,9 +18,9 @@ import { expect, test } from "@playwright/test";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 
-test.describe("compose fixture journey through the real MCP client (standalone shell)", () => {
-  test.use({ trace: "retain-on-failure" });
+test.use({ trace: "retain-on-failure" });
 
+test.describe("compose fixture journey through the real MCP client (standalone shell)", () => {
   test("add_layer/add_chart tool-call intents mutate a REAL server-side Studio draft via honua_studio_* MCP tools", async ({
     page,
   }) => {

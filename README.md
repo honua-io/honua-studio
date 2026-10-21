@@ -74,8 +74,9 @@ workspace validation is recorded in the commands table below. On 2026-10-21,
 PR #122 head `07aab66` passed 1,547 unit tests across 128 files; its browser
 smoke passed 30 of 31 tests, with the TOC journey failing during an awaited
 browser evaluation. Head `69acc10` passed the same 1,547 unit tests; its browser
-and Blazor smokes stopped at Playwright installation because the download host
-did not resolve, before either could exercise the retained TOC failure trace.
+and Blazor smokes stopped before executing tests because the new trace option
+was placed inside a Playwright `describe` block, which Playwright rejects. A
+subsequent README-only head `1ff955e` retained that test-discovery failure.
 The TOC navigation cause remains unverified.
 
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
