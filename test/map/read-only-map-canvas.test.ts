@@ -482,7 +482,7 @@ describe("read-only map canvas", () => {
     expect(counts).toEqual([0, 1, 0]);
   });
 
-  it("uses the active renderer and bounded anonymous transport without a synthetic editor session", async () => {
+  it("keeps editor state private and refuses feature reads without a current reader", async () => {
     const harness = mapHarness();
     const canvas = await createReadOnlyMapCanvas({
       container,
@@ -495,7 +495,12 @@ describe("read-only map canvas", () => {
     expect(canvas.projection?.renderedLayerIds).toContain("parcels");
     expect(canvas.renderedFeatureCount).toBe(1);
     expect(harness.captured[0].getAuth).toBeTypeOf("function");
-    expect(harness.captured[0].getAuth?.()).toBeUndefined();
+    const reader = harness.captured[0].getAuth?.();
+    expect(reader).toBe(harness.captured[0].getAuth?.());
+    expect(await reader?.getAccessToken()).toBeUndefined();
+    await expect(reader?.fetchRequest?.("/rest/services/parcels/FeatureServer/1/query?f=geojson")).rejects.toThrow(
+      "Current-reader map transport is unavailable",
+    );
     expect(canvas).not.toHaveProperty("controller");
     canvas.dispose();
   });
