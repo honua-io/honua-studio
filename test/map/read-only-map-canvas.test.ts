@@ -154,7 +154,7 @@ describe("read-only map canvas", () => {
     canvas.dispose();
   });
 
-  it("deduplicates a feature across thematic and label visuals while retaining disjoint hits", async () => {
+  it("deduplicates across thematic and label visuals while retaining same-visual idless multiplicity", async () => {
     const harness = mapHarness();
     const primary = { id: "parcels", type: "fill", source: "service/1" };
     const label = {
@@ -171,6 +171,18 @@ describe("read-only map canvas", () => {
       {
         source: "service/1",
         layer: { id: "parcels" },
+        geometry: { type: "Point", coordinates: [1, 2] },
+        properties: { name: "idless" },
+      },
+      {
+        source: "service/1",
+        layer: { id: "parcels" },
+        geometry: { type: "Point", coordinates: [1, 2] },
+        properties: { name: "idless" },
+      },
+      {
+        source: "service/1",
+        layer: { id: "parcels-labels" },
         geometry: { type: "Point", coordinates: [1, 2] },
         properties: { name: "idless" },
       },
@@ -195,7 +207,7 @@ describe("read-only map canvas", () => {
       projection: { catalog },
       mapFactory: harness.factory,
     });
-    expect(canvas.renderedFeatureCount).toBe(3);
+    expect(canvas.renderedFeatureCount).toBe(4);
     expect(query).toHaveBeenCalledWith(undefined, { layers: ["parcels", "parcels-labels"] });
     canvas.dispose();
   });

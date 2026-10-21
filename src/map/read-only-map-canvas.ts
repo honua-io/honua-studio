@@ -142,7 +142,8 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       const layers = [...visualOwners.keys()];
       if (!layers.length) return 0;
       const features = map.queryRenderedFeatures(undefined, { layers });
-      const seen = new Set<string>();
+      const seenIds = new Set<string>();
+      const shapeCounts = new Map<string, { perVisual: Map<string, number>; maximum: number }>();
       let count = 0;
       for (const feature of features) {
         if (!feature || typeof feature !== "object") {
@@ -153,21 +154,35 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
         const layer = hit.layer;
         const layerId = layer && typeof layer === "object" ? (layer as Record<string, unknown>).id : undefined;
         const owner = typeof layerId === "string" ? visualOwners.get(layerId) : undefined;
-        if (!owner) {
+        if (!owner || typeof layerId !== "string") {
           count++;
           continue;
         }
         const source = typeof hit.source === "string" ? hit.source : "";
         const sourceLayer = typeof hit.sourceLayer === "string" ? hit.sourceLayer : "";
-        const identity =
-          typeof hit.id === "string" || typeof hit.id === "number"
-            ? JSON.stringify([owner, source, sourceLayer, "id", hit.id])
-            : hit.geometry !== undefined && hit.properties !== undefined
-              ? JSON.stringify([owner, source, sourceLayer, "shape", hit.geometry, hit.properties])
-              : undefined;
-        if (identity === undefined || !seen.has(identity)) {
+        if (typeof hit.id === "string" || typeof hit.id === "number") {
+          const identity = JSON.stringify([owner, source, sourceLayer, hit.id]);
+          if (!seenIds.has(identity)) {
+            seenIds.add(identity);
+            count++;
+          }
+        } else if (hit.geometry !== undefined && hit.properties !== undefined) {
+          // Identical idless records within one visual may be distinct features.
+          // Cross-visual copies count only the largest multiplicity observed.
+          const identity = JSON.stringify([owner, source, sourceLayer, hit.geometry, hit.properties]);
+          let shape = shapeCounts.get(identity);
+          if (!shape) {
+            shape = { perVisual: new Map(), maximum: 0 };
+            shapeCounts.set(identity, shape);
+          }
+          const visualCount = (shape.perVisual.get(layerId) ?? 0) + 1;
+          shape.perVisual.set(layerId, visualCount);
+          if (visualCount > shape.maximum) {
+            shape.maximum = visualCount;
+            count++;
+          }
+        } else {
           count++;
-          if (identity !== undefined) seen.add(identity);
         }
       }
       return count;
