@@ -633,7 +633,8 @@ The host must read the active published version and resolve its sources under
 the audience's current authority. This renderer does not authorize publication
 or grant access to data. Catalog-backed feature reads require `getAuth` to
 return the host's current-reader `fetchRequest`, even for an anonymous reader
-with no token; those requests omit browser credentials. An inline or static map
+with no token or `getAccessToken` method. Keep that reader object stable for
+one viewer and target; those requests omit browser credentials. An inline or static map
 may omit `getAuth`. Catalog reads never fall back to a global browser fetch.
 Map previews limit each feature response or service page to 16 MiB before JSON
 parsing; oversized responses report a source error and cancel the body.
