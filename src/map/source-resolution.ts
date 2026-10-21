@@ -100,6 +100,8 @@ export interface CompositionSourceResolution {
 
 export interface CompositionSourceResolutionFailure {
   readonly reason: string;
+  /** A presentation failure affects only this layer; all other failures deny the source by default. */
+  readonly scope?: "layer" | "source";
 }
 
 export interface ResolveCompositionSourceOptions {
@@ -231,6 +233,7 @@ export function resolveCompositionSource(
   ) {
     return {
       reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the composition map cannot render yet.`,
+      scope: "layer",
     };
   }
 
@@ -256,12 +259,13 @@ export function resolveCompositionSource(
   if (geometryLayerType === "raster") {
     return {
       reason: `Source "${layer.sourceId}" is raster (${descriptor.geometryType}); the composition map renders vector sources only so far.`,
+      scope: "layer",
     };
   }
 
   const layerType = authoredType ?? geometryLayerType;
   if (!layerType) {
-    return { reason: `Source "${layer.sourceId}" has no supported geometry type in the catalog.` };
+    return { reason: `Source "${layer.sourceId}" has no supported geometry type in the catalog.`, scope: "layer" };
   }
 
   const locator = descriptor.locator;

@@ -20,6 +20,7 @@ import {
 
 const WIDGET_TAG = "honua-studio-widget-deck";
 const WIDGET_FEATURE_LIMIT = 500;
+const WIDGET_RESPONSE_BYTES_LIMIT = 16 * 1024 * 1024;
 
 export interface ReadOnlyCompositionDocument {
   readonly body: unknown;
@@ -62,6 +63,60 @@ function registerWidgetDeck(container: HTMLElement): void {
   if (!registry.get(WIDGET_TAG)) registry.define(WIDGET_TAG, HonuaStudioWidgetDeckElement);
 }
 
+async function boundedWidgetResponse(
+  response: Response,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+): Promise<Response> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength !== null && Number(declaredLength) > WIDGET_RESPONSE_BYTES_LIMIT) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Widget source exceeds the response size limit.");
+  }
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  let bytes = new Uint8Array(0);
+  let total = 0;
+  const abort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      if (!isCurrent()) throw new Error("The viewer authority changed during a widget read.");
+      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      if (!isCurrent()) throw new Error("The viewer authority changed during a widget read.");
+      if (done) break;
+      const nextTotal = total + value.byteLength;
+      if (nextTotal > WIDGET_RESPONSE_BYTES_LIMIT) throw new Error("Widget source exceeds the response size limit.");
+      if (nextTotal > bytes.byteLength) {
+        let capacity = Math.max(bytes.byteLength, 1024);
+        while (capacity < nextTotal) capacity = Math.min(capacity * 2, WIDGET_RESPONSE_BYTES_LIMIT);
+        const expanded = new Uint8Array(capacity);
+        expanded.set(bytes.subarray(0, total));
+        bytes = expanded;
+      }
+      bytes.set(value, total);
+      total = nextTotal;
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", abort);
+    reader.releaseLock();
+  }
+  signal.throwIfAborted();
+  if (!isCurrent()) throw new Error("The viewer authority changed during a widget read.");
+  return new Response(bytes.buffer.slice(0, total), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 function audienceWidgetDataLoader(
   state: CompositionState,
   projection: CompositionMapProjectionOptions | undefined,
@@ -86,7 +141,12 @@ function audienceWidgetDataLoader(
       typeof resolution.source.data !== "string"
     )
       continue;
-    const target = trustedSourceUrl(resolution.source.data, sourceAuthBaseUrl, documentUrl);
+    const target = trustedSourceUrl(
+      resolution.source.data,
+      sourceAuthBaseUrl,
+      documentUrl,
+      options.sourceCatalogBaseUrl ?? projection?.baseUrl ?? "/api",
+    );
     if (target) approved.set(sourceId, target.href);
   }
   const approvedUrls = new Set(approved.values());
@@ -116,6 +176,7 @@ function audienceWidgetDataLoader(
       baseUrl,
       featureLimit: WIDGET_FEATURE_LIMIT,
       sourceAuthBaseUrl,
+      sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
       documentUrl,
       getAuth: tokenlessSession,
       fetchImpl: async (input, init) => {
@@ -133,9 +194,26 @@ function audienceWidgetDataLoader(
           redirect: "error",
           cache: "no-store",
         });
+        if (session !== options.getAudienceTransport()) {
+          await response.body?.cancel().catch(() => undefined);
+          throw new Error("The viewer authority changed during a widget read.");
+        }
+        if (response.redirected) {
+          await response.body?.cancel().catch(() => undefined);
+          throw new Error("Widget source redirects are not allowed.");
+        }
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => undefined);
+          return response;
+        }
+        const bounded = await boundedWidgetResponse(
+          response,
+          init?.signal ?? new AbortController().signal,
+          () => session === options.getAudienceTransport(),
+        );
         if (session !== options.getAudienceTransport())
           throw new Error("The viewer authority changed during a widget read.");
-        return response;
+        return bounded;
       },
     });
     const result = await loader(sourceId, loadOptions);

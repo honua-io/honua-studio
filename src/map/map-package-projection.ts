@@ -128,6 +128,33 @@ function ownedByCompositionLayer(renderLayer: HonuaLayerSpecification, layerId: 
   );
 }
 
+// These options affect GeoJSON presentation or feature identity, never its
+// network authority. The current-reader resolution alone supplies type/data.
+const GEOJSON_SOURCE_OPTIONS = new Set([
+  "attribution",
+  "maxzoom",
+  "buffer",
+  "tolerance",
+  "cluster",
+  "clusterRadius",
+  "clusterMaxZoom",
+  "clusterMinPoints",
+  "clusterProperties",
+  "lineMetrics",
+  "generateId",
+  "promoteId",
+  "filter",
+]);
+
+function rebindAudienceGeoJson(
+  saved: HonuaStyleSpecification["sources"][string] | undefined,
+  source: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  if (saved?.type !== "geojson" || source.type !== "geojson") return source;
+  const options = Object.fromEntries(Object.entries(saved).filter(([key]) => GEOJSON_SOURCE_OPTIONS.has(key)));
+  return { ...structuredClone(options), ...source };
+}
+
 /** Resolve an audience source without letting a saved URL in either source escape hatch authorize itself. */
 function resolveAudienceSource(
   layer: CompositionLayer,
@@ -244,13 +271,17 @@ export function compositionToMapPackage(
       : resolveCompositionSource(layer, resolveOptions);
     if (!isCompositionSourceResolution(resolution)) {
       unresolved.push({ layerId: layer.id, sourceId: layer.sourceId, reason: resolution.reason });
-      if (audience) deniedSourceIds.add(layer.sourceId);
+      if (audience && resolution.scope !== "layer") deniedSourceIds.add(layer.sourceId);
       continue;
     }
+    const resolvedSource =
+      audience && state.mapSpec && resolution.binding
+        ? rebindAudienceGeoJson(mapSpec.sources[layer.sourceId], resolution.source)
+        : resolution.source;
     if (
       audience &&
       boundSourceIds.has(layer.sourceId) &&
-      JSON.stringify(mapSpec.sources[layer.sourceId]) !== JSON.stringify(resolution.source)
+      JSON.stringify(mapSpec.sources[layer.sourceId]) !== JSON.stringify(resolvedSource)
     ) {
       deniedSourceIds.add(layer.sourceId);
       unresolved.push({
@@ -300,7 +331,7 @@ export function compositionToMapPackage(
     if (!boundSourceIds.has(styleSourceId)) {
       boundSourceIds.add(styleSourceId);
       if (!state.mapSpec || audience)
-        mapSpec.sources[styleSourceId] = resolution.source as HonuaStyleSpecification["sources"][string];
+        mapSpec.sources[styleSourceId] = resolvedSource as HonuaStyleSpecification["sources"][string];
       const durable = state.sourceBindings?.find((binding) => binding.sourceId === styleSourceId);
       if (durable && !audience) sourceBindings.push(structuredClone(durable));
       else if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
@@ -442,8 +473,8 @@ export function compositionToMapPackage(
         });
     }
     // A failed layer can share its source with a successful layer. A source
-    // resolution failure taints that whole source; a style failure only drops
-    // the failed layer's owned render layers.
+    // authority/conflict failure taints that whole source; a presentation or
+    // style failure only drops the failed layer's owned render layers.
     for (const [sourceId, source] of Object.entries(mapSpec.sources)) {
       if (boundSourceIds.has(sourceId) || isStaticInlineCompositionSource(source) || isAnonymousMapAssetSource(source))
         continue;

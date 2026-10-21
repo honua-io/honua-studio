@@ -232,6 +232,124 @@ describe("read-only map canvas", () => {
     canvas.dispose();
   });
 
+  it.each([true, false])(
+    "preserves an authorized sibling after a presentation-only failure, invalid first=%s",
+    (invalidFirst) => {
+      const valid = { id: "valid", sourceId: "service/1", type: "fill", visible: true };
+      const invalid = { id: "unsupported", sourceId: "service/1", type: "symbol", visible: true };
+      const saved = {
+        layers: invalidFirst ? [invalid, valid] : [valid, invalid],
+        view: {},
+        mapSpec: {
+          version: 8,
+          sources: { "service/1": { type: "geojson", data: "/operator/private/query" } },
+          layers: [
+            { id: "valid", type: "fill", source: "service/1" },
+            { id: "unsupported", type: "symbol", source: "service/1" },
+          ],
+        },
+      };
+      const original = structuredClone(saved);
+      const projected = compositionToMapPackage(readCompositionBody(saved), {
+        catalog,
+        sourceAuthority: "current-reader",
+      });
+      expect(projected.renderedLayerIds).toEqual(["valid"]);
+      expect(projected.unresolved).toMatchObject([
+        { layerId: "unsupported", reason: expect.stringContaining("layer type") },
+      ]);
+      expect(projected.mapPackage.mapSpec.layers.map(({ id }) => id)).toEqual(["valid"]);
+      expect(projected.mapPackage.mapSpec.sources["service/1"]).toMatchObject({
+        type: "geojson",
+        data: expect.stringContaining("/parcels/FeatureServer/1/query?"),
+      });
+      expect(projected.mapPackage.sourceBindings).toHaveLength(1);
+      expect(JSON.stringify(projected.mapPackage)).not.toContain("/operator/private/");
+      expect(saved).toEqual(original);
+    },
+  );
+
+  it("still denies every sibling when their source definitions conflict", () => {
+    const saved = {
+      layers: [
+        { id: "catalog", sourceId: "service/1", type: "fill", visible: true },
+        {
+          id: "inline",
+          sourceId: "service/1",
+          type: "fill",
+          visible: true,
+          metadata: { honua: { source: { type: "geojson", data: { type: "FeatureCollection", features: [] } } } },
+        },
+      ],
+      view: {},
+    };
+    const projected = compositionToMapPackage(readCompositionBody(saved), {
+      catalog,
+      sourceAuthority: "current-reader",
+    });
+    expect(projected.renderedLayerIds).toEqual([]);
+    expect(projected.mapPackage.mapSpec.sources["service/1"]).toBeUndefined();
+    expect(projected.unresolved.map(({ layerId }) => layerId).sort()).toEqual(["catalog", "inline"]);
+    expect(projected.mapPackage.sourceBindings).toEqual([]);
+  });
+
+  it("rebinds only GeoJSON authority while preserving safe source options for shared authored layers", () => {
+    const options = {
+      cluster: true,
+      clusterRadius: 45,
+      clusterMaxZoom: 12,
+      clusterMinPoints: 3,
+      clusterProperties: { total: ["+", ["get", "population"]] },
+      generateId: false,
+      promoteId: "parcel_id",
+      attribution: "Parcel data provider",
+      lineMetrics: true,
+      filter: ["!=", ["get", "retired"], true],
+    };
+    const saved = {
+      layers: [
+        { id: "points", sourceId: "service/1", type: "circle", visible: true },
+        { id: "outlines", sourceId: "service/1", type: "line", visible: true },
+      ],
+      view: {},
+      mapSpec: {
+        version: 8,
+        sources: {
+          "service/1": {
+            type: "geojson",
+            data: "/operator/private/query",
+            ...options,
+            url: "https://operator.invalid/private",
+            tiles: ["https://operator.invalid/{z}"],
+            credentials: "include",
+          },
+        },
+        layers: [
+          { id: "points", type: "circle", source: "service/1" },
+          { id: "outlines", type: "line", source: "service/1" },
+        ],
+      },
+    };
+    const original = structuredClone(saved);
+    const projected = compositionToMapPackage(readCompositionBody(saved), {
+      catalog,
+      sourceAuthority: "current-reader",
+    });
+    const source = projected.mapPackage.mapSpec.sources["service/1"];
+    expect(projected.unresolved).toEqual([]);
+    expect(projected.renderedLayerIds).toEqual(["points", "outlines"]);
+    expect(source).toEqual({
+      ...options,
+      type: "geojson",
+      data: expect.stringContaining("/parcels/FeatureServer/1/query?"),
+    });
+    expect(projected.mapPackage.sourceBindings).toHaveLength(1);
+    expect(JSON.stringify(projected.mapPackage)).not.toContain("operator");
+    expect(saved).toEqual(original);
+    if (source.type !== "geojson") throw new Error("Expected a GeoJSON source");
+    expect(source.clusterProperties).not.toBe(saved.mapSpec.sources["service/1"].clusterProperties);
+  });
+
   it("keeps the editor's authored projection unchanged unless audience mode is selected", () => {
     const saved = {
       ...body(),

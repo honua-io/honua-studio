@@ -158,6 +158,205 @@ describe("read-only published composition view", () => {
     view.dispose();
   });
 
+  it.each([
+    ["catalog override", `${origin}/api/other`, sourceRoot],
+    ["projection fallback", sourceRoot, undefined],
+  ])(
+    "trusts a current-reader %s feature URL beneath the legacy source root",
+    async (_case, baseUrl, sourceCatalogBaseUrl) => {
+      const host = hosts();
+      const map = mapHarness();
+      const fetchRequest = vi.fn(
+        async (_input: RequestInfo | URL, _init?: RequestInit) =>
+          new Response(
+            JSON.stringify({
+              type: "FeatureCollection",
+              features: [{ type: "Feature", id: 8, properties: { name: "Legacy Parcel" } }],
+            }),
+          ),
+      );
+      const transport = { fetchRequest };
+      const view = createReadOnlyCompositionView({
+        container: host.map,
+        widgetContainer: host.widgets,
+        body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
+        projection: { catalog, baseUrl },
+        sourceAuthBaseUrl: `${origin}/api`,
+        ...(sourceCatalogBaseUrl ? { sourceCatalogBaseUrl } : {}),
+        documentUrl: `${origin}/maps/published/map/map-1`,
+        getAudienceTransport: () => transport,
+        mapFactory: map.factory,
+      });
+      await view.settled();
+      await until(() => (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("Legacy Parcel"));
+      expect(fetchRequest).toHaveBeenCalledTimes(1);
+      expect(String(fetchRequest.mock.calls[0]?.[0])).toContain(
+        `${sourceRoot}/rest/services/parcels/FeatureServer/1/query`,
+      );
+      view.dispose();
+    },
+  );
+
+  it("rejects an oversized streamed widget response before JSON materialization", async () => {
+    const host = hosts();
+    const map = mapHarness();
+    const cancel = vi.fn();
+    let chunks = 0;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          chunks++;
+          if (chunks <= 2) controller.enqueue(new Uint8Array(chunks === 1 ? 8 * 1024 * 1024 : 8 * 1024 * 1024 + 1));
+        },
+        cancel,
+      }),
+    );
+    const json = vi.spyOn(response, "json");
+    const fetchRequest = vi.fn(async () => response);
+    const transport = { fetchRequest };
+    const view = createReadOnlyCompositionView({
+      container: host.map,
+      widgetContainer: host.widgets,
+      body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
+      projection: { catalog, baseUrl: sourceRoot },
+      sourceAuthBaseUrl: sourceRoot,
+      documentUrl: `${origin}/maps/published/map/map-1`,
+      getAudienceTransport: () => transport,
+      mapFactory: map.factory,
+    });
+    await view.settled();
+    await until(() => (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("response size limit"));
+    expect(chunks).toBeGreaterThanOrEqual(2);
+    expect(cancel).toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+    view.dispose();
+  });
+
+  it("reads a bounded widget response split into empty and one-byte chunks", async () => {
+    const host = hosts();
+    const map = mapHarness();
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        type: "FeatureCollection",
+        features: [{ type: "Feature", id: 9, properties: { name: "Tiny Chunks" } }],
+      }),
+    );
+    let pulled = 0;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (pulled < 20) controller.enqueue(new Uint8Array(0));
+          else if (pulled - 20 < payload.length) controller.enqueue(payload.subarray(pulled - 20, pulled - 19));
+          else controller.close();
+          pulled++;
+        },
+      }),
+    );
+    const fetchRequest = vi.fn(async () => response);
+    const transport = { fetchRequest };
+    const view = createReadOnlyCompositionView({
+      container: host.map,
+      widgetContainer: host.widgets,
+      body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
+      projection: { catalog, baseUrl: sourceRoot },
+      sourceAuthBaseUrl: sourceRoot,
+      documentUrl: `${origin}/maps/published/map/map-1`,
+      getAudienceTransport: () => transport,
+      mapFactory: map.factory,
+    });
+    await view.settled();
+    await until(() => (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("Tiny Chunks"));
+    expect(pulled).toBeGreaterThan(payload.length);
+    view.dispose();
+  });
+
+  it("cancels a declared oversized widget response before reading its body", async () => {
+    const host = hosts();
+    const map = mapHarness();
+    const pull = vi.fn();
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({ pull, cancel }), {
+      headers: { "content-length": String(16 * 1024 * 1024 + 1) },
+    });
+    const json = vi.spyOn(response, "json");
+    const fetchRequest = vi.fn(async () => response);
+    const transport = { fetchRequest };
+    const view = createReadOnlyCompositionView({
+      container: host.map,
+      widgetContainer: host.widgets,
+      body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
+      projection: { catalog, baseUrl: sourceRoot },
+      sourceAuthBaseUrl: sourceRoot,
+      documentUrl: `${origin}/maps/published/map/map-1`,
+      getAudienceTransport: () => transport,
+      mapFactory: map.factory,
+    });
+    await view.settled();
+    await until(() => (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("response size limit"));
+    expect(cancel).toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+    view.dispose();
+  });
+
+  it("cancels a non-OK upstream body while preserving its status for the widget", async () => {
+    const host = hosts();
+    const map = mapHarness();
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 403 });
+    const json = vi.spyOn(response, "json");
+    const fetchRequest = vi.fn(async () => response);
+    const transport = { fetchRequest };
+    const view = createReadOnlyCompositionView({
+      container: host.map,
+      widgetContainer: host.widgets,
+      body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
+      projection: { catalog, baseUrl: sourceRoot },
+      sourceAuthBaseUrl: sourceRoot,
+      documentUrl: `${origin}/maps/published/map/map-1`,
+      getAudienceTransport: () => transport,
+      mapFactory: map.factory,
+    });
+    await view.settled();
+    await until(() => (deck(host.widgets)?.shadowRoot?.textContent ?? "").includes("403"));
+    expect(cancel).toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+    view.dispose();
+  });
+
+  it("cancels a widget stream when the composition reloads", async () => {
+    const host = hosts();
+    const map = mapHarness();
+    const cancel = vi.fn();
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"type":"FeatureCollection","features":['));
+        },
+        cancel,
+      }),
+    );
+    const json = vi.spyOn(response, "json");
+    const fetchRequest = vi.fn(async () => response);
+    const transport = { fetchRequest };
+    const view = createReadOnlyCompositionView({
+      container: host.map,
+      widgetContainer: host.widgets,
+      body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
+      projection: { catalog, baseUrl: sourceRoot },
+      sourceAuthBaseUrl: sourceRoot,
+      documentUrl: `${origin}/maps/published/map/map-1`,
+      getAudienceTransport: () => transport,
+      mapFactory: map.factory,
+    });
+    await view.settled();
+    await until(() => fetchRequest.mock.calls.length === 1);
+    await view.reload({ body: body(), projection: { catalog, baseUrl: sourceRoot } });
+    await until(() => cancel.mock.calls.length > 0);
+    expect(json).not.toHaveBeenCalled();
+    expect(deck(host.widgets)?.shadowRoot?.querySelector('[data-testid="studio-widget-toc-row"]')).toBeTruthy();
+    view.dispose();
+  });
+
   it("shows denied widget metadata and makes zero data or auth calls", async () => {
     const host = hosts();
     const map = mapHarness();

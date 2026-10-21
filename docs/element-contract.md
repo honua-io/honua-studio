@@ -643,7 +643,10 @@ one private composition controller. The host passes separate `container` and
 `widgetContainer` elements, the canonical body and current-reader projection,
 and a stable `getAudienceTransport()` object for one viewer principal and
 target. The widget loader admits only current-reader catalog sources and calls
-that transport for bounded feature GETs. Intrinsic TOC, compare, and time
+that transport for feature GETs limited to 500 rows and a 16 MiB response before
+JSON parsing. Overflow, cancellation and reader changes cancel the response.
+The configured catalog root participates in the same URL trust check as the
+map. Intrinsic TOC, compare, and time
 interactions update only the private controller. `reload({ body, projection })`
 replaces the view; `dispose()` removes both map and deck and invalidates pending
 work. Hosts must dispose and recreate the view and its style provider when the
