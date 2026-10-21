@@ -801,7 +801,7 @@ export function ownedVisualLayerIds(
   for (const layer of layers) {
     if (!isRecord(layer) || typeof layer.id !== "string") continue;
     if (isBasemapLayerId(layer.id)) continue;
-    const { owner, conflictingMetadata } = resolveVisualLayerOwner(layer, owners);
+    const { owner, conflictingMetadata } = resolveVisualLayerOwner({ id: layer.id, metadata: layer.metadata }, owners);
     // A primary or outline ID is canonical evidence of ownership. Conflicting
     // metadata cannot silently retarget a click to another composition layer.
     if (conflictingMetadata) continue;
