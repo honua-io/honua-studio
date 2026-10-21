@@ -7,7 +7,6 @@ import {
   type CompositionMapViewOptions,
   ownedVisualLayerIds,
 } from "./composition-map-view.js";
-import { OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import { type CompositionMapProjection, compositionToMapPackage } from "./map-package-projection.js";
 import {
   findCompositionSourceDescriptor,
@@ -90,6 +89,7 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       throw new Error("Current-reader map transport is unavailable.");
     },
   };
+  const tokenlessReaders = new WeakMap<object, NonNullable<ReturnType<NonNullable<typeof options.getAuth>>>>();
   const renderer = new CompositionMapView({
     container: options.container,
     controller: options.controller,
@@ -99,7 +99,17 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
     // Missing readers refuse the read instead of falling back to global fetch.
     getAuth: () => {
       const reader = options.getAuth?.();
-      return reader?.fetchRequest ? reader : unavailableAuth;
+      if (typeof reader?.fetchRequest !== "function") return unavailableAuth;
+      if (typeof reader.getAccessToken === "function") return reader;
+      let tokenless = tokenlessReaders.get(reader);
+      if (!tokenless) {
+        tokenless = {
+          getAccessToken: async () => undefined,
+          fetchRequest: reader.fetchRequest.bind(reader),
+        };
+        tokenlessReaders.set(reader, tokenless);
+      }
+      return tokenless;
     },
     sourceAuthBaseUrl: options.sourceAuthBaseUrl,
     sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
@@ -130,16 +140,38 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       if (!projection?.renderedLayerIds.length || !map?.queryRenderedFeatures) return 0;
       const styleLayers = map.getStyle?.()?.layers ?? projection.mapPackage.mapSpec.layers;
       const visualOwners = ownedVisualLayerIds(styleLayers ?? [], projection.renderedLayerIds);
-      const layers = [...visualOwners]
-        .filter(([id, owner]) => {
-          if (id !== `${owner}${OUTLINE_LAYER_SUFFIX}`) return true;
-          // The automatic outline paints the same features as another owned visual.
-          // Keep it when it is the owner's only approved render layer.
-          return ![...visualOwners].some(([otherId, otherOwner]) => otherId !== id && otherOwner === owner);
-        })
-        .map(([id]) => id);
+      const layers = [...visualOwners.keys()];
       if (!layers.length) return 0;
-      return map.queryRenderedFeatures(undefined, { layers }).length;
+      const features = map.queryRenderedFeatures(undefined, { layers });
+      const seen = new Set<string>();
+      let count = 0;
+      for (const feature of features) {
+        if (!feature || typeof feature !== "object") {
+          count++;
+          continue;
+        }
+        const hit = feature as Record<string, unknown>;
+        const layer = hit.layer;
+        const layerId = layer && typeof layer === "object" ? (layer as Record<string, unknown>).id : undefined;
+        const owner = typeof layerId === "string" ? visualOwners.get(layerId) : undefined;
+        if (!owner) {
+          count++;
+          continue;
+        }
+        const source = typeof hit.source === "string" ? hit.source : "";
+        const sourceLayer = typeof hit.sourceLayer === "string" ? hit.sourceLayer : "";
+        const identity =
+          typeof hit.id === "string" || typeof hit.id === "number"
+            ? JSON.stringify([owner, source, sourceLayer, "id", hit.id])
+            : hit.geometry !== undefined && hit.properties !== undefined
+              ? JSON.stringify([owner, source, sourceLayer, "shape", hit.geometry, hit.properties])
+              : undefined;
+        if (identity === undefined || !seen.has(identity)) {
+          count++;
+          if (identity !== undefined) seen.add(identity);
+        }
+      }
+      return count;
     },
     settled: () => renderer.settled(),
     resize: () => renderer.resize(),

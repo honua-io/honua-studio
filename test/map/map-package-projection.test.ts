@@ -434,6 +434,29 @@ it("still fails the owner closed when its primary GeoJSON render layer is invali
   expect(result.unresolved).toEqual([expect.objectContaining({ layerId: "parcels" })]);
 });
 
+it("removes an owner's mismatched visual after finding no source-matched render layer", () => {
+  const base = audienceStyle([], { inline: { type: "geojson", data: { type: "FeatureCollection", features: [] } } });
+  const state = {
+    ...base,
+    mapSpec: {
+      ...base.mapSpec,
+      layers: [
+        { id: "parcels-label", type: "symbol", source: "inline", metadata: { "honua:compositionLayerId": "parcels" } },
+      ],
+    },
+  } as CompositionState;
+  const original = structuredClone(state);
+
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+
+  expect(result.renderedLayerIds).toEqual([]);
+  expect(result.unresolved).toEqual([
+    expect.objectContaining({ layerId: "parcels", reason: expect.stringContaining("No approved render layer") }),
+  ]);
+  expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels-label");
+  expect(state.mapSpec).toEqual(original.mapSpec);
+});
+
 it("prunes refused style targets while composing a separately styled approved source", async () => {
   const base = stateFrom([
     { name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } },

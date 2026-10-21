@@ -514,6 +514,10 @@ export function compositionToMapPackage(
       )
         continue;
       renderedLayerIds.splice(index, 1);
+      failedLayerIds.add(ownerId);
+      // A visual on another approved source cannot paint under a failed
+      // composition owner merely because it survived the earlier source filter.
+      mapSpec.layers = mapSpec.layers.filter((renderLayer) => !ownedByCompositionLayer(renderLayer, ownerId));
       if (!unresolved.some((entry) => entry.layerId === ownerId)) {
         unresolved.push({
           layerId: ownerId,
