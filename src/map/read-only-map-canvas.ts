@@ -1,3 +1,4 @@
+import type { AuthSession } from "../auth/types.js";
 import { CompositionController } from "../composition/controller.js";
 import type { CompositionTarget } from "../composition/model.js";
 import { readCompositionBody } from "../lifecycle/composition-draft-store.js";
@@ -22,15 +23,13 @@ import {
 export interface ReadOnlyMapCanvasOptions
   extends Pick<
     CompositionMapViewOptions,
-    | "container"
-    | "projection"
-    | "getAuth"
-    | "sourceAuthBaseUrl"
-    | "sourceCatalogBaseUrl"
-    | "mapFactory"
-    | "styleProvider"
+    "container" | "projection" | "sourceAuthBaseUrl" | "sourceCatalogBaseUrl" | "mapFactory" | "styleProvider"
   > {
   readonly body: unknown;
+  /** Anonymous hosts may supply only their current-reader GET transport. */
+  readonly getAuth?: () =>
+    | (Pick<AuthSession, "fetchRequest"> & Partial<Pick<AuthSession, "getAccessToken">>)
+    | undefined;
   readonly onChange?: (canvas: ReadOnlyMapCanvas) => void;
 }
 

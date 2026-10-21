@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthSession } from "../../src/auth/types.js";
 import { readCompositionBody } from "../../src/lifecycle/composition-draft-store.js";
 import { fetchAuthenticatedFeatureCollection } from "../../src/map/authenticated-source-protocol.js";
 import type {
@@ -595,7 +594,7 @@ describe("read-only map canvas", () => {
       container,
       body: body(),
       projection: { catalog, baseUrl: "/api" },
-      getAuth: () => hostReader as Pick<AuthSession, "getAccessToken" | "fetchRequest">,
+      getAuth: () => hostReader,
       mapFactory: harness.factory,
     });
     const getAuth = harness.captured[0].getAuth;
