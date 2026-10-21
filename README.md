@@ -68,12 +68,16 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The recorded standalone baseline passed 1,237 unit tests across 109 files and
-29 Playwright browser journeys, including four accessibility checks. The latest
-embedded-workspace validation is recorded in the commands table below.
-The last completed hosted unit run for the thematic editor, at PR #122 head
-`27cd412` on 2026-10-21, passed 1,541 tests across 128 files. Follow-up
-review corrections after that head still require a new full hosted run.
+The historical standalone baseline passed 1,237 unit tests across 109 files and
+29 Playwright browser journeys, including four accessibility checks. Embedded
+workspace validation is recorded in the commands table below. On 2026-10-21,
+PR #122 head `07aab66` passed 1,547 unit tests across 128 files; its browser
+smoke passed 30 of 31 tests, with the TOC journey failing during an awaited
+browser evaluation. Head `69acc10` passed the same 1,547 unit tests; its browser
+and Blazor smokes stopped at Playwright installation because the download host
+did not resolve, before either could exercise the retained TOC failure trace.
+The TOC navigation cause remains unverified.
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
