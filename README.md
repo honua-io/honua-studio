@@ -44,7 +44,20 @@ import → query → map journey.
   [Honua Console](https://github.com/honua-io/honua-console)'s `/studio`
   surface is honua-io/honua-console#324, scheduled for 2026.2.
 
-The current visual styling follow-up is under qualification. It adds a pinned credential-free Maputnik frame over the same authorized map draft, explicit map-local versus shared-catalog save callbacks, host-only navigation/chat, and SDK-paged feature preview. These source changes do not yet establish browser label rendering, shared-symbol publication, actual large-layer coverage, or a new production asset receipt. Font/sprite resource transport and the full public artifact journey remain unfinished.
+The current visual styling follow-up is under qualification. It adds a pinned
+credential-free Maputnik frame over the same authorized map draft, explicit
+map-local versus shared-catalog save callbacks, host-only navigation/chat,
+and SDK-paged feature preview. When the host supplies authorized layers and
+`getFields`, the editor offers one-to-five explicit thematic categories or
+numeric breaks, entered one per line over an actual described field. It
+preserves category text as entered and validates numeric values before preview.
+The host may call `refreshThematicFields()` after its authorized field context
+changes; an unavailable selected field requires a new explicit choice, and
+refresh does not discard unsaved style edits. The advanced Maputnik editor
+remains available. These source changes do not yet establish browser label
+rendering, shared-symbol publication, actual large-layer coverage, or a new
+production asset receipt. Font/sprite resource transport and the full public
+artifact journey remain unfinished.
 
 ## Status
 
@@ -55,9 +68,17 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The recorded standalone baseline passed 1,237 unit tests across 109 files and
-29 Playwright browser journeys, including four accessibility checks. The latest
-embedded-workspace validation is recorded in the commands table below.
+The historical standalone baseline passed 1,237 unit tests across 109 files and
+29 Playwright browser journeys, including four accessibility checks. Embedded
+workspace validation is recorded in the commands table below. On 2026-10-21,
+PR #122 head `07aab66` passed 1,547 unit tests across 128 files; its browser
+smoke passed 30 of 31 tests, with the TOC journey failing during an awaited
+browser evaluation. Head `69acc10` passed the same 1,547 unit tests; its browser
+and Blazor smokes stopped before executing tests because the new trace option
+was placed inside a Playwright `describe` block, which Playwright rejects. A
+subsequent README-only head `1ff955e` retained that test-discovery failure.
+The TOC navigation cause remains unverified.
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime

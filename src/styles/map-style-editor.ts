@@ -4,6 +4,7 @@ import {
   type MapStyleField,
   type MapStyleLayerOwner,
   bindNewRenderLayerOwners,
+  isNumericMapStyleField,
   thematicMapStyle,
   validateMapStyleEdit,
 } from "./map-style-edit.js";
@@ -35,6 +36,46 @@ export interface MapStyleEditorOptions {
   readonly onSelectLayer?: (layerId: string) => void;
 }
 
+function explicitThematicValues(input: string, numeric: boolean): readonly (string | number)[] {
+  const lines = input.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length < 1 || lines.length > 5)
+    throw new Error("Provide one to five explicit categories or numeric breaks.");
+  if (!numeric) return lines;
+  return lines.map((raw) => {
+    const line = raw.trim();
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(line) || !Number.isFinite(Number(line)))
+      throw new Error("Enter one finite numeric value per line.");
+    return Number(line);
+  });
+}
+
+interface AppliedThematicBinding {
+  readonly ownerId: string;
+  readonly sourceId: string;
+  readonly fieldName: string;
+  readonly fieldType: string;
+  readonly expression: string;
+  valid: boolean;
+}
+
+function thematicExpression(style: MapStyleDocument, ownerId: string, sourceId: string): string | undefined {
+  const layers = style.layers;
+  if (!Array.isArray(layers)) return undefined;
+  const layer = layers.find(
+    (item) => item && typeof item === "object" && item.id === ownerId && item.source === sourceId,
+  );
+  if (!layer || typeof layer !== "object") return undefined;
+  const key =
+    layer.type === "symbol"
+      ? "text-color"
+      : ["fill", "line", "circle"].includes(String(layer.type))
+        ? `${layer.type}-color`
+        : undefined;
+  if (!key || !layer.paint || typeof layer.paint !== "object") return undefined;
+  const expression = (layer.paint as Record<string, unknown>)[key];
+  return expression === undefined ? undefined : canonicalCompositionJson(expression);
+}
+
 /** Ephemeral visual buffer over the host's one generation-CAS map draft. */
 export class MapStyleEditor {
   readonly #options: MapStyleEditorOptions;
@@ -49,8 +90,13 @@ export class MapStyleEditor {
   #dirty = false;
   #busy = false;
   #invalid: string | undefined;
+  readonly #appliedThematics = new Map<string, AppliedThematicBinding>();
+  #fieldLoadPending = false;
   #selectedOwner: string | undefined;
   #pendingSave: Promise<void> | undefined;
+  #disposed = false;
+  #fieldLoadEpoch = 0;
+  #refreshFields: (() => Promise<void>) | undefined;
   #flush:
     | {
         id: string;
@@ -105,12 +151,19 @@ export class MapStyleEditor {
     if (this.#dirty || this.#busy) return;
     this.#baseline = structuredClone(style);
     this.#candidate = this.#baseline;
+    this.#appliedThematics.clear();
     this.#load();
   }
   public async settled(): Promise<void> {
     await this.#pendingSave;
   }
+  /** Re-read actual source fields after the host changes catalog context; never replaces an unsaved style. */
+  public async refreshThematicFields(): Promise<void> {
+    await this.#refreshFields?.();
+  }
   dispose(): void {
+    this.#disposed = true;
+    this.#fieldLoadEpoch++;
     if (this.#flush) {
       clearTimeout(this.#flush.timer);
       this.#flush.reject(new Error("The style editor closed."));
@@ -123,12 +176,36 @@ export class MapStyleEditor {
     const scope = this.#options.scope;
     return scope.kind === "map-local" || (scope.canEdit && scope.impactComplete);
   }
+  #thematicBlocked(): boolean {
+    return (
+      this.#appliedThematics.size > 0 &&
+      (this.#fieldLoadPending || [...this.#appliedThematics.values()].some((binding) => !binding.valid))
+    );
+  }
+  #pruneAppliedThematics(): void {
+    for (const [ownerId, binding] of this.#appliedThematics) {
+      if (thematicExpression(this.#candidate, ownerId, binding.sourceId) !== binding.expression)
+        this.#appliedThematics.delete(ownerId);
+    }
+  }
+  async #revalidateAppliedThematics(): Promise<void> {
+    for (const binding of this.#appliedThematics.values()) {
+      const owner = this.#options.layers?.find(
+        (candidate) => candidate.id === binding.ownerId && candidate.sourceId === binding.sourceId,
+      );
+      if (!owner || !this.#options.getFields) throw new Error("The thematic layer is no longer authorized.");
+      const fields = await this.#options.getFields(owner.sourceId);
+      binding.valid = fields.some((field) => field.name === binding.fieldName && field.type === binding.fieldType);
+      if (!binding.valid || this.#disposed)
+        throw new Error("A thematic field is no longer available. Choose a current field and reapply or discard.");
+    }
+  }
   #setDirty(dirty: boolean): void {
     if (this.#dirty !== dirty) {
       this.#dirty = dirty;
       this.#options.onDirty(dirty);
     }
-    this.#save.disabled = !dirty || this.#busy || !this.#maySave();
+    this.#save.disabled = !dirty || this.#busy || !this.#maySave() || this.#thematicBlocked();
   }
   #load(): void {
     // The scripts-only frame has an opaque origin; exact source + per-frame
@@ -152,7 +229,7 @@ export class MapStyleEditor {
     if (event.data.type === "honua:style-input") {
       this.#setDirty(true);
       this.#invalid = "Finish editing the visual field before saving.";
-      this.#save.disabled = !this.#maySave();
+      this.#save.disabled = !this.#maySave() || this.#thematicBlocked();
       return;
     }
     if (event.data.type === "honua:style-ready") {
@@ -181,6 +258,7 @@ export class MapStyleEditor {
       return;
     }
     this.#candidate = structuredClone(candidate);
+    this.#pruneAppliedThematics();
     this.#setDirty(canonicalCompositionJson(this.#baseline) !== canonicalCompositionJson(this.#candidate));
     this.#status.textContent = this.#dirty
       ? "Unsaved visual edits. Preview only."
@@ -201,6 +279,10 @@ export class MapStyleEditor {
     this.#busy = true;
     this.#save.disabled = true;
     try {
+      if (this.#fieldLoadPending && this.#appliedThematics.size)
+        throw new Error("Wait for the current thematic field refresh before saving.");
+      if ([...this.#appliedThematics.values()].some((binding) => !binding.valid))
+        throw new Error("A thematic field is no longer available. Choose a current field and reapply or discard.");
       if (this.#invalid && this.#invalid !== "Finish editing the visual field before saving.")
         throw new Error(this.#invalid);
       const style = await new Promise<unknown>((resolve, reject) => {
@@ -226,13 +308,18 @@ export class MapStyleEditor {
               this.#options.layers ?? [],
               this.#selectedOwner,
             );
+      this.#pruneAppliedThematics();
       const errors = validateMapStyleEdit(this.#baseline, this.#candidate);
       if (errors.length) throw new Error(errors[0]);
+      await this.#revalidateAppliedThematics();
+      if (this.#disposed) throw new Error("The style editor closed before saving.");
+      if (this.#fieldLoadPending) throw new Error("Wait for the current thematic field refresh before saving.");
       const observed = await this.#options.onSave(structuredClone(this.#candidate));
       const readbackErrors = validateMapStyleEdit(this.#candidate, observed);
       if (readbackErrors.length) throw new Error(`No valid canonical style readback: ${readbackErrors[0]}`);
       this.#baseline = structuredClone(observed);
       this.#candidate = this.#baseline;
+      this.#appliedThematics.clear();
       this.#invalid = undefined;
       this.#load();
       this.#setDirty(false);
@@ -246,7 +333,7 @@ export class MapStyleEditor {
     } finally {
       this.#busy = false;
       this.#frame.contentWindow?.postMessage({ type: "honua:style-unlock", channel: this.#channel }, "*");
-      this.#save.disabled = !this.#dirty || Boolean(this.#invalid) || !this.#maySave();
+      this.#save.disabled = !this.#dirty || Boolean(this.#invalid) || !this.#maySave() || this.#thematicBlocked();
     }
   }
   async discard(): Promise<void> {
@@ -256,6 +343,7 @@ export class MapStyleEditor {
       const observed = await this.#options.onDiscard();
       this.#baseline = structuredClone(observed);
       this.#candidate = this.#baseline;
+      this.#appliedThematics.clear();
       this.#invalid = undefined;
       this.#setDirty(false);
       this.#options.onPreview(undefined);
@@ -286,37 +374,76 @@ export class MapStyleEditor {
     mode.setAttribute("aria-label", "Thematic method");
     mode.add(this.#option("Categories", "categories"));
     mode.add(this.#option("Manual numeric breaks", "breaks"));
-    const values = document.createElement("input");
-    values.setAttribute("aria-label", "Explicit thematic values as JSON array");
-    values.placeholder = '["Residential","Commercial"]';
+    const values = document.createElement("textarea");
+    values.setAttribute("aria-label", "Explicit thematic values, one per line");
+    values.placeholder = "Residential\nCommercial";
+    mode.addEventListener("change", () => {
+      values.placeholder = mode.value === "breaks" ? "10\n25\n50" : "Residential\nCommercial";
+    });
     const apply = document.createElement("button");
     apply.textContent = "Preview thematic colors";
     apply.disabled = true;
     let fields: readonly MapStyleField[] = [];
-    let epoch = 0;
+    let chosenFieldName: string | undefined;
     const load = async () => {
-      const current = ++epoch;
+      if (this.#disposed) return;
+      const current = ++this.#fieldLoadEpoch;
       this.#selectedOwner = owner.value;
       this.#options.onSelectLayer?.(owner.value);
       const selected = this.#options.layers?.find((layer) => layer.id === owner.value);
       field.replaceChildren();
+      fields = [];
       apply.disabled = true;
       if (!selected) return;
+      this.#fieldLoadPending = true;
+      this.#setDirty(this.#dirty);
       try {
         const observed = await this.#options.getFields!(selected.sourceId);
-        if (current !== epoch) return;
+        if (this.#disposed || current !== this.#fieldLoadEpoch || owner.value !== selected.id) return;
         fields = observed;
         for (const actual of observed) field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
-        apply.disabled = !observed.length;
+        const binding = this.#appliedThematics.get(selected.id);
+        if (binding && binding.sourceId === selected.sourceId) {
+          binding.valid = observed.some(
+            (actual) => actual.name === binding.fieldName && actual.type === binding.fieldType,
+          );
+          if (!binding.valid)
+            this.#status.textContent = "The applied thematic field changed. Choose a current field and reapply.";
+        }
+        if (chosenFieldName !== undefined) {
+          if (observed.some((actual) => actual.name === chosenFieldName)) field.value = chosenFieldName;
+          else {
+            field.selectedIndex = -1;
+            this.#status.textContent = "The selected source field is unavailable. Choose a current described field.";
+          }
+        } else if (observed.length) chosenFieldName = field.value;
+        apply.disabled = !fields.some((actual) => actual.name === field.value);
         this.#frame.contentWindow?.postMessage(
           { type: "honua:style-fields", channel: this.#channel, sourceId: selected.sourceId, fields: observed },
           "*",
         );
       } catch (error) {
-        this.#error(error);
+        if (!this.#disposed && current === this.#fieldLoadEpoch) {
+          const binding = this.#appliedThematics.get(selected.id);
+          if (binding) binding.valid = false;
+          this.#error(error);
+        }
+      } finally {
+        if (current === this.#fieldLoadEpoch) {
+          this.#fieldLoadPending = false;
+          this.#setDirty(this.#dirty);
+        }
       }
     };
-    owner.addEventListener("change", () => void load());
+    this.#refreshFields = load;
+    owner.addEventListener("change", () => {
+      chosenFieldName = undefined;
+      void load();
+    });
+    field.addEventListener("change", () => {
+      chosenFieldName = field.value || undefined;
+      apply.disabled = !fields.some((actual) => actual.name === field.value);
+    });
     values.addEventListener("input", () => {
       this.#setDirty(true);
       this.#invalid = "Apply or discard the pending thematic values.";
@@ -324,6 +451,7 @@ export class MapStyleEditor {
     });
     apply.addEventListener("click", () => {
       try {
+        if (this.#busy || this.#fieldLoadPending) throw new Error("Wait for the current field refresh.");
         const selected = this.#options.layers?.find((layer) => layer.id === owner.value);
         const actual = fields.find((item) => item.name === field.value);
         if (!selected || !actual) throw new Error("Choose an actual described field.");
@@ -332,12 +460,22 @@ export class MapStyleEditor {
           selected,
           actual,
           mode.value as "categories" | "breaks",
-          JSON.parse(values.value),
+          explicitThematicValues(values.value, mode.value === "breaks" || isNumericMapStyleField(actual)),
           ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6", "#3182bd", "#08519c"],
         );
         const errors = validateMapStyleEdit(this.#baseline, next);
         if (errors.length) throw new Error(errors[0]);
         this.#candidate = next;
+        const expression = thematicExpression(next, selected.id, selected.sourceId);
+        if (!expression) throw new Error("The selected layer has no thematic expression.");
+        this.#appliedThematics.set(selected.id, {
+          ownerId: selected.id,
+          sourceId: selected.sourceId,
+          fieldName: actual.name,
+          fieldType: actual.type,
+          expression,
+          valid: true,
+        });
         this.#invalid = undefined;
         this.#setDirty(true);
         this.#options.onPreview(next);
