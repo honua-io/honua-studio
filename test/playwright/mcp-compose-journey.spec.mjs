@@ -19,6 +19,8 @@ import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 
 test.describe("compose fixture journey through the real MCP client (standalone shell)", () => {
+  test.use({ trace: "retain-on-failure" });
+
   test("add_layer/add_chart tool-call intents mutate a REAL server-side Studio draft via honua_studio_* MCP tools", async ({
     page,
   }) => {
@@ -120,11 +122,45 @@ test.describe("compose fixture journey through the real MCP client (standalone s
 
   test("a TOC visibility toggle round-trips through honua_studio_set_layer_visibility and survives a draft sync", async ({
     page,
-  }) => {
+  }, testInfo) => {
     const mock = await startMockServer();
     const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
+    const token = mintFixtureAccessToken();
+    const browserEvents = [];
+    const record = (kind, details) => {
+      browserEvents.push({ elapsedMs: Date.now() - startedAt, kind, ...details });
+      if (browserEvents.length > 80) browserEvents.shift();
+    };
+    const startedAt = Date.now();
+    const safeUrl = (value) => {
+      try {
+        const url = new URL(value);
+        return `${url.origin}${url.pathname.slice(0, 160)}`;
+      } catch {
+        return "<invalid-url>";
+      }
+    };
+    const safeMessage = (value) =>
+      value
+        .replaceAll(token, "<fixture-token>")
+        .replace(/Bearer\s+\S+/gi, "Bearer <redacted>")
+        .replace(/https?:\/\/[^\s"')]+/gi, (url) => safeUrl(url))
+        .slice(0, 240);
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) record("main-frame-navigation", { url: safeUrl(frame.url()) });
+    });
+    page.on("requestfailed", (request) => {
+      record("request-failed", {
+        method: request.method(),
+        url: safeUrl(request.url()),
+        error: safeMessage(request.failure()?.errorText ?? "unknown"),
+      });
+    });
+    page.on("console", (message) => {
+      if (message.type() === "error") record("console-error", { message: safeMessage(message.text()) });
+    });
+    page.on("pageerror", (error) => record("page-error", { message: safeMessage(error.message) }));
     try {
-      const token = mintFixtureAccessToken();
       await page.addInitScript(
         ({ token, conversationId }) => {
           window.__honuaStudioFixtureToken = token;
@@ -205,6 +241,12 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         window.__honuaStudioChat.activityLog.entries().filter((entry) => entry.type === "composition_command_rejected"),
       );
       expect(rejected).toEqual([]);
+    } catch (error) {
+      await testInfo.attach("toc-browser-events.json", {
+        body: Buffer.from(JSON.stringify(browserEvents, null, 2)),
+        contentType: "application/json",
+      });
+      throw error;
     } finally {
       await preview.close();
       await mock.close();
