@@ -513,9 +513,10 @@ export class CompositionMapView {
     const state = this.#options.controller.state;
     const denied = new Set(
       this.#options.projection?.sourceAuthority === "current-reader"
-        ? compositionToMapPackage(state, { ...this.#options.projection, authoritativeStyles: undefined }).unresolved.map(
-            ({ layerId }) => layerId,
-          )
+        ? compositionToMapPackage(state, {
+            ...this.#options.projection,
+            authoritativeStyles: undefined,
+          }).unresolved.map(({ layerId }) => layerId)
         : [],
     );
     const candidates = state.layers.filter(
