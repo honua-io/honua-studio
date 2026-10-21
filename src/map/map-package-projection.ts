@@ -540,6 +540,27 @@ export function compositionToMapPackage(
           });
       }
     }
+    // The audience projection may keep an owner's healthy render layer while
+    // refusing another visual layer. Derived style targets must follow the
+    // approved render set or the SDK rejects the entire composed style.
+    const approvedRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
+    for (let index = styleRefs.length - 1; index >= 0; index--) {
+      const reference = styleRefs[index];
+      const body =
+        reference.body === undefined
+          ? undefined
+          : Object.fromEntries(Object.entries(reference.body).filter(([targetId]) => approvedRenderIds.has(targetId)));
+      const layerBindings = reference.layerBindings?.filter((binding) => approvedRenderIds.has(binding.targetLayerId));
+      if (body !== undefined ? Object.keys(body).length === 0 : layerBindings?.length === 0) {
+        styleRefs.splice(index, 1);
+        continue;
+      }
+      styleRefs[index] = {
+        styleId: reference.styleId,
+        ...(body === undefined ? {} : { body }),
+        ...(layerBindings === undefined ? {} : { layerBindings }),
+      };
+    }
   }
 
   const initialView = projectInitialView(state);

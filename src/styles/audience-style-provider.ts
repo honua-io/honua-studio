@@ -51,34 +51,45 @@ export function audienceStyleRevision(etag: string | null): number {
 
 async function boundedText(response: Response, maximumBytes: number, signal: AbortSignal): Promise<string> {
   const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > maximumBytes)
+  if (Number.isFinite(length) && length > maximumBytes) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error("The current-reader style response exceeds its size limit.");
+  }
   if (!response.body) throw new Error("The current-reader style response is empty.");
   const reader = response.body.getReader();
-  const parts: Uint8Array[] = [];
+  let bytes = new Uint8Array(0);
   let total = 0;
+  const abort = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", abort, { once: true });
   try {
     while (true) {
       signal.throwIfAborted();
       const { value, done } = await reader.read();
+      signal.throwIfAborted();
       if (done) break;
-      total += value.byteLength;
-      if (total > maximumBytes) throw new Error("The current-reader style response exceeds its size limit.");
-      parts.push(value);
+      const nextTotal = total + value.byteLength;
+      if (nextTotal > maximumBytes) throw new Error("The current-reader style response exceeds its size limit.");
+      if (nextTotal > bytes.byteLength) {
+        let capacity = Math.max(bytes.byteLength, 1024);
+        while (capacity < nextTotal) capacity = Math.min(capacity * 2, maximumBytes);
+        const expanded = new Uint8Array(capacity);
+        expanded.set(bytes.subarray(0, total));
+        bytes = expanded;
+      }
+      bytes.set(value, total);
+      total = nextTotal;
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);
     throw error;
   } finally {
+    signal.removeEventListener("abort", abort);
     reader.releaseLock();
   }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    body.set(part, offset);
-    offset += part.byteLength;
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(body);
+  signal.throwIfAborted();
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, total));
 }
 
 /** Read-only audience counterpart to the authoring provider. No MCP, mutation, token lookup or global fetch. */

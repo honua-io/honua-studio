@@ -330,6 +330,44 @@ describe("current-reader audience style provider", () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it("reads tiny and empty style fragments without retaining each chunk", async () => {
+    const current = fixture();
+    const encoded = new TextEncoder().encode(JSON.stringify(stylesheet));
+    let offset = 0;
+    let emitEmpty = true;
+    current.fetchRequest.mockImplementationOnce(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (offset === encoded.length) {
+                controller.close();
+                return;
+              }
+              if (emitEmpty) controller.enqueue(new Uint8Array(0));
+              else controller.enqueue(encoded.subarray(offset, ++offset));
+              emitEmpty = !emitEmpty;
+            },
+          }),
+          { headers: { etag: '"style-v7"' } },
+        ),
+    );
+    expect((await current.provider.read("district")).layers).toEqual(stylesheet.layers);
+  });
+
+  it("cancels an oversized declared style before reading its stream", async () => {
+    const current = fixture();
+    const cancel = vi.fn();
+    current.fetchRequest.mockImplementationOnce(
+      async () =>
+        new Response(new ReadableStream({ cancel }), {
+          headers: { etag: '"style-v7"', "content-length": String(256 * 1024 + 1) },
+        }),
+    );
+    await expect(current.provider.read("district")).rejects.toThrow("size limit");
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("requires a host transport and never falls back to a global network client", async () => {
     const globalFetch = vi.spyOn(globalThis, "fetch");
     try {

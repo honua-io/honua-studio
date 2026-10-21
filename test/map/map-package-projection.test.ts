@@ -1,3 +1,4 @@
+import { composeStyle } from "@honua/sdk-js/runtime";
 import { describe, expect, it } from "vitest";
 
 import { CompositionHistory } from "../../src/composition/history.js";
@@ -431,4 +432,70 @@ it("still fails the owner closed when its primary GeoJSON render layer is invali
   expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels");
   expect(layerIds(result.mapPackage.mapSpec)).not.toContain("parcels-themed");
   expect(result.unresolved).toEqual([expect.objectContaining({ layerId: "parcels" })]);
+});
+
+it("prunes refused style targets while composing a separately styled approved source", async () => {
+  const base = stateFrom([
+    { name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } },
+    { name: "addLayer", layer: { id: "roads", sourceId: "hi-roads", type: "line" } },
+  ]);
+  const authored = compositionToMapPackage(base, { catalog: CATALOG }).mapPackage.mapSpec;
+  const state: CompositionState = {
+    ...base,
+    layers: base.layers.map((layer) => ({
+      ...layer,
+      styleRef: { kind: "style-ref" as const, styleId: layer.id === "roads" ? "roads-style" : "parcels-style" },
+    })),
+    styleRefs: [
+      { styleId: "parcels-style", body: { parcels: { paint: { "fill-color": "#225588" } } } },
+      {
+        styleId: "roads-style",
+        body: {
+          parcels: { paint: { "fill-color": "#225588" } },
+          roads: { paint: { "line-color": "#ff6600" } },
+        },
+      },
+    ],
+    mapSpec: {
+      ...authored,
+      layers: authored.layers.map((layer) =>
+        layer.id === "parcels" ? { ...layer, "source-layer": "invalid-on-geojson" } : layer,
+      ),
+    } as unknown as Record<string, unknown>,
+  };
+  const original = structuredClone(state);
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.renderedLayerIds).toEqual(["roads"]);
+  expect(result.mapPackage.styleRefs).toEqual([
+    { styleId: "roads-style", body: { roads: { paint: { "line-color": "#ff6600" } } } },
+  ]);
+  const composed = await composeStyle(result.mapPackage, result.mapPackage.mapSpec, {});
+  expect(composed.layers.find((layer) => layer.id === "roads")?.paint?.["line-color"]).toBe("#ff6600");
+  expect(state).toEqual(original);
+});
+
+it("retains only approved targets in a live shared-style reference", () => {
+  const base = stateFrom([
+    { name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels", type: "fill" } },
+    { name: "addLayer", layer: { id: "roads", sourceId: "hi-roads", type: "line" } },
+  ]);
+  const authored = compositionToMapPackage(base, { catalog: CATALOG }).mapPackage.mapSpec;
+  const bindings = [
+    { styleLayerId: "catalog-fill", targetLayerId: "parcels", layerType: "fill" },
+    { styleLayerId: "catalog-line", targetLayerId: "roads", layerType: "line" },
+  ];
+  const state: CompositionState = {
+    ...base,
+    layers: base.layers.map((layer) => ({ ...layer, styleRef: { kind: "style-ref" as const, styleId: "shared" } })),
+    styleRefs: [{ styleId: "shared", layerBindings: bindings }],
+    mapSpec: {
+      ...authored,
+      layers: authored.layers.map((layer) =>
+        layer.id === "parcels" ? { ...layer, "source-layer": "invalid-on-geojson" } : layer,
+      ),
+    } as unknown as Record<string, unknown>,
+  };
+  const result = compositionToMapPackage(state, { catalog: CATALOG, sourceAuthority: "current-reader" });
+  expect(result.mapPackage.styleRefs).toEqual([{ styleId: "shared", layerBindings: [bindings[1]] }]);
+  expect(state.styleRefs?.[0]?.layerBindings).toEqual(bindings);
 });
