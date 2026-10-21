@@ -631,9 +631,13 @@ waits for composition updates; it does not promise that remote sources painted.
 
 The host must read the active published version and resolve its sources under
 the audience's current authority. This renderer does not authorize publication
-or grant access to data. Omit `getAuth` for anonymous bounded requests with
-credentials omitted; an authenticated host supplies only the current viewer's
-session. Dispose and recreate the canvas when the target, viewer or version
+or grant access to data. Catalog-backed feature reads require `getAuth` to
+return the host's current-reader `fetchRequest`, even for an anonymous reader
+with no token; those requests omit browser credentials. An inline or static map
+may omit `getAuth`. Catalog reads never fall back to a global browser fetch.
+Map previews limit each feature response or service page to 16 MiB before JSON
+parsing; oversized responses report a source error and cancel the body.
+Dispose and recreate the canvas when the target, viewer or version
 changes. Referenced styles use their canonical embedded body when present.
 Live references require an authoritative `styleProvider` and a source supported
 by that reader; unresolved references cannot silently substitute a preset.

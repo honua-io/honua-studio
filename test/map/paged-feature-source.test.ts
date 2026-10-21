@@ -165,3 +165,51 @@ it.each(["session", "abort"])("does not retry when %s changes during refresh", a
   ).rejects.toThrow();
   expect(queryCalls).toBe(1);
 });
+
+it("reassembles fragmented SDK feature pages before forwarding their bounded bytes", async () => {
+  const auth = { getAccessToken: async () => undefined };
+  const encoded = new TextEncoder().encode(JSON.stringify(featurePage));
+  const fetchImpl: typeof fetch = async (input) => {
+    if (!new URL(String(input)).pathname.endsWith("/query")) return Response.json(layerMetadata);
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(0));
+          for (let offset = 0; offset < encoded.length; offset += 2)
+            controller.enqueue(encoded.slice(offset, offset + 2));
+          controller.close();
+        },
+      }),
+    );
+  };
+  const result = await loadPagedFeatureSource(
+    renewalTarget,
+    { sourceBaseUrl: "", documentUrl: "https://host.test/", getAuth: () => auth, fetchImpl },
+    new AbortController().signal,
+  );
+  expect(result.features).toHaveLength(1);
+});
+
+it("cancels an oversized SDK feature page before the SDK parses it", async () => {
+  const auth = { getAccessToken: async () => undefined };
+  const cancel = vi.fn();
+  const fetchImpl: typeof fetch = async (input) => {
+    if (!new URL(String(input)).pathname.endsWith("/query")) return Response.json(layerMetadata);
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(16 * 1024 * 1024 + 1));
+        },
+        cancel,
+      }),
+    );
+  };
+  await expect(
+    loadPagedFeatureSource(
+      renewalTarget,
+      { sourceBaseUrl: "", documentUrl: "https://host.test/", getAuth: () => auth, fetchImpl },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("16 MiB");
+  expect(cancel).toHaveBeenCalledTimes(1);
+});

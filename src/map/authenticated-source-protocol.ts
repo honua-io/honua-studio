@@ -1,5 +1,6 @@
 import type { AddProtocolAction, RequestParameters, ResourceType } from "maplibre-gl";
 import type { AuthSession } from "../auth/types.js";
+import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 import { loadPagedFeatureSource } from "./paged-feature-source.js";
 
 export interface SourceProtocolRegistry {
@@ -81,8 +82,12 @@ export async function fetchAuthenticatedFeatureCollection(
       credentials: "omit",
       cache: "no-store",
     });
-    if (response.redirected) throw new Error(`${label} redirects are not allowed.`);
-    const body: unknown = response.ok ? await response.json() : undefined;
+    if (response.redirected) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`${label} redirects are not allowed.`);
+    }
+    const bytes = await readBoundedFeatureBody(response, signal, () => auth === options.getAuth());
+    const body: unknown = response.ok ? parseFeatureResponseBody(bytes) : undefined;
     signal.throwIfAborted();
     if (auth !== options.getAuth())
       throw new Error(`The Studio session changed during the ${label.toLowerCase()} request.`);

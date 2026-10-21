@@ -7,6 +7,7 @@ import {
   type CompositionMapViewOptions,
   ownedVisualLayerIds,
 } from "./composition-map-view.js";
+import { OUTLINE_LAYER_SUFFIX } from "./constants.js";
 import { type CompositionMapProjection, compositionToMapPackage } from "./map-package-projection.js";
 import {
   findCompositionSourceDescriptor,
@@ -128,7 +129,15 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       const projection = renderer.projection;
       if (!projection?.renderedLayerIds.length || !map?.queryRenderedFeatures) return 0;
       const styleLayers = map.getStyle?.()?.layers ?? projection.mapPackage.mapSpec.layers;
-      const layers = [...ownedVisualLayerIds(styleLayers ?? [], projection.renderedLayerIds).keys()];
+      const visualOwners = ownedVisualLayerIds(styleLayers ?? [], projection.renderedLayerIds);
+      const layers = [...visualOwners]
+        .filter(([id, owner]) => {
+          if (id !== `${owner}${OUTLINE_LAYER_SUFFIX}`) return true;
+          // The automatic outline paints the same features as another owned visual.
+          // Keep it when it is the owner's only approved render layer.
+          return ![...visualOwners].some(([otherId, otherOwner]) => otherId !== id && otherOwner === owner);
+        })
+        .map(([id]) => id);
       if (!layers.length) return 0;
       return map.queryRenderedFeatures(undefined, { layers }).length;
     },

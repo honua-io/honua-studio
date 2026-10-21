@@ -122,6 +122,35 @@ describe("read-only map canvas", () => {
     canvas.dispose();
   });
 
+  it("counts a primary and its automatic outline once, but retains an outline-only visual", async () => {
+    const harness = mapHarness();
+    const primary = { id: "parcels", type: "fill", source: "service/1" };
+    const outline = { id: "parcels__outline", type: "line", source: "service/1" };
+    let visualLayers = [primary, outline];
+    harness.map.getStyle = () => ({ layers: visualLayers });
+    const query = vi.fn((_point, options) => options?.layers?.map((id: string) => ({ id })) ?? []);
+    harness.map.queryRenderedFeatures = query;
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: {
+        ...body(),
+        mapSpec: {
+          version: 8,
+          sources: { "service/1": { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+          layers: [primary, outline],
+        },
+      },
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    expect(canvas.renderedFeatureCount).toBe(1);
+    expect(query).toHaveBeenLastCalledWith(undefined, { layers: ["parcels"] });
+    visualLayers = [outline];
+    expect(canvas.renderedFeatureCount).toBe(1);
+    expect(query).toHaveBeenLastCalledWith(undefined, { layers: ["parcels__outline"] });
+    canvas.dispose();
+  });
+
   it("rebinds a full authored Maputnik style while retaining layers, inline style and durable bindings", async () => {
     const harness = mapHarness();
     const oldUrl = "/api/operator/rest/services/old/FeatureServer/1/query?f=geojson";
