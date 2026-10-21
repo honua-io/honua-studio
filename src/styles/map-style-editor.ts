@@ -35,6 +35,18 @@ export interface MapStyleEditorOptions {
   readonly onSelectLayer?: (layerId: string) => void;
 }
 
+function explicitThematicValues(input: string, numeric: boolean): readonly (string | number)[] {
+  const lines = input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 1 || lines.length > 5)
+    throw new Error("Provide one to five explicit categories or numeric breaks.");
+  if (!numeric) return lines;
+  return lines.map((line) => {
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(line) || !Number.isFinite(Number(line)))
+      throw new Error("Enter one finite numeric value per line.");
+    return Number(line);
+  });
+}
+
 /** Ephemeral visual buffer over the host's one generation-CAS map draft. */
 export class MapStyleEditor {
   readonly #options: MapStyleEditorOptions;
@@ -51,6 +63,9 @@ export class MapStyleEditor {
   #invalid: string | undefined;
   #selectedOwner: string | undefined;
   #pendingSave: Promise<void> | undefined;
+  #disposed = false;
+  #fieldLoadEpoch = 0;
+  #refreshFields: (() => Promise<void>) | undefined;
   #flush:
     | {
         id: string;
@@ -110,7 +125,13 @@ export class MapStyleEditor {
   public async settled(): Promise<void> {
     await this.#pendingSave;
   }
+  /** Re-read actual source fields after the host changes catalog context; never replaces an unsaved style. */
+  public async refreshThematicFields(): Promise<void> {
+    await this.#refreshFields?.();
+  }
   dispose(): void {
+    this.#disposed = true;
+    this.#fieldLoadEpoch++;
     if (this.#flush) {
       clearTimeout(this.#flush.timer);
       this.#flush.reject(new Error("The style editor closed."));
@@ -286,25 +307,29 @@ export class MapStyleEditor {
     mode.setAttribute("aria-label", "Thematic method");
     mode.add(this.#option("Categories", "categories"));
     mode.add(this.#option("Manual numeric breaks", "breaks"));
-    const values = document.createElement("input");
-    values.setAttribute("aria-label", "Explicit thematic values as JSON array");
-    values.placeholder = '["Residential","Commercial"]';
+    const values = document.createElement("textarea");
+    values.setAttribute("aria-label", "Explicit thematic values, one per line");
+    values.placeholder = "Residential\nCommercial";
+    mode.addEventListener("change", () => {
+      values.placeholder = mode.value === "breaks" ? "10\n25\n50" : "Residential\nCommercial";
+    });
     const apply = document.createElement("button");
     apply.textContent = "Preview thematic colors";
     apply.disabled = true;
     let fields: readonly MapStyleField[] = [];
-    let epoch = 0;
     const load = async () => {
-      const current = ++epoch;
+      if (this.#disposed) return;
+      const current = ++this.#fieldLoadEpoch;
       this.#selectedOwner = owner.value;
       this.#options.onSelectLayer?.(owner.value);
       const selected = this.#options.layers?.find((layer) => layer.id === owner.value);
       field.replaceChildren();
+      fields = [];
       apply.disabled = true;
       if (!selected) return;
       try {
         const observed = await this.#options.getFields!(selected.sourceId);
-        if (current !== epoch) return;
+        if (this.#disposed || current !== this.#fieldLoadEpoch || owner.value !== selected.id) return;
         fields = observed;
         for (const actual of observed) field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
         apply.disabled = !observed.length;
@@ -313,9 +338,10 @@ export class MapStyleEditor {
           "*",
         );
       } catch (error) {
-        this.#error(error);
+        if (!this.#disposed && current === this.#fieldLoadEpoch) this.#error(error);
       }
     };
+    this.#refreshFields = load;
     owner.addEventListener("change", () => void load());
     values.addEventListener("input", () => {
       this.#setDirty(true);
@@ -332,7 +358,10 @@ export class MapStyleEditor {
           selected,
           actual,
           mode.value as "categories" | "breaks",
-          JSON.parse(values.value),
+          explicitThematicValues(
+            values.value,
+            mode.value === "breaks" || /int|number|decimal|double|float|numeric|single/i.test(actual.type),
+          ),
           ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6", "#3182bd", "#08519c"],
         );
         const errors = validateMapStyleEdit(this.#baseline, next);

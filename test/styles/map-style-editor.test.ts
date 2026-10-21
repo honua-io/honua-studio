@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MapStyleDocument } from "../../src/styles/map-style-edit.js";
-import { MapStyleEditor, type MapStyleEditorScope } from "../../src/styles/map-style-editor.js";
+import {
+  MapStyleEditor,
+  type MapStyleEditorOptions,
+  type MapStyleEditorScope,
+} from "../../src/styles/map-style-editor.js";
 const style = {
   version: 8,
   sources: { roads: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
@@ -12,7 +16,10 @@ afterEach(() => {
   for (const editor of editors.splice(0)) editor.dispose();
   document.body.innerHTML = "";
 });
-function setup(scope: MapStyleEditorScope = { kind: "map-local", detachesSharedStyles: true }) {
+function setup(
+  scope: MapStyleEditorScope = { kind: "map-local", detachesSharedStyles: true },
+  thematic: Pick<MapStyleEditorOptions, "layers" | "getFields"> = {},
+) {
   const container = document.createElement("section");
   document.body.append(container);
   const onSave = vi.fn(async (style: MapStyleDocument) => style);
@@ -27,6 +34,7 @@ function setup(scope: MapStyleEditorScope = { kind: "map-local", detachesSharedS
     onDirty,
     onDiscard: async () => style,
     scope,
+    ...thematic,
   });
   editors.push(editor);
   const frame = container.querySelector("iframe")!;
@@ -44,7 +52,8 @@ function setup(scope: MapStyleEditorScope = { kind: "map-local", detachesSharedS
     );
   };
   vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation((message: unknown) => {
-    const value = message as { type: string; requestId: string };
+    const value = message as { type: string; requestId: string; style?: unknown };
+    if (value.type === "honua:style-load") latest = value.style;
     if (value.type === "honua:style-flush")
       queueMicrotask(() =>
         window.dispatchEvent(
@@ -136,6 +145,98 @@ describe("credential-free controlled Maputnik frame", () => {
     expect(editor.dirty).toBe(true);
     expect(onPreview).toHaveBeenLastCalledWith(next);
   });
+});
+
+it("previews typed categories and numeric breaks over actual fields without JSON, retaining dirty guard", async () => {
+  const { container, editor, onPreview, onDirty } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    {
+      layers: [{ id: "roads", sourceId: "roads" }],
+      getFields: async () => [
+        { name: "class", type: "string" },
+        { name: "speed", type: "number" },
+      ],
+    },
+  );
+  await editor.refreshThematicFields();
+  const fields = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  )!;
+  const apply = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview thematic colors",
+  )!;
+  values.value = "Residential\nCommercial";
+  values.dispatchEvent(new Event("input"));
+  expect(editor.dirty).toBe(true);
+  expect(onDirty).toHaveBeenCalledWith(true);
+  apply.click();
+  expect(onPreview).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      layers: [
+        expect.objectContaining({
+          paint: {
+            "line-color": ["match", ["get", "class"], "Residential", "#eff3ff", "Commercial", "#c6dbef", "#9ecae1"],
+          },
+        }),
+      ],
+    }),
+  );
+  fields.value = "speed";
+  mode.value = "breaks";
+  mode.dispatchEvent(new Event("change"));
+  values.value = "10\n25";
+  apply.click();
+  expect(onPreview).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      layers: [
+        expect.objectContaining({
+          paint: { "line-color": ["step", ["to-number", ["get", "speed"]], "#eff3ff", 10, "#c6dbef", 25, "#9ecae1"] },
+        }),
+      ],
+    }),
+  );
+  values.value = "10\noops";
+  values.dispatchEvent(new Event("input"));
+  apply.click();
+  expect(container.textContent).toContain("finite numeric value");
+  expect(editor.dirty).toBe(true);
+  await editor.discard();
+  expect(editor.dirty).toBe(false);
+});
+
+it("refreshes actual fields without replacing advanced dirty Maputnik edits", async () => {
+  const pending: Array<(fields: readonly { name: string; type: string }[]) => void> = [];
+  const getFields = vi.fn(
+    () => new Promise<readonly { name: string; type: string }[]>((resolve) => pending.push(resolve)),
+  );
+  const { container, editor, send, onPreview } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    { layers: [{ id: "roads", sourceId: "roads" }], getFields },
+  );
+  const older = editor.refreshThematicFields();
+  const newer = editor.refreshThematicFields();
+  pending[2]!([{ name: "current", type: "string" }]);
+  await newer;
+  pending[0]!([{ name: "stale", type: "string" }]);
+  pending[1]!([{ name: "also stale", type: "string" }]);
+  await older;
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  expect(field.textContent).toContain("current");
+  const advanced = structuredClone(style);
+  advanced.layers[0].paint["line-color"] = "#000000";
+  send(advanced);
+  const refresh = editor.refreshThematicFields();
+  pending[3]!([{ name: "new field", type: "number" }]);
+  await refresh;
+  expect(editor.dirty).toBe(true);
+  expect(onPreview).toHaveBeenLastCalledWith(advanced);
+  const afterDispose = editor.refreshThematicFields();
+  editor.dispose();
+  pending[4]!([{ name: "late", type: "string" }]);
+  await afterDispose;
+  expect(field.textContent).toContain("new field");
 });
 
 it("shared visual save uses canonical callback readback without injecting map ownership", async () => {
