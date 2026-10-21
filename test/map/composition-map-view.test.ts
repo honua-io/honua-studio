@@ -9,6 +9,7 @@ import {
   CompositionMapView,
   type CompositionMapViewOptions,
   compositionTargetsFromFeatures,
+  ownedVisualLayerIds,
 } from "../../src/map/composition-map-view.js";
 import type { CompositionSourceDescriptor } from "../../src/map/source-resolution.js";
 import { styleRefColorFor } from "../../src/map/style-presets.js";
@@ -113,6 +114,22 @@ async function startView(overrides: Partial<CompositionMapViewOptions> = {}) {
 }
 
 describe("CompositionMapView (honua-studio#23)", () => {
+  it("keeps outline ownership and refuses conflicting primary-layer metadata", () => {
+    expect([
+      ...ownedVisualLayerIds(
+        [
+          { id: "hi-parcels__outline" },
+          { id: "hi-parcels", metadata: { "honua:compositionLayerId": "hi-roads" } },
+          { id: "styled-road", metadata: { "honua:compositionLayerId": "hi-roads" } },
+        ],
+        ["hi-parcels", "hi-roads"],
+      ),
+    ]).toEqual([
+      ["hi-parcels__outline", "hi-parcels"],
+      ["styled-road", "hi-roads"],
+    ]);
+  });
+
   it("renders the vendored basemap before any composition command lands", async () => {
     const { view, map } = await startView();
     expect(view.status).toBe("ready");
@@ -249,6 +266,28 @@ describe("CompositionMapView (honua-studio#23)", () => {
       ],
     ]);
     expect(controller.selection).toHaveLength(0); // the view reports; the element decides.
+  });
+
+  it("maps a hit on an owned visual style layer back to its composition layer and source", async () => {
+    const { controller, map, view, selections } = await startView();
+    controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels", title: "Parcels" } });
+    await view.settled();
+    map.getStyle = () => ({
+      layers: [
+        { id: "honua-basemap-land", metadata: { "honua:compositionLayerId": "hi-parcels" } },
+        { id: "parcels-themed", metadata: { "honua:compositionLayerId": "hi-parcels" } },
+      ],
+    });
+    const query = vi.spyOn(map, "queryRenderedFeatures");
+    map.setRenderedFeatures([{ id: 42, source: "visual-source", layer: { id: "parcels-themed" } }]);
+    map.emit("click", { point: { x: 10, y: 10 } });
+    expect(query).toHaveBeenCalledWith({ x: 10, y: 10 }, { layers: ["parcels-themed"] });
+    expect(selections).toEqual([
+      [
+        { kind: "feature", sourceId: "hi-parcels", featureId: 42 },
+        { kind: "layer", id: "hi-parcels" },
+      ],
+    ]);
   });
 
   it("ignores a click that hits nothing", async () => {

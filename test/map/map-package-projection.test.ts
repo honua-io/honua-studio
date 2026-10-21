@@ -26,6 +26,84 @@ function layerIds(mapSpec: { layers: readonly { id: string }[] }): string[] {
 }
 
 describe("compositionToMapPackage (honua-studio#23)", () => {
+  it.each([false, true])("preserves shared inline sources with reordered object keys (reverse=%s)", (reverse) => {
+    const sources = [
+      {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [1, 2] },
+              properties: { name: "A", nested: { x: 1, y: 2 } },
+            },
+          ],
+        },
+      },
+      {
+        data: {
+          features: [
+            {
+              properties: { nested: { y: 2, x: 1 }, name: "A" },
+              geometry: { coordinates: [1, 2], type: "Point" },
+              type: "Feature",
+            },
+          ],
+          type: "FeatureCollection",
+        },
+        type: "geojson",
+      },
+    ];
+    if (reverse) sources.reverse();
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: sources.map((source, i) => ({
+        id: `points-${i}`,
+        sourceId: "shared",
+        type: "circle",
+        visible: true,
+        metadata: { honua: { source } },
+      })),
+    };
+    const original = structuredClone(state);
+    const result = compositionToMapPackage(state, { sourceAuthority: "current-reader" });
+    expect(result.unresolved).toEqual([]);
+    expect(result.renderedLayerIds).toEqual(["points-0", "points-1"]);
+    expect(result.mapPackage.mapSpec.sources.shared).toEqual(sources[0]);
+    expect(state).toEqual(original);
+  });
+
+  it("still rejects shared inline sources with different ordered coordinates", () => {
+    const state = {
+      ...createEmptyCompositionState(),
+      layers: [
+        [1, 2],
+        [2, 1],
+      ].map((coordinates, i) => ({
+        id: `points-${i}`,
+        sourceId: "shared",
+        type: "circle",
+        visible: true,
+        metadata: {
+          honua: {
+            source: {
+              type: "geojson",
+              data: {
+                type: "FeatureCollection",
+                features: [{ type: "Feature", geometry: { type: "Point", coordinates }, properties: {} }],
+              },
+            },
+          },
+        },
+      })),
+    };
+    const result = compositionToMapPackage(state, { sourceAuthority: "current-reader" });
+    expect(result.renderedLayerIds).toEqual([]);
+    expect(result.mapPackage.mapSpec.sources.shared).toBeUndefined();
+    expect(result.unresolved.map(({ layerId }) => layerId).sort()).toEqual(["points-0", "points-1"]);
+  });
+
   it("preserves raster override rendering, visibility and opacity", () => {
     const source = { type: "raster", tiles: ["https://tiles.example/{z}/{x}/{y}.png"], tileSize: 256 };
     const state = stateFrom([

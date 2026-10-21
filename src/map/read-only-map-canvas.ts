@@ -5,6 +5,7 @@ import {
   type CompositionMapStatus,
   CompositionMapView,
   type CompositionMapViewOptions,
+  ownedVisualLayerIds,
 } from "./composition-map-view.js";
 import { type CompositionMapProjection, compositionToMapPackage } from "./map-package-projection.js";
 import {
@@ -82,14 +83,23 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
   const notify = () => {
     if (!disposed) options.onChange?.(canvas);
   };
+  const unavailableAuth = {
+    getAccessToken: async () => undefined,
+    fetchRequest: async (): Promise<Response> => {
+      throw new Error("Current-reader map transport is unavailable.");
+    },
+  };
   const renderer = new CompositionMapView({
     container: options.container,
     controller: options.controller,
     projection: audienceProjection,
     styleProvider: options.styleProvider,
-    // Even anonymous viewers use the bounded feature transport. No session
-    // means unauthenticated GETs with credentials omitted, never host authority.
-    getAuth: options.getAuth ?? (() => undefined),
+    // Anonymous viewers still need the host's bounded feature transport.
+    // Missing readers refuse the read instead of falling back to global fetch.
+    getAuth: () => {
+      const reader = options.getAuth?.();
+      return reader?.fetchRequest ? reader : unavailableAuth;
+    },
     sourceAuthBaseUrl: options.sourceAuthBaseUrl,
     sourceCatalogBaseUrl: options.sourceCatalogBaseUrl,
     mapFactory: options.mapFactory,
@@ -117,17 +127,8 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       const map = renderer.map;
       const projection = renderer.projection;
       if (!projection?.renderedLayerIds.length || !map?.queryRenderedFeatures) return 0;
-      const owners = new Set(projection.renderedLayerIds);
-      const styleLayers = map.getStyle ? map.getStyle()?.layers : projection.mapPackage.mapSpec.layers;
-      const layers = (styleLayers ?? []).flatMap((layer) => {
-        if (typeof layer.id !== "string") return [];
-        const metadata = layer.metadata;
-        const owner =
-          metadata && typeof metadata === "object"
-            ? (metadata as Readonly<Record<string, unknown>>)["honua:compositionLayerId"]
-            : undefined;
-        return owners.has(layer.id) || (typeof owner === "string" && owners.has(owner)) ? [layer.id] : [];
-      });
+      const styleLayers = map.getStyle?.()?.layers ?? projection.mapPackage.mapSpec.layers;
+      const layers = [...ownedVisualLayerIds(styleLayers ?? [], projection.renderedLayerIds).keys()];
       if (!layers.length) return 0;
       return map.queryRenderedFeatures(undefined, { layers }).length;
     },

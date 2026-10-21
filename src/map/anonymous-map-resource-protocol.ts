@@ -5,6 +5,8 @@ import type { SourceProtocolRegistry } from "./authenticated-source-protocol.js"
 export interface AnonymousMapResourceOptions {
   readonly documentUrl: string;
   readonly style: HonuaStyleSpecification;
+  /** Catalog feature reads belong exclusively to the current-reader transport. */
+  readonly deniedResourceUrls?: ReadonlySet<string>;
   readonly onError?: (error: Error) => void;
   readonly fetchImpl?: typeof fetch;
 }
@@ -106,6 +108,8 @@ export function installAnonymousMapResourceProtocol(
       if (!request.url.startsWith(prefix)) throw new Error("Invalid map asset protocol.");
       const url = networkUrl(decodeURIComponent(request.url.slice(prefix.length)), options.documentUrl);
       if (!url || !origins.has(url.origin)) throw new Error("Map asset origin is not declared by the style.");
+      if (options.deniedResourceUrls?.has(url.href))
+        throw new Error("Catalog features require the current-reader transport.");
       pending.add(controller);
       const response = await (options.fetchImpl ?? fetch)(url.href, {
         method: "GET",

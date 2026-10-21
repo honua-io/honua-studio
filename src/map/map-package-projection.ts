@@ -36,7 +36,7 @@ import { compositionStyleOverride } from "../styles/composition-style-override.j
 import type { HonuaMapPackage, HonuaMapPackageSourceBinding, HonuaStyleRefBody } from "@honua/sdk-js/runtime";
 import type { HonuaLayerSpecification, HonuaStyleSpecification } from "@honua/sdk-js/style";
 
-import type { CompositionLayer, CompositionState } from "../composition/model.js";
+import { type CompositionLayer, type CompositionState, canonicalCompositionJson } from "../composition/model.js";
 import type { BoundAuthoritativeStyle } from "../styles/authoritative-style-provider.js";
 import { type BasemapStyle, createOfflineBasemapStyle } from "./basemap.js";
 import { BASEMAP_ID_PREFIX, DEFAULT_MAP_PACKAGE_ID, OUTLINE_LAYER_SUFFIX } from "./constants.js";
@@ -283,7 +283,7 @@ export function compositionToMapPackage(
     if (
       audience &&
       boundSourceIds.has(layer.sourceId) &&
-      JSON.stringify(mapSpec.sources[layer.sourceId]) !== JSON.stringify(resolvedSource)
+      canonicalCompositionJson(mapSpec.sources[layer.sourceId]) !== canonicalCompositionJson(resolvedSource)
     ) {
       deniedSourceIds.add(layer.sourceId);
       unresolved.push({
