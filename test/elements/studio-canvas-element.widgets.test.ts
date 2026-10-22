@@ -140,3 +140,63 @@ describe("<honua-studio-canvas> + widget deck (honua-studio#24)", () => {
     expect(deckClass.instanceCount).toBe(before - 1);
   });
 });
+
+it("routes one real dropdown gesture through shared exploration into chart and table, then clears it", async () => {
+  const el = mount();
+  const controller = new CompositionController(createEmptyCompositionState());
+  el.widgetDataLoader = async () => ({
+    ok: true,
+    truncated: false,
+    rows: [
+      { featureId: 1, properties: { district: "East", parcel_id: "E1" } },
+      { featureId: 2, properties: { district: "West", parcel_id: "W1" } },
+      { featureId: 3, properties: { district: "East", parcel_id: "E2" } },
+    ],
+  });
+  el.composition = controller;
+  controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+  controller.apply({
+    name: "addWidget",
+    widget: { id: "grid", kind: "table", sourceId: "hi-parcels", config: { fields: ["parcel_id"] } },
+  });
+  controller.apply({
+    name: "addWidget",
+    widget: { id: "chart", kind: "chart", sourceId: "hi-parcels", config: { groupBy: "district" } },
+  });
+  controller.apply({
+    name: "addControl",
+    control: {
+      id: "district",
+      kind: "filterSelect",
+      sourceId: "hi-parcels",
+      config: { field: "district", options: ["East", "West"] },
+    },
+  });
+  await expect.poll(() => !!el.interactions, { timeout: 5_000 }).toBe(true);
+  const select = el.controlBar!.shadowRoot!.querySelector<HTMLSelectElement>(
+    '[data-testid="studio-control-filter-select"]',
+  )!;
+  select.value = "East";
+  select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  await expect
+    .poll(
+      () =>
+        [...(el.widgetDeck?.shadowRoot?.querySelectorAll(".widget-chart-bar title") ?? [])].map(
+          (node) => node.textContent,
+        ),
+      { timeout: 5_000 },
+    )
+    .toEqual(["East: 2"]);
+  expect([...el.widgetDeck!.shadowRoot!.querySelectorAll("td")].map((node) => node.textContent)).toEqual(["E1", "E2"]);
+  expect(el.interactions!.appearance.filters.parcels).toEqual(["==", ["get", "district"], "East"]);
+  const current = el.controlBar!.shadowRoot!.querySelector<HTMLSelectElement>(
+    '[data-testid="studio-control-filter-select"]',
+  )!;
+  current.value = "";
+  current.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  await expect.poll(() => el.widgetDeck?.shadowRoot?.querySelectorAll("td").length).toBe(3);
+  expect(
+    [...el.widgetDeck!.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent).sort(),
+  ).toEqual(["East: 2", "West: 1"]);
+  el.remove();
+});

@@ -187,3 +187,46 @@ describe("interactions/StudioInteractionRuntime", () => {
     runtime.dispose();
   });
 });
+
+describe("source-scoped widget filter projection", () => {
+  it("projects own-source controls but excludes opacity, layer-only scope and other sources", async () => {
+    const controller = controllerWithParcels();
+    for (const [id, sourceId] of [
+      ["own", "src-parcels"],
+      ["other", "src-districts"],
+      ["layer-only", "src-parcels"],
+    ])
+      controller.apply({
+        name: "addControl",
+        control: { id, kind: "filterSelect", sourceId, config: { field: "district" } },
+      });
+    controller.apply({
+      name: "addControl",
+      control: { id: "fade", kind: "opacity", sourceId: "src-parcels", config: { layerIds: ["parcels"] } },
+    });
+    const runtime = new StudioInteractionRuntime({ controller });
+    runtime.publishControlChange("own", {
+      field: "district",
+      operator: "=",
+      value: "East",
+      appliesTo: ["src-parcels"],
+    });
+    runtime.publishControlChange("other", { field: "district", operator: "=", value: "West" });
+    runtime.publishControlChange("layer-only", {
+      field: "district",
+      operator: "=",
+      value: "North",
+      appliesTo: ["parcels"],
+    });
+    runtime.publishOpacity("fade", 0.5);
+    await flush();
+    expect(runtime.appearance.sourceFilters).toEqual({
+      "src-parcels": [{ field: "district", operator: "=", value: "East", appliesTo: ["src-parcels"] }],
+      "src-districts": [{ field: "district", operator: "=", value: "West" }],
+    });
+    runtime.publishControlChange("own", undefined);
+    await flush();
+    expect(runtime.appearance.sourceFilters?.["src-parcels"]).toBeUndefined();
+    runtime.dispose();
+  });
+});

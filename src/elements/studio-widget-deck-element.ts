@@ -1,4 +1,3 @@
-import type { AuthSession } from "../auth/types.js";
 /**
  * `<honua-studio-widget-deck>` — the chrome the agent composes around the map
  * (honua-studio#24).
@@ -65,6 +64,8 @@ import type { AuthSession } from "../auth/types.js";
  * seam, so the whole pipeline is exercised in `environment: "node"` against a
  * fake loader, exactly like `mapFactory` does for the map.
  */
+import type { FilterClause } from "@honua/sdk-js/exploration";
+import type { AuthSession } from "../auth/types.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
@@ -74,6 +75,7 @@ import { runtimeServerBaseUrl } from "../runtime-config.js";
 import type { chartSeriesFromSpec } from "../widgets/chart-data.js";
 import type { renderChartSvg } from "../widgets/chart-render.js";
 import type { compositionChartSpec } from "../widgets/chart-spec.js";
+import { filterWidgetRows } from "../widgets/filter-rows.js";
 import {
   type CompositionCompareConfig,
   type CompositionTimeConfig,
@@ -155,6 +157,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #unrenderable: readonly UnrenderableLayerNote[] = [];
   #data = new Map<string, DeckDataState>();
   #page = new Map<string, number>();
+  #sourceFilters: Readonly<Record<string, readonly FilterClause[]>> = {};
   #chart: ChartPipeline | undefined;
   #chartPending = false;
   /** Last rejected intrinsic mutation, surfaced on the card rather than swallowed. */
@@ -287,6 +290,24 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   public set commandDispatch(dispatch: HonuaStudioCommandDispatch | undefined) {
     this.#commandDispatch = dispatch;
+  }
+
+  public set sourceFilters(filters: Readonly<Record<string, readonly FilterClause[]>>) {
+    if (JSON.stringify(this.#sourceFilters) === JSON.stringify(filters)) return;
+    this.#sourceFilters = filters;
+    this.#page.clear();
+    this.render();
+  }
+
+  #filteredData(sourceId: string): DeckDataState {
+    const data = this.#requireData(sourceId);
+    if (data.status !== "done" || !data.result.ok || !this.#sourceFilters[sourceId]?.length) return data;
+    const filtered = filterWidgetRows(data.result.rows, this.#sourceFilters[sourceId] ?? [], sourceId);
+    if (!filtered.ok) return { status: "done", result: { ok: false, reason: `${filtered.code}: ${filtered.reason}` } };
+    return {
+      status: "done",
+      result: { ...data.result, rows: filtered.rows, total: data.result.truncated ? undefined : filtered.rows.length },
+    };
   }
 
   public attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -559,13 +580,19 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (!normalized.ok) return { html: "", status: normalized.reason };
     const sourceId = widget.sourceId;
     if (!sourceId) return { html: "", status: `Grid "${widget.id}" has no sourceId to read rows from.` };
-    const data = this.#requireData(sourceId);
+    const data = this.#filteredData(sourceId);
     if (data.status === "loading") return { html: "", status: `Loading ${sourceId}…` };
     if (!data.result.ok) return { html: "", status: data.result.reason };
 
     const config = normalized.config;
     const rows = data.result.rows;
-    if (rows.length === 0) return { html: "", status: `${sourceId} returned no features.` };
+    if (rows.length === 0)
+      return {
+        html: "",
+        status: this.#sourceFilters[sourceId]?.length
+          ? "No loaded rows match the active source filters."
+          : `${sourceId} returned no features.`,
+      };
     const columns = config.fields.length > 0 ? config.fields : inferColumns(rows);
     const pageCount = Math.max(Math.ceil(rows.length / config.pageSize), 1);
     const page = Math.min(this.#page.get(widget.id) ?? 0, pageCount - 1);
@@ -630,7 +657,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     const sourceId = widget.sourceId;
     if (!sourceId) return { html: "", status: `Chart "${widget.id}" has no sourceId to read rows from.` };
     const pipeline = this.#requireChartPipeline();
-    const data = this.#requireData(sourceId);
+    const data = this.#filteredData(sourceId);
     if (data.status === "loading") return { html: "", status: `Loading ${sourceId}…` };
     if (!data.result.ok) return { html: "", status: data.result.reason };
     if (!pipeline) return { html: "", status: "Preparing the chart…" };

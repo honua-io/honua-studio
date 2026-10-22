@@ -72,6 +72,7 @@ export const OPACITY_CLAUSE_FIELD = "$honua:opacity";
 export interface StudioLayerAppearance {
   readonly filters: Readonly<Record<string, MaplibreFilter>>;
   readonly opacity: Readonly<Record<string, number>>;
+  readonly sourceFilters?: Readonly<Record<string, readonly FilterClause[]>>;
 }
 
 export const EMPTY_LAYER_APPEARANCE: StudioLayerAppearance = { filters: {}, opacity: {} };
@@ -335,6 +336,7 @@ export class StudioInteractionRuntime {
     const filters = this.#appearanceView.state.filters;
     const perLayer = new Map<string, FilterClause[]>();
     const opacity: Record<string, number> = {};
+    const sourceFilters: Record<string, FilterClause[]> = {};
 
     for (const control of state.controls) {
       const clause = filters[control.id];
@@ -347,6 +349,12 @@ export class StudioInteractionRuntime {
         continue;
       }
       if (!CONTROL_KIND_EMITS_CHANGE[control.kind]) continue;
+      // A source control also filters data widgets over that exact source. Layer-
+      // scoped clauses and verb-targeted layer filters never broaden to its siblings.
+      if (control.sourceId && (!clause.appliesTo?.length || clause.appliesTo.includes(control.sourceId))) {
+        sourceFilters[control.sourceId] ??= [];
+        sourceFilters[control.sourceId].push(clause);
+      }
       for (const layerId of controlTargetLayers(state, control.sourceId)) {
         const list = perLayer.get(layerId) ?? [];
         list.push(clause);
@@ -367,7 +375,7 @@ export class StudioInteractionRuntime {
       if (expression) compiledFilters[layerId] = expression;
     }
 
-    const next: StudioLayerAppearance = { filters: compiledFilters, opacity };
+    const next: StudioLayerAppearance = { filters: compiledFilters, opacity, sourceFilters };
     if (appearanceEqual(next, this.#appearance)) return;
     this.#appearance = next;
     this.#options.onAppearanceChange?.(next);
