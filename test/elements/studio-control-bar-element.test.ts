@@ -380,12 +380,13 @@ it("a delayed source A domain cannot repopulate a filter rebound to B with the s
     control: { id: "district", kind: "filterSelect", sourceId: "src-parcels", config: { field: "district" } },
   });
   let resolveA!: (value: Awaited<ReturnType<WidgetDataLoader>>) => void;
-  const loader: WidgetDataLoader = vi.fn((source: string): ReturnType<WidgetDataLoader> =>
-    source === "src-parcels"
-      ? new Promise<Awaited<ReturnType<WidgetDataLoader>>>((resolve) => {
-          resolveA = resolve;
-        })
-      : Promise.resolve({ ok: true, rows: [{ properties: { district: "B only" } }], truncated: false }),
+  const loader: WidgetDataLoader = vi.fn(
+    (source: string): ReturnType<WidgetDataLoader> =>
+      source === "src-parcels"
+        ? new Promise<Awaited<ReturnType<WidgetDataLoader>>>((resolve) => {
+            resolveA = resolve;
+          })
+        : Promise.resolve({ ok: true, rows: [{ properties: { district: "B only" } }], truncated: false }),
   );
   const runtime = new StudioInteractionRuntime({ controller });
   const el = mount(controller, { runtime, loader });
