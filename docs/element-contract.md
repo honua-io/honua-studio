@@ -342,6 +342,11 @@ the composition holds none.
 widget that cannot be rendered as authored (a `compare` naming one layer, a
 `chart` with no `groupBy`, a `time` with no steps) shows the reason in
 `[data-testid="studio-widget-status"]`; it is never silently blank.
+Informational bounded-data messages use `[data-testid="studio-widget-notice"]`
+with `role="note"`, separately from loading/error status. They retain the original
+loaded count and server total alongside any local-filter match count. Browser
+observations retain this notice without treating it as a rendering failure;
+actual error status or absent chart marks/table rows still fails readiness.
 
 **Intrinsic interactions, not authored ones.** A TOC's visibility
 checkboxes, the compare switch, and the time stepper come with the kind — an
