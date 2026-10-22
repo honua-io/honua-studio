@@ -97,3 +97,26 @@ describe("interactions/filter-expression", () => {
     expect(clausesToMaplibreFilter(clauses, ["src-roads"])).toBeDefined();
   });
 });
+
+it("keeps ISO date bounds textual, admits finite negative numbers and rejects mixed or malformed ranges", () => {
+  expect(clauseToMaplibreFilter({ field: "day", operator: "between", value: ["2026-01-01", "2026-01-03"] })).toEqual([
+    "all",
+    [">=", ["get", "day"], "2026-01-01"],
+    ["<=", ["get", "day"], "2026-01-03"],
+  ]);
+  expect(clauseToMaplibreFilter({ field: "temperature", operator: "between", value: [-10, 0] })).toEqual([
+    "all",
+    [">=", ["get", "temperature"], -10],
+    ["<=", ["get", "temperature"], 0],
+  ]);
+  for (const value of [
+    [1, "2026-01-03"],
+    ["2026-01-01", 3],
+    [false, true],
+    [1, Number.POSITIVE_INFINITY],
+    [Number.NaN, 2],
+    [1],
+    [1, 2, 3],
+  ])
+    expect(clauseToMaplibreFilter({ field: "day", operator: "between", value })).toBeUndefined();
+});

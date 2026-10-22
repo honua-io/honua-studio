@@ -337,3 +337,9 @@ layer. Unsupported widget filter expressions render a blocker. Filtering uses th
 loaded bounded rows; it does not claim complete aggregates for a truncated source.
 Filter gestures are exploration state, while the saved composition retains the
 controls and bindings needed to use them again after reopening.
+
+Date-range controls emit ISO date-only strings (`YYYY-MM-DD`). Their inclusive
+bounds are compared lexically against source fields in the same representation;
+numeric epoch fields are not coerced into dates. Numeric ranges remain numeric,
+and mixed-type or nonfinite bounds are rejected. Broader source-specific temporal
+normalization requires an explicit adapter and is not claimed here.

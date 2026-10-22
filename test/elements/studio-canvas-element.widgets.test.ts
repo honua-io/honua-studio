@@ -200,3 +200,71 @@ it("routes one real dropdown gesture through shared exploration into chart and t
   ).toEqual(["East: 2", "West: 1"]);
   el.remove();
 });
+
+it("a complete date-range gesture uses emitted ISO dates for exact map, chart and table filtering", async () => {
+  const el = mount();
+  const controller = new CompositionController(createEmptyCompositionState());
+  const rows = [
+    { featureId: 1, properties: { day: "2025-12-31", district: "West", label: "before" } },
+    { featureId: 2, properties: { day: "2026-01-01", district: "East", label: "start" } },
+    { featureId: 3, properties: { day: "2026-01-02", district: "West", label: "middle" } },
+    { featureId: 4, properties: { day: "2026-01-03", district: "East", label: "end" } },
+    { featureId: 5, properties: { day: "2026-01-04", district: "East", label: "after" } },
+    { featureId: 6, properties: { day: 1767312000000, district: "West", label: "numeric epoch" } },
+  ];
+  el.widgetDataLoader = async () => ({ ok: true, truncated: false, rows });
+  el.composition = controller;
+  controller.apply({ name: "addLayer", layer: { id: "roads", sourceId: "source" } });
+  controller.apply({
+    name: "addWidget",
+    widget: { id: "grid", kind: "table", sourceId: "source", config: { fields: ["label"] } },
+  });
+  controller.apply({
+    name: "addWidget",
+    widget: { id: "chart", kind: "chart", sourceId: "source", config: { groupBy: "district" } },
+  });
+  controller.apply({
+    name: "addControl",
+    control: { id: "period", kind: "filterDateRange", sourceId: "source", config: { field: "day" } },
+  });
+  await expect.poll(() => !!el.interactions, { timeout: 5_000 }).toBe(true);
+  const gesture = (side: "from" | "to", value: string) => {
+    const input = el.controlBar!.shadowRoot!.querySelector<HTMLInputElement>(
+      `[data-testid="studio-control-date-${side}"]`,
+    )!;
+    input.value = value;
+    input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  };
+  gesture("from", "2026-01-01");
+  await expect.poll(() => el.interactions!.clauseFor("period")?.operator).toBe(">=");
+  gesture("to", "2026-01-03");
+  await expect
+    .poll(() => el.interactions!.clauseFor("period"))
+    .toEqual({ field: "day", operator: "between", value: ["2026-01-01", "2026-01-03"] });
+  await expect
+    .poll(
+      () =>
+        [...(el.widgetDeck?.shadowRoot?.querySelectorAll(".widget-chart-bar title") ?? [])]
+          .map((node) => node.textContent)
+          .sort(),
+      { timeout: 5_000 },
+    )
+    .toEqual(["East: 2", "West: 1"]);
+  expect([...el.widgetDeck!.shadowRoot!.querySelectorAll("td")].map((node) => node.textContent)).toEqual([
+    "start",
+    "middle",
+    "end",
+  ]);
+  expect(el.interactions!.appearance.filters.roads).toEqual([
+    "all",
+    [">=", ["get", "day"], "2026-01-01"],
+    ["<=", ["get", "day"], "2026-01-03"],
+  ]);
+  expect(rows[5].properties.day).toBe(1767312000000);
+  gesture("from", "");
+  await expect.poll(() => el.interactions!.clauseFor("period")?.operator).toBe("<=");
+  gesture("to", "");
+  await expect.poll(() => el.widgetDeck?.shadowRoot?.querySelectorAll("td").length).toBe(6);
+  expect(el.interactions!.appearance.filters.roads).toBeUndefined();
+  el.remove();
+});

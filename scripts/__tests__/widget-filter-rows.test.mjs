@@ -69,3 +69,39 @@ test("nonprimitive field values are blocked instead of inventing map string conv
   );
   assert.equal(result.code, "unsupported-widget-filter");
 });
+
+test("date-control strings filter inclusively without converting numeric epochs or accepting mixed bounds", () => {
+  const dated = [
+    { featureId: 1, properties: { day: "2025-12-31" } },
+    { featureId: 2, properties: { day: "2026-01-01" } },
+    { featureId: 3, properties: { day: "2026-01-02" } },
+    { featureId: 4, properties: { day: "2026-01-03" } },
+    { featureId: 5, properties: { day: "2026-01-04" } },
+    { featureId: 6, properties: { day: 1767312000000 } },
+  ];
+  const result = filterWidgetRows(
+    dated,
+    [{ field: "day", operator: "between", value: ["2026-01-01", "2026-01-03"] }],
+    "roads",
+  );
+  assert.deepEqual(
+    result.rows.map((row) => row.featureId),
+    [2, 3, 4],
+  );
+  assert.equal(
+    filterWidgetRows(dated, [{ field: "day", operator: "between", value: ["2026-01-01", 1767398400000] }], "roads")
+      .code,
+    "unsupported-widget-filter",
+  );
+  assert.deepEqual(
+    filterWidgetRows(rows, [{ field: "score", operator: "between", value: [-10, 20] }], "roads").rows.map(
+      (row) => row.featureId,
+    ),
+    [1, 2],
+  );
+  for (const value of [[1, Number.POSITIVE_INFINITY], [Number.NaN, 2], [false, true], [1], [1, 2, 3]])
+    assert.equal(
+      filterWidgetRows(rows, [{ field: "score", operator: "between", value }], "roads").code,
+      "unsupported-widget-filter",
+    );
+});
