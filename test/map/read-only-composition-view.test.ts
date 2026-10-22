@@ -658,9 +658,15 @@ describe("read-only published composition view", () => {
   });
 });
 
-it.each(["service/1", "parcels"])(
-  "saved select/date controls over %s filter exact audience map/chart/table rows without writing",
-  async (controlSource) => {
+it.each(
+  ["service/1", "parcels"].flatMap((controlSource) =>
+    ["service/1", "parcels", "sibling"].flatMap((tableSource) =>
+      ["service/1", "parcels"].map((chartSource) => [controlSource, tableSource, chartSource]),
+    ),
+  ),
+)(
+  "control %s/table %s/chart %s aliases share exact filtered audience data without writing",
+  async (controlSource, tableSource, chartSource) => {
     const host = hosts();
     const map = mapHarness();
     const rows = [
@@ -671,9 +677,10 @@ it.each(["service/1", "parcels"])(
     ];
     const original = {
       ...body([
-        { id: "grid", kind: "table", sourceId: "service/1", config: { fields: ["label"] } },
-        { id: "chart", kind: "chart", sourceId: "service/1", config: { groupBy: "district" } },
+        { id: "grid", kind: "table", sourceId: tableSource, config: { fields: ["label"] } },
+        { id: "chart", kind: "chart", sourceId: chartSource, config: { groupBy: "district" } },
       ]),
+      layers: [...body().layers, { id: "sibling", sourceId: "service/1", type: "fill", visible: true }],
       controls: [
         {
           id: "district",
@@ -818,3 +825,34 @@ it.each(["service/1", "parcels"])(
     host.widgets.remove();
   },
 );
+
+it("ambiguous layer/source collisions never authorize widget or control data reads", async () => {
+  const host = hosts();
+  const map = mapHarness();
+  const fetchRequest = vi.fn(async () => {
+    throw new Error("Ambiguous source must never reach transport");
+  });
+  const view = createReadOnlyCompositionView({
+    container: host.map,
+    widgetContainer: host.widgets,
+    body: {
+      ...body([{ id: "grid", kind: "table", sourceId: "roads" }]),
+      layers: [
+        { id: "roads", sourceId: "service/1", type: "fill" },
+        { id: "other", sourceId: "roads", type: "fill" },
+      ],
+      controls: [{ id: "filter", kind: "filterSelect", sourceId: "roads", config: { field: "district" } }],
+    },
+    projection: { catalog, baseUrl: sourceRoot },
+    sourceAuthBaseUrl: sourceRoot,
+    documentUrl: `${origin}/maps/published/collision`,
+    mapFactory: map.factory,
+    getAudienceTransport: () => ({ fetchRequest }),
+  });
+  await view.settled();
+  expect(fetchRequest).not.toHaveBeenCalled();
+  expect(host.widgets.querySelector("honua-studio-control-bar")?.shadowRoot?.querySelector("select")).toBeNull();
+  expect(deck(host.widgets)?.shadowRoot?.querySelector("table")).toBeNull();
+  expect(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "roads")?.filter).toBeUndefined();
+  view.dispose();
+});

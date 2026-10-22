@@ -1,3 +1,9 @@
+import type { FilterClause } from "@honua/sdk-js/exploration";
+import type { AuthSession } from "../auth/types.js";
+import type { CompositionCommand } from "../composition/commands.js";
+import type { CompositionController } from "../composition/controller.js";
+import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
+import { compositionLayerColor } from "../composition/palette.js";
 /**
  * `<honua-studio-widget-deck>` — the chrome the agent composes around the map
  * (honua-studio#24).
@@ -64,12 +70,7 @@
  * seam, so the whole pipeline is exercised in `environment: "node"` against a
  * fake loader, exactly like `mapFactory` does for the map.
  */
-import type { FilterClause } from "@honua/sdk-js/exploration";
-import type { AuthSession } from "../auth/types.js";
-import type { CompositionCommand } from "../composition/commands.js";
-import type { CompositionController } from "../composition/controller.js";
-import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
-import { compositionLayerColor } from "../composition/palette.js";
+import { compositionDataSource } from "../composition/source-reference.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { runtimeServerBaseUrl } from "../runtime-config.js";
 import type { chartSeriesFromSpec } from "../widgets/chart-data.js";
@@ -299,7 +300,17 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.render();
   }
 
-  #filteredData(sourceId: string): DeckDataState {
+  #dataSourceId(sourceId: string): string | undefined {
+    return this.#composition ? compositionDataSource(this.#composition.state, sourceId) : undefined;
+  }
+
+  #filteredData(requestedSource: string): DeckDataState {
+    const sourceId = this.#dataSourceId(requestedSource);
+    if (!sourceId)
+      return {
+        status: "done",
+        result: { ok: false, reason: `Source "${requestedSource}" is unresolved or ambiguous.` },
+      };
     const data = this.#requireData(sourceId);
     if (data.status !== "done" || !data.result.ok || !this.#sourceFilters[sourceId]?.length) return data;
     const filtered = filterWidgetRows(data.result.rows, this.#sourceFilters[sourceId] ?? [], sourceId);
@@ -578,7 +589,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #renderTable(controller: CompositionController, widget: CompositionWidget): { html: string; status?: string } {
     const normalized = readTableConfig(widget);
     if (!normalized.ok) return { html: "", status: normalized.reason };
-    const sourceId = widget.sourceId;
+    const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
     if (!sourceId) return { html: "", status: `Grid "${widget.id}" has no sourceId to read rows from.` };
     const data = this.#filteredData(sourceId);
     if (data.status === "loading") return { html: "", status: `Loading ${sourceId}…` };
@@ -654,7 +665,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   /** REQ-004: spec from the SDK's converter, series from that spec, SVG from that series. */
   #renderChart(widget: CompositionWidget): { html: string; status?: string } {
-    const sourceId = widget.sourceId;
+    const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
     if (!sourceId) return { html: "", status: `Chart "${widget.id}" has no sourceId to read rows from.` };
     const pipeline = this.#requireChartPipeline();
     const data = this.#filteredData(sourceId);
@@ -711,7 +722,13 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   }
 
   /** Reads cached rows, kicking off one bounded load the first time a source is asked for. */
-  #requireData(sourceId: string): DeckDataState {
+  #requireData(requestedSource: string): DeckDataState {
+    const sourceId = this.#dataSourceId(requestedSource);
+    if (!sourceId)
+      return {
+        status: "done",
+        result: { ok: false, reason: `Source "${requestedSource}" is unresolved or ambiguous.` },
+      };
     const existing = this.#data.get(sourceId);
     if (existing) return existing;
     const loading: DeckDataState = { status: "loading" };

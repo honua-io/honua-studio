@@ -133,8 +133,8 @@ test("built audience view paints a current-reader shared style and table without
           { id: "secret", sourceId: "denied", type: "fill", visible: true, styleRef: "denied-style" },
         ],
         widgets: [
-          { id: "grid", kind: "table", sourceId: "service/1", config: { fields: ["OBJECTID", "district", "day"] } },
-          { id: "chart", kind: "chart", sourceId: "service/1", config: { groupBy: "district" } },
+          { id: "grid", kind: "table", sourceId: "parcels", config: { fields: ["OBJECTID", "district", "day"] } },
+          { id: "chart", kind: "chart", sourceId: "parcels", config: { groupBy: "district" } },
         ],
         controls: [
           {
@@ -143,7 +143,7 @@ test("built audience view paints a current-reader shared style and table without
             sourceId: "service/1",
             config: { field: "district", options: ["North", "South"] },
           },
-          { id: "period", kind: "filterDateRange", sourceId: "service/1", config: { field: "day" } },
+          { id: "period", kind: "filterDateRange", sourceId: "parcels", config: { field: "day" } },
         ],
         view: { center: [-157.843, 21.301], zoom: 13 },
       };

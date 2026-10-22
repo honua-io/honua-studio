@@ -42,6 +42,7 @@
  */
 
 import type { CompositionControl, CompositionControlKind, CompositionState } from "../composition/model.js";
+import { compositionDataSource } from "../composition/source-reference.js";
 
 /** Either a normalized config, or the reason the control cannot be rendered as authored. Mirrors `WidgetConfigResult`. */
 export type ControlConfigResult<T> =
@@ -620,11 +621,14 @@ export function describeControl(state: CompositionState, control: CompositionCon
 
 /** ADR-0031's `sourceId` resolution rule, as honua-server#3196 implements it: a layer's own id, or the `sourceId` that layer binds. */
 export function controlSourceResolves(state: CompositionState, sourceId: string): boolean {
-  return state.layers.some((layer) => layer.id === sourceId || layer.sourceId === sourceId);
+  return (
+    !!compositionDataSource(state, sourceId) &&
+    state.layers.some((layer) => layer.id === sourceId || layer.sourceId === sourceId)
+  );
 }
 
 /** Composition layers a control's `sourceId` names — the set a filter clause scopes to. */
 export function controlTargetLayers(state: CompositionState, sourceId: string | undefined): readonly string[] {
-  if (!sourceId) return [];
+  if (!sourceId || !compositionDataSource(state, sourceId)) return [];
   return state.layers.filter((layer) => layer.id === sourceId || layer.sourceId === sourceId).map((layer) => layer.id);
 }

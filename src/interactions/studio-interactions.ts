@@ -53,6 +53,7 @@ import {
   type HonuaInteractionDispatch,
   compileHonuaInteractions,
 } from "@honua/sdk-js/interactions/declarative";
+import { compositionDataSource } from "../composition/source-reference.js";
 
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionControl, CompositionState, CompositionTarget } from "../composition/model.js";
@@ -351,13 +352,16 @@ export class StudioInteractionRuntime {
       if (!CONTROL_KIND_EMITS_CHANGE[control.kind]) continue;
       // Controls may name either a backing source or a layer alias. Resolve
       // aliases once; unrelated explicit clause scopes never widen to widgets.
-      if (control.sourceId && (!clause.appliesTo?.length || clause.appliesTo.includes(control.sourceId))) {
-        const sources = new Set(
-          state.layers
-            .filter((layer) => layer.id === control.sourceId || layer.sourceId === control.sourceId)
-            .map((layer) => layer.sourceId),
-        );
+      if (control.sourceId && controlTargetLayers(state, control.sourceId).length) {
+        const resolvedSource = compositionDataSource(state, control.sourceId);
+        const sources = resolvedSource ? [resolvedSource] : [];
         for (const sourceId of sources) {
+          if (
+            clause.appliesTo?.length &&
+            !clause.appliesTo.includes(sourceId) &&
+            !clause.appliesTo.includes(control.sourceId)
+          )
+            continue;
           sourceFilters[sourceId] ??= [];
           sourceFilters[sourceId].push(clause.appliesTo?.length ? { ...clause, appliesTo: [sourceId] } : clause);
         }

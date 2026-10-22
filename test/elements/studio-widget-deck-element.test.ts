@@ -530,36 +530,45 @@ describe("widget deck session lifecycle", () => {
   });
 });
 
-it("filters exact chart/table data before pagination, resets the page and preserves the source cache", async () => {
-  const controller = new CompositionController(createEmptyCompositionState());
-  const loader = loaderFor();
-  const el = mount(controller, loader);
-  controller.apply({
-    name: "addWidget",
-    widget: { id: "grid", kind: "table", sourceId: "hi-parcels", config: { fields: ["parcel_id"], pageSize: 1 } },
-  });
-  controller.apply({
-    name: "addWidget",
-    widget: { id: "counts", kind: "chart", sourceId: "hi-parcels", config: { groupBy: "district", chartType: "bar" } },
-  });
-  await settle(() => !!query(el, ".widget-chart-bar"));
-  query<HTMLButtonElement>(el, '[data-testid="studio-widget-grid-next"]')!.click();
-  expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("2–2 of 3");
-  el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "ʻEwa" }] };
-  expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("1–1 of 2");
-  expect(query(el, '[data-testid="studio-widget-grid-row"]')?.textContent?.trim()).toBe("TMK-0002");
-  expect([...el.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent)).toEqual([
-    "ʻEwa: 2",
-  ]);
-  el.sourceFilters = {};
-  expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("1–1 of 3");
-  expect(query(el, '[data-testid="studio-widget-grid-row"]')?.textContent?.trim()).toBe("TMK-0001");
-  expect(
-    [...el.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent).sort(),
-  ).toEqual(["Honolulu: 1", "ʻEwa: 2"]);
-  expect(loader).toHaveBeenCalledTimes(1);
-  expect(PARCEL_ROWS).toHaveLength(3);
-  el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "like", value: "a_b%" }] };
-  expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toContain("unsupported-widget-filter");
-  expect(query(el, '[data-testid="studio-widget-grid"]')).toBeNull();
-});
+it.each(["hi-parcels", "parcels"])(
+  "filters %s chart/table data before pagination and preserves the backing cache",
+  async (widgetSource) => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    const loader = loaderFor();
+    const el = mount(controller, loader);
+    controller.apply({
+      name: "addWidget",
+      widget: { id: "grid", kind: "table", sourceId: widgetSource, config: { fields: ["parcel_id"], pageSize: 1 } },
+    });
+    controller.apply({
+      name: "addWidget",
+      widget: {
+        id: "counts",
+        kind: "chart",
+        sourceId: widgetSource,
+        config: { groupBy: "district", chartType: "bar" },
+      },
+    });
+    await settle(() => !!query(el, ".widget-chart-bar"));
+    query<HTMLButtonElement>(el, '[data-testid="studio-widget-grid-next"]')!.click();
+    expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("2–2 of 3");
+    el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "ʻEwa" }] };
+    expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("1–1 of 2");
+    expect(query(el, '[data-testid="studio-widget-grid-row"]')?.textContent?.trim()).toBe("TMK-0002");
+    expect([...el.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent)).toEqual([
+      "ʻEwa: 2",
+    ]);
+    el.sourceFilters = {};
+    expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("1–1 of 3");
+    expect(query(el, '[data-testid="studio-widget-grid-row"]')?.textContent?.trim()).toBe("TMK-0001");
+    expect(
+      [...el.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent).sort(),
+    ).toEqual(["Honolulu: 1", "ʻEwa: 2"]);
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(PARCEL_ROWS).toHaveLength(3);
+    el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "like", value: "a_b%" }] };
+    expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toContain("unsupported-widget-filter");
+    expect(query(el, '[data-testid="studio-widget-grid"]')).toBeNull();
+  },
+);

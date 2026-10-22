@@ -251,3 +251,40 @@ it("normalizes layer-alias widget clauses to backing sources without admitting u
   expect(runtime.appearance.filters).toEqual({});
   runtime.dispose();
 });
+
+it.each([
+  ["parcels", "src-parcels", true],
+  ["parcels", "parcels", true],
+  ["parcels", "sibling", false],
+  ["src-parcels", "src-parcels", true],
+  ["src-parcels", "parcels", false],
+  ["src-parcels", "src-districts", false],
+])(
+  "control %s scoped to %s projects backing-source data only when source-wide=%s",
+  async (controlSource, scope, admitted) => {
+    const controller = controllerWithParcels();
+    controller.apply({ name: "addLayer", layer: { id: "sibling", sourceId: "src-parcels" } });
+    controller.apply({
+      name: "addControl",
+      control: { id: "filter", kind: "filterSelect", sourceId: controlSource as string, config: { field: "district" } },
+    });
+    const runtime = new StudioInteractionRuntime({ controller });
+    runtime.publishControlChange("filter", {
+      field: "district",
+      operator: "=",
+      value: "East",
+      appliesTo: [scope as string],
+    });
+    await flush();
+    expect(Boolean(runtime.appearance.sourceFilters?.["src-parcels"]?.length)).toBe(admitted);
+    if (admitted)
+      expect(runtime.appearance.sourceFilters?.["src-parcels"]).toEqual([
+        { field: "district", operator: "=", value: "East", appliesTo: ["src-parcels"] },
+      ]);
+    if (controlSource === "src-parcels" && scope === "parcels") {
+      expect(runtime.appearance.filters.parcels).toEqual(["==", ["get", "district"], "East"]);
+      expect(runtime.appearance.filters.sibling).toBeUndefined();
+    }
+    runtime.dispose();
+  },
+);

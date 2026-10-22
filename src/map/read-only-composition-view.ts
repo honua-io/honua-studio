@@ -1,6 +1,7 @@
 import type { AuthSession } from "../auth/types.js";
 import { CompositionController } from "../composition/controller.js";
 import type { CompositionState } from "../composition/model.js";
+import { compositionDataSource } from "../composition/source-reference.js";
 import { HonuaStudioControlBarElement } from "../elements/studio-control-bar-element.js";
 import { HonuaStudioWidgetDeckElement } from "../elements/studio-widget-deck-element.js";
 import { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
@@ -132,11 +133,11 @@ function audienceWidgetDataLoader(
   const sourceAuthBaseUrl = options.sourceAuthBaseUrl ?? baseUrl;
   const documentUrl = options.documentUrl ?? options.widgetContainer.ownerDocument.baseURI;
   const approved = new Map<string, string>();
-  const aliases = new Map(state.layers.map((layer) => [layer.id, layer.sourceId]));
   for (const sourceId of new Set(
     [...state.widgets, ...state.controls].map((entry) => entry.sourceId).filter((id): id is string => !!id),
   )) {
-    const resolvedSourceId = aliases.get(sourceId) ?? sourceId;
+    const resolvedSourceId = compositionDataSource(state, sourceId);
+    if (!resolvedSourceId) continue;
     // The authored resolver has legacy fallbacks. A published widget/control may only
     // resolve a current-reader descriptor or one unique legacy service alias.
     if (!findCompositionSourceDescriptor(resolvedSourceId, catalog)) continue;
@@ -156,7 +157,10 @@ function audienceWidgetDataLoader(
       documentUrl,
       options.sourceCatalogBaseUrl ?? projection?.baseUrl ?? "/api",
     );
-    if (target) approved.set(sourceId, target.href);
+    if (target) {
+      approved.set(sourceId, target.href);
+      approved.set(resolvedSourceId, target.href);
+    }
   }
   const approvedUrls = new Set(approved.values());
 
@@ -226,7 +230,9 @@ function audienceWidgetDataLoader(
         return bounded;
       },
     });
-    const result = await loader(aliases.get(sourceId) ?? sourceId, { signal });
+    const resolvedSourceId = compositionDataSource(state, sourceId);
+    if (!resolvedSourceId) return { ok: false, reason: `Source "${sourceId}" is unresolved or ambiguous.` };
+    const result = await loader(resolvedSourceId, { signal });
     if (result.ok && result.rows.length > WIDGET_FEATURE_LIMIT)
       return { ok: false, reason: `Source "${sourceId}" exceeded the ${WIDGET_FEATURE_LIMIT}-feature widget limit.` };
     return result;
