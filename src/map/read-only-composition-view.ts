@@ -1,7 +1,9 @@
 import type { AuthSession } from "../auth/types.js";
 import { CompositionController } from "../composition/controller.js";
 import type { CompositionState } from "../composition/model.js";
+import { HonuaStudioControlBarElement } from "../elements/studio-control-bar-element.js";
 import { HonuaStudioWidgetDeckElement } from "../elements/studio-widget-deck-element.js";
+import { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
 import { readCompositionBody } from "../lifecycle/composition-draft-store.js";
 import { type WidgetDataLoader, createCatalogWidgetDataLoader } from "../widgets/widget-data.js";
 import { trustedSourceUrl } from "./authenticated-source-protocol.js";
@@ -18,6 +20,7 @@ import {
   resolveCompositionSource,
 } from "./source-resolution.js";
 
+const CONTROL_TAG = "honua-studio-control-bar";
 const WIDGET_TAG = "honua-studio-widget-deck";
 const WIDGET_FEATURE_LIMIT = 500;
 const WIDGET_RESPONSE_BYTES_LIMIT = 16 * 1024 * 1024;
@@ -57,10 +60,11 @@ export interface ReadOnlyCompositionView {
   dispose(): void;
 }
 
-function registerWidgetDeck(container: HTMLElement): void {
+function registerWidgetDeck(container: HTMLElement, controls: boolean): void {
   const registry = container.ownerDocument.defaultView?.customElements;
   if (!registry) throw new Error("A custom-element registry is required for published widgets.");
   if (!registry.get(WIDGET_TAG)) registry.define(WIDGET_TAG, HonuaStudioWidgetDeckElement);
+  if (controls && !registry.get(CONTROL_TAG)) registry.define(CONTROL_TAG, HonuaStudioControlBarElement);
 }
 
 async function boundedWidgetResponse(
@@ -223,11 +227,18 @@ function audienceWidgetDataLoader(
   };
 }
 
-/** Mounts only the widget deck beside the existing map renderer; no editor elements are registered. */
+/** Mounts audience exploration controls and widgets; no editor or writer elements are registered. */
 export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOptions): ReadOnlyCompositionView {
   let generation = 0;
   let disposed = false;
-  let current: { canvas: ReadOnlyMapCanvas; deck: HonuaStudioWidgetDeckElement } | undefined;
+  let current:
+    | {
+        canvas: ReadOnlyMapCanvas;
+        deck: HonuaStudioWidgetDeckElement;
+        controls?: HonuaStudioControlBarElement;
+        runtime?: StudioInteractionRuntime;
+      }
+    | undefined;
   let failure: string | undefined;
   let pending: Promise<void> = Promise.resolve();
   let activeTransport: AudienceFeatureTransport | undefined;
@@ -253,6 +264,13 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
     if (!disposed) options.onChange?.(view);
   };
   const clear = () => {
+    current?.runtime?.dispose();
+    current?.controls?.remove();
+    if (current?.controls) {
+      current.controls.composition = undefined;
+      current.controls.interactions = undefined;
+      current.controls.dataLoader = undefined;
+    }
     current?.canvas.dispose();
     current?.deck.remove();
     if (current?.deck) {
@@ -282,13 +300,15 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
         failure = undefined;
         let candidateDeck: HonuaStudioWidgetDeckElement | undefined;
         let candidateCanvas: ReadOnlyMapCanvas | undefined;
+        let candidateControls: HonuaStudioControlBarElement | undefined;
+        let candidateRuntime: StudioInteractionRuntime | undefined;
         try {
           // The durable body and catalog are snapshots. Only this controller
           // changes after a local TOC, compare, or time interaction.
           const state = readCompositionBody(structuredClone(document.body));
           const projection = document.projection ? structuredClone(document.projection) : undefined;
           const controller = new CompositionController(state);
-          registerWidgetDeck(options.widgetContainer);
+          registerWidgetDeck(options.widgetContainer, state.controls.length > 0);
           candidateDeck = options.widgetContainer.ownerDocument.createElement(
             WIDGET_TAG,
           ) as HonuaStudioWidgetDeckElement;
@@ -323,6 +343,30 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
             },
           });
           candidateCanvas = started.canvas;
+          if (state.controls.length > 0) {
+            candidateControls = options.widgetContainer.ownerDocument.createElement(
+              CONTROL_TAG,
+            ) as HonuaStudioControlBarElement;
+            if (!(candidateControls instanceof HonuaStudioControlBarElement))
+              throw new Error("The published control element is incompatible with this viewer.");
+            candidateControls.dataLoader = deck.dataLoader;
+            candidateControls.composition = controller;
+          }
+          const controls = candidateControls;
+          if (state.controls.length > 0 || state.interactions.length > 0) {
+            candidateRuntime = new StudioInteractionRuntime({
+              controller,
+              onAppearanceChange: (appearance) => {
+                if (disposed || selected !== generation) return;
+                started.setAppearance(appearance);
+                deck.sourceFilters = appearance.sourceFilters ?? {};
+                controls?.refreshCamera();
+              },
+            });
+            if (controls) controls.interactions = candidateRuntime;
+            started.setAppearance(candidateRuntime.appearance);
+            deck.sourceFilters = candidateRuntime.appearance.sourceFilters ?? {};
+          }
           // If appending the deck throws, the map's ready promise still needs
           // a rejection observer after we dispose its canvas.
           void started.ready.catch(() => {});
@@ -330,15 +374,21 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           // a host reload. Never install that superseded candidate over the
           // newer view, even though its own ready promise has not settled yet.
           if (disposed || selected !== generation) {
+            candidateRuntime?.dispose();
+            candidateControls?.remove();
             candidateCanvas.dispose();
             candidateDeck.remove();
             candidateDeck.composition = undefined;
             candidateDeck.dataLoader = undefined;
             return;
           }
-          current = { canvas: started.canvas, deck };
+          current = { canvas: started.canvas, deck, controls, runtime: candidateRuntime };
+          candidateRuntime = undefined;
+          candidateControls = undefined;
           candidateDeck = undefined;
           candidateCanvas = undefined;
+          if (controls) options.widgetContainer.appendChild(controls);
+          if (disposed || selected !== generation) return;
           options.widgetContainer.appendChild(deck);
           // A custom element's connected callback can also reenter reload.
           // That reload clears this installed candidate before installing its own.
@@ -353,6 +403,8 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           }));
           notify();
         } catch (error) {
+          candidateRuntime?.dispose();
+          candidateControls?.remove();
           candidateCanvas?.dispose();
           candidateDeck?.remove();
           if (candidateDeck) {

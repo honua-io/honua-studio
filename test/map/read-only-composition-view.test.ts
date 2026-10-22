@@ -651,3 +651,102 @@ describe("read-only published composition view", () => {
     expect(deck(host.widgets)).toBeNull();
   });
 });
+
+it("saved select/date controls filter the private audience map, exact chart/table rows, and clear without writing", async () => {
+  const host = hosts();
+  const map = mapHarness();
+  const rows = [
+    { id: 1, properties: { label: "N1", district: "North", day: "2026-01-01" } },
+    { id: 2, properties: { label: "N2", district: "North", day: "2026-01-02" } },
+    { id: 3, properties: { label: "S3", district: "South", day: "2026-01-03" } },
+    { id: 4, properties: { label: "S4", district: "South", day: "2026-01-04" } },
+  ];
+  const original = {
+    ...body([
+      { id: "grid", kind: "table", sourceId: "service/1", config: { fields: ["label"] } },
+      { id: "chart", kind: "chart", sourceId: "service/1", config: { groupBy: "district" } },
+    ]),
+    controls: [
+      {
+        id: "district",
+        kind: "filterSelect",
+        sourceId: "service/1",
+        config: { field: "district", options: ["North", "South"] },
+      },
+      { id: "period", kind: "filterDateRange", sourceId: "service/1", config: { field: "day" } },
+    ],
+  };
+  const durable = structuredClone(original);
+  const fetchRequest = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    expect(init?.method).toBe("GET");
+    expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+    return new Response(
+      JSON.stringify({
+        type: "FeatureCollection",
+        features: rows.map((row) => ({ type: "Feature", ...row, geometry: null })),
+      }),
+    );
+  });
+  const transport = { fetchRequest };
+  const view = createReadOnlyCompositionView({
+    container: host.map,
+    widgetContainer: host.widgets,
+    body: original,
+    projection: { catalog, baseUrl: sourceRoot },
+    sourceAuthBaseUrl: sourceRoot,
+    documentUrl: `${origin}/maps/published/dashboard`,
+    mapFactory: map.factory,
+    getAudienceTransport: () => transport,
+  });
+  await view.settled();
+  const bar = () => host.widgets.querySelector("honua-studio-control-bar")!.shadowRoot!;
+  const chart = () =>
+    [...(deck(host.widgets)?.shadowRoot?.querySelectorAll(".widget-chart-bar title") ?? [])]
+      .map((node) => node.textContent)
+      .sort();
+  const labels = () =>
+    [...(deck(host.widgets)?.shadowRoot?.querySelectorAll("td") ?? [])].map((node) => node.textContent);
+  const gesture = (selector: string, value: string) => {
+    const input = bar().querySelector<HTMLInputElement | HTMLSelectElement>(selector)!;
+    input.value = value;
+    input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  };
+  await until(() => chart().length === 2);
+  expect(chart()).toEqual(["North: 2", "South: 2"]);
+  expect(labels()).toEqual(["N1", "N2", "S3", "S4"]);
+  gesture('[data-testid="studio-control-filter-select"]', "North");
+  await until(() => labels().join() === "N1,N2");
+  await view.settled();
+  expect(chart()).toEqual(["North: 2"]);
+  expect(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "parcels")?.filter).toEqual([
+    "==",
+    ["get", "district"],
+    "North",
+  ]);
+  gesture('[data-testid="studio-control-date-from"]', "2026-01-02");
+  await until(() => labels().join() === "N2");
+  gesture('[data-testid="studio-control-date-to"]', "2026-01-03");
+  await view.settled();
+  await until(() => chart().join() === "North: 1");
+  expect(labels()).toEqual(["N2"]);
+  expect(
+    JSON.stringify(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "parcels")?.filter),
+  ).toContain("2026-01-03");
+  gesture('[data-testid="studio-control-filter-select"]', "");
+  await until(() => labels().join() === "N2,S3");
+  expect(chart()).toEqual(["North: 1", "South: 1"]);
+  gesture('[data-testid="studio-control-date-from"]', "");
+  await until(() => labels().join() === "N1,N2,S3");
+  gesture('[data-testid="studio-control-date-to"]', "");
+  await until(() => labels().length === 4);
+  await view.settled();
+  expect(chart()).toEqual(["North: 2", "South: 2"]);
+  expect(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "parcels")?.filter).toBeUndefined();
+  expect(original).toEqual(durable);
+  expect(fetchRequest).toHaveBeenCalledTimes(1);
+  expect(Object.keys(view).some((key) => /save|publish|approve|controller|apply/i.test(key))).toBe(false);
+  view.dispose();
+  expect(host.widgets.children).toHaveLength(0);
+  host.map.remove();
+  host.widgets.remove();
+});

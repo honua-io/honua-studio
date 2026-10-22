@@ -343,3 +343,10 @@ bounds are compared lexically against source fields in the same representation;
 numeric epoch fields are not coerced into dates. Numeric ranges remain numeric,
 and mixed-type or nonfinite bounds are rejected. Broader source-specific temporal
 normalization requires an explicit adapter and is not claimed here.
+
+Published composition views mount the saved source-filter controls against a
+private audience exploration context. Select/date gestures filter the audience
+map, chart and table together; clearing restores the loaded rows. The viewer
+exposes no editor, save, publication or approval capability and reads source data
+only through the current audience's bounded GET transport. Controls requiring
+a map-affordance bridge remain explicitly unavailable in this read-only host.

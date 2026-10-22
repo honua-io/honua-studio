@@ -8,7 +8,11 @@ import {
   type CompositionMapViewOptions,
   ownedVisualLayerIds,
 } from "./composition-map-view.js";
-import { type CompositionMapProjection, compositionToMapPackage } from "./map-package-projection.js";
+import {
+  type CompositionLayerAppearance,
+  type CompositionMapProjection,
+  compositionToMapPackage,
+} from "./map-package-projection.js";
 import {
   findCompositionSourceDescriptor,
   hasCompositionSourceOverride,
@@ -53,6 +57,8 @@ export interface ReadOnlyMapControllerOptions extends Omit<ReadOnlyMapCanvasOpti
 export interface StartedReadOnlyMapCanvas {
   readonly canvas: ReadOnlyMapCanvas;
   readonly ready: Promise<void>;
+  /** Internal audience exploration only; never exposed on the public canvas. */
+  setAppearance(appearance: CompositionLayerAppearance): void;
 }
 
 export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControllerOptions): StartedReadOnlyMapCanvas {
@@ -206,7 +212,7 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       throw error;
     },
   );
-  return { canvas, ready };
+  return { canvas, ready, setAppearance: (appearance) => renderer.setAppearance(appearance) };
 }
 
 export async function createReadOnlyMapCanvas(options: ReadOnlyMapCanvasOptions): Promise<ReadOnlyMapCanvas> {
