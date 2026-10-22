@@ -750,3 +750,59 @@ it("saved select/date controls filter the private audience map, exact chart/tabl
   host.map.remove();
   host.widgets.remove();
 });
+
+it("a control-only audience map derives options only from its authorized source, never an unknown one", async () => {
+  const host = hosts();
+  const map = mapHarness();
+  const fetchRequest = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          type: "FeatureCollection",
+          features: [
+            { type: "Feature", id: 1, properties: { district: "North" }, geometry: null },
+            { type: "Feature", id: 2, properties: { district: "South" }, geometry: null },
+          ],
+        }),
+      ),
+  );
+  const transport = { fetchRequest };
+  const original = {
+    ...body([]),
+    controls: [
+      { id: "valid", kind: "filterSelect", sourceId: "service/1", config: { field: "district" } },
+      { id: "unknown", kind: "filterSelect", sourceId: "unknown", config: { field: "district" } },
+    ],
+  };
+  const durable = structuredClone(original);
+  const view = createReadOnlyCompositionView({
+    container: host.map,
+    widgetContainer: host.widgets,
+    body: original,
+    projection: { catalog, baseUrl: sourceRoot },
+    sourceAuthBaseUrl: sourceRoot,
+    documentUrl: `${origin}/maps/published/control-only`,
+    mapFactory: map.factory,
+    getAudienceTransport: () => transport,
+  });
+  await view.settled();
+  const root = () => host.widgets.querySelector("honua-studio-control-bar")!.shadowRoot!;
+  await until(() => root().querySelectorAll('[data-control-id="valid"] option').length === 3);
+  const select = root().querySelector<HTMLSelectElement>('select[data-control-id="valid"]')!;
+  expect([...select.options].map((option) => option.value)).toEqual(["", "North", "South"]);
+  expect(root().textContent).toContain('Source "unknown" is not in the current-reader catalog.');
+  expect(root().querySelector('select[data-control-id="unknown"]')).toBeNull();
+  select.value = "North";
+  select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  await until(() =>
+    JSON.stringify(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "parcels")?.filter).includes(
+      "North",
+    ),
+  );
+  expect(fetchRequest).toHaveBeenCalledTimes(1);
+  expect(original).toEqual(durable);
+  view.dispose();
+  expect(host.widgets.children).toHaveLength(0);
+  host.map.remove();
+  host.widgets.remove();
+});

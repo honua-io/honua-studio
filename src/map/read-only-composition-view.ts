@@ -131,8 +131,10 @@ function audienceWidgetDataLoader(
   const sourceAuthBaseUrl = options.sourceAuthBaseUrl ?? baseUrl;
   const documentUrl = options.documentUrl ?? options.widgetContainer.ownerDocument.baseURI;
   const approved = new Map<string, string>();
-  for (const sourceId of new Set(state.widgets.map((widget) => widget.sourceId).filter((id): id is string => !!id))) {
-    // The authored resolver has legacy fallbacks. A published widget may only
+  for (const sourceId of new Set(
+    [...state.widgets, ...state.controls].map((entry) => entry.sourceId).filter((id): id is string => !!id),
+  )) {
+    // The authored resolver has legacy fallbacks. A published widget/control may only
     // resolve a current-reader descriptor or one unique legacy service alias.
     if (!findCompositionSourceDescriptor(sourceId, catalog)) continue;
     const resolution = resolveCompositionSource(
