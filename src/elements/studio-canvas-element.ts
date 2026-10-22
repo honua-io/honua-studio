@@ -469,6 +469,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     deck.onSelection = (targets) => this.#applySelection(targets);
     deck.commandDispatch = this.#commandDispatch;
     deck.composition = this.#composition;
+    deck.sourceFilters = this.#interactions?.appearance.sourceFilters ?? {};
     deck.unrenderableLayers = (this.#mapView?.projection?.unresolved ?? []).map((entry) => ({
       layerId: entry.layerId,
       reason: entry.reason,
@@ -555,9 +556,11 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         onAppearanceChange: (appearance) => {
           this.#mapView?.setAppearance(appearance);
           this.#syncControlBar();
+          this.#syncWidgetDeck();
         },
       });
       this.#mapView?.setAppearance(this.#interactions.appearance);
+      this.#syncWidgetDeck();
       this.#syncControlBar();
     } catch (error) {
       this.dispatchTypedEvent("honua-studio-error", {
@@ -573,6 +576,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.#interactions?.dispose();
     this.#interactions = undefined;
     this.#interactionsPending = false;
+    this.#syncWidgetDeck();
   }
 
   #syncTitle(): void {

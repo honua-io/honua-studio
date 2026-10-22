@@ -187,3 +187,104 @@ describe("interactions/StudioInteractionRuntime", () => {
     runtime.dispose();
   });
 });
+
+describe("source-scoped widget filter projection", () => {
+  it("projects own-source controls but excludes opacity, layer-only scope and other sources", async () => {
+    const controller = controllerWithParcels();
+    for (const [id, sourceId] of [
+      ["own", "src-parcels"],
+      ["other", "src-districts"],
+      ["layer-only", "src-parcels"],
+    ])
+      controller.apply({
+        name: "addControl",
+        control: { id, kind: "filterSelect", sourceId, config: { field: "district" } },
+      });
+    controller.apply({
+      name: "addControl",
+      control: { id: "fade", kind: "opacity", sourceId: "src-parcels", config: { layerIds: ["parcels"] } },
+    });
+    const runtime = new StudioInteractionRuntime({ controller });
+    runtime.publishControlChange("own", {
+      field: "district",
+      operator: "=",
+      value: "East",
+      appliesTo: ["src-parcels"],
+    });
+    runtime.publishControlChange("other", { field: "district", operator: "=", value: "West" });
+    runtime.publishControlChange("layer-only", {
+      field: "district",
+      operator: "=",
+      value: "North",
+      appliesTo: ["parcels"],
+    });
+    runtime.publishOpacity("fade", 0.5);
+    await flush();
+    expect(runtime.appearance.sourceFilters).toEqual({
+      "src-parcels": [{ field: "district", operator: "=", value: "East", appliesTo: ["src-parcels"] }],
+      "src-districts": [{ field: "district", operator: "=", value: "West" }],
+    });
+    runtime.publishControlChange("own", undefined);
+    await flush();
+    expect(runtime.appearance.sourceFilters?.["src-parcels"]).toBeUndefined();
+    runtime.dispose();
+  });
+});
+
+it("normalizes layer-alias widget clauses to backing sources without admitting unrelated explicit scopes", async () => {
+  const controller = controllerWithParcels();
+  controller.apply({
+    name: "addControl",
+    control: { id: "alias", kind: "filterSelect", sourceId: "parcels", config: { field: "district" } },
+  });
+  const runtime = new StudioInteractionRuntime({ controller });
+  runtime.publishControlChange("alias", { field: "district", operator: "=", value: "East", appliesTo: ["parcels"] });
+  await flush();
+  expect(runtime.appearance.sourceFilters).toEqual({
+    "src-parcels": [{ field: "district", operator: "=", value: "East", appliesTo: ["src-parcels"] }],
+  });
+  expect(runtime.appearance.filters.parcels).toEqual(["==", ["get", "district"], "East"]);
+  expect(runtime.appearance.filters.districts).toBeUndefined();
+  runtime.publishControlChange("alias", { field: "district", operator: "=", value: "West", appliesTo: ["districts"] });
+  await flush();
+  expect(runtime.appearance.sourceFilters).toEqual({});
+  expect(runtime.appearance.filters).toEqual({});
+  runtime.dispose();
+});
+
+it.each([
+  ["parcels", "src-parcels", true],
+  ["parcels", "parcels", true],
+  ["parcels", "sibling", false],
+  ["src-parcels", "src-parcels", true],
+  ["src-parcels", "parcels", false],
+  ["src-parcels", "src-districts", false],
+])(
+  "control %s scoped to %s projects backing-source data only when source-wide=%s",
+  async (controlSource, scope, admitted) => {
+    const controller = controllerWithParcels();
+    controller.apply({ name: "addLayer", layer: { id: "sibling", sourceId: "src-parcels" } });
+    controller.apply({
+      name: "addControl",
+      control: { id: "filter", kind: "filterSelect", sourceId: controlSource as string, config: { field: "district" } },
+    });
+    const runtime = new StudioInteractionRuntime({ controller });
+    runtime.publishControlChange("filter", {
+      field: "district",
+      operator: "=",
+      value: "East",
+      appliesTo: [scope as string],
+    });
+    await flush();
+    expect(Boolean(runtime.appearance.sourceFilters?.["src-parcels"]?.length)).toBe(admitted);
+    if (admitted)
+      expect(runtime.appearance.sourceFilters?.["src-parcels"]).toEqual([
+        { field: "district", operator: "=", value: "East", appliesTo: ["src-parcels"] },
+      ]);
+    if (controlSource === "src-parcels" && scope === "parcels") {
+      expect(runtime.appearance.filters.parcels).toEqual(["==", ["get", "district"], "East"]);
+      expect(runtime.appearance.filters.sibling).toBeUndefined();
+    }
+    runtime.dispose();
+  },
+);

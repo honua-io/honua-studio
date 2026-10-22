@@ -231,34 +231,39 @@ describe("<honua-studio-widget-deck> — data grid (REQ-005)", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders columns and rows from the loader, then selects a feature on row click", async () => {
-    const controller = new CompositionController(createEmptyCompositionState());
-    const el = mount(controller, loaderFor());
-    controller.apply({
-      name: "addWidget",
-      widget: { id: "grid", kind: "table", sourceId: "hi-parcels", title: "Parcels" },
-    });
-    await settle();
+  it.each(["hi-parcels", "parcels", "sibling"])(
+    "selects canonical source-scoped features from %s rows, without inventing a layer target",
+    async (widgetSource) => {
+      const controller = new CompositionController(createEmptyCompositionState());
+      controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+      controller.apply({ name: "addLayer", layer: { id: "sibling", sourceId: "hi-parcels" } });
+      const el = mount(controller, loaderFor());
+      controller.apply({
+        name: "addWidget",
+        widget: { id: "grid", kind: "table", sourceId: widgetSource, title: "Parcels" },
+      });
+      await settle();
 
-    const headers = queryAll(el, '[data-testid="studio-widget-grid"] thead th').map((th) => th.textContent);
-    expect(headers).toEqual(["parcel_id", "district", "zoning_code"]);
-    const rows = queryAll<HTMLTableRowElement>(el, '[data-testid="studio-widget-grid-row"]');
-    expect(rows).toHaveLength(3);
+      const headers = queryAll(el, '[data-testid="studio-widget-grid"] thead th').map((th) => th.textContent);
+      expect(headers).toEqual(["parcel_id", "district", "zoning_code"]);
+      const rows = queryAll<HTMLTableRowElement>(el, '[data-testid="studio-widget-grid-row"]');
+      expect(rows).toHaveLength(3);
 
-    const targets: CompositionTarget[][] = [];
-    document.addEventListener("honua-studio-selection-change", (event) => {
-      targets.push([...(event as CustomEvent<HonuaStudioSelectionChangeDetail>).detail.targets]);
-    });
-    rows[1]?.click();
+      const targets: CompositionTarget[][] = [];
+      document.addEventListener("honua-studio-selection-change", (event) => {
+        targets.push([...(event as CustomEvent<HonuaStudioSelectionChangeDetail>).detail.targets]);
+      });
+      rows[1]?.click();
 
-    // The same `{ kind: "feature", … }` shape a map click produces — and a
-    // NUMERIC id, because `feature:hi-parcels:2` and `feature:hi-parcels:"2"`
-    // are different deictic targets.
-    expect(targets).toEqual([[{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]]);
-    expect(controller.selection).toEqual([{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]);
-    await settle();
-    expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')[1]?.getAttribute("aria-selected")).toBe("true");
-  });
+      // The same `{ kind: "feature", … }` shape a map click produces — and a
+      // NUMERIC id, because `feature:hi-parcels:2` and `feature:hi-parcels:"2"`
+      // are different deictic targets.
+      expect(targets).toEqual([[{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]]);
+      expect(controller.selection).toEqual([{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]);
+      await settle();
+      expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')[1]?.getAttribute("aria-selected")).toBe("true");
+    },
+  );
 
   it("selects on Enter as well as click — rows are focusable, so they must be operable", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
@@ -529,3 +534,46 @@ describe("widget deck session lifecycle", () => {
     expect(lastSignal?.aborted).toBe(true);
   });
 });
+
+it.each(["hi-parcels", "parcels"])(
+  "filters %s chart/table data before pagination and preserves the backing cache",
+  async (widgetSource) => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+    const loader = loaderFor();
+    const el = mount(controller, loader);
+    controller.apply({
+      name: "addWidget",
+      widget: { id: "grid", kind: "table", sourceId: widgetSource, config: { fields: ["parcel_id"], pageSize: 1 } },
+    });
+    controller.apply({
+      name: "addWidget",
+      widget: {
+        id: "counts",
+        kind: "chart",
+        sourceId: widgetSource,
+        config: { groupBy: "district", chartType: "bar" },
+      },
+    });
+    await settle(() => !!query(el, ".widget-chart-bar"));
+    query<HTMLButtonElement>(el, '[data-testid="studio-widget-grid-next"]')!.click();
+    expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("2–2 of 3");
+    el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "ʻEwa" }] };
+    expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("1–1 of 2");
+    expect(query(el, '[data-testid="studio-widget-grid-row"]')?.textContent?.trim()).toBe("TMK-0002");
+    expect([...el.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent)).toEqual([
+      "ʻEwa: 2",
+    ]);
+    el.sourceFilters = {};
+    expect(query(el, '[data-testid="studio-widget-grid-range"]')?.textContent).toBe("1–1 of 3");
+    expect(query(el, '[data-testid="studio-widget-grid-row"]')?.textContent?.trim()).toBe("TMK-0001");
+    expect(
+      [...el.shadowRoot!.querySelectorAll(".widget-chart-bar title")].map((node) => node.textContent).sort(),
+    ).toEqual(["Honolulu: 1", "ʻEwa: 2"]);
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(PARCEL_ROWS).toHaveLength(3);
+    el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "like", value: "a_b%" }] };
+    expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toContain("unsupported-widget-filter");
+    expect(query(el, '[data-testid="studio-widget-grid"]')).toBeNull();
+  },
+);

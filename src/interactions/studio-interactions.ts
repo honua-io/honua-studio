@@ -53,6 +53,7 @@ import {
   type HonuaInteractionDispatch,
   compileHonuaInteractions,
 } from "@honua/sdk-js/interactions/declarative";
+import { compositionDataSource } from "../composition/source-reference.js";
 
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionControl, CompositionState, CompositionTarget } from "../composition/model.js";
@@ -72,6 +73,7 @@ export const OPACITY_CLAUSE_FIELD = "$honua:opacity";
 export interface StudioLayerAppearance {
   readonly filters: Readonly<Record<string, MaplibreFilter>>;
   readonly opacity: Readonly<Record<string, number>>;
+  readonly sourceFilters?: Readonly<Record<string, readonly FilterClause[]>>;
 }
 
 export const EMPTY_LAYER_APPEARANCE: StudioLayerAppearance = { filters: {}, opacity: {} };
@@ -335,6 +337,7 @@ export class StudioInteractionRuntime {
     const filters = this.#appearanceView.state.filters;
     const perLayer = new Map<string, FilterClause[]>();
     const opacity: Record<string, number> = {};
+    const sourceFilters: Record<string, FilterClause[]> = {};
 
     for (const control of state.controls) {
       const clause = filters[control.id];
@@ -347,6 +350,22 @@ export class StudioInteractionRuntime {
         continue;
       }
       if (!CONTROL_KIND_EMITS_CHANGE[control.kind]) continue;
+      // Controls may name either a backing source or a layer alias. Resolve
+      // aliases once; unrelated explicit clause scopes never widen to widgets.
+      if (control.sourceId && controlTargetLayers(state, control.sourceId).length) {
+        const resolvedSource = compositionDataSource(state, control.sourceId);
+        const sources = resolvedSource ? [resolvedSource] : [];
+        for (const sourceId of sources) {
+          if (
+            clause.appliesTo?.length &&
+            !clause.appliesTo.includes(sourceId) &&
+            !clause.appliesTo.includes(control.sourceId)
+          )
+            continue;
+          sourceFilters[sourceId] ??= [];
+          sourceFilters[sourceId].push(clause.appliesTo?.length ? { ...clause, appliesTo: [sourceId] } : clause);
+        }
+      }
       for (const layerId of controlTargetLayers(state, control.sourceId)) {
         const list = perLayer.get(layerId) ?? [];
         list.push(clause);
@@ -367,7 +386,7 @@ export class StudioInteractionRuntime {
       if (expression) compiledFilters[layerId] = expression;
     }
 
-    const next: StudioLayerAppearance = { filters: compiledFilters, opacity };
+    const next: StudioLayerAppearance = { filters: compiledFilters, opacity, sourceFilters };
     if (appearanceEqual(next, this.#appearance)) return;
     this.#appearance = next;
     this.#options.onAppearanceChange?.(next);

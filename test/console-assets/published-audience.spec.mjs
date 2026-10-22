@@ -13,13 +13,23 @@ test("built audience view paints a current-reader shared style and table without
   const fields = [
     { name: "OBJECTID", type: "esriFieldTypeOID" },
     { name: "district", type: "esriFieldTypeString" },
+    { name: "day", type: "esriFieldTypeString" },
   ];
+  // Keep both fixture polygons inside one z13 tile: idless tile-clipped
+  // fragments are not an independent source-row count oracle.
   const coordinates = [
-    [-157.86, 21.29],
-    [-157.84, 21.29],
-    [-157.84, 21.31],
-    [-157.86, 21.31],
-    [-157.86, 21.29],
+    [-157.847, 21.3],
+    [-157.845, 21.3],
+    [-157.845, 21.302],
+    [-157.847, 21.302],
+    [-157.847, 21.3],
+  ];
+  const features = [
+    { attributes: { OBJECTID: 1, district: "North", day: "2026-01-01" }, geometry: { rings: [coordinates] } },
+    {
+      attributes: { OBJECTID: 2, district: "South", day: "2026-01-03" },
+      geometry: { rings: [coordinates.map(([x, y]) => [x + 0.005, y])] },
+    },
   ];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://localhost");
@@ -52,21 +62,19 @@ test("built audience view paints a current-reader shared style and table without
             url.searchParams.get("f") === "geojson"
               ? {
                   type: "FeatureCollection",
-                  features: [
-                    {
-                      type: "Feature",
-                      id: 1,
-                      properties: { OBJECTID: 1, district: "North" },
-                      geometry: { type: "Polygon", coordinates: [coordinates] },
-                    },
-                  ],
+                  features: features.map((feature) => ({
+                    type: "Feature",
+                    id: feature.attributes.OBJECTID,
+                    properties: feature.attributes,
+                    geometry: { type: "Polygon", coordinates: feature.geometry.rings },
+                  })),
                 }
               : {
                   objectIdFieldName: "OBJECTID",
                   geometryType: "esriGeometryPolygon",
                   spatialReference: { wkid: 4326 },
                   fields,
-                  features: [{ attributes: { OBJECTID: 1, district: "North" }, geometry: { rings: [coordinates] } }],
+                  features,
                   exceededTransferLimit: false,
                 },
           ),
@@ -124,8 +132,20 @@ test("built audience view paints a current-reader shared style and table without
           { id: "parcels", sourceId: "service/1", type: "fill", visible: true, styleRef: "district" },
           { id: "secret", sourceId: "denied", type: "fill", visible: true, styleRef: "denied-style" },
         ],
-        widgets: [{ id: "grid", kind: "table", sourceId: "service/1" }],
-        view: { center: [-157.85, 21.3], zoom: 13 },
+        widgets: [
+          { id: "grid", kind: "table", sourceId: "parcels", config: { fields: ["OBJECTID", "district", "day"] } },
+          { id: "chart", kind: "chart", sourceId: "parcels", config: { groupBy: "district" } },
+        ],
+        controls: [
+          {
+            id: "district",
+            kind: "filterSelect",
+            sourceId: "service/1",
+            config: { field: "district", options: ["North", "South"] },
+          },
+          { id: "period", kind: "filterDateRange", sourceId: "parcels", config: { field: "day" } },
+        ],
+        view: { center: [-157.843, 21.301], zoom: 13 },
       };
       const durable = JSON.stringify(body);
       const view = runtime.createReadOnlyCompositionView({
@@ -169,6 +189,43 @@ test("built audience view paints a current-reader shared style and table without
     expect(requests.some((request) => request.path.endsWith("/1/query"))).toBe(true);
     expect(requests.every((request) => request.method === "GET" && request.reader === "current-reader")).toBe(true);
     expect(requests.some((request) => /denied|secret|mcp/.test(request.path))).toBe(false);
+    const bars = () => page.locator(".widget-chart-bar title").allTextContents();
+    const cells = () =>
+      page
+        .getByTestId("studio-widget-grid-row")
+        .evaluateAll((nodes) => nodes.map((node) => [...node.querySelectorAll("td")].map((cell) => cell.textContent)));
+    const rendered = () => page.evaluate(() => window.audienceFixture.view.renderedFeatureCount);
+    await expect.poll(async () => (await bars()).sort()).toEqual(["North: 1", "South: 1"]);
+    await expect.poll(cells).toEqual([
+      ["1", "North", "2026-01-01"],
+      ["2", "South", "2026-01-03"],
+    ]);
+    await expect.poll(rendered).toBe(2);
+    await page.getByTestId("studio-control-filter-select").selectOption("North");
+    await expect.poll(bars).toEqual(["North: 1"]);
+    await expect.poll(cells).toEqual([["1", "North", "2026-01-01"]]);
+    await expect.poll(rendered).toBe(1);
+    await page.getByTestId("studio-control-date-from").fill("2026-01-02");
+    await page.getByTestId("studio-control-date-from").press("Tab");
+    await expect.poll(rendered).toBe(0);
+    await expect.poll(bars).toEqual([]);
+    await page.getByTestId("studio-control-date-to").fill("2026-01-03");
+    await page.getByTestId("studio-control-date-to").press("Tab");
+    await page.getByTestId("studio-control-filter-select").selectOption("");
+    await expect.poll(bars).toEqual(["South: 1"]);
+    await expect.poll(cells).toEqual([["2", "South", "2026-01-03"]]);
+    await expect.poll(rendered).toBe(1);
+    await page.getByTestId("studio-control-date-from").fill("");
+    await page.getByTestId("studio-control-date-from").press("Tab");
+    await page.getByTestId("studio-control-date-to").fill("");
+    await page.getByTestId("studio-control-date-to").press("Tab");
+    await expect.poll(async () => (await bars()).sort()).toEqual(["North: 1", "South: 1"]);
+    await expect.poll(cells).toHaveLength(2);
+    await expect.poll(rendered).toBe(2);
+    expect(
+      await page.evaluate(() => JSON.stringify(window.audienceFixture.body) === window.audienceFixture.durable),
+    ).toBe(true);
+    expect(requests.every((request) => request.method === "GET" && request.reader === "current-reader")).toBe(true);
     await page.evaluate(() => window.audienceFixture.view.dispose());
     await expect(page.locator("honua-studio-widget-deck")).toHaveCount(0);
   } finally {

@@ -62,7 +62,13 @@ export function clauseToMaplibreFilter(clause: FilterClause | undefined): Maplib
     case "between": {
       const bounds = Array.isArray(clause.value) ? clause.value : undefined;
       const [low, high] = bounds ?? [];
-      if (typeof low !== "number" || typeof high !== "number") return undefined;
+      if (bounds?.length !== 2) return undefined;
+      const numeric =
+        typeof low === "number" && Number.isFinite(low) && typeof high === "number" && Number.isFinite(high);
+      // Date-range controls emit ISO date strings. Keep those values as strings;
+      // numeric epochs and mixed representations must never be coerced together.
+      const textual = typeof low === "string" && typeof high === "string";
+      if (!numeric && !textual) return undefined;
       return ["all", [">=", property, low], ["<=", property, high]];
     }
     case "like": {

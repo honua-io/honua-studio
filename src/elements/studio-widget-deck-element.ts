@@ -1,4 +1,9 @@
+import type { FilterClause } from "@honua/sdk-js/exploration";
 import type { AuthSession } from "../auth/types.js";
+import type { CompositionCommand } from "../composition/commands.js";
+import type { CompositionController } from "../composition/controller.js";
+import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
+import { compositionLayerColor } from "../composition/palette.js";
 /**
  * `<honua-studio-widget-deck>` — the chrome the agent composes around the map
  * (honua-studio#24).
@@ -65,15 +70,13 @@ import type { AuthSession } from "../auth/types.js";
  * seam, so the whole pipeline is exercised in `environment: "node"` against a
  * fake loader, exactly like `mapFactory` does for the map.
  */
-import type { CompositionCommand } from "../composition/commands.js";
-import type { CompositionController } from "../composition/controller.js";
-import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../composition/model.js";
-import { compositionLayerColor } from "../composition/palette.js";
+import { compositionDataSource } from "../composition/source-reference.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { runtimeServerBaseUrl } from "../runtime-config.js";
 import type { chartSeriesFromSpec } from "../widgets/chart-data.js";
 import type { renderChartSvg } from "../widgets/chart-render.js";
 import type { compositionChartSpec } from "../widgets/chart-spec.js";
+import { filterWidgetRows } from "../widgets/filter-rows.js";
 import {
   type CompositionCompareConfig,
   type CompositionTimeConfig,
@@ -155,6 +158,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #unrenderable: readonly UnrenderableLayerNote[] = [];
   #data = new Map<string, DeckDataState>();
   #page = new Map<string, number>();
+  #sourceFilters: Readonly<Record<string, readonly FilterClause[]>> = {};
   #chart: ChartPipeline | undefined;
   #chartPending = false;
   /** Last rejected intrinsic mutation, surfaced on the card rather than swallowed. */
@@ -287,6 +291,34 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   public set commandDispatch(dispatch: HonuaStudioCommandDispatch | undefined) {
     this.#commandDispatch = dispatch;
+  }
+
+  public set sourceFilters(filters: Readonly<Record<string, readonly FilterClause[]>>) {
+    if (JSON.stringify(this.#sourceFilters) === JSON.stringify(filters)) return;
+    this.#sourceFilters = filters;
+    this.#page.clear();
+    this.render();
+  }
+
+  #dataSourceId(sourceId: string): string | undefined {
+    return this.#composition ? compositionDataSource(this.#composition.state, sourceId) : undefined;
+  }
+
+  #filteredData(requestedSource: string): DeckDataState {
+    const sourceId = this.#dataSourceId(requestedSource);
+    if (!sourceId)
+      return {
+        status: "done",
+        result: { ok: false, reason: `Source "${requestedSource}" is unresolved or ambiguous.` },
+      };
+    const data = this.#requireData(sourceId);
+    if (data.status !== "done" || !data.result.ok || !this.#sourceFilters[sourceId]?.length) return data;
+    const filtered = filterWidgetRows(data.result.rows, this.#sourceFilters[sourceId] ?? [], sourceId);
+    if (!filtered.ok) return { status: "done", result: { ok: false, reason: `${filtered.code}: ${filtered.reason}` } };
+    return {
+      status: "done",
+      result: { ...data.result, rows: filtered.rows, total: data.result.truncated ? undefined : filtered.rows.length },
+    };
   }
 
   public attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -557,15 +589,21 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #renderTable(controller: CompositionController, widget: CompositionWidget): { html: string; status?: string } {
     const normalized = readTableConfig(widget);
     if (!normalized.ok) return { html: "", status: normalized.reason };
-    const sourceId = widget.sourceId;
+    const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
     if (!sourceId) return { html: "", status: `Grid "${widget.id}" has no sourceId to read rows from.` };
-    const data = this.#requireData(sourceId);
+    const data = this.#filteredData(sourceId);
     if (data.status === "loading") return { html: "", status: `Loading ${sourceId}…` };
     if (!data.result.ok) return { html: "", status: data.result.reason };
 
     const config = normalized.config;
     const rows = data.result.rows;
-    if (rows.length === 0) return { html: "", status: `${sourceId} returned no features.` };
+    if (rows.length === 0)
+      return {
+        html: "",
+        status: this.#sourceFilters[sourceId]?.length
+          ? "No loaded rows match the active source filters."
+          : `${sourceId} returned no features.`,
+      };
     const columns = config.fields.length > 0 ? config.fields : inferColumns(rows);
     const pageCount = Math.max(Math.ceil(rows.length / config.pageSize), 1);
     const page = Math.min(this.#page.get(widget.id) ?? 0, pageCount - 1);
@@ -627,10 +665,10 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
 
   /** REQ-004: spec from the SDK's converter, series from that spec, SVG from that series. */
   #renderChart(widget: CompositionWidget): { html: string; status?: string } {
-    const sourceId = widget.sourceId;
+    const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
     if (!sourceId) return { html: "", status: `Chart "${widget.id}" has no sourceId to read rows from.` };
     const pipeline = this.#requireChartPipeline();
-    const data = this.#requireData(sourceId);
+    const data = this.#filteredData(sourceId);
     if (data.status === "loading") return { html: "", status: `Loading ${sourceId}…` };
     if (!data.result.ok) return { html: "", status: data.result.reason };
     if (!pipeline) return { html: "", status: "Preparing the chart…" };
@@ -684,7 +722,13 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   }
 
   /** Reads cached rows, kicking off one bounded load the first time a source is asked for. */
-  #requireData(sourceId: string): DeckDataState {
+  #requireData(requestedSource: string): DeckDataState {
+    const sourceId = this.#dataSourceId(requestedSource);
+    if (!sourceId)
+      return {
+        status: "done",
+        result: { ok: false, reason: `Source "${requestedSource}" is unresolved or ambiguous.` },
+      };
     const existing = this.#data.get(sourceId);
     if (existing) return existing;
     const loading: DeckDataState = { status: "loading" };

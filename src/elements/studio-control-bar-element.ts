@@ -1,3 +1,5 @@
+import type { CompositionController } from "../composition/controller.js";
+import type { CompositionControl, CompositionTarget } from "../composition/model.js";
 /**
  * `<honua-studio-control-bar>` — the controls collection, rendered
  * (honua-studio#25).
@@ -44,8 +46,7 @@
  * `data-action` — per-node binding after every repaint would accumulate abort
  * registrations for the life of the session.
  */
-import type { CompositionController } from "../composition/controller.js";
-import type { CompositionControl, CompositionTarget } from "../composition/model.js";
+import { compositionDataSource } from "../composition/source-reference.js";
 import {
   type BasemapOption,
   CONTROL_KIND_LABELS,
@@ -125,6 +126,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
   #dataLoader: WidgetDataLoader | undefined;
   #measure = new Map<string, MeasureState>();
   #options = new Map<string, OptionsState>();
+  #optionsGeneration = 0;
   #basemapChoice = new Map<string, string>();
   /** Last rejected intrinsic mutation, surfaced on the control rather than swallowed. */
   #commandError: string | undefined;
@@ -138,6 +140,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
     this.#composition = composition;
+    this.#optionsGeneration++;
     this.#options.clear();
     this.#measure.clear();
     if (composition && this.isConnected) {
@@ -175,6 +178,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
   public set dataLoader(loader: WidgetDataLoader | undefined) {
     if (this.#dataLoader === loader) return;
     this.#dataLoader = loader;
+    this.#optionsGeneration++;
     this.#options.clear();
     this.render();
   }
@@ -219,6 +223,8 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
 
   protected onDisconnect(): void {
     HonuaStudioControlBarElement.instanceCount -= 1;
+    this.#optionsGeneration++;
+    this.#options.clear();
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
   }
@@ -588,8 +594,12 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     if (!runtime) return { html: "", status: noRuntime("Date filter") };
     const clause = runtime.clauseFor(control.id);
     const range = Array.isArray(clause?.value) ? (clause?.value as unknown[]) : [];
-    const from = typeof range[0] === "string" ? range[0] : (config.from ?? "");
-    const to = typeof range[1] === "string" ? range[1] : (config.to ?? "");
+    // Keep a half-open gesture visible through the shared-runtime rerender.
+    // Otherwise entering From clears it before the user can enter To.
+    const lower = clause ? (clause.operator === ">=" ? clause.value : range[0]) : config.from;
+    const upper = clause ? (clause.operator === "<=" ? clause.value : range[1]) : config.to;
+    const from = typeof lower === "string" ? lower : "";
+    const to = typeof upper === "string" ? upper : "";
     return {
       html: `
         <div class="control-field control-field--range">
@@ -659,7 +669,10 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         reason: `Filter "${control.id}" declares no sourceId and no config.options, so its domain is unknown.`,
       };
     }
-    const cacheKey = `${control.id}|${field}`;
+    const backingSource = this.#composition ? compositionDataSource(this.#composition.state, sourceId) : undefined;
+    if (!backingSource)
+      return { status: "done", options: [], reason: `Source "${sourceId}" is unresolved or ambiguous.` };
+    const cacheKey = JSON.stringify([control.id, sourceId, backingSource, field]);
     const cached = this.#options.get(cacheKey);
     if (cached)
       return cached.status === "loading"
@@ -673,10 +686,28 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         reason: `Filter "${control.id}" needs config.options — this canvas has no feature loader to derive them from.`,
       };
     }
-    this.#options.set(cacheKey, { status: "loading" });
-    void loader(sourceId)
+    const loading: OptionsState = { status: "loading" };
+    const generation = this.#optionsGeneration;
+    this.#options.set(cacheKey, loading);
+    const current = () =>
+      this.isConnected &&
+      generation === this.#optionsGeneration &&
+      loader === this.#dataLoader &&
+      this.#options.get(cacheKey) === loading &&
+      !!this.#composition &&
+      compositionDataSource(this.#composition.state, sourceId) === backingSource &&
+      this.#composition?.state.controls.some(
+        (entry) => entry.id === control.id && entry.sourceId === sourceId && fieldOf(entry) === field,
+      );
+    const discard = () => {
+      if (this.#options.get(cacheKey) === loading) this.#options.delete(cacheKey);
+    };
+    void loader(backingSource)
       .then((result) => {
-        if (!this.isConnected) return;
+        if (!current()) {
+          discard();
+          return;
+        }
         if (!result.ok) {
           this.#options.set(cacheKey, { status: "done", options: [], reason: result.reason });
         } else {
@@ -696,7 +727,10 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         this.render();
       })
       .catch((error: unknown) => {
-        if (!this.isConnected) return;
+        if (!current()) {
+          discard();
+          return;
+        }
         this.#options.set(cacheKey, {
           status: "done",
           options: [],

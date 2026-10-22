@@ -114,7 +114,7 @@ the first flagship deployment is the statewide Hawaii demo
 | MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 17 `honua_studio_*` tools; this client has typed wrappers for the 13 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16, #31 |
 | MapLibre canvas that mutates as tool calls stream | `src/map/composition-map-view.ts` | #27 |
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
-| Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
+| Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts; source-scoped filter controls filter bounded chart/table rows before aggregation and pagination | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
 | Package lifecycle UI — draft, version, compare, publish, rollback against honua-server's Studio package lifecycle REST API | `src/lifecycle/` | #17 |
 | Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-workspace.ts`, `src/gp/custom-process-workspace.ts` | #104 |
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
@@ -330,3 +330,23 @@ owns that attribute plus light/dark (`data-theme`, following
 ## License
 
 Apache-2.0
+
+Source filter controls share their exploration clauses with charts and tables over
+the exact same source. Layer-specific interaction filters remain local to their
+layer. Unsupported widget filter expressions render a blocker. Filtering uses the
+loaded bounded rows; it does not claim complete aggregates for a truncated source.
+Filter gestures are exploration state, while the saved composition retains the
+controls and bindings needed to use them again after reopening.
+
+Date-range controls emit ISO date-only strings (`YYYY-MM-DD`). Their inclusive
+bounds are compared lexically against source fields in the same representation;
+numeric epoch fields are not coerced into dates. Numeric ranges remain numeric,
+and mixed-type or nonfinite bounds are rejected. Broader source-specific temporal
+normalization requires an explicit adapter and is not claimed here.
+
+Published composition views mount the saved source-filter controls against a
+private audience exploration context. Select/date gestures filter the audience
+map, chart and table together; clearing restores the loaded rows. The viewer
+exposes no editor, save, publication or approval capability and reads source data
+only through the current audience's bounded GET transport. Controls requiring
+a map-affordance bridge remain explicitly unavailable in this read-only host.
