@@ -372,38 +372,53 @@ describe("<honua-studio-control-bar>", () => {
   });
 });
 
-it("a delayed source A domain cannot repopulate a filter rebound to B with the same control id and field", async () => {
-  const controller = controllerWithParcels();
-  controller.apply({ name: "addLayer", layer: { id: "other", sourceId: "src-other" } });
-  controller.apply({
-    name: "addControl",
-    control: { id: "district", kind: "filterSelect", sourceId: "src-parcels", config: { field: "district" } },
-  });
-  let resolveA!: (value: Awaited<ReturnType<WidgetDataLoader>>) => void;
-  const loader: WidgetDataLoader = vi.fn(
-    (source: string): ReturnType<WidgetDataLoader> =>
-      source === "src-parcels"
-        ? new Promise<Awaited<ReturnType<WidgetDataLoader>>>((resolve) => {
-            resolveA = resolve;
-          })
-        : Promise.resolve({ ok: true, rows: [{ properties: { district: "B only" } }], truncated: false }),
-  );
-  const runtime = new StudioInteractionRuntime({ controller });
-  const el = mount(controller, { runtime, loader });
-  expect(resolveA).toBeDefined();
-  controller.replaceState({
-    ...controller.state,
-    controls: controller.state.controls.map((control) => ({ ...control, sourceId: "src-other" })),
-  });
-  await flush();
-  const options = () => [...(query<HTMLSelectElement>(el, "select")?.options ?? [])].map((option) => option.value);
-  expect(options()).toEqual(["", "B only"]);
-  resolveA({ ok: true, rows: [{ properties: { district: "A must not appear" } }], truncated: false });
-  await flush();
-  expect(options()).toEqual(["", "B only"]);
-  runtime.dispose();
-  el.remove();
-});
+it.each(["src-parcels", "parcels"].flatMap((source) => ["pending", "cached"].map((phase) => [source, phase])))(
+  "%s control options bind backing source across %s rebind",
+  async (controlSource, phase) => {
+    const controller = controllerWithParcels();
+    controller.apply({ name: "addLayer", layer: { id: "other", sourceId: "src-other" } });
+    controller.apply({
+      name: "addControl",
+      control: { id: "district", kind: "filterSelect", sourceId: controlSource, config: { field: "district" } },
+    });
+    let resolveA!: (value: Awaited<ReturnType<WidgetDataLoader>>) => void;
+    const loader: WidgetDataLoader = vi.fn(
+      (source: string): ReturnType<WidgetDataLoader> =>
+        source === "src-parcels"
+          ? new Promise<Awaited<ReturnType<WidgetDataLoader>>>((resolve) => {
+              resolveA = resolve;
+            })
+          : Promise.resolve({ ok: true, rows: [{ properties: { district: "B only" } }], truncated: false }),
+    );
+    const runtime = new StudioInteractionRuntime({ controller });
+    const el = mount(controller, { runtime, loader });
+    expect(resolveA).toBeDefined();
+    if (phase === "cached") {
+      resolveA({ ok: true, rows: [{ properties: { district: "A must not appear" } }], truncated: false });
+      await flush();
+    }
+    controller.replaceState({
+      ...controller.state,
+      layers: controller.state.layers.map((layer) =>
+        layer.id === "parcels" ? { ...layer, sourceId: "src-other" } : layer,
+      ),
+      controls: controller.state.controls.map((control) => ({
+        ...control,
+        sourceId: controlSource === "parcels" ? "parcels" : "src-other",
+      })),
+    });
+    await flush();
+    const options = () => [...(query<HTMLSelectElement>(el, "select")?.options ?? [])].map((option) => option.value);
+    expect(options()).toEqual(["", "B only"]);
+    if (phase === "pending")
+      resolveA({ ok: true, rows: [{ properties: { district: "A must not appear" } }], truncated: false });
+    await flush();
+    expect(options()).toEqual(["", "B only"]);
+    expect(vi.mocked(loader).mock.calls.map((call) => call[0])).toEqual(["src-parcels", "src-other"]);
+    runtime.dispose();
+    el.remove();
+  },
+);
 
 it("replacing a loader invalidates its in-flight domain even when control, source and field stay the same", async () => {
   const controller = controllerWithParcels();

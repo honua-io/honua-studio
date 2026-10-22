@@ -1,3 +1,5 @@
+import type { CompositionController } from "../composition/controller.js";
+import type { CompositionControl, CompositionTarget } from "../composition/model.js";
 /**
  * `<honua-studio-control-bar>` — the controls collection, rendered
  * (honua-studio#25).
@@ -44,8 +46,7 @@
  * `data-action` — per-node binding after every repaint would accumulate abort
  * registrations for the life of the session.
  */
-import type { CompositionController } from "../composition/controller.js";
-import type { CompositionControl, CompositionTarget } from "../composition/model.js";
+import { compositionDataSource } from "../composition/source-reference.js";
 import {
   type BasemapOption,
   CONTROL_KIND_LABELS,
@@ -668,7 +669,10 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         reason: `Filter "${control.id}" declares no sourceId and no config.options, so its domain is unknown.`,
       };
     }
-    const cacheKey = JSON.stringify([control.id, sourceId, field]);
+    const backingSource = this.#composition ? compositionDataSource(this.#composition.state, sourceId) : undefined;
+    if (!backingSource)
+      return { status: "done", options: [], reason: `Source "${sourceId}" is unresolved or ambiguous.` };
+    const cacheKey = JSON.stringify([control.id, sourceId, backingSource, field]);
     const cached = this.#options.get(cacheKey);
     if (cached)
       return cached.status === "loading"
@@ -690,13 +694,15 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       generation === this.#optionsGeneration &&
       loader === this.#dataLoader &&
       this.#options.get(cacheKey) === loading &&
+      !!this.#composition &&
+      compositionDataSource(this.#composition.state, sourceId) === backingSource &&
       this.#composition?.state.controls.some(
         (entry) => entry.id === control.id && entry.sourceId === sourceId && fieldOf(entry) === field,
       );
     const discard = () => {
       if (this.#options.get(cacheKey) === loading) this.#options.delete(cacheKey);
     };
-    void loader(sourceId)
+    void loader(backingSource)
       .then((result) => {
         if (!current()) {
           discard();
