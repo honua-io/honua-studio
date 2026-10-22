@@ -349,11 +349,18 @@ export class StudioInteractionRuntime {
         continue;
       }
       if (!CONTROL_KIND_EMITS_CHANGE[control.kind]) continue;
-      // A source control also filters data widgets over that exact source. Layer-
-      // scoped clauses and verb-targeted layer filters never broaden to its siblings.
+      // Controls may name either a backing source or a layer alias. Resolve
+      // aliases once; unrelated explicit clause scopes never widen to widgets.
       if (control.sourceId && (!clause.appliesTo?.length || clause.appliesTo.includes(control.sourceId))) {
-        sourceFilters[control.sourceId] ??= [];
-        sourceFilters[control.sourceId].push(clause);
+        const sources = new Set(
+          state.layers
+            .filter((layer) => layer.id === control.sourceId || layer.sourceId === control.sourceId)
+            .map((layer) => layer.sourceId),
+        );
+        for (const sourceId of sources) {
+          sourceFilters[sourceId] ??= [];
+          sourceFilters[sourceId].push(clause.appliesTo?.length ? { ...clause, appliesTo: [sourceId] } : clause);
+        }
       }
       for (const layerId of controlTargetLayers(state, control.sourceId)) {
         const list = perLayer.get(layerId) ?? [];

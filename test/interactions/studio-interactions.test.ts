@@ -230,3 +230,24 @@ describe("source-scoped widget filter projection", () => {
     runtime.dispose();
   });
 });
+
+it("normalizes layer-alias widget clauses to backing sources without admitting unrelated explicit scopes", async () => {
+  const controller = controllerWithParcels();
+  controller.apply({
+    name: "addControl",
+    control: { id: "alias", kind: "filterSelect", sourceId: "parcels", config: { field: "district" } },
+  });
+  const runtime = new StudioInteractionRuntime({ controller });
+  runtime.publishControlChange("alias", { field: "district", operator: "=", value: "East", appliesTo: ["parcels"] });
+  await flush();
+  expect(runtime.appearance.sourceFilters).toEqual({
+    "src-parcels": [{ field: "district", operator: "=", value: "East", appliesTo: ["src-parcels"] }],
+  });
+  expect(runtime.appearance.filters.parcels).toEqual(["==", ["get", "district"], "East"]);
+  expect(runtime.appearance.filters.districts).toBeUndefined();
+  runtime.publishControlChange("alias", { field: "district", operator: "=", value: "West", appliesTo: ["districts"] });
+  await flush();
+  expect(runtime.appearance.sourceFilters).toEqual({});
+  expect(runtime.appearance.filters).toEqual({});
+  runtime.dispose();
+});

@@ -125,20 +125,23 @@ function audienceWidgetDataLoader(
   state: CompositionState,
   projection: CompositionMapProjectionOptions | undefined,
   options: ReadOnlyCompositionViewOptions,
+  signal: AbortSignal,
 ): WidgetDataLoader {
   const catalog = projection?.catalog ?? [];
   const baseUrl = projection?.baseUrl ?? options.sourceAuthBaseUrl ?? "/api";
   const sourceAuthBaseUrl = options.sourceAuthBaseUrl ?? baseUrl;
   const documentUrl = options.documentUrl ?? options.widgetContainer.ownerDocument.baseURI;
   const approved = new Map<string, string>();
+  const aliases = new Map(state.layers.map((layer) => [layer.id, layer.sourceId]));
   for (const sourceId of new Set(
     [...state.widgets, ...state.controls].map((entry) => entry.sourceId).filter((id): id is string => !!id),
   )) {
+    const resolvedSourceId = aliases.get(sourceId) ?? sourceId;
     // The authored resolver has legacy fallbacks. A published widget/control may only
     // resolve a current-reader descriptor or one unique legacy service alias.
-    if (!findCompositionSourceDescriptor(sourceId, catalog)) continue;
+    if (!findCompositionSourceDescriptor(resolvedSourceId, catalog)) continue;
     const resolution = resolveCompositionSource(
-      { id: sourceId, sourceId, visible: true },
+      { id: sourceId, sourceId: resolvedSourceId, visible: true },
       { catalog, baseUrl, featureLimit: WIDGET_FEATURE_LIMIT },
     );
     if (
@@ -174,7 +177,8 @@ function audienceWidgetDataLoader(
     }
     return noTokenAuth;
   };
-  return async (sourceId, loadOptions) => {
+  return async (sourceId) => {
+    signal.throwIfAborted();
     if (!approved.has(sourceId))
       return { ok: false, reason: `Source "${sourceId}" is not in the current-reader catalog.` };
     loader ??= createCatalogWidgetDataLoader({
@@ -222,7 +226,7 @@ function audienceWidgetDataLoader(
         return bounded;
       },
     });
-    const result = await loader(sourceId, loadOptions);
+    const result = await loader(aliases.get(sourceId) ?? sourceId, { signal });
     if (result.ok && result.rows.length > WIDGET_FEATURE_LIMIT)
       return { ok: false, reason: `Source "${sourceId}" exceeded the ${WIDGET_FEATURE_LIMIT}-feature widget limit.` };
     return result;
@@ -239,6 +243,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
         deck: HonuaStudioWidgetDeckElement;
         controls?: HonuaStudioControlBarElement;
         runtime?: StudioInteractionRuntime;
+        reads: AbortController;
       }
     | undefined;
   let failure: string | undefined;
@@ -266,6 +271,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
     if (!disposed) options.onChange?.(view);
   };
   const clear = () => {
+    current?.reads.abort();
     current?.runtime?.dispose();
     current?.controls?.remove();
     if (current?.controls) {
@@ -304,6 +310,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
         let candidateCanvas: ReadOnlyMapCanvas | undefined;
         let candidateControls: HonuaStudioControlBarElement | undefined;
         let candidateRuntime: StudioInteractionRuntime | undefined;
+        const reads = new AbortController();
         try {
           // The durable body and catalog are snapshots. Only this controller
           // changes after a local TOC, compare, or time interaction.
@@ -317,7 +324,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           if (!(candidateDeck instanceof HonuaStudioWidgetDeckElement))
             throw new Error("The published widget element is incompatible with this viewer.");
           const deck = candidateDeck;
-          deck.dataLoader = audienceWidgetDataLoader(state, projection, options);
+          deck.dataLoader = audienceWidgetDataLoader(state, projection, options, reads.signal);
           deck.sourceCatalog = projection?.catalog;
           deck.sourceBaseUrl = projection?.baseUrl ?? options.sourceAuthBaseUrl ?? "/api";
           deck.sourceAuthBaseUrl = options.sourceAuthBaseUrl;
@@ -376,6 +383,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           // a host reload. Never install that superseded candidate over the
           // newer view, even though its own ready promise has not settled yet.
           if (disposed || selected !== generation) {
+            reads.abort();
             candidateRuntime?.dispose();
             candidateControls?.remove();
             candidateCanvas.dispose();
@@ -384,7 +392,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
             candidateDeck.dataLoader = undefined;
             return;
           }
-          current = { canvas: started.canvas, deck, controls, runtime: candidateRuntime };
+          current = { canvas: started.canvas, deck, controls, runtime: candidateRuntime, reads };
           candidateRuntime = undefined;
           candidateControls = undefined;
           candidateDeck = undefined;
@@ -405,6 +413,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
           }));
           notify();
         } catch (error) {
+          reads.abort();
           candidateRuntime?.dispose();
           candidateControls?.remove();
           candidateCanvas?.dispose();
