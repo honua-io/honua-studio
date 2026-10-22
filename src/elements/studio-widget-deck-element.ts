@@ -104,7 +104,9 @@ export interface UnrenderableLayerNote {
   readonly reason: string;
 }
 
-type DeckDataState = { readonly status: "loading" } | { readonly status: "done"; readonly result: WidgetDataResult };
+type DeckDataState =
+  | { readonly status: "loading" }
+  | { readonly status: "done"; readonly result: WidgetDataResult; readonly loadedCount?: number };
 
 /**
  * The chart pipeline, loaded on demand.
@@ -317,7 +319,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (!filtered.ok) return { status: "done", result: { ok: false, reason: `${filtered.code}: ${filtered.reason}` } };
     return {
       status: "done",
-      result: { ...data.result, rows: filtered.rows, total: data.result.truncated ? undefined : filtered.rows.length },
+      result: { ...data.result, rows: filtered.rows },
+      loadedCount: data.result.rows.length,
     };
   }
 
@@ -596,12 +599,13 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (!data.result.ok) return { html: "", status: data.result.reason };
 
     const config = normalized.config;
+    const bounded = boundedDataStatus(data);
     const rows = data.result.rows;
     if (rows.length === 0)
       return {
         html: "",
         status: this.#sourceFilters[sourceId]?.length
-          ? "No loaded rows match the active source filters."
+          ? `No loaded rows match the active source filters.${bounded ? ` ${bounded}` : ""}`
           : `${sourceId} returned no features.`,
       };
     const columns = config.fields.length > 0 ? config.fields : inferColumns(rows);
@@ -645,10 +649,6 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
       </nav>`
         : "";
 
-    const truncated = data.result.truncated
-      ? `Showing the first ${rows.length}${data.result.total !== undefined ? ` of ${data.result.total}` : ""} features — the request is bounded.`
-      : undefined;
-
     return {
       html: `
         <div class="widget-grid-scroll">
@@ -659,7 +659,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
         </div>
         ${pager}
       `,
-      ...(truncated ? { status: truncated } : {}),
+      ...(bounded ? { status: bounded } : {}),
     };
   }
 
@@ -680,6 +680,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (!spec.ok) return { html: "", status: spec.reason };
     const series = pipeline.chartSeriesFromSpec(spec.spec);
     const chart = pipeline.renderChartSvg(spec.spec, series);
+    const status = [series.reason, boundedDataStatus(data)].filter(Boolean).join(" ");
     return {
       html: `
         <figure class="widget-chart" data-testid="studio-widget-chart" data-mark="${escapeHtml(markOf(spec.spec))}">
@@ -687,7 +688,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
           <figcaption class="hn-muted" data-testid="studio-widget-chart-summary">${escapeHtml(chart.summary)}</figcaption>
         </figure>
       `,
-      ...(series.reason ? { status: series.reason } : {}),
+      ...(status ? { status } : {}),
     };
   }
 
@@ -983,3 +984,13 @@ function escapeHtml(value: string): string {
 }
 
 export type { CompositionCompareConfig };
+
+/** Keep the request boundary distinct from the rows surviving a local filter. */
+function boundedDataStatus(data: DeckDataState): string | undefined {
+  if (data.status !== "done" || !data.result.ok || !data.result.truncated) return undefined;
+  const loaded = data.loadedCount ?? data.result.rows.length;
+  const total = data.result.total !== undefined ? ` of ${data.result.total}` : "";
+  return data.loadedCount !== undefined
+    ? `${data.result.rows.length} loaded features match the active source filters. Loaded the first ${loaded}${total} features — the request is bounded.`
+    : `Showing the first ${loaded}${total} features — the request is bounded.`;
+}
