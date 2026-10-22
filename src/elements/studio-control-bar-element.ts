@@ -588,8 +588,12 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     if (!runtime) return { html: "", status: noRuntime("Date filter") };
     const clause = runtime.clauseFor(control.id);
     const range = Array.isArray(clause?.value) ? (clause?.value as unknown[]) : [];
-    const from = typeof range[0] === "string" ? range[0] : (config.from ?? "");
-    const to = typeof range[1] === "string" ? range[1] : (config.to ?? "");
+    // Keep a half-open gesture visible through the shared-runtime rerender.
+    // Otherwise entering From clears it before the user can enter To.
+    const lower = clause ? (clause.operator === ">=" ? clause.value : range[0]) : config.from;
+    const upper = clause ? (clause.operator === "<=" ? clause.value : range[1]) : config.to;
+    const from = typeof lower === "string" ? lower : "";
+    const to = typeof upper === "string" ? upper : "";
     return {
       html: `
         <div class="control-field control-field--range">
