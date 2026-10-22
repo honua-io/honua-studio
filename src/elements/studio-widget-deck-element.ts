@@ -399,11 +399,15 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
             ? `<p class="widget-status hn-muted" data-testid="studio-widget-status" role="status">${escapeHtml(body.status)}</p>`
             : ""
         }
+        ${body.notice ? `<p class="widget-status hn-muted" data-testid="studio-widget-notice" role="note">${escapeHtml(body.notice)}</p>` : ""}
       </article>
     `;
   }
 
-  #renderWidgetBody(controller: CompositionController, widget: CompositionWidget): { html: string; status?: string } {
+  #renderWidgetBody(
+    controller: CompositionController,
+    widget: CompositionWidget,
+  ): { html: string; status?: string; notice?: string } {
     switch (widget.kind) {
       case "toc":
         return this.#renderToc(controller, widget);
@@ -589,7 +593,10 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   }
 
   /** REQ-005: the data grid. Rows are selectable, and a selection is a `feature` deictic target. */
-  #renderTable(controller: CompositionController, widget: CompositionWidget): { html: string; status?: string } {
+  #renderTable(
+    controller: CompositionController,
+    widget: CompositionWidget,
+  ): { html: string; status?: string; notice?: string } {
     const normalized = readTableConfig(widget);
     if (!normalized.ok) return { html: "", status: normalized.reason };
     const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
@@ -605,8 +612,9 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
       return {
         html: "",
         status: this.#sourceFilters[sourceId]?.length
-          ? `No loaded rows match the active source filters.${bounded ? ` ${bounded}` : ""}`
+          ? "No loaded rows match the active source filters."
           : `${sourceId} returned no features.`,
+        ...(bounded ? { notice: bounded } : {}),
       };
     const columns = config.fields.length > 0 ? config.fields : inferColumns(rows);
     const pageCount = Math.max(Math.ceil(rows.length / config.pageSize), 1);
@@ -659,12 +667,12 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
         </div>
         ${pager}
       `,
-      ...(bounded ? { status: bounded } : {}),
+      ...(bounded ? { notice: bounded } : {}),
     };
   }
 
   /** REQ-004: spec from the SDK's converter, series from that spec, SVG from that series. */
-  #renderChart(widget: CompositionWidget): { html: string; status?: string } {
+  #renderChart(widget: CompositionWidget): { html: string; status?: string; notice?: string } {
     const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
     if (!sourceId) return { html: "", status: `Chart "${widget.id}" has no sourceId to read rows from.` };
     const pipeline = this.#requireChartPipeline();
@@ -680,7 +688,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (!spec.ok) return { html: "", status: spec.reason };
     const series = pipeline.chartSeriesFromSpec(spec.spec);
     const chart = pipeline.renderChartSvg(spec.spec, series);
-    const status = [series.reason, boundedDataStatus(data)].filter(Boolean).join(" ");
+    const notice = boundedDataStatus(data);
     return {
       html: `
         <figure class="widget-chart" data-testid="studio-widget-chart" data-mark="${escapeHtml(markOf(spec.spec))}">
@@ -688,7 +696,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
           <figcaption class="hn-muted" data-testid="studio-widget-chart-summary">${escapeHtml(chart.summary)}</figcaption>
         </figure>
       `,
-      ...(status ? { status } : {}),
+      ...(series.reason ? { status: series.reason } : {}),
+      ...(notice ? { notice } : {}),
     };
   }
 

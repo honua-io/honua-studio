@@ -7,17 +7,19 @@ export function collectRenderedWidgetObservations(widgets) {
     .map((widget) => {
       const card = cards.find((entry) => entry.dataset.widgetId === widget.id);
       const status = card?.querySelector('[data-testid="studio-widget-status"]')?.textContent?.trim() ?? "";
+      const notice = card?.querySelector('[data-testid="studio-widget-notice"]')?.textContent?.trim() ?? "";
       const chart = card?.querySelector('[data-testid="studio-widget-chart"] svg');
       const marks = chart?.querySelectorAll(".widget-chart-bar, .widget-chart-vertex, .widget-chart-slice").length ?? 0;
       const rows = card?.querySelectorAll('[data-testid="studio-widget-grid-row"]').length ?? 0;
       const loading = !card || /^Loading |^Preparing the chart/.test(status);
-      const ready = widget.kind === "chart" ? Boolean(chart && marks > 0 && !status) : rows > 0;
+      const ready = widget.kind === "chart" ? Boolean(chart && marks > 0 && !status) : rows > 0 && !status;
       return {
         widgetId: widget.id,
         sourceId: widget.sourceId,
         kind: widget.kind,
         state: ready ? "ready" : loading ? "loading" : "error",
         status,
+        notice,
         renderedMarkCount: marks,
         renderedRowCount: rows,
         chartSummary: card?.querySelector('[data-testid="studio-widget-chart-summary"]')?.textContent?.trim(),

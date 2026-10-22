@@ -4,6 +4,7 @@ export interface RenderedWidgetObservation {
   kind: string;
   state: string;
   status: string;
+  notice: string;
   renderedMarkCount: number;
   renderedRowCount: number;
   chartSummary?: string;

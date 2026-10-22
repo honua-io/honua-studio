@@ -321,7 +321,7 @@ describe("<honua-studio-widget-deck> — data grid (REQ-005)", () => {
     const el = mount(controller, loaderFor({ ok: true, rows: PARCEL_ROWS, truncated: true, total: 900 }));
     controller.apply({ name: "addWidget", widget: { id: "grid", kind: "table", sourceId: "hi-parcels" } });
     await settle();
-    expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toContain("of 900");
+    expect(query(el, '[data-testid="studio-widget-notice"]')?.textContent).toContain("of 900");
   });
 });
 
@@ -590,21 +590,23 @@ it.each([900, undefined])("preserves bounded load counts after filtering (total 
   await settle(() => !!query(el, ".widget-chart-bar"));
   el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "ʻEwa" }] };
   expect(
-    queryAll(el, '[data-testid="studio-widget-status"]').every((node) =>
+    queryAll(el, '[data-testid="studio-widget-notice"]').every((node) =>
       node.textContent?.includes("2 loaded features match"),
     ),
   ).toBe(true);
-  const status = () => query(el, '[data-testid="studio-widget-status"]')?.textContent;
+  const status = () => query(el, '[data-testid="studio-widget-notice"]')?.textContent;
   expect(status()).toContain("2 loaded features match");
   expect(status()).toContain(`Loaded the first 3${total === undefined ? "" : " of 900"} features`);
   expect(status()).not.toContain("first 2");
   el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "absent" }] };
-  expect(status()).toContain("No loaded rows match");
+  expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toBe(
+    "No loaded rows match the active source filters.",
+  );
   expect(status()).toContain("Loaded the first 3");
   const bounded = `0 loaded features match the active source filters. Loaded the first 3${total === undefined ? "" : " of 900"} features — the request is bounded.`;
-  const statuses = queryAll(el, '[data-testid="studio-widget-status"]').map((node) => node.textContent);
+  const statuses = queryAll(el, '[data-testid="studio-widget-notice"]').map((node) => node.textContent);
   expect(statuses).toHaveLength(2);
-  expect(statuses[0]).toBe(`No loaded rows match the active source filters. ${bounded}`);
+  expect(statuses[0]).toBe(bounded);
   expect(statuses[1]).toContain(bounded);
   el.sourceFilters = {};
   expect(status()).toContain("Showing the first 3");
