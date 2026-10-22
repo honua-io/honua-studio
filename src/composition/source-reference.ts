@@ -12,5 +12,8 @@ export function compositionDataSource(state: CompositionState, reference: string
   const alias = state.layers.find((layer) => layer.id === reference);
   if (!alias) return reference; // A raw catalog source need not have a visual layer.
   if (alias.sourceId !== reference && state.layers.some((layer) => layer.sourceId === reference)) return undefined;
+  // Do not recursively follow alias chains: a backing identifier that is also
+  // another alias would otherwise change meaning on the next consumer read.
+  if (state.layers.some((layer) => layer.id === alias.sourceId && layer.sourceId !== alias.sourceId)) return undefined;
   return alias.sourceId;
 }

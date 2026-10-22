@@ -231,34 +231,39 @@ describe("<honua-studio-widget-deck> — data grid (REQ-005)", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders columns and rows from the loader, then selects a feature on row click", async () => {
-    const controller = new CompositionController(createEmptyCompositionState());
-    const el = mount(controller, loaderFor());
-    controller.apply({
-      name: "addWidget",
-      widget: { id: "grid", kind: "table", sourceId: "hi-parcels", title: "Parcels" },
-    });
-    await settle();
+  it.each(["hi-parcels", "parcels", "sibling"])(
+    "selects canonical source-scoped features from %s rows, without inventing a layer target",
+    async (widgetSource) => {
+      const controller = new CompositionController(createEmptyCompositionState());
+      controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+      controller.apply({ name: "addLayer", layer: { id: "sibling", sourceId: "hi-parcels" } });
+      const el = mount(controller, loaderFor());
+      controller.apply({
+        name: "addWidget",
+        widget: { id: "grid", kind: "table", sourceId: widgetSource, title: "Parcels" },
+      });
+      await settle();
 
-    const headers = queryAll(el, '[data-testid="studio-widget-grid"] thead th').map((th) => th.textContent);
-    expect(headers).toEqual(["parcel_id", "district", "zoning_code"]);
-    const rows = queryAll<HTMLTableRowElement>(el, '[data-testid="studio-widget-grid-row"]');
-    expect(rows).toHaveLength(3);
+      const headers = queryAll(el, '[data-testid="studio-widget-grid"] thead th').map((th) => th.textContent);
+      expect(headers).toEqual(["parcel_id", "district", "zoning_code"]);
+      const rows = queryAll<HTMLTableRowElement>(el, '[data-testid="studio-widget-grid-row"]');
+      expect(rows).toHaveLength(3);
 
-    const targets: CompositionTarget[][] = [];
-    document.addEventListener("honua-studio-selection-change", (event) => {
-      targets.push([...(event as CustomEvent<HonuaStudioSelectionChangeDetail>).detail.targets]);
-    });
-    rows[1]?.click();
+      const targets: CompositionTarget[][] = [];
+      document.addEventListener("honua-studio-selection-change", (event) => {
+        targets.push([...(event as CustomEvent<HonuaStudioSelectionChangeDetail>).detail.targets]);
+      });
+      rows[1]?.click();
 
-    // The same `{ kind: "feature", … }` shape a map click produces — and a
-    // NUMERIC id, because `feature:hi-parcels:2` and `feature:hi-parcels:"2"`
-    // are different deictic targets.
-    expect(targets).toEqual([[{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]]);
-    expect(controller.selection).toEqual([{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]);
-    await settle();
-    expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')[1]?.getAttribute("aria-selected")).toBe("true");
-  });
+      // The same `{ kind: "feature", … }` shape a map click produces — and a
+      // NUMERIC id, because `feature:hi-parcels:2` and `feature:hi-parcels:"2"`
+      // are different deictic targets.
+      expect(targets).toEqual([[{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]]);
+      expect(controller.selection).toEqual([{ kind: "feature", sourceId: "hi-parcels", featureId: 2 }]);
+      await settle();
+      expect(queryAll(el, '[data-testid="studio-widget-grid-row"]')[1]?.getAttribute("aria-selected")).toBe("true");
+    },
+  );
 
   it("selects on Enter as well as click — rows are focusable, so they must be operable", async () => {
     const controller = new CompositionController(createEmptyCompositionState());

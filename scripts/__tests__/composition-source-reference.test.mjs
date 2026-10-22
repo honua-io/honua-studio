@@ -9,5 +9,9 @@ test('raw sources and distinct aliases share backing identity; ambiguous aliases
  for(const reference of ['S','parcels','sibling']) assert.equal(compositionDataSource(state,reference),'S');
  const collision={layers:[{id:'roads',sourceId:'parcels'},{id:'other',sourceId:'roads'}]};
  assert.equal(compositionDataSource(collision,'roads'),undefined);
+ const chain={layers:[{id:'A',sourceId:'B'},{id:'B',sourceId:'S'}]};
+ assert.equal(compositionDataSource(chain,'A'),undefined);
+ assert.equal(compositionDataSource(chain,'B'),undefined);
+ for(const ref of ['S','parcels','sibling']) {const resolved=compositionDataSource(state,ref);assert.equal(compositionDataSource(state,resolved),resolved);}
  for(const reference of ['',' ',' S','S\n','S\0']) assert.equal(compositionDataSource(state,reference),undefined);
 });
