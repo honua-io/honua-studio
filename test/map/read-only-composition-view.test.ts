@@ -790,7 +790,7 @@ it("a control-only audience map derives options only from its authorized source,
   await until(() => root().querySelectorAll('[data-control-id="valid"] option').length === 3);
   const select = root().querySelector<HTMLSelectElement>('select[data-control-id="valid"]')!;
   expect([...select.options].map((option) => option.value)).toEqual(["", "North", "South"]);
-  expect(root().textContent).toContain('Source "unknown" is not in the current-reader catalog.');
+  expect(root().textContent).toContain('"unknown" reads from "unknown", which is not a layer in this composition');
   expect(root().querySelector('select[data-control-id="unknown"]')).toBeNull();
   select.value = "North";
   select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));

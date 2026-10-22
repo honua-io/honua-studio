@@ -382,7 +382,7 @@ it("a delayed source A domain cannot repopulate a filter rebound to B with the s
   let resolveA!: (value: Awaited<ReturnType<WidgetDataLoader>>) => void;
   const loader: WidgetDataLoader = vi.fn((source) =>
     source === "src-parcels"
-      ? new Promise((resolve) => {
+      ? new Promise<Awaited<ReturnType<WidgetDataLoader>>>((resolve) => {
           resolveA = resolve;
         })
       : Promise.resolve({ ok: true, rows: [{ properties: { district: "B only" } }], truncated: false }),
