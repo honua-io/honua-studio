@@ -371,3 +371,62 @@ describe("<honua-studio-control-bar>", () => {
     expect(probe.instanceCount).toBe(before - 1);
   });
 });
+
+it("a delayed source A domain cannot repopulate a filter rebound to B with the same control id and field", async () => {
+  const controller = controllerWithParcels();
+  controller.apply({ name: "addLayer", layer: { id: "other", sourceId: "src-other" } });
+  controller.apply({
+    name: "addControl",
+    control: { id: "district", kind: "filterSelect", sourceId: "src-parcels", config: { field: "district" } },
+  });
+  let resolveA!: (value: Awaited<ReturnType<WidgetDataLoader>>) => void;
+  const loader: WidgetDataLoader = vi.fn((source) =>
+    source === "src-parcels"
+      ? new Promise((resolve) => {
+          resolveA = resolve;
+        })
+      : Promise.resolve({ ok: true, rows: [{ properties: { district: "B only" } }], truncated: false }),
+  );
+  const runtime = new StudioInteractionRuntime({ controller });
+  const el = mount(controller, { runtime, loader });
+  expect(resolveA).toBeDefined();
+  controller.replaceState({
+    ...controller.state,
+    controls: controller.state.controls.map((control) => ({ ...control, sourceId: "src-other" })),
+  });
+  await flush();
+  const options = () => [...(query<HTMLSelectElement>(el, "select")?.options ?? [])].map((option) => option.value);
+  expect(options()).toEqual(["", "B only"]);
+  resolveA({ ok: true, rows: [{ properties: { district: "A must not appear" } }], truncated: false });
+  await flush();
+  expect(options()).toEqual(["", "B only"]);
+  runtime.dispose();
+  el.remove();
+});
+
+it("replacing a loader invalidates its in-flight domain even when control, source and field stay the same", async () => {
+  const controller = controllerWithParcels();
+  controller.apply({
+    name: "addControl",
+    control: { id: "district", kind: "filterSelect", sourceId: "src-parcels", config: { field: "district" } },
+  });
+  let resolveOld!: (value: Awaited<ReturnType<WidgetDataLoader>>) => void;
+  const runtime = new StudioInteractionRuntime({ controller });
+  const el = mount(controller, {
+    runtime,
+    loader: () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  });
+  el.dataLoader = async () => ({ ok: true, rows: [{ properties: { district: "Current reader" } }], truncated: false });
+  await flush();
+  resolveOld({ ok: true, rows: [{ properties: { district: "Previous reader" } }], truncated: false });
+  await flush();
+  expect([...(query<HTMLSelectElement>(el, "select")?.options ?? [])].map((option) => option.value)).toEqual([
+    "",
+    "Current reader",
+  ]);
+  runtime.dispose();
+  el.remove();
+});

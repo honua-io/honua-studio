@@ -795,9 +795,9 @@ it("a control-only audience map derives options only from its authorized source,
   select.value = "North";
   select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
   await until(() =>
-    JSON.stringify(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "parcels")?.filter).includes(
-      "North",
-    ),
+    (
+      JSON.stringify(view.projection?.mapPackage.mapSpec.layers.find((layer) => layer.id === "parcels")?.filter) || ""
+    ).includes("North"),
   );
   expect(fetchRequest).toHaveBeenCalledTimes(1);
   expect(original).toEqual(durable);

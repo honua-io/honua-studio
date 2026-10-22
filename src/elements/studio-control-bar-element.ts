@@ -125,6 +125,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
   #dataLoader: WidgetDataLoader | undefined;
   #measure = new Map<string, MeasureState>();
   #options = new Map<string, OptionsState>();
+  #optionsGeneration = 0;
   #basemapChoice = new Map<string, string>();
   /** Last rejected intrinsic mutation, surfaced on the control rather than swallowed. */
   #commandError: string | undefined;
@@ -138,6 +139,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
     this.#composition = composition;
+    this.#optionsGeneration++;
     this.#options.clear();
     this.#measure.clear();
     if (composition && this.isConnected) {
@@ -175,6 +177,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
   public set dataLoader(loader: WidgetDataLoader | undefined) {
     if (this.#dataLoader === loader) return;
     this.#dataLoader = loader;
+    this.#optionsGeneration++;
     this.#options.clear();
     this.render();
   }
@@ -219,6 +222,8 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
 
   protected onDisconnect(): void {
     HonuaStudioControlBarElement.instanceCount -= 1;
+    this.#optionsGeneration++;
+    this.#options.clear();
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
   }
@@ -663,7 +668,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         reason: `Filter "${control.id}" declares no sourceId and no config.options, so its domain is unknown.`,
       };
     }
-    const cacheKey = `${control.id}|${field}`;
+    const cacheKey = JSON.stringify([control.id, sourceId, field]);
     const cached = this.#options.get(cacheKey);
     if (cached)
       return cached.status === "loading"
@@ -677,10 +682,26 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         reason: `Filter "${control.id}" needs config.options — this canvas has no feature loader to derive them from.`,
       };
     }
-    this.#options.set(cacheKey, { status: "loading" });
+    const loading: OptionsState = { status: "loading" };
+    const generation = this.#optionsGeneration;
+    this.#options.set(cacheKey, loading);
+    const current = () =>
+      this.isConnected &&
+      generation === this.#optionsGeneration &&
+      loader === this.#dataLoader &&
+      this.#options.get(cacheKey) === loading &&
+      this.#composition?.state.controls.some(
+        (entry) => entry.id === control.id && entry.sourceId === sourceId && fieldOf(entry) === field,
+      );
+    const discard = () => {
+      if (this.#options.get(cacheKey) === loading) this.#options.delete(cacheKey);
+    };
     void loader(sourceId)
       .then((result) => {
-        if (!this.isConnected) return;
+        if (!current()) {
+          discard();
+          return;
+        }
         if (!result.ok) {
           this.#options.set(cacheKey, { status: "done", options: [], reason: result.reason });
         } else {
@@ -700,7 +721,10 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         this.render();
       })
       .catch((error: unknown) => {
-        if (!this.isConnected) return;
+        if (!current()) {
+          discard();
+          return;
+        }
         this.#options.set(cacheKey, {
           status: "done",
           options: [],
