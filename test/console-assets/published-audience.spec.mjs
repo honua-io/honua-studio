@@ -15,12 +15,14 @@ test("built audience view paints a current-reader shared style and table without
     { name: "district", type: "esriFieldTypeString" },
     { name: "day", type: "esriFieldTypeString" },
   ];
+  // Keep both fixture polygons inside one z13 tile: idless tile-clipped
+  // fragments are not an independent source-row count oracle.
   const coordinates = [
-    [-157.86, 21.29],
-    [-157.84, 21.29],
-    [-157.84, 21.31],
-    [-157.86, 21.31],
-    [-157.86, 21.29],
+    [-157.847, 21.3],
+    [-157.845, 21.3],
+    [-157.845, 21.302],
+    [-157.847, 21.302],
+    [-157.847, 21.3],
   ];
   const features = [
     { attributes: { OBJECTID: 1, district: "North", day: "2026-01-01" }, geometry: { rings: [coordinates] } },
@@ -143,7 +145,7 @@ test("built audience view paints a current-reader shared style and table without
           },
           { id: "period", kind: "filterDateRange", sourceId: "service/1", config: { field: "day" } },
         ],
-        view: { center: [-157.85, 21.3], zoom: 13 },
+        view: { center: [-157.843, 21.301], zoom: 13 },
       };
       const durable = JSON.stringify(body);
       const view = runtime.createReadOnlyCompositionView({
