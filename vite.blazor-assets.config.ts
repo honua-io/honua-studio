@@ -14,6 +14,7 @@ import { defineConfig } from "vite";
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  base: "./",
   // Same MapLibre 6 worker constraint as vite.config.ts.
   worker: { format: "es" },
   build: {

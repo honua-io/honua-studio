@@ -68,16 +68,15 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are not those gates. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The historical standalone baseline passed 1,237 unit tests across 109 files and
-29 Playwright browser journeys, including four accessibility checks. Embedded
-workspace validation is recorded in the commands table below. On 2026-10-21,
-PR #122 head `07aab66` passed 1,547 unit tests across 128 files; its browser
-smoke passed 30 of 31 tests, with the TOC journey failing during an awaited
-browser evaluation. Head `69acc10` passed the same 1,547 unit tests; its browser
-and Blazor smokes stopped before executing tests because the new trace option
-was placed inside a Playwright `describe` block, which Playwright rejects. A
-subsequent README-only head `1ff955e` retained that test-discovery failure.
-The TOC navigation cause remains unverified.
+The worker-asset packaging checkpoint passed 1,598 unit tests across 129 files,
+five production Console-assets browser checks, and all 31 standalone browser
+journeys, including accessibility and the TOC round trip. The production audience
+checks paint HTTP-backed maps and widgets with the same bundle mounted at `/`,
+`/_studio/`, and `/tenants/kestrel/_studio/`; each checks the actual worker request
+under its mount. Local browser checks used cached Chromium 147 with retries
+disabled because the pinned Chromium 149 download was unavailable. The ordinary
+CI browser remains pinned by Playwright. These are fixture-based package checks;
+installed authenticated workflows and real-model qualification remain separate.
 
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
@@ -315,6 +314,7 @@ Other commands:
 | `npm test` | Unit tests (Vitest), including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); current audience integration totals and installed end-to-end workflow qualification remain pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs 31 Playwright boot/harness/journey/accessibility tests (chromium); local fixture checkpoint passed with retries disabled |
+| `npm run test:console-assets` | Builds production Console assets, then runs five public-export and current-reader rendering checks, including root, Console and nested worker asset mounts |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 | `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
 
