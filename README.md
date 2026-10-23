@@ -78,6 +78,13 @@ disabled because the pinned Chromium 149 download was unavailable. The ordinary
 CI browser remains pinned by Playwright. These are fixture-based package checks;
 installed authenticated workflows and real-model qualification remain separate.
 
+The Blazor packaging follow-up also passed all six browser checks against its
+built assets and real ASP.NET Core host, including a composition-bound canvas
+that loads its worker beneath `/studio/` and paints vendored land features.
+Removing the relative asset base made that new check fail with no painted
+features; restoring it passed. These local checks used the same cached Chromium
+147 with retries disabled and do not establish installed workflow qualification.
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
