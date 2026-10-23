@@ -44,6 +44,50 @@ test.describe("Blazor Web App test host (harness/blazor-host) @blazor", () => {
     expect(mountCount).toBe(1);
   });
 
+  test("the production Blazor bundle loads its worker under /studio/ and paints real map features", async ({
+    page,
+  }) => {
+    const workers = [];
+    const failedWorkers = [];
+    const isMapWorker = (url) => /\/maplibre-gl-worker-[^/]+\.js$/.test(new URL(url).pathname);
+    page.on("response", (response) => {
+      if (isMapWorker(response.url())) workers.push({ url: response.url(), status: response.status() });
+    });
+    page.on("requestfailed", (request) => {
+      if (isMapWorker(request.url())) failedWorkers.push(request.url());
+    });
+    await page.goto(`${host.url}/studio`);
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await page.evaluate(() => {
+      // The bare render-mode lab only counts element instances. Bind an
+      // actual composition so the built lazy map chunk and default worker
+      // factory must run. The vendored land source needs no model or API.
+      const app = document.querySelector("honua-studio-app");
+      app.composition.apply({ name: "setView", view: { center: [-100, 40], zoom: 2 } });
+      const canvas = document.createElement("honua-studio-canvas");
+      canvas.dataset.testid = "blazor-worker-map";
+      canvas.style.cssText = "display:block;width:800px;height:500px";
+      canvas.composition = app.composition;
+      document.body.append(canvas);
+    });
+    const rendered = () =>
+      page.evaluate(() => {
+        const view = document.querySelector('[data-testid="blazor-worker-map"]')?.mapView;
+        const map = view?.map;
+        return {
+          status: view?.status,
+          painted: map?.isStyleLoaded() ? map.queryRenderedFeatures({ layers: ["honua-basemap-land"] }).length : 0,
+        };
+      });
+    await expect.poll(async () => (await rendered()).status, { timeout: 20_000 }).toBe("ready");
+    await expect.poll(async () => (await rendered()).painted, { timeout: 20_000 }).toBeGreaterThan(0);
+    await expect(page.getByTestId("blazor-worker-map").locator("canvas.maplibregl-canvas")).toBeVisible();
+    expect(workers.length).toBeGreaterThan(0);
+    expect(workers.every((worker) => worker.status === 200 && worker.url.startsWith(`${host.url}/studio/`))).toBe(true);
+    expect(failedWorkers).toEqual([]);
+    await page.evaluate(() => document.querySelector('[data-testid="blazor-worker-map"]').remove());
+  });
+
   test("hazard 1 — navigation between two Blazor pages self-heals in exactly one clean remount, never a leak", async ({
     page,
   }) => {
