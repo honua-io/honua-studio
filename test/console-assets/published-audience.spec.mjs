@@ -5,11 +5,10 @@ import { expect, test } from "@playwright/test";
 
 // This proves the built renderer against HTTP fixtures, not a deployed Server
 // publication or an end-to-end installed workflow.
-test("built audience view paints a current-reader shared style and table without reading denied sources", async ({
-  page,
-}) => {
+async function assertAudienceView(page, mount) {
   const root = resolve("dist-console");
   const requests = [];
+  const workerRequests = [];
   const fields = [
     { name: "OBJECTID", type: "esriFieldTypeOID" },
     { name: "district", type: "esriFieldTypeString" },
@@ -82,7 +81,7 @@ test("built audience view paints a current-reader shared style and table without
       } else response.writeHead(403).end();
       return;
     }
-    if (url.pathname === "/") {
+    if (url.pathname === mount) {
       response
         .writeHead(200, { "Content-Type": "text/html" })
         .end(
@@ -90,13 +89,19 @@ test("built audience view paints a current-reader shared style and table without
         );
       return;
     }
-    const file = resolve(root, `.${url.pathname}`);
+    if (!url.pathname.startsWith(mount)) {
+      response.writeHead(404).end();
+      return;
+    }
+    const file = resolve(root, url.pathname.slice(mount.length));
     if (!file.startsWith(`${root}${sep}`)) {
       response.writeHead(403).end();
       return;
     }
     try {
       const bytes = await readFile(file);
+      if (/\/assets\/maplibre-gl-worker-[^/]+\.js$/.test(url.pathname))
+        workerRequests.push({ path: url.pathname, method: request.method });
       response.writeHead(200, {
         "Content-Type": url.pathname.endsWith(".js") ? "text/javascript" : "application/octet-stream",
       });
@@ -107,9 +112,9 @@ test("built audience view paints a current-reader shared style and table without
   });
   await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
   try {
-    await page.goto(`http://127.0.0.1:${server.address().port}/`);
-    await page.evaluate(async () => {
-      const runtime = await import("/console.js");
+    await page.goto(`http://127.0.0.1:${server.address().port}${mount}`);
+    await page.evaluate(async (mount) => {
+      const runtime = await import(`${mount}console.js`);
       const base = `${location.origin}/api/studio/viewer/data`;
       const catalog = [
         {
@@ -165,7 +170,7 @@ test("built audience view paints a current-reader shared style and table without
       });
       window.audienceFixture = { view, body, durable };
       await view.settled();
-    });
+    }, mount);
     await expect.poll(() => page.evaluate(() => window.audienceFixture.view.renderedFeatureCount)).toBeGreaterThan(0);
     await expect(page.locator("honua-studio-widget-deck")).toContainText("North");
     const observed = await page.evaluate(() => {
@@ -188,6 +193,10 @@ test("built audience view paints a current-reader shared style and table without
     expect(requests.some((request) => request.path.endsWith("/styles/district"))).toBe(true);
     expect(requests.some((request) => request.path.endsWith("/1/query"))).toBe(true);
     expect(requests.every((request) => request.method === "GET" && request.reader === "current-reader")).toBe(true);
+    expect(workerRequests.length).toBeGreaterThan(0);
+    expect(
+      workerRequests.every((request) => request.method === "GET" && request.path.startsWith(`${mount}assets/`)),
+    ).toBe(true);
     expect(requests.some((request) => /denied|secret|mcp/.test(request.path))).toBe(false);
     const bars = () => page.locator(".widget-chart-bar title").allTextContents();
     const cells = () =>
@@ -232,4 +241,12 @@ test("built audience view paints a current-reader shared style and table without
     server.closeAllConnections();
     await new Promise((closed) => server.close(closed));
   }
-});
+}
+
+for (const mount of ["/", "/_studio/", "/tenants/kestrel/_studio/"]) {
+  test(`built audience view at ${mount} paints a current-reader shared style and table without reading denied sources`, async ({
+    page,
+  }) => {
+    await assertAudienceView(page, mount);
+  });
+}

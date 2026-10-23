@@ -33,6 +33,9 @@ if (
 verifySdkPayload(resolve("node_modules/@honua/sdk-js"), sdkReceipt);
 
 export default defineConfig({
+  // Resolve worker and other emitted assets from their module, so the same
+  // verified bundle works at Console /_studio/ and below another host prefix.
+  base: "./",
   publicDir: false,
   plugins: [
     {
