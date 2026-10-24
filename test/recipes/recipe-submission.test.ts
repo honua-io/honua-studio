@@ -2,13 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import type { StudioPackageDraft, StudioPackageDraftCreateRequest } from "../../src/lifecycle/lifecycle-types.js";
 import { RecipeSubmission } from "../../src/recipes/recipe-submission.js";
 
-const request: StudioPackageDraftCreateRequest = { packageKey: "explore", envelope: { family: "map", schemaVersion: "1.0", body: { layers: [] } } };
+const request: StudioPackageDraftCreateRequest = {
+  packageKey: "explore",
+  envelope: { family: "map", schemaVersion: "1.0", body: { layers: [] } },
+};
 const draft = { draftId: "accepted", packageKey: "explore", generation: 1 } as StudioPackageDraft;
 
 describe("recipe submission retry identity", () => {
   it("coalesces double submit and preserves accepted draft after an attachment retry", async () => {
     let accept!: (draft: StudioPackageDraft) => void;
-    const create = vi.fn(() => new Promise<StudioPackageDraft>((resolve) => { accept = resolve; }));
+    const create = vi.fn(
+      () =>
+        new Promise<StudioPackageDraft>((resolve) => {
+          accept = resolve;
+        }),
+    );
     const submission = new RecipeSubmission();
     const first = submission.submit(request, create);
     expect(submission.submit(request, create)).toBe(first);

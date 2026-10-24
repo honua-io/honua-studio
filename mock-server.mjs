@@ -503,7 +503,12 @@ function createMcpDispatcher(store, catalogDatasets) {
         name: dataset.title,
         geometryType: dataset.geometryType,
         srid: 4326,
-        extent: { minX: FIXTURE_EXTENT.west, minY: FIXTURE_EXTENT.south, maxX: FIXTURE_EXTENT.east, maxY: FIXTURE_EXTENT.north },
+        extent: {
+          minX: FIXTURE_EXTENT.west,
+          minY: FIXTURE_EXTENT.south,
+          maxX: FIXTURE_EXTENT.east,
+          maxY: FIXTURE_EXTENT.north,
+        },
         fieldCount: fields.length,
         fields,
       });

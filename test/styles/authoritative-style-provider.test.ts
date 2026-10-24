@@ -84,10 +84,17 @@ function fixture(overrides: Record<string, unknown> = {}, descriptorOverrides: R
 
 describe("authoritative style provider", () => {
   it("describes recipe fields with actual geometry and refuses geometry/locator identity drift", async () => {
-    expect(await fixture().provider.describeDataset(source)).toEqual({ geometryType: "Polygon", fields: [{ name: "district", type: "String" }] });
+    expect(await fixture().provider.describeDataset(source)).toEqual({
+      geometryType: "Polygon",
+      fields: [{ name: "district", type: "String" }],
+    });
     await expect(fixture({}, { geometryType: "Point" }).provider.describeDataset(source)).rejects.toThrow("geometry");
-    await expect(fixture({}, { geometryType: "GeometryCollection" }).provider.describeDataset(source)).rejects.toThrow("geometry");
-    await expect(fixture({}, { serviceName: "OtherService" }).provider.describeDataset(source)).rejects.toThrow("actual published source");
+    await expect(fixture({}, { geometryType: "GeometryCollection" }).provider.describeDataset(source)).rejects.toThrow(
+      "geometry",
+    );
+    await expect(fixture({}, { serviceName: "OtherService" }).provider.describeDataset(source)).rejects.toThrow(
+      "actual published source",
+    );
   });
 
   it("preserves hidden layers, combines active filters and scales canonical opacity in the actual SDK composition", async () => {

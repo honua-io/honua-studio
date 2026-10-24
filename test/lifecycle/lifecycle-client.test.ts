@@ -42,11 +42,16 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
     const c = client();
     const request = { packageKey: "recipe-retry", envelope: { family: "map" as const, schemaVersion: "1.0" } };
     const created = await c.createDraft(request, "stable-recipe-command");
-    const renewed = new StudioLifecycleClient({ baseUrl: server.url, auth: { getAccessToken: async () => mintFixtureAccessToken({ ttlSeconds: 7200 }) } });
+    const renewed = new StudioLifecycleClient({
+      baseUrl: server.url,
+      auth: { getAccessToken: async () => mintFixtureAccessToken({ ttlSeconds: 7200 }) },
+    });
     const retry = await renewed.createDraft(request, "stable-recipe-command");
     expect(retry.draftId).toBe(created.draftId);
     expect((await c.listPackageDrafts({ q: "recipe-retry" })).items).toHaveLength(1);
-    await expect(c.createDraft({ ...request, packageKey: "changed" }, "stable-recipe-command")).rejects.toThrow("original create inputs");
+    await expect(c.createDraft({ ...request, packageKey: "changed" }, "stable-recipe-command")).rejects.toThrow(
+      "original create inputs",
+    );
   });
 
   it("getPackageFamilies returns all 10 families with the documented shape", async () => {

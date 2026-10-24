@@ -34,6 +34,10 @@ the exact composition and owner selection remain current. It returns `undefined`
 after document/selection changes. Hosts should capture it with their current
 draft/revision and existing selected-object context when freezing a conversation
 turn; the getter does not grant authority or identify a server resource.
+Unchanged same-draft polling and same-principal cookie lease renewal retain the
+open inspector and relationship focus. An accepted revision change invalidates
+that relationship focus; attempting to open a different draft closes the panel
+and cancels its metadata while the prospective read runs.
 
 Implementation: `src/elements/studio-app-element.ts`. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
@@ -79,7 +83,11 @@ same submission ID and original inputs for retries, including a lost create
 response or a failed attachment. Creation retains the exact canonical request and
 Idempotency-Key, reuses an accepted draft, and refuses authority changes or
 silent replacement after another map became active. Closing during creation
-prevents attachment until an explicit retry. The descriptor and input/metadata
+prevents attachment until an explicit retry, including while the prospective
+draft read is queued or in flight. Recipe discovery intersects fresh authorized
+choices with any host-owned catalog and preserves that host catalog. Conflicting
+source IDs/locators are refused; discovery never broadens the host's source scope.
+The descriptor and input/metadata
 types are exported by the Console bundle. No source rows, credentials or recipe
 state are persisted separately; the output is an ordinary map-family composition.
 

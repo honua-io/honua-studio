@@ -274,7 +274,9 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     return this.#interactions;
   }
 
-  public get designMapAvailable(): boolean { return this.#mapUsable(); }
+  public get designMapAvailable(): boolean {
+    return this.#mapUsable();
+  }
 
   /** An authorized baseline changed documents/callers; exploration belongs to the former draft. */
   public resetExploration(): void {
@@ -285,7 +287,10 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   }
 
   public designLayerStatus(layerId: string): string | undefined {
-    return this.#mapView?.projection?.unresolved.find((entry) => entry.layerId === layerId)?.reason ?? (this.#mapUsable() ? undefined : "The map is currently unavailable; inspect the canvas status.");
+    return (
+      this.#mapView?.projection?.unresolved.find((entry) => entry.layerId === layerId)?.reason ??
+      (this.#mapUsable() ? undefined : "The map is currently unavailable; inspect the canvas status.")
+    );
   }
 
   /** Camera animation duration in ms; `0` makes view changes instantaneous (what the browser suite uses). */

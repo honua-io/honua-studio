@@ -28,7 +28,11 @@ export class RecipeSubmission {
       return draft;
     });
     this.#pending = pending;
-    void pending.finally(() => { this.#pending = undefined; }).catch(() => undefined);
+    void pending
+      .finally(() => {
+        this.#pending = undefined;
+      })
+      .catch(() => undefined);
     return pending;
   }
 }

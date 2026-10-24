@@ -119,7 +119,11 @@ export function compileExploreDataset(input: ExploreDatasetInput, metadata: Expl
       interaction: {
         id: "explore-filter-map",
         on: { ref: "control:explore-category", event: "change" },
-        do: { ref: "layer:explore-layer", verb: "setFilter", args: { field: input.categoryField, value: "$event.value" } },
+        do: {
+          ref: "layer:explore-layer",
+          verb: "setFilter",
+          args: { field: input.categoryField, value: "$event.value" },
+        },
       },
     },
   ];
