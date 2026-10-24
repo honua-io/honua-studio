@@ -185,6 +185,36 @@ export class StudioInteractionRuntime {
     return this.#controlsView.state.filters[controlId];
   }
 
+  /**
+   * Active exploration filters only. Authored map filters stay on the composition;
+   * this readout never copies them into the summary.
+   */
+  public temporaryFilterSummary(): readonly TemporaryFilterSummary[] {
+    if (this.#disposed) return [];
+    const state = this.#controller.state;
+    const summaries: TemporaryFilterSummary[] = [];
+    for (const control of state.controls) {
+      const clause = this.clauseFor(control.id);
+      if (!clause || clause.field === OPACITY_CLAUSE_FIELD || !CONTROL_KIND_EMITS_CHANGE[control.kind]) continue;
+      summaries.push({
+        controlId: control.id,
+        sourceIds: affectedSourceIds(state, control),
+        label: temporaryFilterLabel(clause),
+      });
+    }
+    return summaries;
+  }
+
+  /** Clears one control through the existing exploration channel. */
+  public clearTemporaryFilter(controlId: string): void {
+    this.publishControlChange(controlId, undefined);
+  }
+
+  /** Clears the active temporary set. Does not apply a composition command. */
+  public resetTemporaryFilters(): void {
+    for (const entry of this.temporaryFilterSummary()) this.clearTemporaryFilter(entry.controlId);
+  }
+
   public dispose(): void {
     this.#disposed = true;
     this.#unsubscribeAppearance?.();
@@ -391,6 +421,34 @@ export class StudioInteractionRuntime {
     this.#appearance = next;
     this.#options.onAppearanceChange?.(next);
   }
+}
+
+export interface TemporaryFilterSummary {
+  readonly controlId: string;
+  readonly sourceIds: readonly string[];
+  readonly label: string;
+}
+
+function affectedSourceIds(state: CompositionState, control: CompositionControl): readonly string[] {
+  const sourceIds: string[] = [];
+  const resolved = control.sourceId ? compositionDataSource(state, control.sourceId) : undefined;
+  if (resolved) sourceIds.push(resolved);
+  for (const layerId of controlTargetLayers(state, control.sourceId)) {
+    const sourceId = state.layers.find((layer) => layer.id === layerId)?.sourceId;
+    if (sourceId && !sourceIds.includes(sourceId)) sourceIds.push(sourceId);
+  }
+  return sourceIds;
+}
+
+function temporaryFilterLabel(clause: FilterClause): string {
+  const value = clause.value;
+  if (clause.operator === "between" && Array.isArray(value))
+    return `${clause.field} between ${value[0]} and ${value[1]}`;
+  if ((clause.operator === "in" || clause.operator === "not-in") && Array.isArray(value)) {
+    return `${clause.field} ${clause.operator} ${value.join(", ")}`;
+  }
+  if (clause.operator === "is-null" || clause.operator === "is-not-null") return `${clause.field} ${clause.operator}`;
+  return `${clause.field} ${clause.operator} ${String(value)}`;
 }
 
 /** Layers an `opacity` control drives: its normalized `layerIds`, which already fold in `sourceId`. */
