@@ -121,7 +121,10 @@ function paintOf(style: MapStyleDocument, layerId: string): Record<string, unkno
 
 function mount(
   controller: CompositionController,
-  transport: (canonicalLayerId: number, init: { signal: AbortSignal }) => Promise<Response>,
+  transport: (
+    canonicalLayerId: number,
+    init: { signal: AbortSignal; draftRevision: string; composedLayerId: string },
+  ) => Promise<Response>,
   sourceCatalog: readonly CompositionSourceDescriptor[] = catalog(),
   layerId = "parcels",
 ) {
@@ -146,15 +149,20 @@ describe("authorized style suggestion", () => {
     const controller = controllerFor();
     const before = canonicalCompositionJson(controller.state);
     const apply = vi.spyOn(controller, "apply");
-    const transport = vi.fn<(canonicalLayerId: number, init: { signal: AbortSignal }) => Promise<Response>>(async () =>
-      jsonResponse(envelope(canonicalCompositionJson(controller.state), geometrySuggestion())),
-    );
+    const transport = vi.fn<
+      (
+        canonicalLayerId: number,
+        init: { signal: AbortSignal; draftRevision: string; composedLayerId: string },
+      ) => Promise<Response>
+    >(async () => jsonResponse(envelope(canonicalCompositionJson(controller.state), geometrySuggestion())));
     const { container, onPreview, suggestion } = mount(controller, transport);
     const result = await suggestion.request();
     expect(result.ok).toBe(true);
     expect(transport).toHaveBeenCalledTimes(1);
     expect(transport.mock.calls[0]).toHaveLength(2);
     expect(transport.mock.calls[0]?.[0]).toBe(CANONICAL_LAYER_ID);
+    expect(transport.mock.calls[0]?.[1]).toMatchObject({ draftRevision: before, composedLayerId: "parcels" });
+    expect(transport.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(apply).not.toHaveBeenCalled();
     expect(canonicalCompositionJson(controller.state)).toBe(before);
     expect(onPreview).toHaveBeenCalledTimes(1);
