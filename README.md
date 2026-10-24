@@ -133,6 +133,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts; source-scoped filter controls filter bounded chart/table rows before aggregation and pagination | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
 | Package lifecycle UI — draft, version, compare, publish, rollback against honua-server's Studio package lifecycle REST API | `src/lifecycle/` | #17 |
+| Explore a dataset starter — authorized vector source and actual fields create a canonical map/table/category-filter draft in the existing grid; preview is illustrative | `src/recipes/`, `src/elements/studio-app-element.ts` | #135 |
 | Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-workspace.ts`, `src/gp/custom-process-workspace.ts` | #104 |
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
@@ -331,7 +332,7 @@ Other commands:
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
 | `npm test` | Unit tests (Vitest), including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); current audience integration totals and installed end-to-end workflow qualification remain pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
-| `npm run test:browser` | Builds, then runs 31 Playwright boot/harness/journey/accessibility tests (chromium); local fixture checkpoint passed with retries disabled |
+| `npm run test:browser` | Builds, then runs Playwright boot/harness/journey/accessibility tests (chromium); includes the Explore recipe rendered/filter/save-reopen and lost-response/denied-source journeys |
 | `npm run test:console-assets` | Builds production Console assets, then runs five public-export and current-reader rendering checks, including root, Console and nested worker asset mounts |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 | `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
@@ -355,6 +356,23 @@ layer. Unsupported widget filter expressions render a blocker. Filtering uses th
 loaded bounded rows; it does not claim complete aggregates for a truncated source.
 Filter gestures are exploration state, while the saved composition retains the
 controls and bindings needed to use them again after reopening.
+
+Explore a dataset is the single 2026.1 starter from
+[Studio #135](https://github.com/honua-io/honua-studio/issues/135). Its versioned
+descriptor declares the existing 2D map, table, categorical filter and widget grid.
+The preview contains no live data. Discovery verifies the current caller's published
+Honua FeatureServer identity, geometry and field schema, then reads at most 100
+records to check a string category with usable values. The table accepts 1–8 actual
+columns; a source with no compatible category or readable features is refused.
+Creation rechecks inputs and map-draft capability, uses the canonical map lifecycle,
+and retains its exact request and Idempotency-Key for uncertain-response retries.
+Closing an in-flight submission fences attachment; explicit retry recovers the
+same accepted draft. Ordinary inspector and conversation edits, versions and the
+separate publication approval path apply afterward. The fixture journeys exercise
+browser behavior against the mock REST/MCP server; installed, authenticated source
+permissions and production publication policy still require external qualification.
+Compare places and Track change over time remain the broader
+[server #2439](https://github.com/honua-io/honua-server/issues/2439) work for 2026.2.
 
 Date-range controls emit ISO date-only strings (`YYYY-MM-DD`). Their inclusive
 bounds are compared lexically against source fields in the same representation;
