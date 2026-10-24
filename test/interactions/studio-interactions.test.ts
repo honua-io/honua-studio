@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CompositionController } from "../../src/composition/controller.js";
-import { createEmptyCompositionState } from "../../src/composition/model.js";
+import { canonicalCompositionJson, createEmptyCompositionState } from "../../src/composition/model.js";
 import { StudioInteractionRuntime } from "../../src/interactions/studio-interactions.js";
 
 function controllerWithParcels(): CompositionController {
@@ -249,6 +249,86 @@ it("normalizes layer-alias widget clauses to backing sources without admitting u
   await flush();
   expect(runtime.appearance.sourceFilters).toEqual({});
   expect(runtime.appearance.filters).toEqual({});
+  runtime.dispose();
+});
+
+it("summarizes temporary filters and resets them without changing the authored composition", async () => {
+  const authoredFilter = ["==", ["get", "zoning_code"], "R-1"] as const;
+  const controller = new CompositionController({
+    ...createEmptyCompositionState(),
+    mapSpec: {
+      version: 8,
+      sources: {
+        "src-parcels": { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+      },
+      layers: [{ id: "parcels", type: "fill", source: "src-parcels", filter: authoredFilter }],
+    },
+  });
+  controller.apply({
+    name: "addLayer",
+    layer: { id: "parcels", sourceId: "src-parcels", type: "fill", visible: true },
+  });
+  controller.apply({
+    name: "addLayer",
+    layer: { id: "districts", sourceId: "src-districts", type: "fill", visible: true },
+  });
+  controller.apply({
+    name: "addControl",
+    control: { id: "zoning", kind: "filterSelect", sourceId: "src-parcels", config: { field: "zoning_code" } },
+  });
+  controller.apply({
+    name: "addControl",
+    control: { id: "district", kind: "filterSelect", sourceId: "src-districts", config: { field: "name" } },
+  });
+  controller.apply({
+    name: "addControl",
+    control: { id: "fade", kind: "opacity", sourceId: "src-parcels", config: { layerIds: ["parcels"] } },
+  });
+  controller.apply({
+    name: "bindInteraction",
+    interaction: {
+      id: "district-drives-parcels",
+      on: { ref: "control:district", event: "change" },
+      do: { ref: "layer:parcels", verb: "setFilter", args: { field: "district_id", value: "$event.value" } },
+    },
+  });
+  const runtime = new StudioInteractionRuntime({ controller });
+  runtime.publishControlChange("zoning", { field: "zoning_code", operator: "=", value: "R-5" });
+  runtime.publishControlChange("district", { field: "name", operator: "=", value: "HON" });
+  runtime.publishOpacity("fade", 0.4);
+  await flush();
+
+  expect(runtime.temporaryFilterSummary()).toEqual([
+    { controlId: "zoning", sourceIds: ["src-parcels"], label: "zoning_code = R-5" },
+    { controlId: "district", sourceIds: ["src-districts"], label: "name = HON" },
+  ]);
+  const saved = canonicalCompositionJson(controller.state);
+  const revisions = controller.history.revisions().length;
+
+  runtime.clearTemporaryFilter("district");
+  await flush();
+  expect(runtime.clauseFor("district")).toBeUndefined();
+  expect(runtime.clauseFor("zoning")).toEqual({ field: "zoning_code", operator: "=", value: "R-5" });
+  expect(runtime.appearance.filters.districts).toBeUndefined();
+  expect(runtime.appearance.filters.parcels).toEqual(["==", ["get", "zoning_code"], "R-5"]);
+  expect(runtime.temporaryFilterSummary().map((entry) => entry.controlId)).toEqual(["zoning"]);
+
+  runtime.resetTemporaryFilters();
+  await flush();
+  expect(runtime.temporaryFilterSummary()).toEqual([]);
+  expect(runtime.appearance.filters).toEqual({});
+  expect(runtime.clauseFor("zoning")).toBeUndefined();
+  expect(runtime.appearance.opacity).toEqual({ parcels: 0.4 });
+  expect(canonicalCompositionJson(controller.state)).toBe(saved);
+  expect(controller.history.revisions()).toHaveLength(revisions);
+  expect(controller.state.layers.map((layer) => [layer.id, layer.visible])).toEqual([
+    ["parcels", true],
+    ["districts", true],
+  ]);
+  const authoredLayer = (controller.state.mapSpec?.layers as Record<string, unknown>[] | undefined)?.find(
+    (layer) => layer.id === "parcels",
+  );
+  expect(authoredLayer?.filter).toEqual(authoredFilter);
   runtime.dispose();
 });
 

@@ -22,4 +22,8 @@ export { clauseToMaplibreFilter, clausesToMaplibreFilter } from "./filter-expres
 export type { MaplibreFilter } from "./filter-expression.js";
 
 export { EMPTY_LAYER_APPEARANCE, OPACITY_CLAUSE_FIELD, StudioInteractionRuntime } from "./studio-interactions.js";
-export type { StudioInteractionRuntimeOptions, StudioLayerAppearance } from "./studio-interactions.js";
+export type {
+  StudioInteractionRuntimeOptions,
+  StudioLayerAppearance,
+  TemporaryFilterSummary,
+} from "./studio-interactions.js";
