@@ -245,7 +245,7 @@ export class StudioInteractionRuntime {
     return JSON.stringify([
       state.interactions,
       state.controls.map((control) => control.id),
-      state.layers.map((layer) => layer.id),
+      state.layers.map((layer) => [layer.id, layer.sourceId]),
       state.widgets.map((widget) => widget.id),
     ]);
   }

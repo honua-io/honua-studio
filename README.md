@@ -22,6 +22,17 @@ provenance. Console integration uses the bundle from the accepted revision.
 These exports do not establish deployment readiness or a completed large-file
 import → query → map journey.
 
+The embedded editor includes a data and interaction inspector beside Undo/Redo.
+It projects source/field consumers and incoming/outgoing connections from the
+current composition, describes fields through the current caller's authorized
+source catalog, and follows exact object IDs into the existing selection event.
+Its support denominator includes runtime blockers and intrinsic source filters;
+stored bindings alone do not establish working interactions. Authored map filters
+remain separate from the existing temporary-filter reset. Metadata is transient,
+serially requested with cancellation and an eight-second timeout; draft/session
+switches close the inspector. Console conversation integration and installed
+workflow qualification remain separate from the producer's fixture checks.
+
 - **BYOM** — bring your own model: Studio talks to honua-server's Studio AI
   proxy, so the provider is the operator's choice (Bedrock, any hosted API, or
   a local model) and no key ever reaches the browser. Live turns use the SDK's

@@ -62,8 +62,9 @@ import {
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
+import type { DesignInspectorPanel } from "../design/design-inspector-panel.js";
 import { CompositionController } from "../composition/controller.js";
-import { createEmptyCompositionState } from "../composition/model.js";
+import { type CompositionState, createEmptyCompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
@@ -258,6 +259,76 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #currentPath = "/";
   #chromeBuilt = false;
   #composition: CompositionController | undefined;
+  #designInspector: DesignInspectorPanel | undefined;
+  #designInspectorContainer: HTMLElement | undefined;
+  #designInspectorGeneration = 0;
+  #designRelationship: { readonly interactionId: string; readonly ownerRef: string } | undefined;
+  #designRelationshipState: CompositionState | undefined;
+  #designRelationshipSelection: readonly unknown[] | undefined;
+  public get selectedDesignRelationship(): { readonly interactionId: string; readonly ownerRef: string } | undefined {
+    const relationship = this.#designRelationship;
+    if (!relationship || this.#designRelationshipSelection !== this.composition.selection || this.#designRelationshipState !== this.composition.state || !this.composition.state.interactions.some((entry) => entry.id === relationship.interactionId)) return undefined;
+    const owner = this.composition.selection[0];
+    const ref = owner && owner.kind !== "feature" ? `${owner.kind === "component" ? "widget" : owner.kind}:${owner.id}` : undefined;
+    return ref === relationship.ownerRef ? { ...relationship } : undefined;
+  }
+
+  /** Shared embedded editor surface; hosts may open this beside their one conversation. */
+  public async openDesignInspector(): Promise<void> {
+    if (this.#designInspector) return;
+    const opening = ++this.#designInspectorGeneration;
+    const generation = this.#workspaceAuthGeneration;
+    const identity = this.#workspaceDraft?.identity?.draftId;
+    const { DesignInspectorPanel: Panel } = await import("../design/design-inspector-panel.js");
+    if (!this.isConnected || opening !== this.#designInspectorGeneration || generation !== this.#workspaceAuthGeneration || identity !== this.#workspaceDraft?.identity?.draftId) return;
+    const container = document.createElement("div");
+    container.id = "design-inspector-panel";
+    this.shadowRoot?.querySelector(".app-slots")?.before(container);
+    this.#designInspectorContainer = container;
+    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined;
+    this.#designInspector = new Panel({
+      container,
+      controller: this.composition,
+      canvas,
+      describeSource: async (sourceId, signal) => {
+        if (this.auth.getState().status !== "fresh") throw new Error("Sign in to describe authorized source fields.");
+        const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+        if (!source) throw new Error("Source is absent from the authorized catalog. Refresh source access before describing fields.");
+        const baseUrl = canvas?.sourceAuthBaseUrl ?? runtimeMcpBaseUrl();
+        const provider = new AuthoritativeStyleProvider({ baseUrl, ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}), documentUrl: document.baseURI, getAuth: () => this.auth, signal });
+        const fields = await provider.describeSource(source);
+        signal.throwIfAborted();
+        if (generation !== this.#workspaceAuthGeneration || identity !== this.#workspaceDraft?.identity?.draftId) throw new Error("The workspace draft or authority changed.");
+        return fields;
+      },
+      select: (consumer, interactionId) => {
+        this.#designRelationship = interactionId && this.composition.state.interactions.some((entry) => entry.id === interactionId) ? { interactionId, ownerRef: consumer.ref } : undefined;
+        this.#designRelationshipState = this.composition.state;
+        this.composition.select([consumer.target]);
+        this.#designRelationshipSelection = this.composition.selection;
+        this.dispatchTypedEvent("honua-studio-selection-change", { targets: [consumer.target], ...(this.selectedDesignRelationship ? { relationship: this.selectedDesignRelationship } : {}) });
+      },
+      close: () => {
+        this.closeDesignInspector();
+        this.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="design-inspector-toggle"]')?.focus();
+      },
+    });
+    this.shadowRoot?.querySelector('[data-testid="design-inspector-toggle"]')?.setAttribute("aria-expanded", "true");
+    container.querySelector<HTMLButtonElement>("button")?.focus();
+  }
+
+  public closeDesignInspector(): void {
+    this.#designInspectorGeneration++;
+    this.#designInspector?.dispose();
+    this.#designInspector = undefined;
+    this.#designInspectorContainer?.remove();
+    this.#designInspectorContainer = undefined;
+    this.#designRelationship = undefined;
+    this.#designRelationshipState = undefined;
+    this.#designRelationshipSelection = undefined;
+    const toggle = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="design-inspector-toggle"]');
+    toggle?.setAttribute("aria-expanded", "false");
+  }
   #styleEditor: MapStyleEditor | undefined;
   #styleEditorPanel: HTMLElement | undefined;
   #styleEditorUnsubscribe: (() => void) | undefined;
@@ -501,6 +572,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
   public attachWorkspaceDraft(draftId: string): Promise<void> {
+    this.closeDesignInspector();
     const generation = this.#workspaceAuthGeneration;
     const run = this.#workspaceDraftQueue.then(() => this.#observeWorkspaceDraft(draftId, generation));
     this.#workspaceDraftQueue = run.catch(() => undefined);
@@ -701,6 +773,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // A same-principal lease can renew while the prospective GET is in flight.
     // Adopt its observed state with the current transport, not the expired lease.
     binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
+    if (previous?.draftId !== draftId) this.closeDesignInspector();
     this.#workspaceDraft = binding;
     this.#workspaceDraftConflict = false;
     const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
@@ -709,9 +782,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       : this.composition.replaceState.bind(this.composition);
     attach({
       ...state,
-      pins: this.composition.state.pins,
-      annotations: this.composition.state.annotations,
+      pins: previous?.draftId === draftId ? this.composition.state.pins : state.pins,
+      annotations: previous?.draftId === draftId ? this.composition.state.annotations : state.annotations,
     });
+    if (previous?.draftId !== draftId) {
+      this.composition.clearSelection();
+      this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration();
+    }
     this.#announceWorkspaceDraft();
   }
 
@@ -866,6 +943,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public set session(session: SessionAdapter | undefined) {
+    this.closeDesignInspector();
     if (this.#session === session) return;
     if (session && "kind" in session && session.kind === "cookie") verifiedSourcePathBase(session.sourcePathBase);
     const previous = this.#session;
@@ -882,6 +960,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       previous.environmentId === session.environmentId &&
       verifiedSourcePathBase(previous.sourcePathBase) === verifiedSourcePathBase(session.sourcePathBase);
     if (!samePrincipal) {
+      this.closeDesignInspector();
       this.#disposeStyleEditor();
       this.#workspaceAuthGeneration++;
       if (hadAuthority) {
@@ -896,6 +975,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#workspaceDraft = undefined;
       this.#workspaceDraftConflict = false;
       this.composition.resetBaseline(createEmptyCompositionState());
+      this.composition.clearSelection();
+      this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration();
       if (hadAuthority) this.#announceWorkspaceDraft();
     }
     this.#session = session;
@@ -1102,6 +1183,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #applySourceCatalog(catalog: readonly CatalogDataset[] | undefined): void {
+    if (catalog !== this.#sourceCatalog) this.closeDesignInspector();
     this.#sourceCatalog = catalog;
     // The kit advertises the catalog, so it has to be rebuilt around a new one.
     this.#aiMapKit = undefined;
@@ -1166,6 +1248,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const status = this.#auth?.getState().status;
     if (status === this.#lastAuthStatus) return;
     this.#lastAuthStatus = status;
+    if (status === "expired" || status === "signed-out") this.closeDesignInspector();
     if (status !== "fresh" || this.#sourceCatalog !== undefined) return;
     this.#refreshSourceCatalog();
   }
@@ -1822,6 +1905,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   protected onDisconnect(): void {
+    this.closeDesignInspector();
     this.#historyUnsubscribe?.();
     this.#historyUnsubscribe = undefined;
     if (!this.#workspaceAgentAdapter) {
@@ -1926,6 +2010,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
             <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
+            <button type="button" class="hn-btn hn-btn--sm" data-testid="design-inspector-toggle" aria-expanded="false" aria-controls="design-inspector-panel">Inspect data and interactions</button>
             <span class="hn-muted" data-testid="history-status" role="status"></span>
             <button
               type="button"
@@ -2034,6 +2119,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
 
     this.bindLiveCompositionControls();
+    root?.querySelector('[data-testid="design-inspector-toggle"]')?.addEventListener("click", () => {
+      if (this.#designInspector) this.closeDesignInspector();
+      else void this.openDesignInspector();
+    }, { signal });
     for (const action of ["undo", "redo"] as const) {
       root?.querySelector(`[data-testid="history-${action}"]`)?.addEventListener(
         "click",

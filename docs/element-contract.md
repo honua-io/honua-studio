@@ -17,6 +17,24 @@ Studio that a third-party host page or Honua Console couldn't also use
 
 ### `<honua-studio-app>` — the full shell
 
+The embedded app header's **Inspect data and interactions** button opens the
+current-draft inspector. Hosts can also call `openDesignInspector(): Promise<void>`
+or `closeDesignInspector(): void`. The inspector observes the existing composition
+and canvas runtime, reads bounded field descriptions under the current authority,
+and issues no composition edits. Its temporary reset uses the existing exploration
+runtime. Closing, draft attachment, catalog replacement, expiry and session changes
+cancel metadata work and remove its transient context.
+
+Following a consumer or connection emits the existing
+`honua-studio-selection-change` event with an existing `CompositionTarget` owner.
+For an authored relationship, its detail additionally includes
+`relationship: { interactionId, ownerRef }`; no new target kind is introduced.
+The read-only `selectedDesignRelationship` getter returns that same pair while
+the exact composition and owner selection remain current. It returns `undefined`
+after document/selection changes. Hosts should capture it with their current
+draft/revision and existing selected-object context when freezing a conversation
+turn; the getter does not grant authority or identify a server resource.
+
 Implementation: `src/elements/studio-app-element.ts`. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
 routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
