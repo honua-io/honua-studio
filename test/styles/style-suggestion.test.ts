@@ -355,4 +355,67 @@ describe("authorized style suggestion", () => {
     expect(paintOf(controller.state.mapSpec as MapStyleDocument, "parcels")["fill-color"]).toBe("#112233");
     expect(controller.state.layers.find((layer) => layer.id === "parcels")?.styleRef).toBeUndefined();
   });
+
+  it("previews the filter and layout that apply will persist", async () => {
+    const controller = controllerFor();
+    const suggestionBody = geometrySuggestion();
+    const primary = suggestionBody.mapLibreStyle.layers[0] as Record<string, unknown>;
+    primary.filter = ["==", ["get", "zoning"], "Residential"];
+    primary.layout = { visibility: "none" };
+    primary.minzoom = 4;
+    const transport = vi.fn(async () =>
+      jsonResponse(envelope(canonicalCompositionJson(controller.state), suggestionBody)),
+    );
+    const { onPreview, suggestion } = mount(controller, transport);
+    expect((await suggestion.request()).ok).toBe(true);
+    const preview = onPreview.mock.calls[0]?.[0] as MapStyleDocument;
+    const previewLayer = (preview.layers as Record<string, unknown>[]).find((layer) => layer.id === "parcels");
+    if (!previewLayer) throw new Error("The preview is missing the selected layer.");
+    expect(previewLayer.filter).toEqual(["==", ["get", "zoning"], "Residential"]);
+    expect(previewLayer.layout).toEqual({ visibility: "none" });
+    expect(previewLayer.minzoom).toBe(4);
+    expect(previewLayer.source).toBe("parcels");
+    expect((await suggestion.apply()).ok).toBe(true);
+    const inline = controller.state.styleRefs?.find((ref) => ref.styleId === "honua-inline:parcels");
+    expect(inline?.body?.parcels).toMatchObject({
+      filter: ["==", ["get", "zoning"], "Residential"],
+      layout: { visibility: "none" },
+      minzoom: 4,
+      paint: { "fill-color": "#0b7285" },
+    });
+  });
+
+  it("clears the active preview on retarget and refuses a renderer source override", async () => {
+    const controller = controllerFor();
+    const transport = vi.fn(async () =>
+      jsonResponse(envelope(canonicalCompositionJson(controller.state), geometrySuggestion())),
+    );
+    const { onPreview, suggestion } = mount(controller, transport);
+    expect((await suggestion.request()).ok).toBe(true);
+    suggestion.retarget("other");
+    expect(onPreview).toHaveBeenLastCalledWith(undefined);
+    expect(await suggestion.apply()).toEqual({ ok: false, reason: "There is no style suggestion to apply." });
+
+    const overridden = new CompositionController({
+      ...createEmptyCompositionState(),
+      layers: [
+        {
+          id: "parcels",
+          sourceId: "parcels",
+          type: "fill",
+          title: "Parcels",
+          visible: true,
+          metadata: { honua: { source: { type: "geojson", data: { type: "FeatureCollection", features: [] } } } },
+        },
+      ],
+      mapSpec: mapStyle(),
+    });
+    const blocked = vi.fn();
+    const refused = mount(overridden, blocked);
+    expect(await refused.suggestion.request()).toEqual({
+      ok: false,
+      reason: "This source is not an authorized catalog layer.",
+    });
+    expect(blocked).not.toHaveBeenCalled();
+  });
 });

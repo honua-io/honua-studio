@@ -6,7 +6,7 @@
  */
 import type { CompositionController } from "../composition/controller.js";
 import { type CompositionLayer, canonicalCompositionJson } from "../composition/model.js";
-import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
+import { type CompositionSourceDescriptor, hasCompositionSourceOverride } from "../map/source-resolution.js";
 import type { MapStyleDocument } from "./map-style-edit.js";
 
 const PERMITTED_OVERRIDE_KEYS = ["paint", "layout", "filter", "minzoom", "maxzoom", "metadata"] as const;
@@ -51,6 +51,8 @@ export function resolveCanonicalMetadataLayer(
   catalog: readonly CompositionSourceDescriptor[],
 ): CanonicalLayerResolution {
   if (!layer) return { ok: false, reason: "The selected layer is no longer on the map." };
+  if (hasCompositionSourceOverride(layer))
+    return { ok: false, reason: "This source is not an authorized catalog layer." };
   const matches = catalog.filter((entry) => entry.id === layer.sourceId);
   if (matches.length === 0) return { ok: false, reason: "This source is not an authorized catalog layer." };
   if (matches.length > 1) return { ok: false, reason: "The canonical layer is ambiguous." };
@@ -79,6 +81,7 @@ export class LayerStyleSuggestion {
   #abort: AbortController | undefined;
   #cancelReason = "The selection changed before the suggestion returned.";
   #pending: PendingSuggestion | undefined;
+  #displayed = false;
 
   public constructor(options: LayerStyleSuggestionOptions) {
     this.#controller = options.controller;
@@ -149,7 +152,9 @@ export class LayerStyleSuggestion {
     const stillCurrent = this.#stale(generation, abort, layerId, revision, selection);
     if (stillCurrent) return stillCurrent;
     this.#pending = { layerId, revision, selection, styleBody };
-    this.#onPreview?.(overlayPaint(mapSpec, styleBody));
+    this.#displayed = true;
+    this.#onPreview?.(overlayStyle(mapSpec, styleBody));
+    if (generation !== this.#generation) return { ok: false, reason: this.#cancelReason };
     this.#render(parsed.view);
     return { ok: true };
   }
@@ -174,9 +179,7 @@ export class LayerStyleSuggestion {
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : "The suggestion could not be read." };
     }
-    this.#pending = undefined;
-    this.#onPreview?.(undefined);
-    this.#render(undefined);
+    this.#clearDisplayedPreview();
     return { ok: true };
   }
 
@@ -185,9 +188,7 @@ export class LayerStyleSuggestion {
     this.#generation += 1;
     this.#abort?.abort();
     this.#abort = undefined;
-    this.#pending = undefined;
-    this.#onPreview?.(undefined);
-    this.#render(undefined);
+    this.#clearDisplayedPreview();
   }
 
   public undo(): boolean {
@@ -200,8 +201,15 @@ export class LayerStyleSuggestion {
     this.#generation += 1;
     this.#abort?.abort();
     this.#abort = undefined;
+    this.#clearDisplayedPreview();
+  }
+
+  #clearDisplayedPreview(): void {
     this.#pending = undefined;
     this.#render(undefined);
+    if (!this.#displayed) return;
+    this.#displayed = false;
+    this.#onPreview?.(undefined);
   }
 
   #stale(
@@ -373,15 +381,21 @@ function copiedStyleIsRefused(styleBody: unknown, mapSpec: MapStyleDocument): bo
   return false;
 }
 
-function overlayPaint(style: MapStyleDocument, styleBody: Record<string, Record<string, unknown>>): MapStyleDocument {
+function overlayStyle(style: MapStyleDocument, styleBody: Record<string, Record<string, unknown>>): MapStyleDocument {
   const next = structuredClone(style) as { layers?: unknown };
   if (!Array.isArray(next.layers)) return next as MapStyleDocument;
   next.layers = next.layers.map((value) => {
     if (!isRecord(value) || typeof value.id !== "string") return value;
     const override = styleBody[value.id];
-    if (!isRecord(override) || !isRecord(override.paint)) return value;
-    const paint = isRecord(value.paint) ? { ...value.paint, ...override.paint } : { ...override.paint };
-    return { ...value, paint };
+    if (!isRecord(override)) return value;
+    const layer: Record<string, unknown> = { ...value };
+    if (isRecord(override.paint)) {
+      layer.paint = isRecord(value.paint) ? { ...value.paint, ...override.paint } : { ...override.paint };
+    }
+    for (const key of ["layout", "filter", "minzoom", "maxzoom", "metadata"] as const) {
+      if (override[key] !== undefined) layer[key] = structuredClone(override[key]);
+    }
+    return layer;
   });
   return next as MapStyleDocument;
 }
