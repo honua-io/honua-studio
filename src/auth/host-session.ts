@@ -115,6 +115,12 @@ export class HostAdapterAuthSession implements AuthSession {
           (init?.method ?? "GET") === "GET"
         ) {
           target = `/api/studio/data${path}`;
+        } else if (/^\/api\/v1\/admin\/metadata\/layers\/(0|[1-9]\d{0,8})\/suggest-style$/.test(pathname)) {
+          const suggest = /^\/api\/v1\/admin\/metadata\/layers\/(0|[1-9]\d{0,8})\/suggest-style$/.exec(pathname);
+          if ((init?.method ?? "GET").toUpperCase() !== "POST" || path !== pathname || !suggest) {
+            throw new Error("Cookie host transport only permits bounded Studio requests.");
+          }
+          target = `/api/studio/layers/${suggest[1]}/suggest-style`;
         } else {
           if (
             !pathname.startsWith("/api/v1/studio/") &&
