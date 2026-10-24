@@ -80,6 +80,29 @@ function controllerFor(
   return { controller, layerId };
 }
 
+function lineWithInline(
+  body: Record<string, Record<string, unknown>>,
+  paint?: Record<string, unknown>,
+): { controller: CompositionController; layerId: string } {
+  return controllerFor("line", {
+    ...(paint ? { paint } : {}),
+    state: {
+      layers: [
+        {
+          id: "roads",
+          sourceId: "roads",
+          type: "line",
+          title: "Roads",
+          visible: true,
+          styleRef: { kind: "style-ref", styleId: "honua-inline:roads" },
+        },
+        { id: "other", sourceId: "other", type: "circle", title: "Other", visible: true },
+      ],
+      styleRefs: [{ styleId: "honua-inline:roads", body }],
+    },
+  });
+}
+
 function paintOf(style: MapStyleDocument, layerId: string): Record<string, unknown> {
   const layer = (style.layers as Record<string, unknown>[]).find((entry) => entry.id === layerId);
   return (layer?.paint ?? {}) as Record<string, unknown>;
@@ -264,6 +287,36 @@ describe("compact layer style inspector", () => {
     inspector.dispose();
   });
 
+  it("refuses a literal color when inline paint is categorical even if the base color is flat", async () => {
+    const match = ["match", ["get", "zoning"], "Residential", PALETTE[0], PALETTE[1]];
+    const { controller, layerId } = lineWithInline({ roads: { paint: { "line-color": match } } });
+    const before = canonicalCompositionJson(controller.state);
+    const inspector = new LayerStyleInspector({ controller, layerId });
+    const refused = inspector.preview({ color: "#00ff00" });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.reason).toMatch(/categor/i);
+    expect((await inspector.apply()).ok).toBe(false);
+    expect(canonicalCompositionJson(controller.state)).toBe(before);
+    inspector.dispose();
+  });
+
+  it("edits a literal inline color when only the base style has an expression", async () => {
+    const expression = ["interpolate", ["linear"], ["zoom"], 0, "#111111", 12, "#eeeeee"];
+    const { controller, layerId } = lineWithInline(
+      { roads: { paint: { "line-color": "#445566" } } },
+      { "line-color": expression, "line-opacity": 1, "line-width": 2 },
+    );
+    const inspector = new LayerStyleInspector({ controller, layerId });
+    const preview = inspector.preview({ color: "#00aa00" });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(paintOf(preview.style, layerId)["line-color"]).toBe("#00aa00");
+    expect((await inspector.apply()).ok).toBe(true);
+    expect(paintOf(controller.state.mapSpec as MapStyleDocument, layerId)["line-color"]).toEqual(expression);
+    expect(controller.state.styleRefs?.[0]?.body).toEqual({ roads: { paint: { "line-color": "#00aa00" } } });
+    inspector.dispose();
+  });
+
   it("preserves an unsupported expression on a property the edit does not change", async () => {
     const { controller, layerId } = controllerFor("circle", {
       paint: {
@@ -377,6 +430,42 @@ describe("compact layer style inspector", () => {
     inspector.dispose();
   });
 
+  it("keeps inline filter, layout, and minzoom when a color is applied", async () => {
+    const filter = ["==", ["get", "class"], "primary"];
+    const layout = { "line-cap": "round" };
+    const { controller, layerId } = lineWithInline({
+      roads: {
+        paint: { "line-opacity": 0.8 },
+        filter,
+        layout,
+        minzoom: 6,
+        maxzoom: 14,
+        metadata: { note: "keep" },
+      },
+      roads__outline: { filter: ["has", "name"], layout: { visibility: "visible" }, minzoom: 8 },
+    });
+    const inspector = new LayerStyleInspector({ controller, layerId });
+    expect(inspector.preview({ color: "#00aa00" }).ok).toBe(true);
+    expect((await inspector.apply()).ok).toBe(true);
+    expect(controller.state.styleRefs).toEqual([
+      {
+        styleId: "honua-inline:roads",
+        body: {
+          roads: {
+            paint: { "line-opacity": 0.8, "line-color": "#00aa00" },
+            layout,
+            filter,
+            minzoom: 6,
+            maxzoom: 14,
+            metadata: { note: "keep" },
+          },
+          roads__outline: { layout: { visibility: "visible" }, filter: ["has", "name"], minzoom: 8 },
+        },
+      },
+    ]);
+    inspector.dispose();
+  });
+
   it("offers only controls that match the geometry and described fields", () => {
     const point = controllerFor("circle");
     const pointInspector = new LayerStyleInspector({
@@ -414,5 +503,40 @@ describe("compact layer style inspector", () => {
     expect(paintOf(controller.state.mapSpec as MapStyleDocument, layerId)["line-color"]).toBe("#112233");
     expect(controller.canUndo()).toBe(false);
     inspector.dispose();
+  });
+
+  it("clears the transient preview after a successful apply", async () => {
+    const { controller, layerId } = controllerFor("line");
+    const onPreview = vi.fn();
+    const inspector = new LayerStyleInspector({ controller, layerId, onPreview });
+    expect(inspector.preview({ color: "#00aa00" }).ok).toBe(true);
+    expect((await inspector.apply()).ok).toBe(true);
+    expect(onPreview).toHaveBeenCalledTimes(2);
+    expect(onPreview.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ version: 8 }));
+    expect(onPreview.mock.calls[1]).toEqual([undefined]);
+    inspector.dispose();
+
+    const custom = controllerFor("line");
+    const customPreview = vi.fn();
+    const applyCommand = vi.fn(async () => ({ ok: true as const }));
+    const customInspector = new LayerStyleInspector({
+      controller: custom.controller,
+      layerId: custom.layerId,
+      onPreview: customPreview,
+      applyCommand,
+    });
+    expect(customInspector.preview({ opacity: 0.4 }).ok).toBe(true);
+    expect((await customInspector.apply()).ok).toBe(true);
+    expect(applyCommand).toHaveBeenCalledOnce();
+    expect(customPreview).toHaveBeenCalledTimes(2);
+    expect(customPreview.mock.calls[0]?.[0]).toBeTruthy();
+    expect(customPreview.mock.calls[1]).toEqual([undefined]);
+    customInspector.dispose();
+
+    const quiet = controllerFor("circle");
+    const quietInspector = new LayerStyleInspector({ controller: quiet.controller, layerId: quiet.layerId });
+    expect(quietInspector.preview({ color: "#010101" }).ok).toBe(true);
+    await expect(quietInspector.apply()).resolves.toEqual({ ok: true });
+    quietInspector.dispose();
   });
 });

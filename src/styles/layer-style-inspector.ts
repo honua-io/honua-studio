@@ -62,9 +62,10 @@ interface PendingPreview {
 }
 
 /**
- * Compact map-local paint editor. Preview is transient: it never calls the
- * controller. `setMapStyle` clears every style ref, so an edit is stored as
- * `setLayerStyleRef` whenever the composition already has any style ref.
+ * Compact map-local paint editor. Preview is transient and never calls the
+ * controller; a successful apply clears that preview. `setMapStyle` clears
+ * every style ref, so an edit is stored as `setLayerStyleRef` whenever the
+ * composition already has any style ref.
  */
 export class LayerStyleInspector {
   readonly container: HTMLElement | undefined;
@@ -109,7 +110,7 @@ export class LayerStyleInspector {
     if (!current) return { ok: false, reason: "This layer has no map style." };
     const geometry = this.#geometry();
     if (!geometry) return { ok: false, reason: "This layer cannot be styled." };
-    const lossy = lossyLiteralReplacement(current, this.#layerId, geometry, input);
+    const lossy = lossyLiteralReplacement(overlayInline(current, this.#inlineBody()), this.#layerId, geometry, input);
     if (lossy) return lossy;
     const described = input.thematic ? this.#describedField(input.thematic.field) : undefined;
     if (input.thematic && !described) return { ok: false, reason: "Choose a described field." };
@@ -153,15 +154,15 @@ export class LayerStyleInspector {
     if (this.#applyCommand) {
       const result = await this.#applyCommand(command);
       if (!result.ok) return result;
-      this.#pending = undefined;
-      return { ok: true };
-    }
-    try {
-      this.#controller.apply(command);
-    } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : "The style edit was rejected." };
+    } else {
+      try {
+        this.#controller.apply(command);
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : "The style edit was rejected." };
+      }
     }
     this.#pending = undefined;
+    this.#onPreview?.(undefined);
     return { ok: true };
   }
 
@@ -177,12 +178,19 @@ export class LayerStyleInspector {
   #command(pending: PendingPreview): CompositionCommand {
     const refs = this.#controller.state.styleRefs;
     if (!refs || refs.length === 0) return { name: "setMapStyle", mapSpec: pending.style };
-    const body: Record<string, { paint: Record<string, unknown> }> = {};
-    const layerPaint = { ...this.#inlinePaint(pending.layerId), ...pending.layerPaint };
+    const inline = this.#inlineBody();
     const outlineId = `${pending.layerId}__outline`;
-    const outlinePaint = { ...this.#inlinePaint(outlineId), ...pending.outlinePaint };
-    if (Object.keys(layerPaint).length > 0) body[pending.layerId] = { paint: layerPaint };
-    if (Object.keys(outlinePaint).length > 0) body[outlineId] = { paint: outlinePaint };
+    const body: Record<string, Record<string, unknown>> = {};
+    const layerBody = inlineOverrideBody(inline?.[pending.layerId], {
+      ...this.#inlinePaint(pending.layerId),
+      ...pending.layerPaint,
+    });
+    const outlineBody = inlineOverrideBody(inline?.[outlineId], {
+      ...this.#inlinePaint(outlineId),
+      ...pending.outlinePaint,
+    });
+    if (layerBody) body[pending.layerId] = layerBody;
+    if (outlineBody) body[outlineId] = outlineBody;
     return { name: "setLayerStyleRef", target: { kind: "layer", id: pending.layerId }, styleBody: body };
   }
 
@@ -345,6 +353,22 @@ function legendFor(mode: "categories" | "breaks", values: readonly unknown[]): r
     color: THEMATIC_PALETTE[breaks.length] ?? THEMATIC_PALETTE[THEMATIC_PALETTE.length - 1],
   });
   return entries;
+}
+
+const INLINE_NON_PAINT_KEYS = ["layout", "filter", "minzoom", "maxzoom", "metadata"] as const;
+
+/** setLayerStyleRef replaces the inline body, so untouched non-paint members have to be copied. */
+function inlineOverrideBody(existing: unknown, paint: Record<string, unknown>): Record<string, unknown> | undefined {
+  const source = isRecord(existing) ? existing : undefined;
+  const body: Record<string, unknown> = {};
+  if (Object.keys(paint).length > 0) body.paint = paint;
+  if (source) {
+    for (const key of INLINE_NON_PAINT_KEYS) {
+      if (!Object.hasOwn(source, key) || source[key] === undefined) continue;
+      body[key] = structuredClone(source[key]);
+    }
+  }
+  return Object.keys(body).length > 0 ? body : undefined;
 }
 
 function overlayInline(style: MapStyleDocument, body: Record<string, unknown> | undefined): MapStyleDocument {
