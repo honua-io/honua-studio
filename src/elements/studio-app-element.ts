@@ -832,7 +832,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       }
       if (!submission.attachmentAllowed && !submission.submission.submitted)
         throw new Error("Recipe creation was cancelled before submission.");
-      const created = await submission.submission.submit(submission.request, (request, commandId) =>
+      const created = await submission.submission.createDraft(submission.request, (request, commandId) =>
         client.createDraft(request, commandId),
       );
       if (generation !== this.#recipeAuthorityGeneration)
@@ -1216,6 +1216,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       for (const element of root.querySelectorAll("*")) {
         if (
           element.tagName === "HONUA-STUDIO-CHAT" ||
+          element.tagName === "HONUA-STUDIO-CONTROL-BAR" ||
           this.#styleEditorPanel?.contains(element) ||
           this.shadowRoot?.querySelector("[data-recipe-outlet]")?.contains(element)
         )

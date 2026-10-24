@@ -337,6 +337,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   protected onConnect(): void {
     HonuaStudioCanvasElement.instanceCount += 1;
+    this.listen(this, "honua-studio-widget-source-change", () => this.#syncControlBar());
     if (!this.#auth) {
       const inherited = resolveInjectedAuth(this);
       if (!inherited)
@@ -389,8 +390,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.#syncTitle();
     if (kind === "composition") {
       void this.#ensureInteractionRuntime();
-      this.#syncControlBar();
       this.#syncWidgetDeck();
+      this.#syncControlBar();
       this.#syncReadout();
       this.#syncSurface();
       void this.#ensureMapView();
@@ -443,8 +444,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       </section>
     `);
     if (kind !== "composition") return;
-    this.#syncControlBar();
     this.#syncWidgetDeck();
+    this.#syncControlBar();
     const signal = this.connectedSignal;
     for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-surface-option]") ?? []) {
       button.addEventListener(
@@ -514,7 +515,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       customElements.upgrade(bar);
     }
     if (!("composition" in bar)) return;
-    bar.dataLoader = this.#widgetDataLoader;
+    bar.dataLoader = this.widgetDeck?.sourceDataLoader ?? this.#widgetDataLoader;
     bar.map = this.#mapBridge();
     bar.interactions = this.#interactions;
     bar.composition = this.#composition;

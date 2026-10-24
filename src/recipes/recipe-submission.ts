@@ -12,7 +12,7 @@ export class RecipeSubmission {
     return this.#request !== undefined;
   }
 
-  public submit(
+  public createDraft(
     request: StudioPackageDraftCreateRequest,
     create: (request: StudioPackageDraftCreateRequest, commandId: string) => Promise<StudioPackageDraft>,
   ): Promise<StudioPackageDraft> {

@@ -148,6 +148,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #sourceBaseUrl = runtimeServerBaseUrl();
   #dataLoader: WidgetDataLoader | undefined;
   #defaultLoader: WidgetDataLoader | undefined;
+  #sharedDataLoader: WidgetDataLoader | undefined;
+  #sourceNoticeQueued = false;
   #getAuth: (() => AuthSession | undefined) | undefined;
   #activeAuth: AuthSession | undefined;
   #authUnsubscribe: (() => void) | undefined;
@@ -252,6 +254,24 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (this.#dataLoader === loader) return;
     this.#dataLoader = loader;
     this.#resetData();
+  }
+
+  /** Controls reuse the widget loader's authorized bounded transport and cancellation generation. */
+  public get sourceDataLoader(): WidgetDataLoader {
+    if (this.#sharedDataLoader) return this.#sharedDataLoader;
+    const request = this.#dataAbort;
+    this.#sharedDataLoader = async (sourceId, options) => {
+      this.refreshSession();
+      if (request.signal.aborted || !this.isConnected)
+        return Promise.resolve({ ok: false, reason: "The source context changed. Refresh the available values." });
+      const signal = options?.signal ? AbortSignal.any([request.signal, options.signal]) : request.signal;
+      const result = await this.#resolveLoader()(sourceId, { signal });
+      this.refreshSession();
+      if (signal.aborted || !this.isConnected || this.#sessionUnavailable)
+        return { ok: false, reason: "The source context changed. Refresh the available values." };
+      return result;
+    };
+    return this.#sharedDataLoader;
   }
 
   /** Layers the map reported as unrenderable, so the TOC can flag them instead of implying they are drawn. */
@@ -376,6 +396,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.#dataAbort.abort();
     this.#data.clear();
     this.#defaultLoader = undefined;
+    this.#sharedDataLoader = undefined;
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
   }
@@ -808,7 +829,15 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.#dataAbort = new AbortController();
     this.#data.clear();
     this.#defaultLoader = undefined;
+    this.#sharedDataLoader = undefined;
     if (this.isConnected) this.render();
+    if (!this.#sourceNoticeQueued) {
+      this.#sourceNoticeQueued = true;
+      queueMicrotask(() => {
+        this.#sourceNoticeQueued = false;
+        if (this.isConnected) this.dispatchTypedEvent("honua-studio-widget-source-change", {});
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

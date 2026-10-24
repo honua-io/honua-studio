@@ -436,6 +436,26 @@ describe("<honua-studio-widget-deck> — chart, legend, compare, time (REQ-001/R
 });
 
 describe("widget deck session lifecycle", () => {
+  it("refuses late control-domain rows from an injected loader that ignores authority cancellation", async () => {
+    const el = document.createElement("honua-studio-widget-deck") as HonuaStudioWidgetDeckElement;
+    const initial = { subscribe: () => () => {}, getAccessToken: async () => "one" } as unknown as AuthSession;
+    el.getAuth = () => initial;
+    let finish!: (result: WidgetDataResult) => void;
+    let signal!: AbortSignal;
+    el.dataLoader = (_id, options) => {
+      signal = options!.signal!;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    };
+    document.body.append(el);
+    const pending = el.sourceDataLoader("private-source");
+    const next = { subscribe: () => () => {}, getAccessToken: async () => "two" } as unknown as AuthSession;
+    el.getAuth = () => next;
+    expect(signal.aborted).toBe(true);
+    finish({ ok: true, rows: [{ properties: { private_value: "previous authority" } }], truncated: false });
+    expect(await pending).toEqual({ ok: false, reason: expect.stringContaining("source context changed") });
+  });
   it("loads public external catalog data with an expired session but refuses the protected Honua source", async () => {
     const auth = {
       subscribe: (listener: AuthSessionListener) => {

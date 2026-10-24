@@ -91,7 +91,7 @@ describe("design inventory", () => {
     });
   });
 
-  it("agrees with the executing runtime and exposes the actual unsupported denominator", () => {
+  it("agrees with the executing runtime and exposes the actual unsupported denominator", async () => {
     const controller = new CompositionController(designFixture());
     const runtime = new StudioInteractionRuntime({ controller });
     try {
@@ -110,12 +110,14 @@ describe("design inventory", () => {
           .map((entry) => entry.to),
       ).toEqual(["layer:places", "widget:table", "widget:chart"]);
       runtime.publishControlChange("filter", { field: "category", operator: "=", value: "B" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(controller.state.layers.find((entry) => entry.id === "places")?.visible).toBe(false);
       expect(runtime.appearance.sourceFilters?.["source-a"]).toEqual([
         { field: "category", operator: "=", value: "B" },
       ]);
       const authored = controller.state.mapSpec;
       runtime.resetTemporaryFilters();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(runtime.temporaryFilterSummary()).toEqual([]);
       expect(controller.state.mapSpec).toBe(authored);
       expect(controller.state.interactions).toHaveLength(3);

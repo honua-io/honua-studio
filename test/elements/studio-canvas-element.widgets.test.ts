@@ -13,7 +13,8 @@
  *     is the app's one selection dispatcher, and a widget row must go through
  *     it rather than around it.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AuthSession } from "../../src/auth/types.js";
 
 import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
@@ -43,6 +44,7 @@ async function settle(): Promise<void> {
 describe("<honua-studio-canvas> + widget deck (honua-studio#24)", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.unstubAllGlobals();
   });
 
   it("has no deck in placeholder mode and one in composition mode", () => {
@@ -93,6 +95,73 @@ describe("<honua-studio-canvas> + widget deck (honua-studio#24)", () => {
     expect(el.widgetDeck?.sourceBaseUrl).toBe("/proxy");
     expect(el.widgetDeck?.sourceCatalog).toHaveLength(1);
     expect(el.widgetDeck?.dataLoader).toBe(loader);
+  });
+
+  it("shares the authenticated default loader with control domains and refreshes it for new sources, sessions and caller overrides", async () => {
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            type: "FeatureCollection",
+            features: (String(input).includes("Other") ? ["C"] : ["A", "B"]).map((zone, id) => ({
+              type: "Feature",
+              id,
+              properties: { zone },
+            })),
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const auth = (token: string) =>
+      ({ subscribe: () => () => {}, getAccessToken: async () => token }) as unknown as AuthSession;
+    const el = document.createElement("honua-studio-canvas") as HonuaStudioCanvasElement;
+    el.auth = auth("one");
+    el.sourceBaseUrl = `${location.origin}/api`;
+    el.sourceCatalog = [
+      {
+        id: "source",
+        protocol: "geoservices-feature-service",
+        geometryType: "Polygon",
+        locator: { url: `${location.origin}/rest/services/Parcels/FeatureServer/0`, layerId: 0 },
+      },
+    ];
+    const controller = new CompositionController(createEmptyCompositionState());
+    controller.apply({ name: "addLayer", layer: { id: "map-layer", sourceId: "source" } });
+    controller.apply({
+      name: "addWidget",
+      widget: { id: "table", kind: "table", sourceId: "source", config: { fields: ["zone"] } },
+    });
+    controller.apply({
+      name: "addControl",
+      control: { id: "category", kind: "filterSelect", sourceId: "source", config: { field: "zone" } },
+    });
+    el.composition = controller;
+    document.body.append(el);
+    const options = () =>
+      [
+        ...(el.controlBar?.shadowRoot?.querySelector<HTMLSelectElement>("select[data-action='filter-select']")
+          ?.options ?? []),
+      ].map((option) => option.value);
+    await vi.waitFor(() => expect(options()).toEqual(["", "A", "B"]));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer one");
+    expect(el.widgetDeck?.shadowRoot?.querySelectorAll('[data-testid="studio-widget-grid-row"]')).toHaveLength(2);
+    el.auth = auth("two");
+    el.sourceCatalog = [
+      {
+        id: "source",
+        protocol: "geoservices-feature-service",
+        geometryType: "Polygon",
+        locator: { url: `${location.origin}/rest/services/Other/FeatureServer/0`, layerId: 0 },
+      },
+    ];
+    await vi.waitFor(() => expect(options()).toEqual(["", "C"]));
+    expect(new Headers(fetchImpl.mock.calls.at(-1)?.[1]?.headers).get("Authorization")).toBe("Bearer two");
+    const requests = fetchImpl.mock.calls.length;
+    el.widgetDataLoader = async () => ({ ok: true, rows: [{ properties: { zone: "Override" } }], truncated: false });
+    await vi.waitFor(() => expect(options()).toEqual(["", "Override"]));
+    expect(fetchImpl).toHaveBeenCalledTimes(requests);
   });
 
   it("a grid row selection reaches the host exactly once, dispatched by the canvas", async () => {

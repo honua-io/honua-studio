@@ -90,7 +90,7 @@ describe("embedded design inspector", () => {
     const app = await mount();
     const lease = {
       kind: "cookie" as const,
-      baseUrl: "/api",
+      baseUrl: "/api/studio",
       sourcePathBase: "/api",
       environmentId: "environment",
       principalId: "principal",

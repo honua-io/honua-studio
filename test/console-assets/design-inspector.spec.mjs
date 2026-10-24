@@ -40,9 +40,10 @@ test("built shared editor inspects actual data, follows exact owners, and fences
       return;
     }
     try {
+      const bytes = await readFile(file);
       response
         .writeHead(200, { "Content-Type": file.endsWith(".js") ? "text/javascript" : "application/octet-stream" })
-        .end(await readFile(file));
+        .end(bytes);
     } catch {
       response.writeHead(404).end();
     }
@@ -51,6 +52,13 @@ test("built shared editor inspects actual data, follows exact owners, and fences
   try {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.evaluate(async (token) => {
+      window.__honuaStudioRuntimeConfig = {
+        schemaVersion: "honua.studio.runtime-config.v1",
+        serverBaseUrl: "/api",
+        mcpBaseUrl: "/api",
+        oidc: { issuer: "/oidc", clientId: "fixture", scopes: ["openid"] },
+        model: { mode: "server-proxy" },
+      };
       const runtime = await import("/console.js");
       runtime.registerAllStudioElements();
       const app = document.createElement("honua-studio-app");

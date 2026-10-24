@@ -18,20 +18,22 @@ describe("recipe submission retry identity", () => {
         }),
     );
     const submission = new RecipeSubmission();
-    const first = submission.submit(request, create);
-    expect(submission.submit(request, create)).toBe(first);
+    const first = submission.createDraft(request, create);
+    expect(submission.createDraft(request, create)).toBe(first);
     accept(draft);
     expect(await first).toBe(draft);
-    expect(await submission.submit(request, create)).toBe(draft);
+    expect(await submission.createDraft(request, create)).toBe(draft);
     expect(create).toHaveBeenCalledExactlyOnceWith(request, submission.commandId);
   });
 
   it("retries a lost response with exact request and Idempotency-Key; changed payload is refused", async () => {
     const create = vi.fn().mockRejectedValueOnce(new Error("response lost after accept")).mockResolvedValue(draft);
     const submission = new RecipeSubmission();
-    await expect(submission.submit(request, create)).rejects.toThrow("response lost");
-    await expect(submission.submit({ ...request, packageKey: "changed" }, create)).rejects.toThrow("original recipe");
-    expect(await submission.submit(request, create)).toBe(draft);
+    await expect(submission.createDraft(request, create)).rejects.toThrow("response lost");
+    await expect(submission.createDraft({ ...request, packageKey: "changed" }, create)).rejects.toThrow(
+      "original recipe",
+    );
+    expect(await submission.createDraft(request, create)).toBe(draft);
     expect(create.mock.calls[0]).toEqual(create.mock.calls[1]);
   });
 });

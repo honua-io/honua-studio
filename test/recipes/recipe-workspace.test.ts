@@ -7,6 +7,7 @@ import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 import type { StudioPackageDraft, StudioPackageDraftCreateRequest } from "../../src/lifecycle/lifecycle-types.js";
 import type { ExploreDatasetInput, ExploreDatasetMetadata } from "../../src/recipes/explore-dataset.js";
+import { installRuntimeConfig, runtimeConfig } from "../../src/runtime-config.js";
 
 registerAllStudioElements();
 const metadata: ExploreDatasetMetadata = {
@@ -63,6 +64,7 @@ describe("recipe canonical workspace creation", () => {
     document.body.replaceChildren();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    installRuntimeConfig(undefined);
   });
 
   it("writes once on concurrent submit, retains accepted identity after attach failure and never publishes", async () => {
@@ -180,10 +182,11 @@ describe("recipe canonical workspace creation", () => {
   });
 
   it("equates only verified same-origin source aliases while preserving the published service and layer", async () => {
+    installRuntimeConfig({ ...runtimeConfig(), mcpBaseUrl: "/api" });
     const app = mount();
     app.session = {
       kind: "cookie",
-      baseUrl: "/api",
+      baseUrl: "/api/studio",
       sourcePathBase: "/deploy/alpha",
       environmentId: "environment",
       principalId: "principal",
@@ -382,7 +385,7 @@ describe("recipe canonical workspace creation", () => {
     const app = mount();
     const lease = {
       kind: "cookie" as const,
-      baseUrl: "/api",
+      baseUrl: "/api/studio",
       sourcePathBase: "/api",
       environmentId: "environment",
       principalId: "principal",

@@ -55,7 +55,9 @@ describe("recipe picker discovery", () => {
     requests[0].resolve(metadata);
     await tick();
     expect(outlet.querySelector('[name="categoryField"]')?.textContent).toContain("second");
-    expect(outlet.querySelector('[name="categoryField"]')?.textContent).not.toContain("category");
+    expect(
+      [...outlet.querySelector<HTMLSelectElement>('[name="categoryField"]')!.options].map((option) => option.value),
+    ).toEqual(["", "second"]);
     expect(create).not.toHaveBeenCalled();
     panel.dispose();
   });
