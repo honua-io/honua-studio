@@ -436,6 +436,25 @@ describe("<honua-studio-widget-deck> — chart, legend, compare, time (REQ-001/R
 });
 
 describe("widget deck session lifecycle", () => {
+  it("does not invoke a source-domain transport after the current session expires", async () => {
+    const el = document.createElement("honua-studio-widget-deck") as HonuaStudioWidgetDeckElement;
+    const auth = {
+      subscribe: (listener: AuthSessionListener) => {
+        listener({ status: "expired" });
+        return () => {};
+      },
+      getAccessToken: async () => undefined,
+    } as unknown as AuthSession;
+    el.getAuth = () => auth;
+    const transport = vi.fn<WidgetDataLoader>(async () => ({ ok: true, rows: PARCEL_ROWS, truncated: false }));
+    el.dataLoader = transport;
+    document.body.append(el);
+    expect(await el.sourceDataLoader("private-source")).toEqual({
+      ok: false,
+      reason: expect.stringContaining("session is unavailable"),
+    });
+    expect(transport).not.toHaveBeenCalled();
+  });
   it("refuses late control-domain rows from an injected loader that ignores authority cancellation", async () => {
     const el = document.createElement("honua-studio-widget-deck") as HonuaStudioWidgetDeckElement;
     const initial = { subscribe: () => () => {}, getAccessToken: async () => "one" } as unknown as AuthSession;

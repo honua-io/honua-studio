@@ -264,6 +264,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
       this.refreshSession();
       if (request.signal.aborted || !this.isConnected)
         return Promise.resolve({ ok: false, reason: "The source context changed. Refresh the available values." });
+      if (this.#sessionUnavailable)
+        return { ok: false, reason: "The source session is unavailable. Sign in to read values." };
       const signal = options?.signal ? AbortSignal.any([request.signal, options.signal]) : request.signal;
       const result = await this.#resolveLoader()(sourceId, { signal });
       this.refreshSession();

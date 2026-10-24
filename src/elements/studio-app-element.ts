@@ -1221,12 +1221,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           this.shadowRoot?.querySelector("[data-recipe-outlet]")?.contains(element)
         )
           continue;
-        if (
-          (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) &&
-          (element.value !== element.defaultValue ||
-            (element instanceof HTMLInputElement && element.checked !== element.defaultChecked))
-        )
-          return true;
+        if (element instanceof HTMLInputElement) {
+          const checkable = element.type === "checkbox" || element.type === "radio";
+          if (checkable ? element.checked !== element.defaultChecked : element.value !== element.defaultValue)
+            return true;
+        } else if (element instanceof HTMLTextAreaElement && element.value !== element.defaultValue) return true;
         if (element instanceof HTMLSelectElement) {
           const explicitDefault = [...element.options].some((option) => option.defaultSelected);
           if (

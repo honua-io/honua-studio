@@ -230,6 +230,15 @@ describe("recipe canonical workspace creation", () => {
     await expect(app.createRecipeDraft(input, "dirty")).rejects.toThrow("pending Studio edits");
     expect(create).not.toHaveBeenCalled();
     dirty.remove();
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    app.append(checkbox);
+    expect(checkbox.value).toBe("on");
+    expect(checkbox.defaultValue).toBe("");
+    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    checkbox.checked = true;
+    await expect(app.prepareWorkspaceTurn()).rejects.toThrow("pending Studio edits");
+    checkbox.remove();
     const prospective = document.createElement("input");
     prospective.value = "prospective recipe package";
     app.shadowRoot!.querySelector("[data-recipe-outlet]")!.append(prospective);
