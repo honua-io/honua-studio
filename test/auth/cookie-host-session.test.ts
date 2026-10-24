@@ -112,6 +112,28 @@ describe("cookie host session", () => {
     ).rejects.toThrow("layer discovery");
     await auth.fetchRequest!("http://localhost/rest/services/analysis/FeatureServer/47/query?f=geojson");
     expect(fetch.mock.calls[2][0]).toBe("/api/studio/data/rest/services/analysis/FeatureServer/47/query?f=geojson");
+    await auth.fetchRequest!("/api/v1/admin/metadata/layers/12/suggest-style", {
+      method: "POST",
+      headers: { authorization: "Bearer forbidden", "x-api-key": "forbidden" },
+      body: "{}",
+    });
+    await auth.fetchRequest!("/api/v1/admin/metadata/layers/0/suggest-style", { method: "POST", body: "{}" });
+    expect(fetch.mock.calls[3][0]).toBe("/api/studio/layers/12/suggest-style");
+    expect(fetch.mock.calls[3][1].headers.get("authorization")).toBeNull();
+    expect(fetch.mock.calls[3][1].headers.get("x-api-key")).toBeNull();
+    expect(fetch.mock.calls[3][1].headers.get("X-CSRF-Token")).toBe("csrf");
+    expect(fetch.mock.calls[4][0]).toBe("/api/studio/layers/0/suggest-style");
+    for (const [blocked, init] of [
+      ["/api/v1/admin/metadata/layers/12/suggest-style", { method: "GET" }],
+      ["/api/v1/admin/metadata/layers/12/suggest-style?layer=1", { method: "POST" }],
+      ["/api/v1/admin/metadata/layers/01/suggest-style", { method: "POST" }],
+      ["/api/v1/admin/metadata/layers/12/suggest-style/extra", { method: "POST" }],
+      ["/api/v1/admin/metadata/layers/1000000000/suggest-style", { method: "POST" }],
+      ["/api/v1/admin/users", { method: "POST" }],
+    ] as const) {
+      await expect(auth.fetchRequest!(blocked, init)).rejects.toThrow();
+    }
+    expect(fetch).toHaveBeenCalledTimes(5);
     await expect(
       auth.fetchRequest!("http://foreign.invalid/rest/services/analysis/FeatureServer/47/query"),
     ).rejects.toThrow("host origin");
