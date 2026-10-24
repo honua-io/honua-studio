@@ -270,6 +270,21 @@ export class AuthoritativeStyleProvider {
     return (await this.#describeVerifiedSource(source)).fields;
   }
 
+  /** Recipe inputs require the actual geometry as well as the bounded field schema. */
+  async describeDataset(source: CompositionSourceDescriptor): Promise<{
+    geometryType: string;
+    fields: readonly MapStyleField[];
+  }> {
+    const { descriptor, fields } = await this.#describeVerifiedSource(source);
+    if (
+      typeof descriptor.geometryType !== "string" ||
+      !layerTypeForGeometry(descriptor.geometryType) ||
+      layerTypeForGeometry(descriptor.geometryType) !== layerTypeForGeometry(source.geometryType)
+    )
+      throw new Error("The actual source geometry is missing or differs from the catalog. Refresh the source choices.");
+    return { geometryType: descriptor.geometryType, fields };
+  }
+
   async resolveProcessSource(source: CompositionSourceDescriptor): Promise<{
     processLayerId?: number;
     unavailableReason?: string;

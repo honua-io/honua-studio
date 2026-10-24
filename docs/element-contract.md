@@ -17,6 +17,28 @@ Studio that a third-party host page or Honua Console couldn't also use
 
 ### `<honua-studio-app>` — the full shell
 
+The embedded app header's **Inspect data and interactions** button opens the
+current-draft inspector. Hosts can also call `openDesignInspector(): Promise<void>`
+or `closeDesignInspector(): void`. The inspector observes the existing composition
+and canvas runtime, reads bounded field descriptions under the current authority,
+and issues no composition edits. Its temporary reset uses the existing exploration
+runtime. Closing, draft attachment, catalog replacement, expiry and session changes
+cancel metadata work and remove its transient context.
+
+Following a consumer or connection emits the existing
+`honua-studio-selection-change` event with an existing `CompositionTarget` owner.
+For an authored relationship, its detail additionally includes
+`relationship: { interactionId, ownerRef }`; no new target kind is introduced.
+The read-only `selectedDesignRelationship` getter returns that same pair while
+the exact composition and owner selection remain current. It returns `undefined`
+after document/selection changes. Hosts should capture it with their current
+draft/revision and existing selected-object context when freezing a conversation
+turn; the getter does not grant authority or identify a server resource.
+Unchanged same-draft polling and same-principal cookie lease renewal retain the
+open inspector and relationship focus. An accepted revision change invalidates
+that relationship focus; attempting to open a different draft closes the panel
+and cancels its metadata while the prospective read runs.
+
 Implementation: `src/elements/studio-app-element.ts`. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
 routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
@@ -49,6 +71,26 @@ plus a "Go live…" form; there is no test-hook-only path.
 
 For the Console-owned workspace, `createWorkspaceDraft(packageKey)` and
 `attachWorkspaceDraft(draftId)` bind the canvas to a server draft.
+
+`openRecipePicker()` / `closeRecipePicker()` open and close the shared-header
+Explore a dataset picker in either host or standalone mode. Opening only discovers
+authorized sources and bounded metadata. Hosts can also use
+`listRecipeSources(signal)`, `resolveRecipeSource(sourceId, signal)` and the explicit
+`createRecipeDraft(input, submissionId)` action. The versioned input is
+`{recipeId: "explore-dataset", recipeVersion: 1, packageKey, sourceId, categoryField, tableFields}`;
+the result is the normal `{draftId, generation, packageKey}` identity. Reuse the
+same submission ID and original inputs for retries, including a lost create
+response or a failed attachment. Creation retains the exact canonical request and
+Idempotency-Key, reuses an accepted draft, and refuses authority changes or
+silent replacement after another map became active. Closing during creation
+prevents attachment until an explicit retry, including while the prospective
+draft read is queued or in flight. Recipe discovery intersects fresh authorized
+choices with any host-owned catalog and preserves that host catalog. Conflicting
+source IDs/locators are refused; discovery never broadens the host's source scope.
+The descriptor and input/metadata
+types are exported by the Console bundle. No source rows, credentials or recipe
+state are persisted separately; the output is an ordinary map-family composition.
+
 `prepareWorkspaceTurn()` waits for accepted visual edits and returns its
 current draft identity; it refuses unresolved edits or conflicts.
 `saveWorkspaceVersion()` saves that draft as an immutable version,

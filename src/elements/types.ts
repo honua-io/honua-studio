@@ -201,6 +201,8 @@ export interface HonuaStudioCanvasResizeDetail {
  */
 export interface HonuaStudioSelectionChangeDetail {
   readonly targets: readonly CompositionTarget[];
+  /** Optional authored relationship focus, paired with the existing owner target. */
+  readonly relationship?: { readonly interactionId: string; readonly ownerRef: string };
 }
 
 /**

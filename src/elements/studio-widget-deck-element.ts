@@ -148,6 +148,8 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   #sourceBaseUrl = runtimeServerBaseUrl();
   #dataLoader: WidgetDataLoader | undefined;
   #defaultLoader: WidgetDataLoader | undefined;
+  #sharedDataLoader: WidgetDataLoader | undefined;
+  #sourceNoticeQueued = false;
   #getAuth: (() => AuthSession | undefined) | undefined;
   #activeAuth: AuthSession | undefined;
   #authUnsubscribe: (() => void) | undefined;
@@ -254,6 +256,26 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.#resetData();
   }
 
+  /** Controls reuse the widget loader's authorized bounded transport and cancellation generation. */
+  public get sourceDataLoader(): WidgetDataLoader {
+    if (this.#sharedDataLoader) return this.#sharedDataLoader;
+    const request = this.#dataAbort;
+    this.#sharedDataLoader = async (sourceId, options) => {
+      this.refreshSession();
+      if (request.signal.aborted || !this.isConnected)
+        return Promise.resolve({ ok: false, reason: "The source context changed. Refresh the available values." });
+      if (this.#sessionUnavailable)
+        return { ok: false, reason: "The source session is unavailable. Sign in to read values." };
+      const signal = options?.signal ? AbortSignal.any([request.signal, options.signal]) : request.signal;
+      const result = await this.#resolveLoader()(sourceId, { signal });
+      this.refreshSession();
+      if (signal.aborted || !this.isConnected || this.#sessionUnavailable)
+        return { ok: false, reason: "The source context changed. Refresh the available values." };
+      return result;
+    };
+    return this.#sharedDataLoader;
+  }
+
   /** Layers the map reported as unrenderable, so the TOC can flag them instead of implying they are drawn. */
   public get unrenderableLayers(): readonly UnrenderableLayerNote[] {
     return this.#unrenderable;
@@ -306,6 +328,32 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     return this.#composition ? compositionDataSource(this.#composition.state, sourceId) : undefined;
   }
 
+  /** Read the current bounded cache without fetching records or exposing their attributes. */
+  public inspectSourceData(sourceId: string): string | undefined {
+    const data = this.#data.get(sourceId);
+    if (!data) return undefined;
+    if (data.status === "loading") return "Bounded widget rows are loading.";
+    if (!data.result.ok) return `Widget rows unavailable: ${data.result.reason}`;
+    const filtered = filterWidgetRows(data.result.rows, this.#sourceFilters[sourceId] ?? [], sourceId);
+    if (!filtered.ok) return filtered.reason;
+    return `${filtered.rows.length} matching rows from ${data.result.rows.length} loaded widget rows. ${data.result.truncated ? "Source truncated; additional records exist." : "This bounded response is not a complete-dataset count."}`;
+  }
+
+  public inspectInferredTableFields(): Readonly<Record<string, readonly string[]>> {
+    const fields: Record<string, readonly string[]> = {};
+    for (const widget of this.#composition?.state.widgets ?? []) {
+      if (widget.kind !== "table" || !widget.sourceId) continue;
+      const config = readTableConfig(widget);
+      const source = this.#dataSourceId(widget.sourceId);
+      const data = source ? this.#data.get(source) : undefined;
+      if (config.ok && !config.config.fields.length && source && data?.status === "done" && data.result.ok) {
+        const filtered = filterWidgetRows(data.result.rows, this.#sourceFilters[source] ?? [], source);
+        if (filtered.ok) fields[widget.id] = inferColumns(filtered.rows);
+      }
+    }
+    return fields;
+  }
+
   #filteredData(requestedSource: string): DeckDataState {
     const sourceId = this.#dataSourceId(requestedSource);
     if (!sourceId)
@@ -350,6 +398,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.#dataAbort.abort();
     this.#data.clear();
     this.#defaultLoader = undefined;
+    this.#sharedDataLoader = undefined;
     this.#compositionUnsubscribe?.();
     this.#compositionUnsubscribe = undefined;
   }
@@ -749,6 +798,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
         if (!this.isConnected || this.#data.get(sourceId) !== loading) return;
         this.#data.set(sourceId, { status: "done", result });
         this.render();
+        this.dispatchTypedEvent("honua-studio-widget-data-change", {});
       })
       .catch((error: unknown) => {
         if (!this.isConnected || this.#data.get(sourceId) !== loading) return;
@@ -757,6 +807,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
           result: { ok: false, reason: error instanceof Error ? error.message : String(error) },
         });
         this.render();
+        this.dispatchTypedEvent("honua-studio-widget-data-change", {});
       });
     return loading;
   }
@@ -780,7 +831,15 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     this.#dataAbort = new AbortController();
     this.#data.clear();
     this.#defaultLoader = undefined;
+    this.#sharedDataLoader = undefined;
     if (this.isConnected) this.render();
+    if (!this.#sourceNoticeQueued) {
+      this.#sourceNoticeQueued = true;
+      queueMicrotask(() => {
+        this.#sourceNoticeQueued = false;
+        if (this.isConnected) this.dispatchTypedEvent("honua-studio-widget-source-change", {});
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

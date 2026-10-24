@@ -1,6 +1,8 @@
 import "./theme/tokens.css";
 import "./theme/theme-console.css";
 export { registerAllStudioElements } from "./elements/registry.js";
+export { EXPLORE_DATASET_RECIPE } from "./recipes/explore-dataset.js";
+export type { ExploreDatasetInput, ExploreDatasetMetadata } from "./recipes/explore-dataset.js";
 export { createWorkspaceAgentSession, workspaceAgentFeatures } from "./workspace-agent.js";
 
 export { StudioAiTranscriptVerifier, InMemoryStudioAiReplayStore } from "@honua/sdk-js/studio-agent";

@@ -143,6 +143,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** The ADR-0030 interaction runtime (honua-studio#25), imported lazily — see `#ensureInteractionRuntime`. */
   #interactions: StudioInteractionRuntime | undefined;
   #interactionsPending = false;
+  #interactionGeneration = 0;
 
   /** Direct `AuthSession` override — falls back to the nearest `<honua-studio-app>` ancestor's `.auth` when unset. See docs/embed-session.md. */
   public get auth(): AuthSession | undefined {
@@ -273,6 +274,25 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     return this.#interactions;
   }
 
+  public get designMapAvailable(): boolean {
+    return this.#mapUsable();
+  }
+
+  /** An authorized baseline changed documents/callers; exploration belongs to the former draft. */
+  public resetExploration(): void {
+    this.#teardownInteractions();
+    this.#mapView?.setAppearance({ filters: {}, opacity: {} });
+    this.#syncControlBar();
+    if (this.isConnected) void this.#ensureInteractionRuntime();
+  }
+
+  public designLayerStatus(layerId: string): string | undefined {
+    return (
+      this.#mapView?.projection?.unresolved.find((entry) => entry.layerId === layerId)?.reason ??
+      (this.#mapUsable() ? undefined : "The map is currently unavailable; inspect the canvas status.")
+    );
+  }
+
   /** Camera animation duration in ms; `0` makes view changes instantaneous (what the browser suite uses). */
   public get viewTransitionMs(): number | undefined {
     return this.#viewTransitionMs;
@@ -317,6 +337,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   protected onConnect(): void {
     HonuaStudioCanvasElement.instanceCount += 1;
+    this.listen(this, "honua-studio-widget-source-change", () => this.#syncControlBar());
     if (!this.#auth) {
       const inherited = resolveInjectedAuth(this);
       if (!inherited)
@@ -369,8 +390,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     this.#syncTitle();
     if (kind === "composition") {
       void this.#ensureInteractionRuntime();
-      this.#syncControlBar();
       this.#syncWidgetDeck();
+      this.#syncControlBar();
       this.#syncReadout();
       this.#syncSurface();
       void this.#ensureMapView();
@@ -423,8 +444,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       </section>
     `);
     if (kind !== "composition") return;
-    this.#syncControlBar();
     this.#syncWidgetDeck();
+    this.#syncControlBar();
     const signal = this.connectedSignal;
     for (const button of this.shadowRoot?.querySelectorAll<HTMLButtonElement>("[data-surface-option]") ?? []) {
       button.addEventListener(
@@ -494,7 +515,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
       customElements.upgrade(bar);
     }
     if (!("composition" in bar)) return;
-    bar.dataLoader = this.#widgetDataLoader;
+    bar.dataLoader = this.widgetDeck?.sourceDataLoader ?? this.#widgetDataLoader;
     bar.map = this.#mapBridge();
     bar.interactions = this.#interactions;
     bar.composition = this.#composition;
@@ -548,31 +569,35 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     if (this.#interactions || this.#interactionsPending || !controller) return;
     if (controller.state.controls.length === 0 && controller.state.interactions.length === 0) return;
     this.#interactionsPending = true;
+    const generation = this.#interactionGeneration;
     try {
       const { StudioInteractionRuntime: RuntimeClass } = await import("../interactions/studio-interactions.js");
-      if (this.#composition !== controller || !this.isConnected) return;
+      if (this.#composition !== controller || !this.isConnected || generation !== this.#interactionGeneration) return;
       this.#interactions = new RuntimeClass({
         controller,
         onAppearanceChange: (appearance) => {
           this.#mapView?.setAppearance(appearance);
           this.#syncControlBar();
           this.#syncWidgetDeck();
+          this.dispatchTypedEvent("honua-studio-design-runtime-change", {});
         },
       });
       this.#mapView?.setAppearance(this.#interactions.appearance);
       this.#syncWidgetDeck();
       this.#syncControlBar();
+      this.dispatchTypedEvent("honua-studio-design-runtime-change", {});
     } catch (error) {
       this.dispatchTypedEvent("honua-studio-error", {
         message: `Controls could not be wired to interactions: ${error instanceof Error ? error.message : String(error)}`,
         error,
       });
     } finally {
-      this.#interactionsPending = false;
+      if (generation === this.#interactionGeneration) this.#interactionsPending = false;
     }
   }
 
   #teardownInteractions(): void {
+    this.#interactionGeneration++;
     this.#interactions?.dispose();
     this.#interactions = undefined;
     this.#interactionsPending = false;
@@ -644,6 +669,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     // the bearing — both only become correct once the map has settled.
     this.#syncControlBar();
     this.#syncSurface();
+    this.dispatchTypedEvent("honua-studio-design-runtime-change", {});
   }
 
   #syncMapStatus(): void {

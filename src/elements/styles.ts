@@ -147,6 +147,14 @@ export function appShellStyles(): string {
     .entity-list li:last-child { border-bottom: none; padding-bottom: 0; }
     slot[name="chat"][hidden] { display: none; }
     .app-slots { display: flex; flex-direction: column; gap: var(--hn-space-5, 24px); }
+    .recipe-panel { padding: 20px; display: grid; gap: 12px; }
+    .recipe-panel form { display: grid; gap: 12px; }
+    .recipe-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .recipe-panel input:not([type="checkbox"]), .recipe-panel select { min-width: 200px; max-width: 100%; padding: 8px; }
+    .recipe-panel [data-columns] { display: flex; flex-wrap: wrap; gap: 12px; }
+    .recipe-preview { margin: 0; padding: 16px; border: 1px solid var(--hn-line, #ccc); display: grid; gap: 12px; }
+    .recipe-preview-map { min-height: 60px; background: var(--hn-surface-sunken, #e9ede9); padding: 12px; }
+    .recipe-preview figcaption { font-size: 0.875rem; }
     .app-slots[data-style-mode] { display: grid; grid-template-columns: minmax(520px, 3fr) minmax(300px, 2fr); align-items: start; }
     .app-slots[data-style-mode] > section, .app-slots[data-style-mode] > slot { min-width: 0; }
     @media (max-width: 1000px) { .app-slots[data-style-mode] { display: flex; } }
