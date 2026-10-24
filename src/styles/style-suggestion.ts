@@ -24,7 +24,10 @@ export interface LayerStyleSuggestionOptions {
   readonly catalog: readonly CompositionSourceDescriptor[];
   readonly principalId: string;
   readonly environmentId: string;
-  readonly transport: (canonicalLayerId: number, init: { readonly signal: AbortSignal }) => Promise<Response>;
+  readonly transport: (
+    canonicalLayerId: number,
+    init: { readonly signal: AbortSignal; readonly draftRevision: string; readonly composedLayerId: string },
+  ) => Promise<Response>;
   readonly onPreview?: (style: MapStyleDocument | undefined) => void;
   readonly container?: HTMLElement;
   readonly layerId: string;
@@ -110,7 +113,11 @@ export class LayerStyleSuggestion {
     this.#abort = abort;
     let response: Response;
     try {
-      response = await this.#transport(resolved.canonicalLayerId, { signal: abort.signal });
+      response = await this.#transport(resolved.canonicalLayerId, {
+        signal: abort.signal,
+        draftRevision: revision,
+        composedLayerId: layerId,
+      });
     } catch {
       if (generation !== this.#generation || abort.signal.aborted) return { ok: false, reason: this.#cancelReason };
       return { ok: false, reason: "The suggestion could not be read." };
