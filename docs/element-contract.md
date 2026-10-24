@@ -49,6 +49,22 @@ plus a "Go live…" form; there is no test-hook-only path.
 
 For the Console-owned workspace, `createWorkspaceDraft(packageKey)` and
 `attachWorkspaceDraft(draftId)` bind the canvas to a server draft.
+
+`openRecipePicker()` / `closeRecipePicker()` open and close the shared-header
+Explore a dataset picker in either host or standalone mode. Opening only discovers
+authorized sources and bounded metadata. Hosts can also use
+`listRecipeSources(signal)`, `resolveRecipeSource(sourceId, signal)` and the explicit
+`createRecipeDraft(input, submissionId)` action. The versioned input is
+`{recipeId: "explore-dataset", recipeVersion: 1, packageKey, sourceId, categoryField, tableFields}`;
+the result is the normal `{draftId, generation, packageKey}` identity. Reuse the
+same submission ID and original inputs for retries, including a lost create
+response or a failed attachment. Creation retains the exact canonical request and
+Idempotency-Key, reuses an accepted draft, and refuses authority changes or
+silent replacement after another map became active. Closing during creation
+prevents attachment until an explicit retry. The descriptor and input/metadata
+types are exported by the Console bundle. No source rows, credentials or recipe
+state are persisted separately; the output is an ordinary map-family composition.
+
 `prepareWorkspaceTurn()` waits for accepted visual edits and returns its
 current draft identity; it refuses unresolved edits or conflicts.
 `saveWorkspaceVersion()` saves that draft as an immutable version,

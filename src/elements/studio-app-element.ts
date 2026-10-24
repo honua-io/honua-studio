@@ -73,12 +73,19 @@ import { McpClient } from "../mcp/client.js";
 import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
+import { resolveToolCall } from "../mcp/tool-bridge.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { renderAbout } from "../pages/about.js";
 import { renderContent } from "../pages/content.js";
 import { renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
+import { compileExploreDataset, type ExploreDatasetInput, type ExploreDatasetMetadata } from "../recipes/explore-dataset.js";
+import { RecipePanel } from "../recipes/recipe-panel.js";
+import { RecipeSubmission } from "../recipes/recipe-submission.js";
+import { canonicalCompositionJson } from "../composition/model.js";
+import type { StudioPackageDraftCreateRequest } from "../lifecycle/lifecycle-types.js";
+import { createCatalogWidgetDataLoader } from "../widgets/widget-data.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
@@ -439,6 +446,176 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #publicationNoteGeneration = 0;
   #liveAgentBaseUrl = "/api";
   #liveCompositionOptions: LiveCompositionOptions | undefined;
+  #recipeAuthorityGeneration = 0;
+  #revokedRecipeSubmissionIds = new Set<string>();
+  #recipePanel: RecipePanel | undefined;
+  #recipeSourcesGeneration: number | undefined;
+  #recipeDraftToAttach: string | undefined;
+  #recipeSubmissions = new Map<string, {
+    input: string;
+    generation: number;
+    submission: RecipeSubmission;
+    originalDraftId?: string;
+    originalDraftGeneration?: number;
+    attachmentAllowed: boolean;
+    metadataAbort?: AbortController;
+    request?: StudioPackageDraftCreateRequest;
+    pending?: Promise<{ draftId: string; generation: number; packageKey: string }>;
+  }>();
+
+  /** Optional host entrypoint; viewing and choosing inputs never creates a draft. */
+  public openRecipePicker(): void {
+    const outlet = this.shadowRoot?.querySelector<HTMLElement>("[data-recipe-outlet]");
+    if (!outlet) throw new Error("Connect the Studio element before opening recipes.");
+    outlet.hidden = false;
+    this.#recipePanel ??= new RecipePanel(outlet, {
+      listSources: (signal) => this.listRecipeSources(signal),
+      describeSource: (id, signal) => this.resolveRecipeSource(id, signal),
+      create: (input, id) => this.createRecipeDraft(input, id),
+      close: () => this.closeRecipePicker(),
+      startAnother: () => { this.#disposeRecipePicker(); this.openRecipePicker(); },
+      canChangeInputs: (id) => !this.#recipeSubmissions.get(id)?.submission.submitted,
+    });
+    this.shadowRoot?.querySelector("[data-testid='recipe-toggle']")?.setAttribute("aria-expanded", "true");
+    this.#recipePanel.resume();
+  }
+
+  public closeRecipePicker(): void {
+    this.#recipePanel?.cancelDiscovery();
+    for (const entry of this.#recipeSubmissions.values()) if (entry.pending) {
+      entry.attachmentAllowed = false;
+      entry.metadataAbort?.abort();
+    }
+    const outlet = this.shadowRoot?.querySelector<HTMLElement>("[data-recipe-outlet]");
+    if (outlet) outlet.hidden = true;
+    const button = this.shadowRoot?.querySelector<HTMLButtonElement>("[data-testid='recipe-toggle']");
+    button?.setAttribute("aria-expanded", "false");
+    button?.focus();
+  }
+
+  #disposeRecipePicker(): void {
+    this.#recipePanel?.dispose();
+    this.#recipePanel = undefined;
+    this.#recipeSourcesGeneration = undefined;
+    this.closeRecipePicker();
+  }
+
+  #resetRecipeAuthority(): void {
+    this.#disposeRecipePicker();
+    this.#recipeAuthorityGeneration++;
+    for (const id of this.#recipeSubmissions.keys()) this.#revokedRecipeSubmissionIds.add(id);
+    this.#recipeSubmissions.clear();
+  }
+
+  public async listRecipeSources(signal: AbortSignal): Promise<readonly CatalogDataset[]> {
+    const generation = this.#recipeAuthorityGeneration;
+    const auth = this.auth;
+    const client = new StudioClient(runtimeServerBaseUrl(), {
+      getAccessToken: (options) => auth.getAccessToken(options),
+      fetchRequest: (input, init) => (auth.fetchRequest ?? fetch)(input, { ...init, signal }),
+    }, runtimeMcpBaseUrl());
+    const catalog = await client.listCatalog();
+    signal.throwIfAborted();
+    if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+    this.#applySourceCatalog(catalog);
+    this.#recipeSourcesGeneration = generation;
+    return structuredClone(catalog);
+  }
+
+  public async resolveRecipeSource(sourceId: string, signal: AbortSignal): Promise<ExploreDatasetMetadata> {
+    const generation = this.#recipeAuthorityGeneration;
+    const selectedSource = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+    const source = selectedSource && structuredClone(selectedSource);
+    if (!source || this.#recipeSourcesGeneration !== generation)
+      throw new Error("Refresh the authorized dataset choices before selecting a source.");
+    if (source.protocol !== "geoservices-feature-service")
+      throw new Error("Choose a published Honua vector FeatureServer source.");
+    const provider = this.createWorkspaceStyleProvider({ signal, getAuthority: () => this.#recipeAuthorityGeneration });
+    const descriptor = await provider.describeDataset(source);
+    const bounds = await provider.describeSourceBounds(source);
+    const type = descriptor.geometryType.toLowerCase();
+    if (type.includes("raster") || type.includes("image")) throw new Error("Choose a point, line or polygon vector source.");
+    const auth = this.auth;
+    const baseUrl = provider.serverRoot;
+    const result = await createCatalogWidgetDataLoader({
+      catalog: [source],
+      baseUrl: runtimeMcpBaseUrl(),
+      sourceAuthBaseUrl: baseUrl,
+      sourceCatalogBaseUrl: runtimeMcpBaseUrl(),
+      documentUrl: document.baseURI,
+      featureLimit: 100,
+      getAuth: () => {
+        if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+        return this.auth;
+      },
+      fetchImpl: (input, init) => (auth.fetchRequest ?? fetch)(input, { ...init, signal }),
+    })(sourceId, { signal });
+    signal.throwIfAborted();
+    if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+    if (!result.ok) throw new Error(`Readable feature queries are required. ${result.reason}`);
+    return { source: { ...source, geometryType: descriptor.geometryType }, fields: descriptor.fields, rows: result.rows, truncated: result.truncated, ...(bounds ? { bounds } : {}) };
+  }
+
+  /** Explicit create. Stable submission IDs reuse the same canonical request and Idempotency-Key. */
+  public createRecipeDraft(requestedInput: ExploreDatasetInput, submissionId: string): Promise<{ draftId: string; generation: number; packageKey: string }> {
+    const input = structuredClone(requestedInput);
+    Object.freeze(input.tableFields);
+    Object.freeze(input);
+    if (!/^[A-Za-z0-9-]{1,100}$/.test(submissionId)) return Promise.reject(new Error("A stable recipe submission ID is required."));
+    if (this.#revokedRecipeSubmissionIds.has(submissionId)) return Promise.reject(new Error("Retry this submission only in its original workspace authority."));
+    const generation = this.#recipeAuthorityGeneration;
+    const json = canonicalCompositionJson(input);
+    let entry = this.#recipeSubmissions.get(submissionId);
+    if (entry && (entry.input !== json || entry.generation !== generation))
+      return Promise.reject(new Error("Retry this submission with its original inputs and workspace authority."));
+    if (!entry) {
+      entry = { input: json, generation, submission: new RecipeSubmission(), originalDraftId: this.#workspaceDraft?.identity?.draftId, attachmentAllowed: true };
+      this.#recipeSubmissions.set(submissionId, entry);
+    }
+    if (entry.pending) return entry.pending;
+    entry.attachmentAllowed = true;
+    entry.metadataAbort = new AbortController();
+    const submission = entry;
+    const run = (async () => {
+      await this.prepareWorkspaceTurn();
+      if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+      const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
+      if (!submission.request) {
+        submission.originalDraftId = this.#workspaceDraft?.identity?.draftId;
+        submission.originalDraftGeneration = this.#workspaceDraft?.identity?.generation;
+        const capabilities = await client.getPackageFamilies();
+        const map = capabilities.families.find((family) => family.family === "map");
+        if (!map || map.supportLevel === "unsupported" || !map.supportedOperations.includes("draft.create"))
+          throw new Error("Map draft creation is unavailable on this server. Ask the operator to enable it.");
+        if (!submission.attachmentAllowed) throw new Error("Recipe creation was cancelled before submission.");
+        const metadata = await this.resolveRecipeSource(input.sourceId, AbortSignal.any([AbortSignal.timeout(15000), submission.metadataAbort!.signal]));
+        const { state } = compileExploreDataset(input, metadata);
+        if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+        submission.request = {
+          packageKey: input.packageKey,
+          envelope: { ...MAP_COMPOSITION_ENVELOPE, body: toCompositionDraftBody(state, input.packageKey) },
+        };
+      }
+      if (!submission.attachmentAllowed && !submission.submission.submitted) throw new Error("Recipe creation was cancelled before submission.");
+      const created = await submission.submission.submit(submission.request, (request, commandId) => client.createDraft(request, commandId));
+      if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed. Reopen this draft in its original workspace.");
+      const activeDraftId = this.#workspaceDraft?.identity?.draftId;
+      if (!submission.attachmentAllowed)
+        throw new Error(`Creation returned draft ${created.draftId} after this picker was closed. Reopen and retry this submission to attach that same draft.`);
+      if (activeDraftId === created.draftId) return this.#workspaceDraft!.identity!;
+      if (activeDraftId !== submission.originalDraftId || this.#workspaceDraft?.identity?.generation !== submission.originalDraftGeneration)
+        throw new Error(`Draft ${created.draftId} was created, but the active map changed. Open that draft explicitly to recover it.`);
+      this.#recipeDraftToAttach = created.draftId;
+      try { await this.attachWorkspaceDraft(created.draftId); }
+      finally { this.#recipeDraftToAttach = undefined; }
+      const identity = this.#workspaceDraft?.identity;
+      if (!identity || identity.draftId !== created.draftId) throw new Error("Retry to attach the already created draft.");
+      return identity;
+    })();
+    submission.pending = run;
+    void run.finally(() => { submission.pending = undefined; }).catch(() => undefined);
+    return run;
+  }
 
   /** Runtime-tool seam. Server-backed composition tools are discovered from
    * the authenticated MCP endpoint by sdk-js 0.1.9; hosts/tests may replace
@@ -701,6 +878,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // A same-principal lease can renew while the prospective GET is in flight.
     // Adopt its observed state with the current transport, not the expired lease.
     binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
+    if (previous?.draftId !== draftId && this.#recipeDraftToAttach !== draftId) this.#disposeRecipePicker();
     this.#workspaceDraft = binding;
     this.#workspaceDraftConflict = false;
     const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
@@ -755,7 +933,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.hasUnsavedStyleChanges) return true;
     const dirty = (root: ParentNode): boolean => {
       for (const element of root.querySelectorAll("*")) {
-        if (element.tagName === "HONUA-STUDIO-CHAT" || this.#styleEditorPanel?.contains(element)) continue;
+        if (element.tagName === "HONUA-STUDIO-CHAT" || this.#styleEditorPanel?.contains(element) || this.shadowRoot?.querySelector("[data-recipe-outlet]")?.contains(element)) continue;
         if (
           (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) &&
           (element.value !== element.defaultValue ||
@@ -882,6 +1060,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       previous.environmentId === session.environmentId &&
       verifiedSourcePathBase(previous.sourcePathBase) === verifiedSourcePathBase(session.sourcePathBase);
     if (!samePrincipal) {
+      this.#resetRecipeAuthority();
       this.#disposeStyleEditor();
       this.#workspaceAuthGeneration++;
       if (hadAuthority) {
@@ -1059,7 +1238,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
   public createWorkspaceStyleProvider(
-    options: { readonly getAuthority?: () => unknown } = {},
+    options: { readonly getAuthority?: () => unknown; readonly signal?: AbortSignal } = {},
   ): AuthoritativeStyleProvider {
     const generation = this.#workspaceAuthGeneration;
     const authority = options.getAuthority?.();
@@ -1071,6 +1250,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       baseUrl,
       ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
       documentUrl: window.document.baseURI,
+      signal: options.signal,
       getAuth: () => {
         if (generation !== this.#workspaceAuthGeneration || options.getAuthority?.() !== authority)
           throw new Error("The selected style workspace authority changed.");
@@ -1166,6 +1346,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const status = this.#auth?.getState().status;
     if (status === this.#lastAuthStatus) return;
     this.#lastAuthStatus = status;
+    if (status === "signed-out" || status === "expired") this.#resetRecipeAuthority();
     if (status !== "fresh" || this.#sourceCatalog !== undefined) return;
     this.#refreshSourceCatalog();
   }
@@ -1818,10 +1999,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   async #handleChatToolCall(detail: HonuaStudioChatToolCallResultDetail): Promise<void> {
     if (!detail.toolName) return; // no tool name to resolve — nothing this orchestrator can do with it.
     const args = isPlainObject(detail.arguments) ? detail.arguments : {};
+    if (this.#workspaceDraft) {
+      const resolved = resolveToolCall({ toolName: detail.toolName, arguments: args });
+      const outcome = resolved.ok ? await this.#dispatchCommands([resolved.command]) : resolved;
+      if (!outcome.ok) this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.activityLog.append("assistant_turn_error", { phase: "workspace-command", errorMessage: outcome.reason });
+      return;
+    }
     await this.toolCallOrchestrator.handleToolCall({ toolName: detail.toolName, arguments: args });
   }
 
   protected onDisconnect(): void {
+    this.#disposeRecipePicker();
     this.#historyUnsubscribe?.();
     this.#historyUnsubscribe = undefined;
     if (!this.#workspaceAgentAdapter) {
@@ -1927,6 +2115,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
             <span class="hn-muted" data-testid="history-status" role="status"></span>
+            <button type="button" class="hn-btn hn-btn--sm" data-testid="recipe-toggle" aria-expanded="false" aria-controls="recipe-outlet">Start from a recipe</button>
             <button
               type="button"
               class="hn-btn hn-btn--sm"
@@ -1970,6 +2159,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           </div>
         </header>
         <main id="view" class="app-view" data-testid="app-view"></main>
+        <div id="recipe-outlet" data-recipe-outlet hidden></div>
         <div class="app-slots" data-testid="app-slots">
           <slot name="chat" ${this.#workspaceAgentAdapter ? "hidden" : ""}></slot>
           <slot name="canvas"></slot>
@@ -1980,6 +2170,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     const root = this.shadowRoot;
     const signal = this.connectedSignal;
+    root?.querySelector("[data-testid='recipe-toggle']")?.addEventListener("click", () => {
+      const outlet = root.querySelector<HTMLElement>("[data-recipe-outlet]");
+      if (outlet?.hidden) this.openRecipePicker(); else this.closeRecipePicker();
+    }, { signal });
     for (const button of root?.querySelectorAll<HTMLButtonElement>("[data-theme-set-option]") ?? []) {
       button.addEventListener(
         "click",

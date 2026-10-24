@@ -503,6 +503,7 @@ function createMcpDispatcher(store, catalogDatasets) {
         name: dataset.title,
         geometryType: dataset.geometryType,
         srid: 4326,
+        extent: { minX: FIXTURE_EXTENT.west, minY: FIXTURE_EXTENT.south, maxX: FIXTURE_EXTENT.east, maxY: FIXTURE_EXTENT.north },
         fieldCount: fields.length,
         fields,
       });
@@ -1252,6 +1253,8 @@ function reopenStudioVersion(store, version, actor = FIXTURE_ACTOR) {
 }
 
 function createStudioLifecycleRestRouter(store) {
+  // The real create operation deduplicates caller-scoped Idempotency-Key retries.
+  const draftCreateRequests = new Map();
   function versionsForItem(itemId) {
     const ids = store.versionsByItem.get(itemId) ?? [];
     return ids.map((id) => store.versions.get(id)).filter(Boolean);
@@ -1483,6 +1486,18 @@ function createStudioLifecycleRestRouter(store) {
         return true;
       }
       const { packageKey, workspaceId, ownerId, itemId, envelope } = body ?? {};
+      const commandId = req.headers["idempotency-key"];
+      const principal = verifyFixtureJwt(bearerToken(req));
+      const createKey = commandId ? `${principal?.sub ?? FIXTURE_ACTOR}:${commandId}` : undefined;
+      const previousCreate = createKey && draftCreateRequests.get(createKey);
+      if (previousCreate) {
+        if (previousCreate.body !== JSON.stringify(body)) {
+          problemResponse(res, 409, "Changed idempotent request", "Retry the original create inputs.");
+          return true;
+        }
+        apiResponse(res, 201, previousCreate.draft);
+        return true;
+      }
       if (typeof packageKey !== "string" || !packageKey.trim()) {
         problemResponse(res, 400, "Invalid request", "'packageKey' is required.");
         return true;
@@ -1525,6 +1540,7 @@ function createStudioLifecycleRestRouter(store) {
         updatedAt: ts,
       };
       store.drafts.set(draftId, draft);
+      if (createKey) draftCreateRequests.set(createKey, { body: JSON.stringify(body), draft: draftRestPublic(draft) });
       store.touchItem(resolvedItemId, {
         packageKey: draft.packageKey,
         workspaceId: draft.workspaceId,

@@ -158,8 +158,8 @@ export class StudioLifecycleClient {
 
   // -- Drafts (mutable) -------------------------------------------------------
 
-  public createDraft(request: StudioPackageDraftCreateRequest): Promise<StudioPackageDraft> {
-    return this.#request("POST", "/package-drafts", request);
+  public createDraft(request: StudioPackageDraftCreateRequest, commandId?: string): Promise<StudioPackageDraft> {
+    return this.#request("POST", "/package-drafts", request, commandId);
   }
 
   public getDraft(draftId: string): Promise<StudioPackageDraft> {
