@@ -1,170 +1,76 @@
-# Honua Studio Agent Instructions
+# honua-studio: agent instructions
 
-**No AI/agent attribution in commits or PR bodies** (Fleet rule 1 at the end of this file).
+Natural-language map-app builder: an agent composes layers, styling, views, tables, charts and
+analysis through a closed, typed command vocabulary over `@honua/sdk-js` and honua-server's
+`honua_studio_*` MCP tools. The app is one embeddable custom element, `<honua-studio-app>`.
+Default branch is `main`.
 
-## Overview
-
-Honua Studio is an open-source, model-agnostic **natural language to map app** builder: describe an app in
-conversation and an agent composes it — layers, styling, views, tables, charts, analysis — through a closed, typed
-command vocabulary over [`@honua/sdk-js`](https://github.com/honua-io/honua-sdk-js) and honua-server's
-`honua_studio_*` MCP tools. No arbitrary code eval: every mutation goes through the reducer or a server tool and
-lands in a replayable activity log. The app is exactly one embeddable custom element, `<honua-studio-app>`.
-
-Status is **v0.1 Preview, not GA**. The self-hosted image, `/config.json`, and tag workflow exist;
-no `v*` tag has been published, and there is still no hosted instance. Live turns use
-`StudioAgentSession` over the server proxy. `npm run test:self-hosted-preview` drives that loop in the
-browser against the built image and a local BYOM planner (compose, save, reopen, propose, then a separate
-approver). It does not claim a hosted model or a GHCR digest. **Catalog-backed rendering is vector-only** (OGC API
-Features or a GeoServices FeatureServer); other catalog sources resolve to a visible "unrenderable" note.
-Existing explicit `metadata.honua.source` raster-tile overrides are retained. Native raster service
-adapters remain #36; 3D remains #37–#39. `README.md` is the truth-checked status surface (#44): read its tables
+## Commands (from `package.json`; do not invent variants)
+```bash
+nvm use && npm ci            # Node from .nvmrc
+npm run dev                  # http://localhost:5173, mock server + fake OIDC, no network or model
+HONUA_BASE_URL=http://localhost:8080 npm run dev:live   # real server; required in live mode
+npm run typecheck            # tsc --noEmit
+npm run check                # Biome lint+format gate (check:fix to autofix)
+npm test                     # Vitest; subset: npx vitest run test/evals
+npm run build
+node --test scripts/__tests__/second-review-delivery.test.mjs   # review delivery policy
+npm run test:browser:install # once; then npm run test:browser (builds, skips @blazor/@live)
+```
+Other lanes (`test:browser:blazor` needs the .NET SDK, `test:browser:live` needs
+`HONUA_LIVE_BASE_URL` + `HONUA_LIVE_API_KEY`, `test:console-assets`, `test:self-hosted-preview`)
+and the auth env vars are in README "Run it" and "Development". Read README's status tables
 before claiming a capability, and update them (test counts included) when you change one.
 
-## Tech Stack
+## Invariants
+- No arbitrary code eval. Every mutation goes through the reducer (`src/composition/`) or a
+  server tool, and lands in the replayable activity log.
+- Widgets dispatch through `commandDispatch` to the orchestrator, never `controller.apply`.
+- Publish/rollback sit behind a human gate: nothing under `src/composition/**` may reach a
+  client carrying those methods. `src/lifecycle/composition-draft-store.ts` is the single
+  wire-conversion seam.
+- Never persist credentials (no `localStorage`/`sessionStorage` tokens) and keep API keys out
+  of client code; live keys reach the server only through the Vite proxy.
+- Catalog rendering is vector-only (OGC API Features, GeoServices FeatureServer); other sources
+  show a visible "unrenderable" note. Raster is #36, 3D is #37-#39.
 
-- **Language:** TypeScript 5.9 (`strict`, `verbatimModuleSyntax`, `isolatedModules`, `moduleResolution: Bundler`, target `ES2022`, `noEmit`), ESM only.
-- **Node:** `>=22.12.0`; `.nvmrc` and CI pin `22.23.3`.
-- **Bundler/dev server:** Vite 8 — multi-page build (the shell plus `harness/bare/`).
-- **Tests:** Vitest 4 (`environment: node`, `test/**/*.test.ts`) + Playwright 1.58 (chromium only, `test/playwright/*.spec.mjs`).
-- **Lint/format:** Biome 1.9.4 (`biome.json`), 2-space indent, 120 cols.
-- **Map runtime:** `maplibre-gl` 6.11.2 (its worker is bundled via `?worker&url`, see `src/map/composition-map-view.ts`); SDK pin `@honua/sdk-js` 0.2.7.
-- **Blazor embed harness:** .NET 10 SDK (`harness/blazor-host/`), needed only for the `@blazor` lane.
+## Gotchas
+- Biome `files.include` in `biome.json` is an allow-list: a new top-level directory is invisible
+  to the gate until you add it. `tsconfig.json` typechecks `harness/` but excludes `test/playwright`.
+- Playwright specs build and serve with `vite preview`, never a dev server.
+- Drive `mock-server.mjs` instead of stubbing; it implements the real REST, `/mcp` and OIDC surfaces.
+- `HONUA_OIDC_ISSUER`/`HONUA_OIDC_CLIENT_ID` are read at build time, so set them before
+  `npm run build` too; production bundles read `/config.json` instead.
+- `src/map/assets/natural-earth-land-110m.json` is vendored: regenerate with
+  `node scripts/vendor-basemap-land.mjs <ne_110m_land.json>`, never hand-edit.
+- Keep `dotnet build` scoped to `harness/blazor-host/StudioHost/StudioHost.csproj`; its
+  `wwwroot/studio/` is generated.
 
-## Setup
+## Issues and PRs
+- File issues in the Specifica format the existing issues use; search open and closed first.
+  Server tools, package lifecycle and the AI proxy belong in honua-server; shared client
+  contracts in honua-sdk-js.
+- The `PR Issue Disposition` check (`scripts/lib/pr-issue-disposition.mjs`) fails any PR whose
+  footer deviates from its grammar, and every PR gets a Codex pass then a Claude second pass.
+  Read `docs/pull-requests.md` before opening a PR.
+- Architecture overview and contracts: README "Architecture" and `docs/`.
 
-```bash
-nvm use            # Node 22.23.3 (.nvmrc)
-npm ci             # lockfile present; use npm ci
-npm run dev        # http://localhost:5173 — mock fixture, no network, no model
-```
-
-`npm run dev` is the zero-setup path: `scripts/dev-mock.mjs` starts `mock-server.mjs` (honua-server *and* a fake
-auto-approving OIDC issuer) and points Vite's proxy at it, so "Sign in" completes instantly and the fixture
-conversation drives the canvas without a model. Against a real server use
-`HONUA_BASE_URL=http://localhost:8080 npm run dev:live` (required in live mode — Vite throws without it); real-IdP
-sign-in also needs `HONUA_OIDC_ISSUER` and `HONUA_OIDC_CLIENT_ID`, **baked into the bundle at build time**, so set
-them before `npm run build` too. See README "Authentication" and [`docs/embed-session.md`](docs/embed-session.md).
-
-## Commands
-
-From the repo root; copied from `package.json` / CI. Do not invent variants.
-
-- **Dev:** `npm run dev` (fixture) / `npm run dev:live`; fixture server alone: `npm run mock-server`
-- **Build / preview:** `npm run build`, `npm run preview`
-- **Typecheck:** `npm run typecheck` (`tsc --noEmit`)
-- **Lint+format gate:** `npm run check` (Biome); autofix `npm run check:fix`; format only `npm run format` / `npm run format:fix`
-- **Unit tests:** `npm test` (`vitest run`); watch `npm run test:watch`; a subset with `npx vitest run test/evals`
-- **Review delivery policy:** `node --test scripts/__tests__/second-review-delivery.test.mjs` (also runs in normal CI and review admission)
-- **Browser:** `npm run test:browser:install` once (Playwright chromium), then `npm run test:browser` — builds first, runs every spec except `@blazor`/`@live`
-- **Production Console bundle:** `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`, then `npm run test:console-assets` — builds the production Console assets and exercises their public exports in Chromium; the normal smoke suite runs this with the pinned upstream source and retains the checked bundle.
-- **Blazor host lane:** `npm run test:browser:blazor`, wrapping `npm run build:blazor-host` (= `build:blazor-assets` plus a scoped `dotnet build` of `harness/blazor-host/StudioHost`); needs the .NET SDK, see that dir's README
-- **Live lane:** `npm run test:browser:live` — `@live` journeys against a real deployment; skips unless `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set (the key is injected server-side by the proxy as `X-API-Key`, never bundled)
-- **Self-hosted preview receipt:** `npm run test:self-hosted-preview` — requires the `honua-studio:ci` image and Playwright chromium. Container smoke builds the image, then runs this. No demo credential.
-
-CI (`.github/workflows/ci.yml`, PR + push to `main`) runs `typecheck`, `check`, `unit` (`npm test`) and `build`.
-`smoke-suite.yml` runs directly on the same events for `container-smoke`, `browser-smoke`, `console-assets-smoke` and `blazor-host-smoke`
-(builds the host, then `npx playwright test --grep @blazor`), preserving the existing required check names.
-`smoke-suite.yml` also exposes `workflow_call` so `release.yml`
-runs the identical smokes — and `needs:` them — before it pushes a versioned image to GHCR; it declares its own
-`NODE_VERSION`/`DOTNET_VERSION` because a reusable workflow does not inherit the caller's `env`.
-`pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR, and `claude-second-review.yml` the
-second-pass review once the first pass's threads are resolved (both under "Pull Requests").
-`live-demo-smoke.yml` runs `test:browser:live` nightly against `demo.honua.io`; `security.yml` runs the org's
-reusable Trivy + Scorecard workflows.
-
-## Architecture
-
-`src/main.ts` mounts `<honua-studio-app>`; every surface is a custom element (`src/elements/`). The composition
-path: chat SSE or fixture transport (`src/chat/`) → `ToolCallOrchestrator` (`src/mcp/orchestrator.ts`) →
-`src/mcp/tool-bridge.ts`, which decides local reducer (`src/composition/reducer.ts`) vs. server tool over
-honua-server's `/mcp` (`src/mcp/client.ts`) → the MapLibre canvas (`src/map/composition-map-view.ts`) and the widget
-deck (`src/widgets/`). Command vocabulary lives in `src/composition/commands.ts` (history/undo/pinning in
-`controller.ts` + `history.ts`); `STUDIO_MCP_TOOL_NAMES` (`src/mcp/studio-tools.ts`) holds typed wrappers for 13 of
-the 17 tools honua-server publishes. Persistence is honua-server's Studio package lifecycle via `src/lifecycle/`,
-whose `composition-draft-store.ts` is the single wire-conversion seam; publish/rollback sit behind a human gate, so
-nothing under `src/composition/**` may reach a client carrying those methods. Auth (`src/auth/`) is OIDC
-Authorization Code + PKCE, public client, tokens in memory only; embedded hosts hand off a session instead.
-
-Contracts, in `docs/`: [`element-contract.md`](docs/element-contract.md), [`embed-session.md`](docs/embed-session.md),
-[`ai-chat-wire-contract.md`](docs/ai-chat-wire-contract.md), [`evals.md`](docs/evals.md); the v0.1 specification is
-`.specifica/studio-v0/spec.md`.
-
-## Directory Layout
-
-```
-src/            # app source: auth chat client composition controls elements evals gp interactions
-                # lifecycle map mcp pages router styles theme widgets; main.ts is the bootstrap
-test/           # vitest specs mirroring src/ + test/playwright/*.spec.mjs
-harness/        # bare/ static embed harness, blazor-host/ .NET test host, blazor-host-src/ its mount module
-scripts/        # dev-mock.mjs (npm run dev), vendor-basemap-land.mjs,
-                # check-pr-issue-disposition.mjs + lib/ (the PR Issue Disposition check, + .d.mts types)
-mock-server.mjs # fixture honua-server + fake OIDC issuer (+ .d.mts types)
-docs/  vite.config.ts  vite.blazor-assets.config.ts  vitest.config.ts
-playwright.config.mjs  biome.json  tsconfig.json  .nvmrc
-```
-
-## Conventions & Gotchas
-
-- `npm run check` (Biome) is the CI style gate — run it, or `check:fix`, before calling work done. `noExplicitAny` is `warn` in `src/`, off in `test/`; `noNonNullAssertion` and `useNodejsImportProtocol` are off.
-- Biome's `files.include` is an explicit allow-list (`src`, `test`, `harness`, `scripts/**/*.mjs`/`*.mts`, root `*.mjs`/`*.mts`/`*.ts`/`*.json`); a new top-level directory is invisible to the gate until you add it.
-- `tsconfig.json` excludes `test/playwright` (those specs are `.mjs`) but includes `harness/bare` and `harness/blazor-host-src`, so harness code must typecheck.
-- Playwright specs build the app and serve it with `vite preview` — never a dev server. `@blazor` and `@live` are excluded from the default browser run.
-- Drive `mock-server.mjs` rather than stubbing: it implements the real REST, `/mcp` and OIDC surfaces, which is what makes fixture-mode tests meaningful.
-- Four commands (`addControl`/`removeControl`, `bindInteraction`/`removeInteraction`) still apply locally instead of calling their server tool (#43). The seam is `commandDispatch` → orchestrator, never `controller.apply` from a widget.
-- Never persist credentials — no `localStorage`/`sessionStorage` tokens — and keep API keys out of client code; live keys reach the server only via the Vite proxy.
-- `src/map/assets/natural-earth-land-110m.json` is a vendored build input: regenerate it with `node scripts/vendor-basemap-land.mjs <ne_110m_land.json>`, never hand-edit.
-- `harness/blazor-host/StudioHost/wwwroot/studio/` is generated and gitignored; keep `dotnet build` scoped to `StudioHost.csproj`, never the whole tree.
-
-## GitHub Issues
-
-- File with `gh issue create` in the owning repo, in the Specifica format the existing issues use (Specifica / Context / User Workflow / Requirements REQ-*+NFR-* / Acceptance Criteria / Data, Caching, and Realtime Notes / Validation). Search open and closed issues first to avoid duplicates.
-- Studio client work belongs here; server tools, package lifecycle and the AI proxy belong in `honua-io/honua-server`; shared client contracts in `honua-io/honua-sdk-js`.
-- Existing labels: `slice/studio` (also `slice/gp`, `slice/raster`, `slice/3d`, `slice/chrome`), `release/2026.1` / `release/2026.2` / `release/later`, `priority/P*`, `size/*`, `state/ready` / `state/blocked` / `state/needs-grooming`.
-
-## Pull Requests
-
-- Branch off `main`. Commit messages and PR titles are Conventional Commits with a scope (`feat(tool-bridge): …`, `docs(readme): …`); PRs squash-merge, so the title becomes the commit subject.
-- End the body with the issue disposition — `Closes #N` when every acceptance criterion is met, `Refs #N (what remains)` when it genuinely is not. The `PR Issue Disposition` check (`.github/workflows/pr-issue-disposition.yml` → `scripts/check-pr-issue-disposition.mjs`) enforces the grammar and **fails the PR** on any deviation, so get the footer right when you open the PR rather than after a red check. The block must be the final nonblank lines, one disposition per issue, at most 20, no issue twice; a `Refs` explanation is 1–160 trimmed characters with no parentheses and must carry a progress marker (`S<number>`, `slice`, `partial`, `remain`/`remains`/`remaining`, `follow-up`, `blocked`, `handoff`). No `Refs #N` and no closing keyword tied to an issue (`close`/`fix`/`resolve` + `#N`) may appear above the block — write "this PR is not sufficient on its own", never "this does not close #123". The check also resolves every declared issue against `honua-io/honua-studio`, so a syntactically perfect footer still fails when it names a closed issue, a pull request, or an issue in another repository.
-- Syntax-check a body before pushing instead of guessing at the grammar (this covers the footer grammar only — the API-resolution rules above are checked in CI):
-  ```bash
-  node --input-type=module -e '
-  import { parsePullRequestDisposition } from "./scripts/lib/pr-issue-disposition.mjs";
-  import { readFileSync } from "node:fs";
-  console.log(parsePullRequestDisposition(readFileSync("/tmp/body.md", "utf8")));'
-  ```
-- Say what changed, what you tested and which acceptance criteria are met; state honestly what you could not run locally (`npm run test:browser` needs browser system deps this box may lack) and leave it to CI.
-- Open PRs non-draft with `gh pr create`; all six CI jobs plus the `PR Issue Disposition` check must be green.
-- Every PR gets **two review passes, in order**. Codex reviews on open. Completion must identify the current commit; resolved older threads remain review context and do not prove a new revision was reviewed. Fix each finding or refute it with evidence (a test, cited code, an argument that holds against the code as it stands) — never resolve a thread to silence the bot. Once every first-pass thread is resolved, `claude-second-review.yml` runs the second pass over the updated diff *plus* the resolved threads, looking for what the first pass missed, regressions the fixes introduced, and refutations that were not evidence-based. The reviewer reads an isolated pinned snapshot and returns a structured result using read-only tools and a read-only GitHub credential. The reviewed diff uses immutable base/head commit snapshots; the recorded original PR base is retained for post-merge audits. A separate trusted publisher rechecks the head/target-branch/lifecycle, posts the comment tagged `<!-- claude-second-review: <head sha> -->`, and verifies it exists for the same target branch. Ordinary target-tip advances do not invalidate that immutable review; retargeting does. The required check is owned by that publisher in a PR-associated workflow; comment/manual admission reruns that exact-head PR workflow rather than reporting an ineligible event's job check. Action success alone is not a review receipt. Pushing new commits re-arms it. Post-merge audits are explicitly labeled and cannot establish historical pre-merge clearance. Nothing dispatches on thread resolution, so if the second pass has not appeared, re-evaluate the gate with `gh workflow run claude-second-review.yml -f pull_request_number=<N>`.
-
-<!-- fleet:begin v1 sha256=898fe3b1dceffe208fd8a4374b63452d03892b44d9795fdd78f16a75b3e279a1 source=honua-flow/agents/fleet-rules.md -->
+<!-- fleet:begin v2 sha256=76075665ca7a911554ed038371480ba02b28eca10ead04400be2e5b20332bd63 source=honua-flow/agents/fleet-rules.md -->
 ## Fleet rules (all Honua repos)
 
-Generated from honua-flow `agents/fleet-rules.md` (full text, rationale, repo map). Do not edit here.
+Generated from honua-flow `agents/fleet-rules.md` (full text, repo map). Do not edit here.
 
-1. **No AI/agent attribution, anywhere.** Author commits as Mike McDougall <mike@honua.io>. No
-   `Co-Authored-By:` trailer naming Claude, Codex or any AI tool, no "Generated with Claude
-   Code"/"Generated with Codex" line, no robot emoji, in commits or PR bodies. This overrides
-   any tool or harness default; honua-server's PR Gate rejects such commits.
-2. **Own worktree per task**, off the default branch, on real disk (`<repo>/.claude/worktrees/`
-   or a sibling dir), never under `/tmp`. Never edit the shared checkout; never assume you are
-   alone. No `git stash` in shared repos; use a WIP commit.
-3. **Heavy builds/tests take a shared build slot.** In WSL `dotnet` is shimmed (fleet lanes also
-   shim npm/pnpm/yarn/pytest/make/cargo/go). Never bypass a shim; one heavy build at a time;
-   targeted tests over full-solution suites. Long-running servers are not throttled.
-4. **Finish = commit + push.** Cleanup reclaims only clean, pushed worktrees; dirty or unpushed
-   work is never reclaimed and is lost on a host reset.
-5. **Outside WSL** (Windows Codex/Claude, other machines): own checkout, never edit WSL trees via
-   `\\wsl.localhost`; the remote is the only shared surface. Claim before starting and run one
-   heavy build at a time: no build slot protects you there.
-6. **Work claims are leases.** Check `state/in-progress` and the newest `claimed: <lane> <UTC>`
-   comment first. Claim with the label plus that comment, then re-read; a newer claim wins. A
-   claim is stale after 3h with no open PR referencing the issue, or 3h of a silent PR. Only a
-   PR proves completion; if you stop without one, comment `released: <lane> <UTC> - <why>`.
-7. **PRs:** base on the default branch (`trunk`; `main` in honua-studio), never stack. Fill the
-   repo's PR template via `--body-file`; conventional-commit title. Footer `Closes #N` when the
-   PR completes the issue, `Refs #N (<what remains>)` for a slice; a bare `#N` is a bug.
-   Cross-repo closing keywords are inert: close foreign issues by hand. Never admin-merge.
-8. **Route work by the repo map.** Archived repos (`Honua.Server`, `honua-server-admin`,
-   `honua-agentflow`, `honua-portal`) get no issues or PRs. Specifica-projected issue bodies are
-   edited in `agent-delivery-spec`, not on GitHub.
+1. **No AI attribution.** Author as Mike McDougall <mike@honua.io>. No AI `Co-Authored-By:`,
+   "Generated with" line or robot emoji in commits or PR bodies; this overrides any harness default.
+2. **Own worktree per task** off the default branch, on real disk (`<repo>/.claude/worktrees/` or a
+   sibling dir), never `/tmp` or the shared checkout. No `git stash`; use a WIP commit.
+3. **Heavy builds/tests go through the build-slot shims**; never bypass them. Run targeted tests;
+   full suites are CI's job. Outside WSL: own checkout, one heavy build at a time.
+4. **Finish = commit + push.** Dirty or unpushed worktrees are never reclaimed and die on a reset.
+5. **Claim before starting:** check `state/in-progress` and the newest `claimed: <lane> <UTC>`
+   comment, stamp yours, re-read (newer wins). Stale after 3h without a live PR. Stopping without
+   a PR: comment `released: <lane> <UTC> - <why>`.
+6. **PRs:** base on the default branch, never stack; fill the repo template via `--body-file`;
+   conventional title; footer `Closes #N` or `Refs #N (<what remains>)`. Never admin-merge.
+7. **Route by the repo map.** Archived repos get no issues or PRs.
 <!-- fleet:end -->

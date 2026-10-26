@@ -284,6 +284,23 @@ re-instantiation, router URL ownership, focus across shadow DOM.
 
 See [Run it](#run-it) above for the dev-server commands.
 
+### Architecture
+
+`src/main.ts` mounts `<honua-studio-app>`; every surface is a custom element (`src/elements/`). The composition
+path: chat SSE or fixture transport (`src/chat/`) → `ToolCallOrchestrator` (`src/mcp/orchestrator.ts`) →
+`src/mcp/tool-bridge.ts`, which decides local reducer (`src/composition/reducer.ts`) vs. server tool over
+honua-server's `/mcp` (`src/mcp/client.ts`) → the MapLibre canvas (`src/map/composition-map-view.ts`) and the widget
+deck (`src/widgets/`). Command vocabulary lives in `src/composition/commands.ts` (history/undo/pinning in
+`controller.ts` + `history.ts`); `STUDIO_MCP_TOOL_NAMES` (`src/mcp/studio-tools.ts`) holds the typed wrappers for the
+`honua_studio_*` tools honua-server publishes. Persistence is honua-server's Studio package lifecycle via `src/lifecycle/`,
+whose `composition-draft-store.ts` is the single wire-conversion seam; publish/rollback sit behind a human gate, so
+nothing under `src/composition/**` may reach a client carrying those methods. Auth (`src/auth/`) is OIDC
+Authorization Code + PKCE, public client, tokens in memory only; embedded hosts hand off a session instead.
+
+Contracts live in `docs/`: [`element-contract.md`](docs/element-contract.md),
+[`embed-session.md`](docs/embed-session.md), [`ai-chat-wire-contract.md`](docs/ai-chat-wire-contract.md)
+and [`evals.md`](docs/evals.md). The v0.1 specification is `.specifica/studio-v0/spec.md`.
+
 ### Authentication (honua-studio#4)
 
 Map feature requests use the current Studio session through an asynchronous MapLibre
@@ -333,7 +350,8 @@ Other commands:
 | `npm test` | Unit tests (Vitest), including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); current audience integration totals and installed end-to-end workflow qualification remain pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs Playwright boot/harness/journey/accessibility tests (chromium); includes the Explore recipe rendered/filter/save-reopen and lost-response/denied-source journeys |
-| `npm run test:console-assets` | Builds production Console assets, then runs five public-export and current-reader rendering checks, including root, Console and nested worker asset mounts |
+| `npm run test:console-assets` | Builds production Console assets, then runs five public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
+| `npm run test:self-hosted-preview` | Browser BYOM preview receipt against the built `honua-studio:ci` image; needs that image and Playwright chromium. The container smoke builds the image, then runs this. Uses no demo credential |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
 | `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
 
