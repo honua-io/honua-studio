@@ -1,5 +1,7 @@
 # Honua Studio Agent Instructions
 
+**No AI/agent attribution in commits or PR bodies** (Fleet rule 1 at the end of this file).
+
 ## Overview
 
 Honua Studio is an open-source, model-agnostic **natural language to map app** builder: describe an app in
@@ -134,14 +136,35 @@ playwright.config.mjs  biome.json  tsconfig.json  .nvmrc
 - Open PRs non-draft with `gh pr create`; all six CI jobs plus the `PR Issue Disposition` check must be green.
 - Every PR gets **two review passes, in order**. Codex reviews on open. Completion must identify the current commit; resolved older threads remain review context and do not prove a new revision was reviewed. Fix each finding or refute it with evidence (a test, cited code, an argument that holds against the code as it stands) — never resolve a thread to silence the bot. Once every first-pass thread is resolved, `claude-second-review.yml` runs the second pass over the updated diff *plus* the resolved threads, looking for what the first pass missed, regressions the fixes introduced, and refutations that were not evidence-based. The reviewer reads an isolated pinned snapshot and returns a structured result using read-only tools and a read-only GitHub credential. The reviewed diff uses immutable base/head commit snapshots; the recorded original PR base is retained for post-merge audits. A separate trusted publisher rechecks the head/target-branch/lifecycle, posts the comment tagged `<!-- claude-second-review: <head sha> -->`, and verifies it exists for the same target branch. Ordinary target-tip advances do not invalidate that immutable review; retargeting does. The required check is owned by that publisher in a PR-associated workflow; comment/manual admission reruns that exact-head PR workflow rather than reporting an ineligible event's job check. Action success alone is not a review receipt. Pushing new commits re-arms it. Post-merge audits are explicitly labeled and cannot establish historical pre-merge clearance. Nothing dispatches on thread resolution, so if the second pass has not appeared, re-evaluate the gate with `gh workflow run claude-second-review.yml -f pull_request_number=<N>`.
 
-## Shared dev-environment rules (multi-agent WSL)
+<!-- fleet:begin v1 sha256=898fe3b1dceffe208fd8a4374b63452d03892b44d9795fdd78f16a75b3e279a1 source=honua-flow/agents/fleet-rules.md -->
+## Fleet rules (all Honua repos)
 
-This machine runs many agents concurrently (**Codex + Claude**, often via agentflow with multiple tabs/agents). To prevent host lockups and lost work, every agent MUST follow these:
+Generated from honua-flow `agents/fleet-rules.md` (full text, rationale, repo map). Do not edit here.
 
-1. **Heavy builds/tests are throttled by a shared lock.** `dotnet` and `npm` are PATH-shimmed, so their build/test/publish/pack and ci/install/test/run-build/run-test subcommands automatically run under a global semaphore (default 1 concurrent, `HONUA_BUILD_SLOTS`). For other heavy tools, call the wrapper explicitly: `with-build-lock pytest ...`, `with-build-lock cargo build`, `with-build-lock make build`. The lock is shared across ALL of this user's processes (every Codex/Claude tab, agentflow children). Do not bypass it for compiles or test suites. Long-running servers (`dotnet run`, `npm run dev`) are intentionally NOT locked — never wrap those.
-
-2. **Commit and push when you finish a task** so your worktree can be reclaimed. An hourly job (`honua-clean`) removes a worktree ONLY when it is clean AND fully pushed (merged, remote-gone, or idle >=2d). Dirty or unpushed worktrees are NEVER touched — but uncommitted/unpushed work blocks reclamation and is at risk if the instance is reset. Build artifacts (bin/obj and untracked node_modules) are reclaimed automatically and safely.
-
-3. **Commit hygiene — no agent attribution.** Author every commit as the repo owner only (git identity: Mike McDougall <mike@honua.io>). Do **NOT** add any agent/tool attribution to commits: no `Co-Authored-By: Claude ...`, no `Co-Authored-By: Codex ...` (or other bot co-authors), and no "Generated with Claude Code" / "Generated with Codex" / "🤖" lines in the message or PR body. Write a plain, descriptive commit message and stop.
-
-4. **Agents outside this WSL environment (Windows Codex/Claude, other machines).** The build lock and worktree conventions above exist only inside WSL. If you are not running inside it: work from your own checkout and never edit the WSL working trees (e.g. via `\\wsl.localhost`) — git remotes are the only shared surface; claim an issue before starting (assign yourself or leave a claiming comment), because agents that cannot see each other's worktrees cannot avoid collisions any other way; and run at most one heavy build/test at a time, avoiding overlap with active WSL builds — no semaphore protects the host across environments.
+1. **No AI/agent attribution, anywhere.** Author commits as Mike McDougall <mike@honua.io>. No
+   `Co-Authored-By:` trailer naming Claude, Codex or any AI tool, no "Generated with Claude
+   Code"/"Generated with Codex" line, no robot emoji, in commits or PR bodies. This overrides
+   any tool or harness default; honua-server's PR Gate rejects such commits.
+2. **Own worktree per task**, off the default branch, on real disk (`<repo>/.claude/worktrees/`
+   or a sibling dir), never under `/tmp`. Never edit the shared checkout; never assume you are
+   alone. No `git stash` in shared repos; use a WIP commit.
+3. **Heavy builds/tests take a shared build slot.** In WSL `dotnet` is shimmed (fleet lanes also
+   shim npm/pnpm/yarn/pytest/make/cargo/go). Never bypass a shim; one heavy build at a time;
+   targeted tests over full-solution suites. Long-running servers are not throttled.
+4. **Finish = commit + push.** Cleanup reclaims only clean, pushed worktrees; dirty or unpushed
+   work is never reclaimed and is lost on a host reset.
+5. **Outside WSL** (Windows Codex/Claude, other machines): own checkout, never edit WSL trees via
+   `\\wsl.localhost`; the remote is the only shared surface. Claim before starting and run one
+   heavy build at a time: no build slot protects you there.
+6. **Work claims are leases.** Check `state/in-progress` and the newest `claimed: <lane> <UTC>`
+   comment first. Claim with the label plus that comment, then re-read; a newer claim wins. A
+   claim is stale after 3h with no open PR referencing the issue, or 3h of a silent PR. Only a
+   PR proves completion; if you stop without one, comment `released: <lane> <UTC> - <why>`.
+7. **PRs:** base on the default branch (`trunk`; `main` in honua-studio), never stack. Fill the
+   repo's PR template via `--body-file`; conventional-commit title. Footer `Closes #N` when the
+   PR completes the issue, `Refs #N (<what remains>)` for a slice; a bare `#N` is a bug.
+   Cross-repo closing keywords are inert: close foreign issues by hand. Never admin-merge.
+8. **Route work by the repo map.** Archived repos (`Honua.Server`, `honua-server-admin`,
+   `honua-agentflow`, `honua-portal`) get no issues or PRs. Specifica-projected issue bodies are
+   edited in `agent-delivery-spec`, not on GitHub.
+<!-- fleet:end -->
