@@ -281,6 +281,25 @@ test("base locations retain source containment and actual line bounds", () => {
   }
 });
 
+test("reviewed snapshot bytes are read from the descriptor opened with O_NOFOLLOW", () => {
+  const source = fs.readFileSync(new URL("../lib/second-review-delivery.mjs", import.meta.url), "utf8");
+  assert.match(source, /O_NOFOLLOW/u);
+  assert.doesNotMatch(source, /readFileSync\(file\)/u);
+  assert.doesNotMatch(source, /statSync\(file\)/u);
+
+  if (process.platform === "win32") return;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "review-nofollow-"));
+  try {
+    fs.mkdirSync(path.join(root, "src"));
+    fs.writeFileSync(path.join(root, "src/target.ts"), "export const target = true;\n");
+    fs.symlinkSync(path.join(root, "src/target.ts"), path.join(root, "src/alias.ts"));
+    const value = { ...result(), verdict: "findings", findings: [{ ...finding(), path: "src/alias.ts" }] };
+    assert.equal(validateReviewResult(value, expected, root), value);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rechecks head, target branch, draft status and pre/post-merge lifecycle while allowing target-tip advances", () => {
   requireCurrentReview(pr(), expected);
   requireCurrentReview({ ...pr(), baseRefOid: "c".repeat(40) }, expected);
