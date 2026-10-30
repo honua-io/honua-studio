@@ -104,6 +104,41 @@ function text(value, limit, empty = false) {
     !markerText.test(value)
   );
 }
+const snapshotByteLimit = 2 * 1024 * 1024;
+
+// Resolve containment, then read the descriptor from that open. A path check
+// followed by readFile(path) follows a symlink swapped in between the two calls.
+function readReviewedSnapshotBytes(root, relativePath) {
+  const resolved = fs.realpathSync(path.join(root, relativePath));
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Finding is outside the reviewed snapshot.");
+  }
+  const flags = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(resolved, flags);
+  } catch (error) {
+    if (error?.code === "ELOOP" || error?.code === "EPERM" || error?.code === "ENOTDIR") {
+      throw new Error("Finding is outside the reviewed snapshot.");
+    }
+    throw error;
+  }
+  try {
+    if (process.platform === "linux") {
+      const opened = fs.readlinkSync(`/proc/self/fd/${descriptor}`);
+      if (opened !== root && !opened.startsWith(`${root}${path.sep}`)) {
+        throw new Error("Finding is outside the reviewed snapshot.");
+      }
+    }
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error("Finding is outside the reviewed snapshot.");
+    if (stat.size > snapshotByteLimit) throw new Error("Finding does not identify reviewed source.");
+    return fs.readFileSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 export function validateReviewResult(result, expected, snapshotDirectory, baseSnapshotDirectory) {
   if (
     !/^[a-f0-9]{40}$/u.test(expected.headSha) ||
@@ -147,10 +182,7 @@ export function validateReviewResult(result, expected, snapshotDirectory, baseSn
       const source = finding.snapshot === "base" ? baseSnapshotDirectory : snapshotDirectory;
       if (!source) throw new Error("The finding's pinned source snapshot is unavailable.");
       const root = fs.realpathSync(source);
-      const file = fs.realpathSync(path.join(root, finding.path));
-      if (!file.startsWith(root + path.sep) || !fs.statSync(file).isFile())
-        throw new Error("Finding is outside the reviewed snapshot.");
-      const bytes = fs.readFileSync(file);
+      const bytes = readReviewedSnapshotBytes(root, finding.path);
       if (
         bytes.length > 2 * 1024 * 1024 ||
         bytes.includes(0) ||
