@@ -1,0 +1,8 @@
+name: "CodeQL config"
+
+# No-build extraction. Keep product source in scope and skip compiler output.
+# Do not disable query rules.
+paths-ignore:
+  - "**/obj/**"
+  - "**/bin/**"
+  - "**/node_modules/**"
