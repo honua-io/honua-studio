@@ -169,7 +169,7 @@ export function createCatalogWidgetDataLoader(options: CatalogWidgetDataLoaderOp
       legacySourceBaseUrl: options.sourceCatalogBaseUrl ?? options.baseUrl ?? "/api",
       documentUrl: documentUrl ?? "",
       getAuth: options.getAuth ?? (() => undefined),
-      fetchImpl,
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     };
     const signal = loadOptions?.signal ?? new AbortController().signal;
     let body: unknown;
