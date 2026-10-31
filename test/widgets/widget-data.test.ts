@@ -150,6 +150,26 @@ describe("authenticated widget feature transport", () => {
   ];
   const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
+  it("uses the host cookie transport for trusted widget sources", async () => {
+    const request = vi.fn(async () => response(featureCollection(1)));
+    const directFetch = vi.fn(async () => response({}, 404));
+    vi.stubGlobal("fetch", directFetch);
+    try {
+      const auth = { getAccessToken: async () => undefined, fetchRequest: request };
+      const loader = createCatalogWidgetDataLoader({
+        catalog: catalog(),
+        baseUrl,
+        documentUrl: "https://honua.test/",
+        getAuth: () => auth,
+      });
+      expect(await loader("parcels")).toMatchObject({ ok: true });
+      expect(request).toHaveBeenCalledOnce();
+      expect(directFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each([401, 499])("refreshes once after %s and renders bounded rows from the real query shape", async (code) => {
     const auth = { getAccessToken: vi.fn().mockResolvedValueOnce("old").mockResolvedValueOnce("new") };
     const fetchImpl = vi
