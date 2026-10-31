@@ -23,6 +23,21 @@ afterEach(() => {
 });
 
 describe("recipe picker discovery", () => {
+  it("uses a browser-valid package key pattern with Unicode Sets semantics", () => {
+    const outlet = document.createElement("div");
+    const panel = new RecipePanel(outlet, {
+      listSources: async () => [],
+      describeSource: async () => metadata,
+      create: vi.fn(),
+      close: vi.fn(),
+    });
+    const input = outlet.querySelector<HTMLInputElement>('[name="packageKey"]')!;
+    const pattern = new RegExp(`^(?:${input.pattern})$`, "v");
+    for (const key of ["map", "map-1", "map_a.b", "MAP_42"]) expect(pattern.test(key)).toBe(true);
+    for (const key of ["", "two words", "map/1", "map+1"]) expect(pattern.test(key)).toBe(false);
+    panel.dispose();
+  });
+
   it("aborts stale source metadata and ignores a late response after selecting another source", async () => {
     const outlet = document.createElement("div");
     document.body.append(outlet);
