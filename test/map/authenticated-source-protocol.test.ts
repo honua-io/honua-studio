@@ -55,6 +55,29 @@ function setup(fetchImpl = vi.fn(async () => response(collection)), legacySource
       handler?.({ url: `${protocol}://${encodeURIComponent(url)}` }, controller),
   };
 }
+describe("worker-safe transport errors", () => {
+  it("reports a plain error without carrying uncloneable SDK metadata into MapLibre", async () => {
+    const unsafe = Object.assign(new Error("Feature source refused the request"), {
+      details: Object.assign(Object.create(null), { diagnostic: "internal" }),
+    });
+    const context = setup(
+      vi.fn(async () => {
+        throw unsafe;
+      }),
+    );
+    let reported: unknown;
+    try {
+      await context.run();
+    } catch (error) {
+      reported = error;
+    }
+    expect(reported).toBeInstanceOf(Error);
+    expect((reported as Error).message).toBe("Feature source refused the request");
+    expect(Object.keys(reported as object)).toEqual([]);
+    expect(context.onError).toHaveBeenCalledOnce();
+  });
+});
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("trusted authenticated map sources", () => {
