@@ -90,6 +90,45 @@ describe("read-only map canvas", () => {
     },
   );
 
+  it("does not query projected layers before the current map style exists", async () => {
+    const harness = mapHarness();
+    harness.map.getStyle = () => undefined as unknown as { layers: readonly Readonly<Record<string, unknown>>[] };
+    const query = vi.fn(() => [{ id: 1 }]);
+    harness.map.queryRenderedFeatures = query;
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: body(),
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    expect(canvas.renderedFeatureCount).toBe(0);
+    expect(query).not.toHaveBeenCalled();
+    harness.map.getStyle = () => ({ layers: [{ id: "parcels", type: "fill" }] });
+    expect(canvas.renderedFeatureCount).toBe(1);
+    expect(query).toHaveBeenCalledOnce();
+    canvas.dispose();
+  });
+
+  it("does not query a style layer until MapLibre has installed it", async () => {
+    const harness = mapHarness();
+    harness.map.getStyle = () => ({ layers: [{ id: "parcels", type: "fill" }] });
+    const hasLayer = vi.fn(() => undefined as unknown);
+    Object.assign(harness.map, { getLayer: hasLayer });
+    const query = vi.fn(() => [{ id: 1 }]);
+    harness.map.queryRenderedFeatures = query;
+    const canvas = await createReadOnlyMapCanvas({
+      container,
+      body: body(),
+      projection: { catalog },
+      mapFactory: harness.factory,
+    });
+    expect(canvas.renderedFeatureCount).toBe(0);
+    expect(query).not.toHaveBeenCalled();
+    hasLayer.mockReturnValue({ id: "parcels" });
+    expect(canvas.renderedFeatureCount).toBe(1);
+    canvas.dispose();
+  });
+
   it("counts actual owned visual-editor render layers when the original primary layer was removed", async () => {
     const harness = mapHarness();
     const renderLayers = [
