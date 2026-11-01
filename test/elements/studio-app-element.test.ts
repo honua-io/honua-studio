@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { StudioClient } from "../../src/client/studio-client.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
@@ -53,6 +54,39 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     window.location.hash = "";
     window.localStorage.clear(); // theme choices persist across mounts by design — isolate tests from each other
     vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])("keeps the inspector only when a renewed catalog is unchanged (%s)", async (unchanged) => {
+    const app = mount();
+    const session = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      sourcePathBase: "",
+      environmentId: "environment",
+      principalId: "principal",
+      csrfToken: "csrf",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      onExpired: () => () => {},
+    };
+    app.session = session;
+    const source = {
+      id: "roads/1",
+      title: "Roads",
+      protocol: "geoservices-feature-service",
+      geometryType: "LineString",
+      locator: { url: "/rest/services/roads/FeatureServer", serviceId: "roads", layerId: 1 },
+    };
+    const catalog = vi.spyOn(StudioClient.prototype, "listCatalog").mockResolvedValue([source]);
+    await app.listRecipeSources(new AbortController().signal);
+    await app.openDesignInspector();
+    expect(app.shadowRoot?.querySelector("#design-inspector-panel")).not.toBeNull();
+    const calls = catalog.mock.calls.length;
+    catalog.mockResolvedValue(unchanged ? [{ ...source }] : []);
+    app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
+    await vi.waitFor(() => expect(catalog.mock.calls.length).toBeGreaterThan(calls));
+    await vi.waitFor(() => expect(app.sourceCatalog).toEqual(unchanged ? [source] : []));
+    expect(app.shadowRoot?.querySelector("#design-inspector-panel") !== null).toBe(unchanged);
+    catalog.mockRestore();
   });
 
   it.each([false, true])("does not add a published layer after a map switch (switch back: %s)", async (switchBack) => {

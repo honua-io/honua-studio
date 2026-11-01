@@ -1449,7 +1449,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // honua-studio#23: the composition map resolves its sources against the
     // catalog, which is bearer-gated — so a new session means a new catalog
     // (and, on a standalone boot, the first one that can be read at all).
-    this.#refreshSourceCatalog();
+    this.#refreshSourceCatalog(Boolean(samePrincipal));
   }
 
   /**
@@ -1620,8 +1620,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * row), which is a better failure than a shell that refuses to boot
    * because a listing endpoint was unreachable.
    */
-  async #loadSourceCatalog(): Promise<void> {
-    if (this.#catalogRequested || this.#sourceCatalog !== undefined) return;
+  async #loadSourceCatalog(revalidate = false): Promise<void> {
+    if (this.#catalogRequested || (!revalidate && this.#sourceCatalog !== undefined)) return;
     // Never fetch while signed out. `StudioClient` turns a second 401 into a
     // `StudioSessionExpiredError` and the session records the failure, so an
     // eager anonymous fetch would flip a freshly-booted, never-signed-in
@@ -1634,14 +1634,16 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     try {
       const generation = this.#workspaceAuthGeneration;
       const auth = this.auth;
+      const previousCatalog = this.#sourceCatalog;
       const catalog = await this.studioClient.listCatalog();
       if (
         !this.isConnected ||
         generation !== this.#workspaceAuthGeneration ||
         auth !== this.auth ||
-        this.#sourceCatalog !== undefined
+        this.#sourceCatalog !== previousCatalog
       )
         return;
+      if (previousCatalog && canonicalCompositionJson(previousCatalog) === canonicalCompositionJson(catalog)) return;
       this.#applySourceCatalog(catalog);
     } catch {
       // See the doc above — an unreachable catalog degrades the map, it does
@@ -1663,11 +1665,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * loop this already caused once) and `listCatalog()` calls it, so retrying
    * on every dispatch would be an unbounded fetch loop.
    */
-  #refreshSourceCatalog(): void {
+  #refreshSourceCatalog(preserve = false): void {
     if (this.#catalogFromHost) return;
-    this.#sourceCatalog = undefined;
+    if (preserve) this.#recipeSourcesGeneration = undefined;
+    else this.#sourceCatalog = undefined;
     this.#catalogRequested = false;
-    void this.#loadSourceCatalog();
+    void this.#loadSourceCatalog(preserve);
   }
 
   #onAuthStatusChanged(): void {
