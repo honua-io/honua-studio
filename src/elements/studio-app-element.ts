@@ -42,7 +42,7 @@ import {
   type StudioAiTranscriptSigningManifest,
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
-import { verifiedSourcePathBase } from "../auth/host-session.js";
+import { HostAdapterAuthSession, verifiedSourcePathBase } from "../auth/host-session.js";
 import {
   type AuthoritativeStyleDefinition,
   AuthoritativeStyleProvider,
@@ -311,6 +311,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.isConnected) this.renderView();
   }
 
+  #cookieLeaseGeneration = 0;
   #auth: AuthSession | undefined;
   #authUnsubscribe: (() => void) | undefined;
   #redirectCallbackHandled = false;
@@ -689,6 +690,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public async listRecipeSources(signal: AbortSignal): Promise<readonly CatalogDataset[]> {
     const generation = this.#recipeAuthorityGeneration;
+    const leaseGeneration = this.#cookieLeaseGeneration;
     this.#recipeSourcesGeneration = undefined;
     this.#recipeSourceChoices = undefined;
     const hostOwnsCatalog = this.#catalogFromHost;
@@ -704,7 +706,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
     const catalog = await client.listCatalog();
     signal.throwIfAborted();
-    if (generation !== this.#recipeAuthorityGeneration || auth !== this.auth)
+    if (
+      generation !== this.#recipeAuthorityGeneration ||
+      auth !== this.auth ||
+      leaseGeneration !== this.#cookieLeaseGeneration
+    )
       throw new Error("The workspace authority changed.");
     let choices: readonly CatalogDataset[] = catalog;
     if (hostOwnsCatalog) {
@@ -1397,6 +1403,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (hadAuthority) this.#announceWorkspaceDraft();
     }
     this.#session = session;
+    this.#cookieLeaseGeneration++;
     this.#syncWorkspaceChrome();
     const sourceCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (sourceCanvas)
@@ -1412,7 +1419,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (!this.#studioClientOverridden) this.#studioClient = undefined;
       return;
     }
-    this.resetAuth();
+    if (
+      samePrincipal &&
+      this.#auth instanceof HostAdapterAuthSession &&
+      session &&
+      "kind" in session &&
+      session.kind === "cookie"
+    )
+      this.#auth.renewCookie(session);
+    else this.resetAuth();
     // A host-owned catalog does not reload on session replacement. Invalidate
     // its widget rows explicitly rather than leaving another session's data visible.
     for (const canvas of this.querySelectorAll<HonuaStudioCanvasElement>("honua-studio-canvas")) {
@@ -2246,6 +2261,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     options?: { readonly isCurrent?: () => boolean },
   ): Promise<HonuaStudioCommandOutcome> {
     let auth = this.auth;
+    let leaseGeneration = this.#cookieLeaseGeneration;
     const mapEpoch = this.#workspaceMapEpoch;
     const authorityGeneration = this.#workspaceAuthGeneration;
     const requireOriginalTarget = () => {
@@ -2259,13 +2275,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     requireOriginalTarget();
     let catalog = await this.studioClient.listCatalog();
     requireOriginalTarget();
-    if (this.auth !== auth) {
+    if (this.auth !== auth || this.#cookieLeaseGeneration !== leaseGeneration) {
       // A same-authority cookie lease may renew during discovery. Re-read with
       // its new credentials; never dispatch a catalog captured by the old lease.
       auth = this.auth;
+      leaseGeneration = this.#cookieLeaseGeneration;
       catalog = await this.studioClient.listCatalog();
       requireOriginalTarget();
-      if (this.auth !== auth) throw new Error("The Studio target changed while resolving the published layer.");
+      if (this.auth !== auth || this.#cookieLeaseGeneration !== leaseGeneration)
+        throw new Error("The Studio target changed while resolving the published layer.");
     }
     const suffix = `/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
     const matches = catalog.filter(
