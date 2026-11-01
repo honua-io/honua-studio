@@ -679,6 +679,61 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     }
   });
 
+  it.each(["authorized", "injected", "changed-session"])(
+    "validates style saves against authorized added sources (%s)",
+    async (mode) => {
+      const original = { version: 8, sources: {}, layers: [] };
+      const anchor = {
+        version: 8,
+        sources: { roads: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+        layers: [{ id: "roads", source: "roads", type: "line", paint: { "line-color": "#112233" } }],
+      };
+      const candidate = {
+        ...anchor,
+        sources: {
+          ...anchor.sources,
+          ...(mode === "injected" ? { foreign: { type: "geojson", data: "https://foreign.example/data" } } : {}),
+        },
+        layers: [{ ...anchor.layers[0], paint: { "line-color": "#abcdef" } }],
+      };
+      const draft = {
+        draftId: "map-style",
+        generation: 1,
+        packageKey: "map",
+        envelope: {
+          family: "map",
+          schemaVersion: "1.0",
+          body: { layers: [{ id: "roads", sourceId: "roads", title: "Roads", visible: true }], mapSpec: original },
+        },
+      } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+      const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+      const write = vi
+        .spyOn(StudioLifecycleClient.prototype, "setMapStyle")
+        .mockImplementation(async (_id, _generation, style) => ({
+          ...draft,
+          generation: 2,
+          envelope: { ...draft.envelope, body: { ...(draft.envelope.body as object), mapSpec: style } },
+        }));
+      try {
+        const app = mount();
+        await app.attachWorkspaceDraft(draft.draftId);
+        const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
+        vi.spyOn(canvas, "editableMapStyle").mockImplementation(async () => {
+          if (mode === "changed-session") app.session = fixtureSession();
+          return anchor;
+        });
+        const outcome = await canvas.commandDispatch!([{ name: "setMapStyle", mapSpec: candidate }]);
+        expect(outcome.ok).toBe(mode === "authorized");
+        expect(write).toHaveBeenCalledTimes(mode === "authorized" ? 1 : 0);
+        if (mode !== "changed-session")
+          expect(app.composition.state.mapSpec).toEqual(mode === "injected" ? original : candidate);
+      } finally {
+        get.mockRestore();
+        write.mockRestore();
+      }
+    },
+  );
+
   it("refuses style initialization when authority changes while reading the canvas", async () => {
     const draft = {
       draftId: "style-map",

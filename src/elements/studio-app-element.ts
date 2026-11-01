@@ -2299,17 +2299,33 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         try {
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           if (binding !== this.#workspaceDraft) throw new Error("The active map changed before the edit began.");
-          const target = applyCompositionCommands(this.composition.state, commands).state;
-          const observed =
-            commands.length === 1 && commands[0]?.name === "setMapStyle"
-              ? {
-                  ...(await binding.replaceStyle(commands[0].mapSpec)),
-                  pins: target.pins,
-                  annotations: target.annotations,
-                }
-              : await binding.replace(target);
+          const styleCommand = commands.length === 1 && commands[0]?.name === "setMapStyle" ? commands[0] : undefined;
+          const current = this.composition.state;
+          let anchor = current;
+          if (styleCommand) {
+            const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+            if (!canvas) throw new Error("Open the map canvas before editing its style.");
+            const mapSpec = await canvas.editableMapStyle();
+            if (generation !== this.#workspaceAuthGeneration || binding !== this.#workspaceDraft)
+              throw new Error("The workspace session changed.");
+            if (current !== this.composition.state || options?.isCurrent?.() === false)
+              throw new Error("The map changed while preparing its style.");
+            // New composition sources are resolved by the authorized canvas, not
+            // supplied by the editor. Validate its candidate against that snapshot.
+            anchor = { ...current, mapSpec };
+          }
+          const target = applyCompositionCommands(anchor, commands).state;
+          const observed = styleCommand
+            ? {
+                ...(await binding.replaceStyle(styleCommand.mapSpec)),
+                pins: target.pins,
+                annotations: target.annotations,
+              }
+            : await binding.replace(target);
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
-          for (const command of commands) this.composition.apply(command);
+          // The accepted style response establishes one authoritative revision;
+          // replaying it against the older source anchor would reject valid additions.
+          if (!styleCommand) for (const command of commands) this.composition.apply(command);
           this.composition.replaceState(observed);
           this.#announceWorkspaceDraft();
           return { ok: true };
