@@ -688,7 +688,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
     const initialize = vi.spyOn(StudioLifecycleClient.prototype, "initializeDraftStyle");
-    let finish!: (style: { version: number; sources: {}; layers: [] }) => void;
+    let finish!: (style: { version: number; sources: Record<string, never>; layers: [] }) => void;
     try {
       const app = mount();
       await app.attachWorkspaceDraft(draft.draftId);
