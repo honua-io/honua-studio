@@ -439,7 +439,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const binding = this.#workspaceDraft;
       const epoch = this.#workspaceAuthGeneration;
       const pending = this.#workspaceDraftQueue.then(async () => {
-        const observed = await binding.initializeStyle(await canvas.editableMapStyle());
+        const style = await canvas.editableMapStyle();
+        if (epoch !== this.#workspaceAuthGeneration || this.#workspaceDraft !== binding)
+          throw new Error("The workspace authority changed.");
+        const observed = await binding.initializeStyle(style);
         if (epoch !== this.#workspaceAuthGeneration || this.#workspaceDraft !== binding)
           throw new Error("The workspace authority changed.");
         this.composition.resetBaseline({

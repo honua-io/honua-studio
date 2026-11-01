@@ -645,6 +645,38 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     }
   });
 
+  it("refuses style initialization when authority changes while reading the canvas", async () => {
+    const draft = {
+      draftId: "style-map",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const initialize = vi.spyOn(StudioLifecycleClient.prototype, "initializeDraftStyle");
+    let finish!: (style: { version: number; sources: {}; layers: [] }) => void;
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft(draft.draftId);
+      const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
+      const read = vi.spyOn(canvas, "editableMapStyle").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = app.openStyleEditor();
+      await vi.waitFor(() => expect(read).toHaveBeenCalled());
+      app.session = fixtureSession();
+      finish({ version: 8, sources: {}, layers: [] });
+      await expect(pending).rejects.toThrow("authority changed");
+      expect(initialize).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+      initialize.mockRestore();
+    }
+  });
+
   it("pins a New map gesture before waiting for pending writes", async () => {
     const app = mount();
     let release!: () => void;
