@@ -690,6 +690,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public async listRecipeSources(signal: AbortSignal): Promise<readonly CatalogDataset[]> {
     const generation = this.#recipeAuthorityGeneration;
+    const leaseGeneration = this.#cookieLeaseGeneration;
     this.#recipeSourcesGeneration = undefined;
     this.#recipeSourceChoices = undefined;
     const hostOwnsCatalog = this.#catalogFromHost;
@@ -705,7 +706,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
     const catalog = await client.listCatalog();
     signal.throwIfAborted();
-    if (generation !== this.#recipeAuthorityGeneration || auth !== this.auth)
+    if (
+      generation !== this.#recipeAuthorityGeneration ||
+      auth !== this.auth ||
+      leaseGeneration !== this.#cookieLeaseGeneration
+    )
       throw new Error("The workspace authority changed.");
     let choices: readonly CatalogDataset[] = catalog;
     if (hostOwnsCatalog) {
