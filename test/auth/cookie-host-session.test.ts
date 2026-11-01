@@ -22,6 +22,54 @@ function session(expiresAt = new Date(Date.now() + 60000).toISOString(), sourceP
   return result;
 }
 describe("cookie host session", () => {
+  it("keeps renewed credentials current and ignores stale expiry or 401 from the old lease", async () => {
+    let oldExpired = () => {};
+    let newExpired = () => {};
+    let finish!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: (listener: () => void) => {
+        oldExpired = listener;
+        return () => {};
+      },
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    auth.renewCookie({
+      ...cookie,
+      csrfToken: "new",
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+      onExpired: (listener: () => void) => {
+        newExpired = listener;
+        return () => {};
+      },
+    });
+    oldExpired();
+    finish(new Response(null, { status: 401 }));
+    await pending;
+    expect(auth.getState().status).toBe("fresh");
+    await auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    expect(fetch.mock.calls[1][1].headers.get("X-CSRF-Token")).toBe("new");
+    expect(() => auth.renewCookie({ ...cookie, principalId: "other" })).toThrow(/authority/);
+    newExpired();
+    expect(auth.getState().status).toBe("expired");
+  });
   it("bounds OGC reads to the actual features collection route", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetch);

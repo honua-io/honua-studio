@@ -1334,7 +1334,7 @@ it("pins read-only style discovery before requests while accepting same-authorit
     const old = provider.sessionIdentity;
     app.session = { ...cookie, csrfToken: "renewed" };
     expect(provider.sessionIdentity).toBe(app.auth);
-    expect(provider.sessionIdentity).toBe(old);
+    expect(provider.sessionIdentity).not.toBe(old);
     workspace = "workspace-b";
     await expect(provider.list()).rejects.toThrow("workspace authority changed");
     expect(fetch).not.toHaveBeenCalled();

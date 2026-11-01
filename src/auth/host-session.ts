@@ -14,6 +14,7 @@ import type {
   AuthSessionListener,
   AuthState,
   BearerSessionAdapter,
+  CookieSessionAdapter,
   SessionAdapter,
   Unsubscribe,
 } from "./types.js";
@@ -30,13 +31,16 @@ export class HostAdapterAuthSession implements AuthSession {
 
   private state: AuthState = INITIAL_AUTH_STATE;
   private readonly listeners = new Set<AuthSessionListener>();
-  private readonly unsubscribeExpired: Unsubscribe;
+  private unsubscribeExpired: Unsubscribe;
   private expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  private expiryGeneration = 0;
   readonly fetchRequest?: typeof fetch;
 
-  constructor(private readonly adapter: SessionAdapter) {
+  constructor(private adapter: SessionAdapter) {
+    const generation = this.expiryGeneration;
     this.unsubscribeExpired = this.adapter.onExpired(() => {
-      this.dispatch({ type: "refresh-failed", error: "The host session expired." });
+      if (generation === this.expiryGeneration)
+        this.dispatch({ type: "refresh-failed", error: "The host session expired." });
     });
     // Resolve the host's token proactively (fire-and-forget) rather than
     // waiting for the first outgoing API request to ask for one — otherwise
@@ -57,6 +61,8 @@ export class HostAdapterAuthSession implements AuthSession {
         throw new Error("Invalid cookie host session.");
       }
       this.fetchRequest = async (input, init) => {
+        const cookie = this.adapter;
+        if (!("kind" in cookie) || cookie.kind !== "cookie") throw new Error("The host session changed.");
         if (this.getState().status !== "fresh") throw new Error("The host session expired.");
         if (input instanceof Request) throw new Error("Cookie transport requires an explicit URL.");
         let path = String(input);
@@ -138,10 +144,39 @@ export class HostAdapterAuthSession implements AuthSession {
         if (!["GET", "HEAD", "OPTIONS"].includes((init?.method ?? "GET").toUpperCase()))
           headers.set("X-CSRF-Token", cookie.csrfToken);
         const response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
-        if (response.status === 401) this.dispatch({ type: "refresh-failed", error: "The host session expired." });
+        if (response.status === 401 && this.adapter === cookie)
+          this.dispatch({ type: "refresh-failed", error: "The host session expired." });
         return response;
       };
     }
+    void this.getAccessToken();
+  }
+
+  /** Renew a cookie lease without changing the authority observed by in-flight reads. */
+  renewCookie(adapter: CookieSessionAdapter): void {
+    const previous = this.adapter;
+    if (
+      !("kind" in previous) ||
+      previous.kind !== "cookie" ||
+      previous.principalId !== adapter.principalId ||
+      previous.environmentId !== adapter.environmentId ||
+      verifiedSourcePathBase(previous.sourcePathBase) !== verifiedSourcePathBase(adapter.sourcePathBase) ||
+      adapter.baseUrl !== "/api/studio" ||
+      !adapter.csrfToken ||
+      !Number.isFinite(Date.parse(adapter.expiresAt))
+    )
+      throw new Error("Cookie lease renewal changed the session authority.");
+    const cookie = Object.freeze({ ...adapter });
+    const unsubscribe = adapter.onExpired(() => {
+      if (this.adapter === cookie) this.dispatch({ type: "refresh-failed", error: "The host session expired." });
+    });
+    this.expiryGeneration++;
+    this.unsubscribeExpired();
+    this.unsubscribeExpired = unsubscribe;
+    this.adapter = cookie;
+    clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
+    this.dispatch({ type: "host-authenticated", expiresAt: Date.parse(cookie.expiresAt) });
     void this.getAccessToken();
   }
 
