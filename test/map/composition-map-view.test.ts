@@ -615,3 +615,29 @@ it("does not persist runtime exploration filters in the canonical editor baselin
   );
   view.dispose();
 });
+
+it("does not freeze composition visibility into the initialized editable style", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  controller.apply({ name: "setVisibility", target: { kind: "layer", id: "hi-parcels" }, visible: false });
+  await view.settled();
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-parcels")?.layout?.visibility).toBe("none");
+  const snapshot = await view.editableMapStyle();
+  expect(
+    (snapshot as unknown as StyleLike).layers.find((layer) => layer.id === "hi-parcels")?.layout?.visibility,
+  ).not.toBe("none");
+  controller.resetBaseline({ ...controller.state, mapSpec: snapshot });
+  controller.apply({ name: "setVisibility", target: { kind: "layer", id: "hi-parcels" }, visible: true });
+  await view.settled();
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-parcels")?.layout?.visibility).not.toBe("none");
+  const authored = structuredClone(snapshot) as unknown as StyleLike;
+  authored.layers = authored.layers.map((layer) =>
+    layer.id === "hi-parcels" ? { ...layer, layout: { visibility: "none" } } : layer,
+  );
+  controller.resetBaseline({ ...controller.state, mapSpec: authored as unknown as typeof snapshot });
+  expect(
+    ((await view.editableMapStyle()) as unknown as StyleLike).layers.find((layer) => layer.id === "hi-parcels")?.layout
+      ?.visibility,
+  ).toBe("none");
+  view.dispose();
+});

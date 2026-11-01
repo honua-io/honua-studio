@@ -626,7 +626,16 @@ export class CompositionMapView {
   }
 
   #project(includePreview = true): CompositionMapProjection {
-    const projection = compositionToMapPackage(this.#options.controller.state, {
+    const state = this.#options.controller.state;
+    // Composition visibility belongs to the layer-list toggle, not the editable
+    // stylesheet. Authored render-layer visibility in mapSpec remains intact.
+    const editable = includePreview
+      ? state
+      : {
+          ...state,
+          layers: state.layers.map((layer) => ({ ...layer, visible: true })),
+        };
+    const projection = compositionToMapPackage(editable, {
       ...(this.#options.projection ?? {}),
       ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
