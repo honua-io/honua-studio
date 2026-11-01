@@ -277,7 +277,6 @@ jobs:
             cannot be inspected. Never report no-findings for an incomplete review.
             blockedReason must be empty unless verdict is blocked.
           claude_args: |
-            --model claude-opus-5-5
             --max-turns 80
             --allowedTools "Read,Grep,Glob"
             --disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"
