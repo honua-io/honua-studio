@@ -134,6 +134,46 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     }
   });
 
+  it("does not add a published layer after its initiating host view closes", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft").mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
+      vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      let current = true;
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 }, { isCurrent: () => current });
+      current = false;
+      finish([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      await expect(pending).rejects.toThrow(/active map changed/i);
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
   it.each([true, false])("rechecks the renewed publisher catalog when source availability is %s", async (available) => {
     const draft = {
       draftId: "original",

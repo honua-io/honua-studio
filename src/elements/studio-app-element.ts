@@ -2201,18 +2201,22 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * worse than none of it.
    */
   /** Resolve an observed published receipt against the live catalog before adding it to the map. */
-  public async addPublishedLayer(layer: {
-    readonly layerId: number;
-    readonly serviceName: string;
-    readonly layerName?: string;
-  }): Promise<HonuaStudioCommandOutcome> {
+  public async addPublishedLayer(
+    layer: { readonly layerId: number; readonly serviceName: string; readonly layerName?: string },
+    options?: { readonly isCurrent?: () => boolean },
+  ): Promise<HonuaStudioCommandOutcome> {
     let auth = this.auth;
     const draft = this.#workspaceDraft;
     const authorityGeneration = this.#workspaceAuthGeneration;
     const requireOriginalTarget = () => {
-      if (this.#workspaceDraft !== draft || this.#workspaceAuthGeneration !== authorityGeneration)
+      if (
+        this.#workspaceDraft !== draft ||
+        this.#workspaceAuthGeneration !== authorityGeneration ||
+        options?.isCurrent?.() === false
+      )
         throw new Error("The active map changed while resolving the published layer. Review the map and try again.");
     };
+    requireOriginalTarget();
     let catalog = await this.studioClient.listCatalog();
     requireOriginalTarget();
     if (this.auth !== auth) {
