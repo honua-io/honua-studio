@@ -569,6 +569,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #workspaceDraft: WorkspaceDraftBinding | undefined;
+  #workspaceMapEpoch = 0;
   #workspacePublicationReviews = new WeakMap<
     StudioContentVersion,
     {
@@ -1156,6 +1157,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
     if (previous?.draftId !== draftId) this.closeDesignInspector();
     if (previous?.draftId !== draftId && this.#recipeDraftToAttach !== draftId) this.#disposeRecipePicker();
+    if (previous?.draftId !== draftId) this.#workspaceMapEpoch++;
     this.#workspaceDraft = binding;
     this.#workspaceDraftConflict = false;
     const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
@@ -2206,11 +2208,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     options?: { readonly isCurrent?: () => boolean },
   ): Promise<HonuaStudioCommandOutcome> {
     let auth = this.auth;
-    const draft = this.#workspaceDraft;
+    const mapEpoch = this.#workspaceMapEpoch;
     const authorityGeneration = this.#workspaceAuthGeneration;
     const requireOriginalTarget = () => {
       if (
-        this.#workspaceDraft !== draft ||
+        this.#workspaceMapEpoch !== mapEpoch ||
         this.#workspaceAuthGeneration !== authorityGeneration ||
         options?.isCurrent?.() === false
       )

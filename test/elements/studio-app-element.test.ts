@@ -55,7 +55,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     vi.unstubAllGlobals();
   });
 
-  it("does not add a published layer to a different draft after catalog discovery", async () => {
+  it.each([false, true])("does not add a published layer after a map switch (switch back: %s)", async (switchBack) => {
     const draft = {
       draftId: "original",
       itemId: "item",
@@ -79,6 +79,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       );
       const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1, layerName: "Roads" });
       await app.attachWorkspaceDraft("replacement");
+      if (switchBack) await app.attachWorkspaceDraft("original");
       finish([
         {
           id: "roads/1",
@@ -90,8 +91,49 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       ]);
       await expect(pending).rejects.toThrow(/active map changed/i);
       expect(replace).not.toHaveBeenCalled();
-      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("replacement");
+      expect((await app.prepareWorkspaceTurn())?.draftId).toBe(switchBack ? "original" : "replacement");
       expect(app.composition.state.layers).toEqual([]);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it("adds a layer when idle refresh observes the same draft during catalog discovery", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
+      vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 });
+      expect(await app.refreshWorkspaceDraft()).toBe(true);
+      finish([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      expect(await pending).toEqual({ ok: true });
+      expect(replace).toHaveBeenCalledOnce();
     } finally {
       get.mockRestore();
       replace.mockRestore();
