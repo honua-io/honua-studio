@@ -1,4 +1,4 @@
-import { validateMapStyleEdit } from "../styles/map-style-edit.js";
+import { COMPOSITION_STYLE_LAYER_IDS, validateMapStyleEdit } from "../styles/map-style-edit.js";
 /**
  * The composition engine's pure reducer (honua-studio#8): `state, command`
  * in, `{ state, diff }` out, or a thrown {@link CompositionCommandError}.
@@ -235,6 +235,8 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       const resolution = requireResolved(state, command.target, "layer", command);
       guardPin(resolution, command);
       const id = nonFeatureTargetId(command.target);
+      const metadata = state.mapSpec?.metadata as Record<string, unknown> | undefined;
+      const captured = metadata?.[COMPOSITION_STYLE_LAYER_IDS];
       return {
         ...state,
         layers: state.layers.filter((layer) => layer.id !== id),
@@ -252,6 +254,14 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
           ? {
               mapSpec: {
                 ...state.mapSpec,
+                ...(Array.isArray(captured)
+                  ? {
+                      metadata: {
+                        ...metadata,
+                        [COMPOSITION_STYLE_LAYER_IDS]: captured.filter((owner) => owner !== id),
+                      },
+                    }
+                  : {}),
                 ...(state.mapSpec.sources && typeof state.mapSpec.sources === "object"
                   ? {
                       sources: Object.fromEntries(

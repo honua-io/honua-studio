@@ -694,5 +694,27 @@ it("renders layers added after a style snapshot without restoring intentionally 
     false,
   );
   expect(map.latestStyle?.layers.some((layer) => layer.id === "another-parcels")).toBe(true);
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  await view.settled();
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-parcels")).toBe(true);
+  view.dispose();
+});
+
+it("inserts new snapshot visuals and outlines before their requested composition owner", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-roads", sourceId: "hi-roads" } });
+  const snapshot = await view.editableMapStyle();
+  controller.resetBaseline({
+    ...controller.state,
+    mapSpec: { ...snapshot, metadata: { "honua:compositionLayerIds": ["hi-roads"] } },
+  });
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" }, beforeId: "hi-roads" });
+  await view.settled();
+  const ids = map.latestStyle?.layers.map((layer) => layer.id) ?? [];
+  expect(ids.indexOf("hi-parcels")).toBeLessThan(ids.indexOf("hi-roads"));
+  expect(ids.indexOf("hi-parcels__outline")).toBeLessThan(ids.indexOf("hi-roads"));
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-roads")).toMatchObject(
+    (snapshot.layers as unknown as StyleLike["layers"]).find((layer) => layer.id === "hi-roads"),
+  );
   view.dispose();
 });
