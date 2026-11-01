@@ -162,7 +162,42 @@ export class HostAdapterAuthSession implements AuthSession {
         }
         if (response.status === 401 && this.adapter === responseLease)
           this.dispatch({ type: "refresh-failed", error: "The host session expired." });
-        return response;
+        if (!response.body) return response;
+        const originalBody = response.body;
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        const current = () => this.adapter === responseLease && this.getState().status === "fresh";
+        const body = new ReadableStream<Uint8Array>(
+          {
+            async pull(controller) {
+              try {
+                if (!current()) throw new Error("The session renewed while reading the response.");
+                reader ??= originalBody.getReader();
+                const part = await reader.read();
+                if (!current()) throw new Error("The session renewed while reading the response.");
+                if (part.done) controller.close();
+                else controller.enqueue(part.value);
+              } catch (error) {
+                if (reader) void reader.cancel().catch(() => {});
+                controller.error(error);
+              }
+            },
+            cancel(reason) {
+              return reader ? reader.cancel(reason) : originalBody.cancel(reason);
+            },
+          },
+          { highWaterMark: 0 },
+        );
+        const guarded = new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+        Object.defineProperties(guarded, {
+          url: { value: response.url },
+          redirected: { value: response.redirected },
+          type: { value: response.type },
+        });
+        return guarded;
       };
     }
     void this.getAccessToken();
