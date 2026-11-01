@@ -1,4 +1,5 @@
 import { compositionStyleOverride } from "../styles/composition-style-override.js";
+import { COMPOSITION_STYLE_LAYER_IDS } from "../styles/map-style-edit.js";
 /**
  * `CompositionState` → `HonuaMapPackage` (honua-studio#23 REQ-001/REQ-002).
  *
@@ -248,6 +249,9 @@ export function compositionToMapPackage(
       ? (state.mapSpec as unknown as HonuaStyleSpecification)
       : (options.basemap ?? createOfflineBasemapStyle()),
   );
+  const captured = mapSpec.metadata?.[COMPOSITION_STYLE_LAYER_IDS];
+  const capturedOwners =
+    Array.isArray(captured) && captured.every((id) => typeof id === "string") ? new Set<string>(captured) : undefined;
   const existingRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
   const knownOwnerIds = new Set(state.layers.map((layer) => layer.id));
   const inlineBodies = Object.fromEntries((state.styleRefs ?? []).map((ref) => [ref.styleId, ref.body]));
@@ -266,6 +270,7 @@ export function compositionToMapPackage(
   const audience = options.sourceAuthority === "current-reader";
 
   for (const layer of state.layers) {
+    const composeLayer = !state.mapSpec || (capturedOwners !== undefined && !capturedOwners.has(layer.id));
     const resolveOptions = {
       ...(options.catalog !== undefined ? { catalog: options.catalog } : {}),
       ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
@@ -335,14 +340,14 @@ export function compositionToMapPackage(
     const styleSourceId = layer.sourceId;
     if (!boundSourceIds.has(styleSourceId)) {
       boundSourceIds.add(styleSourceId);
-      if (!state.mapSpec || audience)
+      if (composeLayer || audience)
         mapSpec.sources[styleSourceId] = resolvedSource as HonuaStyleSpecification["sources"][string];
       const durable = state.sourceBindings?.find((binding) => binding.sourceId === styleSourceId);
       if (durable && !audience) sourceBindings.push(structuredClone(durable));
       else if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
     }
 
-    if (!state.mapSpec && !existingRenderIds.has(layer.id))
+    if (composeLayer && !existingRenderIds.has(layer.id))
       mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
     else
       mapSpec.layers = mapSpec.layers.map((renderLayer) => {
@@ -369,7 +374,7 @@ export function compositionToMapPackage(
         };
       });
     if (
-      !state.mapSpec &&
+      composeLayer &&
       resolution.layerType === "fill" &&
       !existingRenderIds.has(`${layer.id}${OUTLINE_LAYER_SUFFIX}`)
     ) {

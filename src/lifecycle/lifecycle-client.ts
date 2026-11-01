@@ -1,4 +1,4 @@
-import type { MapStyleDocument } from "../styles/map-style-edit.js";
+import { COMPOSITION_STYLE_LAYER_IDS, type MapStyleDocument } from "../styles/map-style-edit.js";
 import { type StudioApprovalPending, readStudioApprovalPending } from "./approval-pending.js";
 /**
  * REST client for honua-server's Studio package lifecycle API
@@ -196,6 +196,21 @@ export class StudioLifecycleClient {
     if (current.envelope.family !== "map" || !body || typeof body !== "object" || Array.isArray(body))
       throw new StudioLifecycleError("validation", "Map style editing requires a map composition draft.");
     const record = body as Record<string, unknown>;
+    const metadata = mapSpec.metadata;
+    const snapshot =
+      initialize && record.mapSpec != null
+        ? record.mapSpec
+        : {
+            ...mapSpec,
+            metadata: {
+              ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}),
+              [COMPOSITION_STYLE_LAYER_IDS]: Array.isArray(record.layers)
+                ? record.layers
+                    .map((layer: { id?: unknown }) => layer?.id)
+                    .filter((id: unknown) => typeof id === "string")
+                : [],
+            },
+          };
     // Map-local snapshots detach shared/inline overrides, just like the reducer's
     // setMapStyle command, so those references cannot repaint the saved document.
     const detached = initialize
@@ -220,7 +235,7 @@ export class StudioLifecycleClient {
       ...(current.workspaceId !== undefined ? { workspaceId: current.workspaceId } : {}),
       envelope: {
         ...current.envelope,
-        body: { ...record, ...detached, mapSpec: initialize ? (record.mapSpec ?? mapSpec) : mapSpec },
+        body: { ...record, ...detached, mapSpec: snapshot },
       },
     });
   }

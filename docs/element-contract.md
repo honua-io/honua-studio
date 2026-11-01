@@ -663,7 +663,9 @@ without a composition layers array still fail explicitly.
 Map-local style initialization snapshots the current authorized canvas projection.
 Initialization and style saves use the published draft GET/PUT lifecycle with
 the observed generation, preserving the complete envelope and unrelated body
-metadata. They never change ownership or retry generation conflicts. Shared
+metadata. Snapshot metadata records the existing composition owners so later
+layer additions remain renderable while intentional visual removals stay removed.
+They never change ownership or retry generation conflicts. Shared
 catalog styles retain the separate canonical style API.
 
 These are draft-admission requirements, not proof of portable rendering or

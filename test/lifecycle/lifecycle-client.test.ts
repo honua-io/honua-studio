@@ -84,6 +84,7 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
         envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body },
       });
       const style = {
+        metadata: { "honua:compositionLayerIds": [] },
         version: 8,
         sources: {},
         layers: [{ id: "background", type: "background", paint: { "background-color": "#ffffff" } }],
@@ -106,7 +107,7 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
   it("detaches referenced overrides when saving a map-local snapshot", async () => {
     server = await startMockServer();
     const c = client();
-    const style = { version: 8, sources: {}, layers: [] };
+    const style = { version: 8, sources: {}, layers: [], metadata: { "honua:compositionLayerIds": ["parcels"] } };
     const body = {
       layers: [
         { id: "parcels", sourceId: "parcels/0", title: "Parcels", styleRef: { styleId: "shared" }, custom: "keep" },

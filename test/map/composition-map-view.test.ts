@@ -659,3 +659,40 @@ it("refuses an incomplete initialization snapshot and recovers when the catalog 
   ).toBe(true);
   view.dispose();
 });
+
+it("renders layers added after a style snapshot without restoring intentionally removed visuals", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  const snapshot = await view.editableMapStyle();
+  controller.resetBaseline({
+    ...controller.state,
+    mapSpec: { ...snapshot, metadata: { "honua:compositionLayerIds": ["hi-parcels"] } },
+  });
+  controller.apply({ name: "addLayer", layer: { id: "hi-roads", sourceId: "hi-roads" } });
+  controller.apply({ name: "addLayer", layer: { id: "another-parcels", sourceId: "hi-parcels" } });
+  await view.settled();
+  expect(map.latestStyle?.layers.map((layer) => layer.id)).toEqual(
+    expect.arrayContaining(["hi-parcels", "hi-roads", "another-parcels"]),
+  );
+  expect(map.latestStyle?.sources).toHaveProperty("hi-roads");
+  const hiddenSnapshot = {
+    ...snapshot,
+    layers: (snapshot.layers as unknown[]).filter((layer) => !(layer as { id: string }).id.startsWith("hi-parcels")),
+    metadata: { "honua:compositionLayerIds": ["hi-parcels"] },
+  };
+  controller.resetBaseline({ ...controller.state, mapSpec: hiddenSnapshot });
+  await view.settled();
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-parcels")).toBe(false);
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-roads")).toBe(true);
+  controller.resetBaseline({
+    ...controller.state,
+    mapSpec: { ...snapshot, metadata: { "honua:compositionLayerIds": ["hi-parcels"] } },
+  });
+  controller.apply({ name: "removeLayer", target: { kind: "layer", id: "hi-parcels" } });
+  await view.settled();
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-parcels" || layer.id === "hi-parcels__outline")).toBe(
+    false,
+  );
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "another-parcels")).toBe(true);
+  view.dispose();
+});
