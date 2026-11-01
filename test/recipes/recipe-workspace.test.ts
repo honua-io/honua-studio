@@ -181,6 +181,34 @@ describe("recipe canonical workspace creation", () => {
     expect(app.sourceCatalog).toEqual([metadata.source]);
   });
 
+  it("does not let an older background catalog invalidate newer verified recipe choices", async () => {
+    let finish!: (catalog: (typeof metadata.source)[]) => void;
+    const list = vi
+      .spyOn(StudioClient.prototype, "listCatalog")
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue([metadata.source]);
+    const app = mount();
+    await vi.waitFor(() => expect(list).toHaveBeenCalled());
+    await app.listRecipeSources(new AbortController().signal);
+    const verifiedCatalog = app.sourceCatalog;
+    finish([{ ...metadata.source }]);
+    await list.mock.results[0]!.value;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(app.sourceCatalog).toBe(verifiedCatalog);
+    vi.mocked(app.resolveRecipeSource).mockRestore();
+    vi.spyOn(app, "createWorkspaceStyleProvider").mockReturnValue({
+      describeDataset: vi.fn().mockRejectedValue(new Error("verified source reached provider")),
+    } as never);
+    await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
+      "verified source reached provider",
+    );
+  });
+
   it("equates only verified same-origin source aliases while preserving the published service and layer", async () => {
     installRuntimeConfig({ ...runtimeConfig(), mcpBaseUrl: "/api" });
     const app = mount();
