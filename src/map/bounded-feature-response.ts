@@ -1,5 +1,10 @@
 const FEATURE_RESPONSE_BYTES_LIMIT = 16 * 1024 * 1024;
 
+/** Only the cookie transport emits this marker after rejecting a superseded lease's bytes. */
+export function isCookieLeaseRenewal(error: unknown): boolean {
+  return error instanceof Error && error.name === "CookieLeaseRenewedError";
+}
+
 /** Read one feature-service response without allowing a stream or its fragments to grow without bound. */
 export async function readBoundedFeatureBody(
   response: Response,

@@ -34,6 +34,7 @@ export class HostAdapterAuthSession implements AuthSession {
   private unsubscribeExpired: Unsubscribe;
   private expiryTimer: ReturnType<typeof setTimeout> | undefined;
   private expiryGeneration = 0;
+  private disposed = false;
   readonly fetchRequest?: typeof fetch;
 
   constructor(private adapter: SessionAdapter) {
@@ -63,7 +64,7 @@ export class HostAdapterAuthSession implements AuthSession {
       this.fetchRequest = async (input, init) => {
         const cookie = this.adapter;
         if (!("kind" in cookie) || cookie.kind !== "cookie") throw new Error("The host session changed.");
-        if (this.getState().status !== "fresh") throw new Error("The host session expired.");
+        if (this.disposed || this.getState().status !== "fresh") throw new Error("The host session expired.");
         if (input instanceof Request) throw new Error("Cookie transport requires an explicit URL.");
         let path = String(input);
         if (/^https?:\/\//.test(path)) {
@@ -165,15 +166,22 @@ export class HostAdapterAuthSession implements AuthSession {
         if (!response.body) return response;
         const originalBody = response.body;
         let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-        const current = () => this.adapter === responseLease && this.getState().status === "fresh";
+        const requireCurrent = () => {
+          if (this.disposed || this.getState().status !== "fresh") throw new Error("The host session expired.");
+          if (this.adapter !== responseLease) {
+            const error = new Error("The session renewed while reading the response.");
+            error.name = "CookieLeaseRenewedError";
+            throw error;
+          }
+        };
         const body = new ReadableStream<Uint8Array>(
           {
             async pull(controller) {
               try {
-                if (!current()) throw new Error("The session renewed while reading the response.");
+                requireCurrent();
                 reader ??= originalBody.getReader();
                 const part = await reader.read();
-                if (!current()) throw new Error("The session renewed while reading the response.");
+                requireCurrent();
                 if (part.done) controller.close();
                 else controller.enqueue(part.value);
               } catch (error) {
@@ -205,6 +213,7 @@ export class HostAdapterAuthSession implements AuthSession {
 
   /** Renew a cookie lease without changing the authority observed by in-flight reads. */
   renewCookie(adapter: CookieSessionAdapter): void {
+    if (this.disposed) throw new Error("The host session is disposed.");
     const previous = this.adapter;
     if (
       !("kind" in previous) ||
@@ -302,6 +311,7 @@ export class HostAdapterAuthSession implements AuthSession {
 
   /** Detaches from the host's onExpired subscription. Call when the app unmounts. */
   dispose(): void {
+    this.disposed = true;
     this.unsubscribeExpired();
     clearTimeout(this.expiryTimer);
   }

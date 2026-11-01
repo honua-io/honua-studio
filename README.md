@@ -96,6 +96,15 @@ Removing the relative asset base made that new check fail with no painted
 features; restoring it passed. These local checks used the same cached Chromium
 147 with retries disabled and do not establish installed workflow qualification.
 
+Cookie-host feature reads can restart once when a same-authority lease renewal
+interrupts bounded response consumption. The partial old response is discarded;
+mutations are never replayed. Eight new regressions and the existing auth/source
+checks pass together: 80 focused tests covering partial bytes, SDK paging,
+principal/environment/source changes, abort, disposal and the retry limit. The
+original old-lease byte rejection and mutation non-replay checks remain intact.
+This does not establish the installed Console journey; its refreshed bundle and
+real-image replay remain separate qualification work.
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
