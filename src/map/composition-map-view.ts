@@ -71,6 +71,7 @@ import { resolveVisualLayerOwner } from "./visual-layer-owner.js";
 export interface CompositionMapLike {
   setStyle(style: unknown, options?: { diff?: boolean }): unknown;
   getStyle?(): { layers?: readonly Readonly<Record<string, unknown>>[] };
+  getLayer?(id: string): unknown;
   jumpTo(options: Record<string, unknown>): unknown;
   easeTo(options: Record<string, unknown>): unknown;
   fitBounds(bounds: readonly [number, number, number, number], options?: Record<string, unknown>): unknown;

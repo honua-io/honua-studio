@@ -149,7 +149,7 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       if (!styleLayers) return 0;
       const visualOwners = ownedVisualLayerIds(styleLayers, projection.renderedLayerIds);
       const layers = [...visualOwners.keys()];
-      if (!layers.length) return 0;
+      if (!layers.length || (map.getLayer && layers.some((id) => !map.getLayer!(id)))) return 0;
       const features = map.queryRenderedFeatures(undefined, { layers });
       const seenIds = new Set<string>();
       const shapeCounts = new Map<string, { perVisual: Map<string, number>; maximum: number }>();
