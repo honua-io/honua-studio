@@ -181,6 +181,49 @@ describe("recipe canonical workspace creation", () => {
     expect(app.sourceCatalog).toEqual([metadata.source]);
   });
 
+  it.each(["retained", "revoked", "replaced", "geometry-changed"])(
+    "revalidates recipe choices after the same publisher renews (%s)",
+    async (state) => {
+      const app = mount();
+      const session = {
+        kind: "cookie" as const,
+        baseUrl: "/api/studio",
+        sourcePathBase: "",
+        environmentId: "environment",
+        principalId: "principal",
+        csrfToken: "csrf",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        onExpired: () => () => {},
+      };
+      app.session = session;
+      const list = vi.spyOn(StudioClient.prototype, "listCatalog").mockResolvedValue([metadata.source]);
+      await app.listRecipeSources(new AbortController().signal);
+      const refreshed =
+        state === "revoked"
+          ? []
+          : [
+              state === "replaced"
+                ? {
+                    ...metadata.source,
+                    locator: { ...metadata.source.locator!, url: "/rest/services/other/FeatureServer" },
+                  }
+                : state === "geometry-changed"
+                  ? { ...metadata.source, geometryType: "Point" }
+                  : metadata.source,
+            ];
+      list.mockResolvedValue(refreshed);
+      app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
+      await vi.waitFor(() => expect(app.sourceCatalog).toEqual(refreshed));
+      vi.mocked(app.resolveRecipeSource).mockRestore();
+      vi.spyOn(app, "createWorkspaceStyleProvider").mockReturnValue({
+        describeDataset: vi.fn().mockRejectedValue(new Error("verified source reached provider")),
+      } as never);
+      await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
+        state === "retained" ? "verified source reached provider" : /authorized dataset choices|source changed/i,
+      );
+    },
+  );
+
   it("does not let an older background catalog invalidate newer verified recipe choices", async () => {
     let finish!: (catalog: (typeof metadata.source)[]) => void;
     const list = vi
@@ -207,6 +250,34 @@ describe("recipe canonical workspace creation", () => {
     await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
       "verified source reached provider",
     );
+  });
+
+  it("refuses a recipe catalog returned by an earlier lease after renewal", async () => {
+    const app = mount();
+    const session = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      sourcePathBase: "",
+      environmentId: "environment",
+      principalId: "principal",
+      csrfToken: "csrf",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      onExpired: () => () => {},
+    };
+    app.session = session;
+    let finish!: (sources: (typeof metadata.source)[]) => void;
+    vi.spyOn(StudioClient.prototype, "listCatalog")
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue([metadata.source]);
+    const pending = app.listRecipeSources(new AbortController().signal);
+    app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
+    finish([metadata.source]);
+    await expect(pending).rejects.toThrow("workspace authority changed");
   });
 
   it("equates only verified same-origin source aliases while preserving the published service and layer", async () => {

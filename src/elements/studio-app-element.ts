@@ -609,6 +609,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #recipePanel: RecipePanel | undefined;
   #recipeSourcesGeneration: number | undefined;
   #recipeSourceChoices: readonly CatalogDataset[] | undefined;
+  #recipePreviousChoices: readonly CatalogDataset[] | undefined;
   #recipeSourceIdentity(source: CatalogDataset): string | undefined {
     return recipeSourceIdentity(
       source,
@@ -672,6 +673,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#recipePanel = undefined;
     this.#recipeSourcesGeneration = undefined;
     this.#recipeSourceChoices = undefined;
+    this.#recipePreviousChoices = undefined;
     this.closeRecipePicker();
   }
 
@@ -699,7 +701,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
     const catalog = await client.listCatalog();
     signal.throwIfAborted();
-    if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+    if (generation !== this.#recipeAuthorityGeneration || auth !== this.auth)
+      throw new Error("The workspace authority changed.");
     let choices: readonly CatalogDataset[] = catalog;
     if (hostOwnsCatalog) {
       if (!this.#catalogFromHost || hostCatalog !== this.#sourceCatalog)
@@ -725,10 +728,28 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public async resolveRecipeSource(sourceId: string, signal: AbortSignal): Promise<ExploreDatasetMetadata> {
     const generation = this.#recipeAuthorityGeneration;
-    const choices = this.#recipeSourceChoices;
-    const selectedSource = choices?.find((entry) => entry.id === sourceId);
+    let choices = this.#recipeSourceChoices;
+    let selectedSource = choices?.find((entry) => entry.id === sourceId);
+    let current = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+    if (
+      (!selectedSource || !current || this.#recipeSourcesGeneration !== generation) &&
+      (selectedSource ?? this.#recipePreviousChoices?.find((entry) => entry.id === sourceId))
+    ) {
+      const previous = structuredClone(
+        selectedSource ?? this.#recipePreviousChoices!.find((entry) => entry.id === sourceId)!,
+      );
+      await this.listRecipeSources(signal);
+      choices = this.#recipeSourceChoices;
+      selectedSource = choices?.find((entry) => entry.id === sourceId);
+      current = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+      if (
+        !selectedSource ||
+        this.#recipeSourceIdentity(previous) !== this.#recipeSourceIdentity(selectedSource) ||
+        previous.geometryType !== selectedSource.geometryType
+      )
+        throw new Error("The authorized source changed. Refresh the dataset choices before selecting a source.");
+    }
     const source = selectedSource && structuredClone(selectedSource);
-    const current = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
     if (
       !source ||
       !current ||
@@ -1576,6 +1597,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #applySourceCatalog(catalog: readonly CatalogDataset[] | undefined): void {
     if (catalog !== this.#sourceCatalog) this.closeDesignInspector();
     if (catalog !== this.#sourceCatalog) {
+      if (this.#recipeSourceChoices) this.#recipePreviousChoices = this.#recipeSourceChoices;
       this.#recipeSourcesGeneration = undefined;
       this.#recipeSourceChoices = undefined;
     }
