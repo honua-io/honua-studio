@@ -1609,7 +1609,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const generation = this.#workspaceAuthGeneration;
       const auth = this.auth;
       const catalog = await this.studioClient.listCatalog();
-      if (!this.isConnected || generation !== this.#workspaceAuthGeneration || auth !== this.auth) return;
+      if (
+        !this.isConnected ||
+        generation !== this.#workspaceAuthGeneration ||
+        auth !== this.auth ||
+        this.#sourceCatalog !== undefined
+      )
+        return;
       this.#applySourceCatalog(catalog);
     } catch {
       // See the doc above — an unreachable catalog degrades the map, it does
