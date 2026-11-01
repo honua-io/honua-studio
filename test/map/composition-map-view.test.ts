@@ -615,3 +615,106 @@ it("does not persist runtime exploration filters in the canonical editor baselin
   );
   view.dispose();
 });
+
+it("does not freeze composition visibility into the initialized editable style", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  controller.apply({ name: "setVisibility", target: { kind: "layer", id: "hi-parcels" }, visible: false });
+  await view.settled();
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-parcels")?.layout?.visibility).toBe("none");
+  const snapshot = await view.editableMapStyle();
+  expect(
+    (snapshot as unknown as StyleLike).layers.find((layer) => layer.id === "hi-parcels")?.layout?.visibility,
+  ).not.toBe("none");
+  controller.resetBaseline({ ...controller.state, mapSpec: snapshot });
+  controller.apply({ name: "setVisibility", target: { kind: "layer", id: "hi-parcels" }, visible: true });
+  await view.settled();
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-parcels")?.layout?.visibility).not.toBe("none");
+  const authored = structuredClone(snapshot) as unknown as StyleLike;
+  authored.layers = authored.layers.map((layer) =>
+    layer.id === "hi-parcels" ? { ...layer, layout: { visibility: "none" } } : layer,
+  );
+  controller.resetBaseline({ ...controller.state, mapSpec: authored as unknown as typeof snapshot });
+  expect(
+    ((await view.editableMapStyle()) as unknown as StyleLike).layers.find((layer) => layer.id === "hi-parcels")?.layout
+      ?.visibility,
+  ).toBe("none");
+  view.dispose();
+});
+
+it("refuses an incomplete initialization snapshot and recovers when the catalog returns", async () => {
+  const catalog: CompositionSourceDescriptor[] = [];
+  const { controller, view } = await startView({ projection: { catalog } });
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  await view.settled();
+  expect(view.projection?.unresolved).toHaveLength(1);
+  await expect(view.editableMapStyle()).rejects.toThrow("Some map layers are unavailable");
+  expect(controller.state.mapSpec).toBeUndefined();
+  catalog.push(...CATALOG);
+  view.setAppearance(undefined);
+  await view.settled();
+  expect(view.projection?.unresolved).toHaveLength(0);
+  expect(
+    ((await view.editableMapStyle()) as unknown as StyleLike).layers.some((layer) => layer.id === "hi-parcels"),
+  ).toBe(true);
+  view.dispose();
+});
+
+it("renders layers added after a style snapshot without restoring intentionally removed visuals", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  const snapshot = await view.editableMapStyle();
+  controller.resetBaseline({
+    ...controller.state,
+    mapSpec: { ...snapshot, metadata: { "honua:compositionLayerIds": ["hi-parcels"] } },
+  });
+  controller.apply({ name: "addLayer", layer: { id: "hi-roads", sourceId: "hi-roads" } });
+  controller.apply({ name: "addLayer", layer: { id: "another-parcels", sourceId: "hi-parcels" } });
+  await view.settled();
+  expect(map.latestStyle?.layers.map((layer) => layer.id)).toEqual(
+    expect.arrayContaining(["hi-parcels", "hi-roads", "another-parcels"]),
+  );
+  expect(map.latestStyle?.sources).toHaveProperty("hi-roads");
+  const hiddenSnapshot = {
+    ...snapshot,
+    layers: (snapshot.layers as unknown[]).filter((layer) => !(layer as { id: string }).id.startsWith("hi-parcels")),
+    metadata: { "honua:compositionLayerIds": ["hi-parcels"] },
+  };
+  controller.resetBaseline({ ...controller.state, mapSpec: hiddenSnapshot });
+  await view.settled();
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-parcels")).toBe(false);
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-roads")).toBe(true);
+  controller.resetBaseline({
+    ...controller.state,
+    mapSpec: { ...snapshot, metadata: { "honua:compositionLayerIds": ["hi-parcels"] } },
+  });
+  controller.apply({ name: "removeLayer", target: { kind: "layer", id: "hi-parcels" } });
+  await view.settled();
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-parcels" || layer.id === "hi-parcels__outline")).toBe(
+    false,
+  );
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "another-parcels")).toBe(true);
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  await view.settled();
+  expect(map.latestStyle?.layers.some((layer) => layer.id === "hi-parcels")).toBe(true);
+  view.dispose();
+});
+
+it("inserts new snapshot visuals and outlines before their requested composition owner", async () => {
+  const { controller, map, view } = await startView();
+  controller.apply({ name: "addLayer", layer: { id: "hi-roads", sourceId: "hi-roads" } });
+  const snapshot = await view.editableMapStyle();
+  controller.resetBaseline({
+    ...controller.state,
+    mapSpec: { ...snapshot, metadata: { "honua:compositionLayerIds": ["hi-roads"] } },
+  });
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" }, beforeId: "hi-roads" });
+  await view.settled();
+  const ids = map.latestStyle?.layers.map((layer) => layer.id) ?? [];
+  expect(ids.indexOf("hi-parcels")).toBeLessThan(ids.indexOf("hi-roads"));
+  expect(ids.indexOf("hi-parcels__outline")).toBeLessThan(ids.indexOf("hi-roads"));
+  expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-roads")).toMatchObject(
+    (snapshot.layers as unknown as StyleLike["layers"]).find((layer) => layer.id === "hi-roads")!,
+  );
+  view.dispose();
+});

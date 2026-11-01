@@ -277,10 +277,32 @@ jobs:
             cannot be inspected. Never report no-findings for an incomplete review.
             blockedReason must be empty unless verdict is blocked.
           claude_args: |
+            --model claude-opus-5-5
             --max-turns 80
             --allowedTools "Read,Grep,Glob"
             --disallowedTools "Bash,Edit,Write,Agent,WebFetch,WebSearch"
             --json-schema '${{ steps.schema.outputs.json }}'
+      - name: Classify reviewer request failures
+        if: failure() && steps.claude.outcome == 'failure'
+        env:
+          REVIEW_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          const path = process.env.REVIEW_EXECUTION_FILE;
+          if (!path) { console.log('Reviewer diagnostic: execution file unavailable'); process.exit(0); }
+          const execution = JSON.parse(readFileSync(path, 'utf8'));
+          const entries = Array.isArray(execution) ? execution : [execution];
+          const result = entries.filter(entry => entry.type === 'result' && entry.is_error);
+          const message = JSON.stringify(result);
+          const category = /usage.limit|rate.limit|quota|extra usage|credits|spending|hit your limit/i.test(message)
+            ? 'model usage limit'
+            : /not.found|does not exist|invalid.model|unknown.model|model.*unavailable|access.*model|model.*access/i.test(message)
+              ? 'model unavailable to this credential'
+              : /unauthori|authentication|invalid.*key|401|403/i.test(message)
+                ? 'authentication failure' : 'unclassified reviewer error';
+          console.log(`Reviewer diagnostic: ${category}`);
+          JS
       - name: Validate the structured result against the pinned snapshot
         env:
           GH_TOKEN: ${{ github.token }}

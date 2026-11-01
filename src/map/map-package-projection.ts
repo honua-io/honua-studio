@@ -1,4 +1,5 @@
 import { compositionStyleOverride } from "../styles/composition-style-override.js";
+import { COMPOSITION_STYLE_LAYER_IDS } from "../styles/map-style-edit.js";
 /**
  * `CompositionState` → `HonuaMapPackage` (honua-studio#23 REQ-001/REQ-002).
  *
@@ -248,6 +249,9 @@ export function compositionToMapPackage(
       ? (state.mapSpec as unknown as HonuaStyleSpecification)
       : (options.basemap ?? createOfflineBasemapStyle()),
   );
+  const captured = mapSpec.metadata?.[COMPOSITION_STYLE_LAYER_IDS];
+  const capturedOwners =
+    Array.isArray(captured) && captured.every((id) => typeof id === "string") ? new Set<string>(captured) : undefined;
   const existingRenderIds = new Set(mapSpec.layers.map((layer) => layer.id));
   const knownOwnerIds = new Set(state.layers.map((layer) => layer.id));
   const inlineBodies = Object.fromEntries((state.styleRefs ?? []).map((ref) => [ref.styleId, ref.body]));
@@ -265,7 +269,19 @@ export function compositionToMapPackage(
   const deniedRenderLayerIds = new Set<string>();
   const audience = options.sourceAuthority === "current-reader";
 
+  const insertVisual = (visual: HonuaLayerSpecification, ownerId: string): void => {
+    const ownerIndex = state.layers.findIndex((owner) => owner.id === ownerId);
+    const next = state.layers
+      .slice(ownerIndex + 1)
+      .find((owner) => mapSpec.layers.some((render) => ownedByCompositionLayer(render, owner.id, knownOwnerIds)));
+    const index = next
+      ? mapSpec.layers.findIndex((render) => ownedByCompositionLayer(render, next.id, knownOwnerIds))
+      : mapSpec.layers.length;
+    mapSpec.layers.splice(index, 0, visual);
+  };
+
   for (const layer of state.layers) {
+    const composeLayer = !state.mapSpec || (capturedOwners !== undefined && !capturedOwners.has(layer.id));
     const resolveOptions = {
       ...(options.catalog !== undefined ? { catalog: options.catalog } : {}),
       ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
@@ -335,15 +351,15 @@ export function compositionToMapPackage(
     const styleSourceId = layer.sourceId;
     if (!boundSourceIds.has(styleSourceId)) {
       boundSourceIds.add(styleSourceId);
-      if (!state.mapSpec || audience)
+      if (composeLayer || audience)
         mapSpec.sources[styleSourceId] = resolvedSource as HonuaStyleSpecification["sources"][string];
       const durable = state.sourceBindings?.find((binding) => binding.sourceId === styleSourceId);
       if (durable && !audience) sourceBindings.push(structuredClone(durable));
       else if (resolution.binding) sourceBindings.push(resolution.binding as HonuaMapPackageSourceBinding);
     }
 
-    if (!state.mapSpec && !existingRenderIds.has(layer.id))
-      mapSpec.layers.push(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance));
+    if (composeLayer && !existingRenderIds.has(layer.id))
+      insertVisual(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance), layer.id);
     else
       mapSpec.layers = mapSpec.layers.map((renderLayer) => {
         if (!ownedByCompositionLayer(renderLayer, layer.id, knownOwnerIds)) return renderLayer;
@@ -369,7 +385,7 @@ export function compositionToMapPackage(
         };
       });
     if (
-      !state.mapSpec &&
+      composeLayer &&
       resolution.layerType === "fill" &&
       !existingRenderIds.has(`${layer.id}${OUTLINE_LAYER_SUFFIX}`)
     ) {
@@ -378,17 +394,20 @@ export function compositionToMapPackage(
       // click and cannot explain.
       const outlineFilter = options.appearance?.filters?.[layer.id];
       const outlineOpacity = options.appearance?.opacity?.[layer.id];
-      mapSpec.layers.push({
-        id: `${layer.id}${OUTLINE_LAYER_SUFFIX}`,
-        type: "line",
-        source: styleSourceId,
-        ...(outlineFilter !== undefined ? { filter: outlineFilter } : {}),
-        paint: {
-          ...outlinePaintFor(paletteColorFor(layer.id)),
-          ...(outlineOpacity !== undefined ? { "line-opacity": Math.min(Math.max(outlineOpacity, 0), 1) } : {}),
+      insertVisual(
+        {
+          id: `${layer.id}${OUTLINE_LAYER_SUFFIX}`,
+          type: "line",
+          source: styleSourceId,
+          ...(outlineFilter !== undefined ? { filter: outlineFilter } : {}),
+          paint: {
+            ...outlinePaintFor(paletteColorFor(layer.id)),
+            ...(outlineOpacity !== undefined ? { "line-opacity": Math.min(Math.max(outlineOpacity, 0), 1) } : {}),
+          },
+          ...(layer.visible ? {} : { layout: { visibility: "none" } }),
         },
-        ...(layer.visible ? {} : { layout: { visibility: "none" } }),
-      });
+        layer.id,
+      );
     }
     renderedLayerIds.push(layer.id);
 

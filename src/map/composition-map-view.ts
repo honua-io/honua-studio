@@ -302,6 +302,8 @@ export class CompositionMapView {
     // The editor baseline/readback is the canonical document, never its own
     // ephemeral preview (including while a normalized save is being adopted).
     const projection = this.#project(false);
+    if (projection.unresolved.length)
+      throw new Error("Some map layers are unavailable. Restore them before editing the map style.");
     return structuredClone(
       await composeStyle(projection.mapPackage, projection.mapPackage.mapSpec, {}),
     ) as unknown as MapStyleDocument;
@@ -626,7 +628,16 @@ export class CompositionMapView {
   }
 
   #project(includePreview = true): CompositionMapProjection {
-    const projection = compositionToMapPackage(this.#options.controller.state, {
+    const state = this.#options.controller.state;
+    // Composition visibility belongs to the layer-list toggle, not the editable
+    // stylesheet. Authored render-layer visibility in mapSpec remains intact.
+    const editable = includePreview
+      ? state
+      : {
+          ...state,
+          layers: state.layers.map((layer) => ({ ...layer, visible: true })),
+        };
+    const projection = compositionToMapPackage(editable, {
       ...(this.#options.projection ?? {}),
       ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
