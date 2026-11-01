@@ -143,8 +143,11 @@ export function startReadOnlyMapCanvasForController(options: ReadOnlyMapControll
       const map = renderer.map;
       const projection = renderer.projection;
       if (!projection?.renderedLayerIds.length || !map?.queryRenderedFeatures) return 0;
-      const styleLayers = map.getStyle?.()?.layers ?? projection.mapPackage.mapSpec.layers;
-      const visualOwners = ownedVisualLayerIds(styleLayers ?? [], projection.renderedLayerIds);
+      // A real MapLibre instance can have no current style during setStyle.
+      // Do not query projected IDs until the map itself reports its layers.
+      const styleLayers = map.getStyle ? map.getStyle()?.layers : projection.mapPackage.mapSpec.layers;
+      if (!styleLayers) return 0;
+      const visualOwners = ownedVisualLayerIds(styleLayers, projection.renderedLayerIds);
       const layers = [...visualOwners.keys()];
       if (!layers.length) return 0;
       const features = map.queryRenderedFeatures(undefined, { layers });
