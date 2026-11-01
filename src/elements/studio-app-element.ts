@@ -569,6 +569,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #workspaceDraft: WorkspaceDraftBinding | undefined;
+  #workspaceMapEpoch = 0;
   #workspacePublicationReviews = new WeakMap<
     StudioContentVersion,
     {
@@ -1156,6 +1157,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
     if (previous?.draftId !== draftId) this.closeDesignInspector();
     if (previous?.draftId !== draftId && this.#recipeDraftToAttach !== draftId) this.#disposeRecipePicker();
+    if (previous?.draftId !== draftId) this.#workspaceMapEpoch++;
     this.#workspaceDraft = binding;
     this.#workspaceDraftConflict = false;
     const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
@@ -2201,14 +2203,32 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * worse than none of it.
    */
   /** Resolve an observed published receipt against the live catalog before adding it to the map. */
-  public async addPublishedLayer(layer: {
-    readonly layerId: number;
-    readonly serviceName: string;
-    readonly layerName?: string;
-  }): Promise<HonuaStudioCommandOutcome> {
-    const auth = this.auth;
-    const catalog = await this.studioClient.listCatalog();
-    if (this.auth !== auth) throw new Error("The Studio target changed while resolving the published layer.");
+  public async addPublishedLayer(
+    layer: { readonly layerId: number; readonly serviceName: string; readonly layerName?: string },
+    options?: { readonly isCurrent?: () => boolean },
+  ): Promise<HonuaStudioCommandOutcome> {
+    let auth = this.auth;
+    const mapEpoch = this.#workspaceMapEpoch;
+    const authorityGeneration = this.#workspaceAuthGeneration;
+    const requireOriginalTarget = () => {
+      if (
+        this.#workspaceMapEpoch !== mapEpoch ||
+        this.#workspaceAuthGeneration !== authorityGeneration ||
+        options?.isCurrent?.() === false
+      )
+        throw new Error("The active map changed while resolving the published layer. Review the map and try again.");
+    };
+    requireOriginalTarget();
+    let catalog = await this.studioClient.listCatalog();
+    requireOriginalTarget();
+    if (this.auth !== auth) {
+      // A same-authority cookie lease may renew during discovery. Re-read with
+      // its new credentials; never dispatch a catalog captured by the old lease.
+      auth = this.auth;
+      catalog = await this.studioClient.listCatalog();
+      requireOriginalTarget();
+      if (this.auth !== auth) throw new Error("The Studio target changed while resolving the published layer.");
+    }
     const suffix = `/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
     const matches = catalog.filter(
       (entry) =>
@@ -2219,18 +2239,25 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (matches.length !== 1) throw new Error("The published layer has no unique verified catalog source.");
     const source = matches[0]!;
     this.#applySourceCatalog(catalog);
-    return this.#dispatchCommands([
-      { name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } },
-    ]);
+    return this.#dispatchCommands(
+      [{ name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } }],
+      options,
+    );
   }
 
-  async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+  async #dispatchCommands(
+    commands: readonly CompositionCommand[],
+    options?: { readonly isCurrent?: () => boolean },
+  ): Promise<HonuaStudioCommandOutcome> {
+    if (options?.isCurrent?.() === false) return { ok: false, reason: "The initiating view changed." };
     if (this.hasUnsavedStyleChanges && commands.some((command) => command.name !== "setMapStyle"))
       return { ok: false, reason: "Save or discard visual style edits before changing the map." };
     if (this.#workspaceDraft) {
       const binding = this.#workspaceDraft;
       const generation = this.#workspaceAuthGeneration;
       const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
+        if (options?.isCurrent?.() === false)
+          return { ok: false, reason: "The initiating view changed before the edit began." };
         try {
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           if (binding !== this.#workspaceDraft) throw new Error("The active map changed before the edit began.");
