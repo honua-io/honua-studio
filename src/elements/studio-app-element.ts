@@ -2237,18 +2237,25 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (matches.length !== 1) throw new Error("The published layer has no unique verified catalog source.");
     const source = matches[0]!;
     this.#applySourceCatalog(catalog);
-    return this.#dispatchCommands([
-      { name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } },
-    ]);
+    return this.#dispatchCommands(
+      [{ name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } }],
+      options,
+    );
   }
 
-  async #dispatchCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+  async #dispatchCommands(
+    commands: readonly CompositionCommand[],
+    options?: { readonly isCurrent?: () => boolean },
+  ): Promise<HonuaStudioCommandOutcome> {
+    if (options?.isCurrent?.() === false) return { ok: false, reason: "The initiating view changed." };
     if (this.hasUnsavedStyleChanges && commands.some((command) => command.name !== "setMapStyle"))
       return { ok: false, reason: "Save or discard visual style edits before changing the map." };
     if (this.#workspaceDraft) {
       const binding = this.#workspaceDraft;
       const generation = this.#workspaceAuthGeneration;
       const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
+        if (options?.isCurrent?.() === false)
+          return { ok: false, reason: "The initiating view changed before the edit began." };
         try {
           if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
           if (binding !== this.#workspaceDraft) throw new Error("The active map changed before the edit began.");

@@ -174,6 +174,56 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     }
   });
 
+  it("rechecks the host view after waiting for an earlier draft edit", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    let finish!: () => void;
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementationOnce(
+        (_id, request) =>
+          new Promise((resolve) => {
+            finish = () => resolve({ ...draft, generation: 2, envelope: request.envelope });
+          }),
+      )
+      .mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      vi.spyOn(app.studioClient, "listCatalog").mockResolvedValue([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+      const earlier = canvas.commandDispatch!([{ name: "addLayer", layer: { id: "first", sourceId: "first" } }]);
+      await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
+      let current = true;
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 }, { isCurrent: () => current });
+      await Promise.resolve();
+      await Promise.resolve();
+      current = false;
+      finish();
+      expect((await earlier).ok).toBe(true);
+      expect(await pending).toMatchObject({ ok: false, reason: expect.stringMatching(/view changed/i) });
+      expect(replace).toHaveBeenCalledOnce();
+      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("original");
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
   it.each([true, false])("rechecks the renewed publisher catalog when source availability is %s", async (available) => {
     const draft = {
       draftId: "original",
