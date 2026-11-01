@@ -72,12 +72,25 @@ describe("cookie host session", () => {
   });
   it("rechecks a read under the renewed lease before returning its data", async () => {
     let finish!: (response: Response) => void;
-    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }))
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
       .mockResolvedValueOnce(new Response("new-authority"));
     vi.stubGlobal("fetch", fetch);
-    const cookie = { kind: "cookie" as const, baseUrl: "/api/studio" as const, csrfToken: "old",
-      environmentId: "env", principalId: "owner", expiresAt: new Date(Date.now() + 60000).toISOString(),
-      onExpired: () => () => {} };
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
     const auth = new HostAdapterAuthSession(cookie);
     sessions.push(auth);
     const pending = auth.fetchRequest!("/api/v1/studio/catalog");
@@ -85,6 +98,32 @@ describe("cookie host session", () => {
     finish(new Response("old-authority"));
     expect(await (await pending).text()).toBe("new-authority");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("never replays a mutation whose outcome crossed a renewal", async () => {
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    finish(new Response("ok"));
+    await expect(pending).rejects.toThrow(/original outcome/);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("bounds OGC reads to the actual features collection route", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));

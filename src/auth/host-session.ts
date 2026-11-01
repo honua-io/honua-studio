@@ -143,8 +143,24 @@ export class HostAdapterAuthSession implements AuthSession {
         headers.set("X-Honua-Session-Partition", cookie.principalId);
         if (!["GET", "HEAD", "OPTIONS"].includes((init?.method ?? "GET").toUpperCase()))
           headers.set("X-CSRF-Token", cookie.csrfToken);
-        const response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
-        if (response.status === 401 && this.adapter === cookie)
+        let response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
+        let responseLease = cookie;
+        if (this.adapter !== cookie) {
+          const method = (init?.method ?? "GET").toUpperCase();
+          const safeRead = ["GET", "HEAD", "OPTIONS"].includes(method) || target === "/api/studio/catalog-mcp";
+          if (!safeRead && response.status !== 401)
+            throw new Error("The session renewed during this request. Check the original outcome before retrying.");
+          if (safeRead) {
+            const renewed = this.adapter;
+            if (!("kind" in renewed) || renewed.kind !== "cookie" || this.getState().status !== "fresh")
+              throw new Error("The host session changed.");
+            if (target === "/api/studio/catalog-mcp") headers.set("X-CSRF-Token", renewed.csrfToken);
+            response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
+            if (this.adapter !== renewed) throw new Error("The session renewed again during this read. Retry it.");
+            responseLease = renewed;
+          }
+        }
+        if (response.status === 401 && this.adapter === responseLease)
           this.dispatch({ type: "refresh-failed", error: "The host session expired." });
         return response;
       };
