@@ -22,6 +22,138 @@ function session(expiresAt = new Date(Date.now() + 60000).toISOString(), sourceP
   return result;
 }
 describe("cookie host session", () => {
+  it("keeps renewed credentials current and ignores stale expiry or 401 from the old lease", async () => {
+    let oldExpired = () => {};
+    let newExpired = () => {};
+    let finish!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: (listener: () => void) => {
+        oldExpired = listener;
+        return () => {};
+      },
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    auth.renewCookie({
+      ...cookie,
+      csrfToken: "new",
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+      onExpired: (listener: () => void) => {
+        newExpired = listener;
+        return () => {};
+      },
+    });
+    oldExpired();
+    finish(new Response(null, { status: 401 }));
+    await pending;
+    expect(auth.getState().status).toBe("fresh");
+    await auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    expect(fetch.mock.calls[1][1].headers.get("X-CSRF-Token")).toBe("new");
+    expect(() => auth.renewCookie({ ...cookie, principalId: "other" })).toThrow(/authority/);
+    newExpired();
+    expect(auth.getState().status).toBe("expired");
+  });
+  it("rechecks a read under the renewed lease before returning its data", async () => {
+    let finish!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(new Response("new-authority"));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/catalog");
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    finish(new Response("old-authority"));
+    expect(await (await pending).text()).toBe("new-authority");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("rejects old-lease bytes if renewal occurs while a response body is streaming", async () => {
+    let release!: () => void;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        controller.enqueue(new TextEncoder().encode("old-authority"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const response = await auth.fetchRequest!("/api/v1/studio/catalog");
+    const pending = response.text();
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    release();
+    await expect(pending).rejects.toThrow(/session.*renew/i);
+  });
+  it("never replays a mutation whose outcome crossed a renewal", async () => {
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    finish(new Response("ok"));
+    await expect(pending).rejects.toThrow(/original outcome/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("bounds OGC reads to the actual features collection route", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetch);
