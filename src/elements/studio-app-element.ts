@@ -2206,9 +2206,23 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     readonly serviceName: string;
     readonly layerName?: string;
   }): Promise<HonuaStudioCommandOutcome> {
-    const auth = this.auth;
-    const catalog = await this.studioClient.listCatalog();
-    if (this.auth !== auth) throw new Error("The Studio target changed while resolving the published layer.");
+    let auth = this.auth;
+    const draft = this.#workspaceDraft;
+    const authorityGeneration = this.#workspaceAuthGeneration;
+    const requireOriginalTarget = () => {
+      if (this.#workspaceDraft !== draft || this.#workspaceAuthGeneration !== authorityGeneration)
+        throw new Error("The active map changed while resolving the published layer. Review the map and try again.");
+    };
+    let catalog = await this.studioClient.listCatalog();
+    requireOriginalTarget();
+    if (this.auth !== auth) {
+      // A same-authority cookie lease may renew during discovery. Re-read with
+      // its new credentials; never dispatch a catalog captured by the old lease.
+      auth = this.auth;
+      catalog = await this.studioClient.listCatalog();
+      requireOriginalTarget();
+      if (this.auth !== auth) throw new Error("The Studio target changed while resolving the published layer.");
+    }
     const suffix = `/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
     const matches = catalog.filter(
       (entry) =>

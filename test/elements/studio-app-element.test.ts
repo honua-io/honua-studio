@@ -55,6 +55,149 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not add a published layer to a different draft after catalog discovery", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi
+      .spyOn(StudioLifecycleClient.prototype, "getDraft")
+      .mockImplementation(async (id) => ({ ...draft, draftId: id }));
+    const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft").mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
+      vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1, layerName: "Roads" });
+      await app.attachWorkspaceDraft("replacement");
+      finish([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      await expect(pending).rejects.toThrow(/active map changed/i);
+      expect(replace).not.toHaveBeenCalled();
+      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("replacement");
+      expect(app.composition.state.layers).toEqual([]);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it("adds the verified published layer to the original current draft", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      vi.spyOn(app.studioClient, "listCatalog").mockResolvedValue([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      expect(await app.addPublishedLayer({ serviceName: "roads", layerId: 1, layerName: "Roads" })).toEqual({
+        ok: true,
+      });
+      expect(replace).toHaveBeenCalledOnce();
+      expect(replace.mock.calls[0]![0]).toBe("original");
+      expect(app.composition.state.layers.map((layer) => layer.id)).toEqual(["roads/1"]);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it.each([true, false])("rechecks the renewed publisher catalog when source availability is %s", async (available) => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const source = {
+      id: "roads/1",
+      title: "Roads",
+      protocol: "geoservices-feature-service",
+      geometryType: "LineString",
+      locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+    };
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
+    try {
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      const cookie = {
+        kind: "cookie" as const,
+        baseUrl: "/api/studio",
+        environmentId: "server",
+        principalId: "human",
+        csrfToken: "old",
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        onExpired: () => () => {},
+      };
+      app.session = cookie;
+      document.body.appendChild(app);
+      await app.attachWorkspaceDraft("original");
+      app.sourceCatalog = [source];
+      const client = app.studioClient;
+      app.studioClient = client;
+      let finish!: (value: (typeof source)[]) => void;
+      const catalog = vi
+        .spyOn(client, "listCatalog")
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        )
+        .mockResolvedValue(available ? [source] : []);
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 });
+      app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+      finish([source]);
+      if (available) {
+        expect(await pending).toEqual({ ok: true });
+        expect(replace).toHaveBeenCalledOnce();
+        expect(replace.mock.calls[0]![0]).toBe("original");
+      } else {
+        await expect(pending).rejects.toThrow(/no unique verified catalog source/i);
+        expect(replace).not.toHaveBeenCalled();
+      }
+      expect(catalog).toHaveBeenCalledTimes(2);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
   it("attaches an authorized draft as a fresh undo baseline and clears it on principal change", async () => {
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
       draftId: "draft",
