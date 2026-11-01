@@ -170,31 +170,43 @@ export class StudioLifecycleClient {
     return this.#request("PUT", `/package-drafts/${encodeURIComponent(draftId)}`, request);
   }
 
+  /** Persist the authorized canvas projection through the published draft API. */
   public initializeDraftStyle(
     draftId: string,
     generation: number,
-    commandId = crypto.randomUUID(),
+    mapSpec: MapStyleDocument,
   ): Promise<StudioPackageDraft> {
-    return this.#request(
-      "POST",
-      `/package-drafts/${encodeURIComponent(draftId)}/style/initialize`,
-      { generation },
-      commandId,
-    );
+    return this.#writeDraftStyle(draftId, generation, mapSpec, true);
   }
 
-  public setMapStyle(
+  public setMapStyle(draftId: string, generation: number, mapSpec: MapStyleDocument): Promise<StudioPackageDraft> {
+    return this.#writeDraftStyle(draftId, generation, mapSpec, false);
+  }
+
+  async #writeDraftStyle(
     draftId: string,
     generation: number,
     mapSpec: MapStyleDocument,
-    commandId = crypto.randomUUID(),
+    initialize: boolean,
   ): Promise<StudioPackageDraft> {
-    return this.#request(
-      "PUT",
-      `/package-drafts/${encodeURIComponent(draftId)}/style`,
-      { generation, mapSpec },
-      commandId,
-    );
+    const current = await this.getDraft(draftId);
+    if (current.generation !== generation)
+      throw new StudioLifecycleConflictError("Stale draft generation; refresh and retry.", { status: 409 });
+    const body = current.envelope.body;
+    if (current.envelope.family !== "map" || !body || typeof body !== "object" || Array.isArray(body))
+      throw new StudioLifecycleError("validation", "Map style editing requires a map composition draft.");
+    const record = body as Record<string, unknown>;
+    // The full envelope remains authoritative. Never reassign ownerId: end users
+    // may update their draft but only administrators may assign ownership.
+    return this.replaceDraft(draftId, {
+      packageKey: current.packageKey,
+      generation,
+      ...(current.workspaceId !== undefined ? { workspaceId: current.workspaceId } : {}),
+      envelope: {
+        ...current.envelope,
+        body: { ...record, mapSpec: initialize ? (record.mapSpec ?? mapSpec) : mapSpec },
+      },
+    });
   }
 
   public async deleteDraft(draftId: string): Promise<void> {

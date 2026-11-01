@@ -660,6 +660,12 @@ its generation to protect against concurrent writes. Optional controls and
 interactions absent from the replacement are removed. Rendering-only bodies
 without a composition layers array still fail explicitly.
 
+Map-local style initialization snapshots the current authorized canvas projection.
+Initialization and style saves use the published draft GET/PUT lifecycle with
+the observed generation, preserving the complete envelope and unrelated body
+metadata. They never change ownership or retry generation conflicts. Shared
+catalog styles retain the separate canonical style API.
+
 These are draft-admission requirements, not proof of portable rendering or
 publication. Actual validation remains a server operation, and publication
 retains its separate human gate.

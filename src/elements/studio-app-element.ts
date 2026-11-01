@@ -433,11 +433,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#styleEditor) return;
     await this.prepareWorkspaceTurn();
     if (!this.#workspaceDraft) throw new Error("Attach an authorized map draft before editing its style.");
+    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+    if (!canvas) throw new Error("Open the map canvas before its style editor.");
     if (!this.composition.state.mapSpec) {
       const binding = this.#workspaceDraft;
       const epoch = this.#workspaceAuthGeneration;
       const pending = this.#workspaceDraftQueue.then(async () => {
-        const observed = await binding.initializeStyle();
+        const observed = await binding.initializeStyle(await canvas.editableMapStyle());
         if (epoch !== this.#workspaceAuthGeneration || this.#workspaceDraft !== binding)
           throw new Error("The workspace authority changed.");
         this.composition.resetBaseline({
@@ -450,8 +452,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#workspaceDraftQueue = pending.catch(() => undefined);
       await pending;
     }
-    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-    if (!canvas) throw new Error("Open the map canvas before its style editor.");
     const generation = this.#workspaceAuthGeneration;
     const identity = this.#workspaceDraft?.identity;
     if (!identity) throw new Error("The workspace draft is unavailable.");

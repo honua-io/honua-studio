@@ -54,6 +54,115 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
     );
   });
 
+  it.each(["fixture", ...(process.env.HONUA_STYLE_LIVE_BASE_URL ? ["live"] : [])])(
+    "initializes and edits map style through the published draft contract, then saves and reads it back (%s)",
+    async (target) => {
+      if (target === "fixture") server = await startMockServer();
+      const c =
+        target === "fixture"
+          ? client()
+          : new StudioLifecycleClient({
+              baseUrl: process.env.HONUA_STYLE_LIVE_BASE_URL,
+              fetchImpl: (input, init) => {
+                const headers = new Headers(init?.headers);
+                if (process.env.HONUA_STYLE_LIVE_API_KEY)
+                  headers.set("X-API-Key", process.env.HONUA_STYLE_LIVE_API_KEY);
+                return fetch(input, { ...init, headers });
+              },
+            });
+      const key = `styled-map-${crypto.randomUUID()}`;
+      const body = {
+        mapPackageId: key,
+        format: "honua_map_package.v1",
+        layers: [],
+        widgets: [],
+        retained: { native: true },
+      };
+      const created = await c.createDraft({
+        packageKey: key,
+        workspaceId: "studio",
+        envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body },
+      });
+      const style = {
+        version: 8,
+        sources: {},
+        layers: [{ id: "background", type: "background", paint: { "background-color": "#ffffff" } }],
+      };
+      const initialized = await c.initializeDraftStyle(created.draftId, created.generation, style);
+      expect(initialized.envelope.body).toEqual({ ...body, mapSpec: style });
+      const edited = { ...style, layers: [{ ...style.layers[0], paint: { "background-color": "#123456" } }] };
+      const updated = await c.setMapStyle(created.draftId, initialized.generation, edited);
+      expect(updated.generation).toBe(initialized.generation + 1);
+      expect(updated.envelope.body).toEqual({ ...body, mapSpec: edited });
+      expect(updated.workspaceId).toBe("studio");
+      await expect(c.setMapStyle(created.draftId, initialized.generation, style)).rejects.toThrow(/generation/i);
+      const version = await c.saveAsVersion(created.draftId);
+      const readback = await c.getVersion(version.itemId, version.versionId);
+      expect(readback.envelope.body).toEqual({ ...body, mapSpec: edited });
+      expect((await c.getDraft(created.draftId)).envelope.body).toEqual(readback.envelope.body);
+    },
+  );
+
+  it("preserves an existing map style during initialization and never reassigns its owner", async () => {
+    server = await startMockServer();
+    const c = client();
+    const style = { version: 8, sources: {}, layers: [] };
+    const draft = await c.createDraft({
+      packageKey: "existing-map-style",
+      ownerId: "owner-one",
+      envelope: { family: "map", schemaVersion: "1.0", body: { layers: [], mapSpec: style, extra: "retained" } },
+    });
+    const requests: Record<string, unknown>[] = [];
+    const transport = new StudioLifecycleClient({
+      baseUrl: server.url,
+      auth: { getAccessToken: async () => mintFixtureAccessToken() },
+      fetchImpl: (input, init) => {
+        if (init?.method === "PUT") requests.push(JSON.parse(String(init.body)));
+        return fetch(input, init);
+      },
+    });
+    const initialized = await transport.initializeDraftStyle(draft.draftId, draft.generation, {
+      version: 8,
+      sources: {},
+      layers: [{ id: "replacement" }],
+    });
+    expect(initialized.envelope.body).toEqual(draft.envelope.body);
+    expect(initialized.ownerId).toBe(draft.ownerId);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).not.toHaveProperty("ownerId");
+    expect(requests[0]?.generation).toBe(draft.generation);
+  });
+
+  it("refuses a concurrent edit between style read and write without retrying or losing content", async () => {
+    server = await startMockServer();
+    const c = client();
+    const draft = await c.createDraft({
+      packageKey: "racing-style",
+      envelope: { family: "map", schemaVersion: "1.0", body: { layers: [] } },
+    });
+    let writes = 0;
+    const transport = new StudioLifecycleClient({
+      baseUrl: server.url,
+      auth: { getAccessToken: async () => mintFixtureAccessToken() },
+      fetchImpl: async (input, init) => {
+        if (init?.method === "PUT") {
+          writes++;
+          await c.replaceDraft(draft.draftId, {
+            packageKey: draft.packageKey,
+            generation: draft.generation,
+            envelope: { ...draft.envelope, body: { layers: [], concurrent: true } },
+          });
+        }
+        return fetch(input, init);
+      },
+    });
+    await expect(
+      transport.setMapStyle(draft.draftId, draft.generation, { version: 8, sources: {}, layers: [] }),
+    ).rejects.toBeInstanceOf(StudioLifecycleConflictError);
+    expect(writes).toBe(1);
+    expect((await c.getDraft(draft.draftId)).envelope.body).toEqual({ layers: [], concurrent: true });
+  });
+
   it("getPackageFamilies returns all 10 families with the documented shape", async () => {
     server = await startMockServer();
     const capabilities = await client().getPackageFamilies();
