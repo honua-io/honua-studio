@@ -99,6 +99,35 @@ describe("cookie host session", () => {
     expect(await (await pending).text()).toBe("new-authority");
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+  it("rejects old-lease bytes if renewal occurs while a response body is streaming", async () => {
+    let release!: () => void;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        controller.enqueue(new TextEncoder().encode("old-authority"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const response = await auth.fetchRequest!("/api/v1/studio/catalog");
+    const pending = response.text();
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    release();
+    await expect(pending).rejects.toThrow(/session.*renew/i);
+  });
   it("never replays a mutation whose outcome crossed a renewal", async () => {
     let finish!: (response: Response) => void;
     const fetch = vi.fn().mockImplementationOnce(
