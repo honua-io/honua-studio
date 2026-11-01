@@ -210,8 +210,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
       let current = true;
       const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 }, { isCurrent: () => current });
-      await Promise.resolve();
-      await Promise.resolve();
+      await vi.waitFor(() => expect(app.sourceCatalog?.[0]?.id).toBe("roads/1"));
       current = false;
       finish();
       expect((await earlier).ok).toBe(true);
