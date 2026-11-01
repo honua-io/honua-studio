@@ -70,6 +70,22 @@ describe("cookie host session", () => {
     newExpired();
     expect(auth.getState().status).toBe("expired");
   });
+  it("rechecks a read under the renewed lease before returning its data", async () => {
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce(new Response("new-authority"));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = { kind: "cookie" as const, baseUrl: "/api/studio" as const, csrfToken: "old",
+      environmentId: "env", principalId: "owner", expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {} };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/catalog");
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    finish(new Response("old-authority"));
+    expect(await (await pending).text()).toBe("new-authority");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it("bounds OGC reads to the actual features collection route", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetch);
