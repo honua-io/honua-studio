@@ -714,7 +714,7 @@ it("inserts new snapshot visuals and outlines before their requested composition
   expect(ids.indexOf("hi-parcels")).toBeLessThan(ids.indexOf("hi-roads"));
   expect(ids.indexOf("hi-parcels__outline")).toBeLessThan(ids.indexOf("hi-roads"));
   expect(map.latestStyle?.layers.find((layer) => layer.id === "hi-roads")).toMatchObject(
-    (snapshot.layers as unknown as StyleLike["layers"]).find((layer) => layer.id === "hi-roads"),
+    (snapshot.layers as unknown as StyleLike["layers"]).find((layer) => layer.id === "hi-roads")!,
   );
   view.dispose();
 });
