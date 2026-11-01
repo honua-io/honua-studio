@@ -221,6 +221,17 @@ describe("recipe canonical workspace creation", () => {
       await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
         state === "retained" ? "verified source reached provider" : /authorized dataset choices|source changed/i,
       );
+      if (state !== "retained") {
+        await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
+          /authorized dataset choices|source changed/i,
+        );
+        if (state !== "revoked") {
+          await app.listRecipeSources(new AbortController().signal);
+          await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
+            "verified source reached provider",
+          );
+        }
+      }
     },
   );
 

@@ -746,8 +746,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         !selectedSource ||
         this.#recipeSourceIdentity(previous) !== this.#recipeSourceIdentity(selectedSource) ||
         previous.geometryType !== selectedSource.geometryType
-      )
+      ) {
+        this.#recipeSourceChoices = undefined;
+        this.#recipePreviousChoices = undefined;
+        this.#recipeSourcesGeneration = undefined;
         throw new Error("The authorized source changed. Refresh the dataset choices before selecting a source.");
+      }
     }
     const source = selectedSource && structuredClone(selectedSource);
     if (
