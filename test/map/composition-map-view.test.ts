@@ -641,3 +641,21 @@ it("does not freeze composition visibility into the initialized editable style",
   ).toBe("none");
   view.dispose();
 });
+
+it("refuses an incomplete initialization snapshot and recovers when the catalog returns", async () => {
+  const catalog: CompositionSourceDescriptor[] = [];
+  const { controller, view } = await startView({ projection: { catalog } });
+  controller.apply({ name: "addLayer", layer: { id: "hi-parcels", sourceId: "hi-parcels" } });
+  await view.settled();
+  expect(view.projection?.unresolved).toHaveLength(1);
+  await expect(view.editableMapStyle()).rejects.toThrow("Some map layers are unavailable");
+  expect(controller.state.mapSpec).toBeUndefined();
+  catalog.push(...CATALOG);
+  view.setAppearance(undefined);
+  await view.settled();
+  expect(view.projection?.unresolved).toHaveLength(0);
+  expect(
+    ((await view.editableMapStyle()) as unknown as StyleLike).layers.some((layer) => layer.id === "hi-parcels"),
+  ).toBe(true);
+  view.dispose();
+});

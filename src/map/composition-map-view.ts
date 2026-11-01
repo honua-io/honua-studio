@@ -302,6 +302,8 @@ export class CompositionMapView {
     // The editor baseline/readback is the canonical document, never its own
     // ephemeral preview (including while a normalized save is being adopted).
     const projection = this.#project(false);
+    if (projection.unresolved.length)
+      throw new Error("Some map layers are unavailable. Restore them before editing the map style.");
     return structuredClone(
       await composeStyle(projection.mapPackage, projection.mapPackage.mapSpec, {}),
     ) as unknown as MapStyleDocument;
