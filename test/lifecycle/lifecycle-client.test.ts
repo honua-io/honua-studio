@@ -93,15 +93,41 @@ describe("lifecycle/lifecycle-client StudioLifecycleClient against the real mock
       const edited = { ...style, layers: [{ ...style.layers[0], paint: { "background-color": "#123456" } }] };
       const updated = await c.setMapStyle(created.draftId, initialized.generation, edited);
       expect(updated.generation).toBe(initialized.generation + 1);
-      expect(updated.envelope.body).toEqual({ ...body, mapSpec: edited });
+      expect(updated.envelope.body).toEqual({ ...body, styleRefs: [], mapSpec: edited });
       expect(updated.workspaceId).toBe("studio");
       await expect(c.setMapStyle(created.draftId, initialized.generation, style)).rejects.toThrow(/generation/i);
       const version = await c.saveAsVersion(created.draftId);
       const readback = await c.getVersion(version.itemId, version.versionId);
-      expect(readback.envelope.body).toEqual({ ...body, mapSpec: edited });
+      expect(readback.envelope.body).toEqual({ ...body, styleRefs: [], mapSpec: edited });
       expect((await c.getDraft(created.draftId)).envelope.body).toEqual(readback.envelope.body);
     },
   );
+
+  it("detaches referenced overrides when saving a map-local snapshot", async () => {
+    server = await startMockServer();
+    const c = client();
+    const style = { version: 8, sources: {}, layers: [] };
+    const body = {
+      layers: [
+        { id: "parcels", sourceId: "parcels/0", title: "Parcels", styleRef: { styleId: "shared" }, custom: "keep" },
+      ],
+      styleRefs: [{ styleId: "shared", body: { parcels: { paint: { "fill-color": "red" } } } }],
+      retained: true,
+    };
+    const draft = await c.createDraft({
+      packageKey: "local-snapshot",
+      envelope: { family: "map", schemaVersion: "1.0", body },
+    });
+    const initialized = await c.initializeDraftStyle(draft.draftId, draft.generation, style);
+    expect(initialized.envelope.body).toEqual({ ...body, mapSpec: style });
+    const saved = await c.setMapStyle(draft.draftId, initialized.generation, style);
+    expect(saved.envelope.body).toEqual({
+      ...body,
+      mapSpec: style,
+      styleRefs: [],
+      layers: [{ id: "parcels", sourceId: "parcels/0", title: "Parcels", custom: "keep" }],
+    });
+  });
 
   it("preserves an existing map style during initialization and never reassigns its owner", async () => {
     server = await startMockServer();

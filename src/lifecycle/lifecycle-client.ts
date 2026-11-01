@@ -196,6 +196,22 @@ export class StudioLifecycleClient {
     if (current.envelope.family !== "map" || !body || typeof body !== "object" || Array.isArray(body))
       throw new StudioLifecycleError("validation", "Map style editing requires a map composition draft.");
     const record = body as Record<string, unknown>;
+    // Map-local snapshots detach shared/inline overrides, just like the reducer's
+    // setMapStyle command, so those references cannot repaint the saved document.
+    const detached = initialize
+      ? {}
+      : {
+          styleRefs: [],
+          ...(Array.isArray(record.layers)
+            ? {
+                layers: record.layers.map((layer: unknown) =>
+                  layer && typeof layer === "object" && !Array.isArray(layer)
+                    ? Object.fromEntries(Object.entries(layer).filter(([key]) => key !== "styleRef"))
+                    : layer,
+                ),
+              }
+            : {}),
+        };
     // The full envelope remains authoritative. Never reassign ownerId: end users
     // may update their draft but only administrators may assign ownership.
     return this.replaceDraft(draftId, {
@@ -204,7 +220,7 @@ export class StudioLifecycleClient {
       ...(current.workspaceId !== undefined ? { workspaceId: current.workspaceId } : {}),
       envelope: {
         ...current.envelope,
-        body: { ...record, mapSpec: initialize ? (record.mapSpec ?? mapSpec) : mapSpec },
+        body: { ...record, ...detached, mapSpec: initialize ? (record.mapSpec ?? mapSpec) : mapSpec },
       },
     });
   }
