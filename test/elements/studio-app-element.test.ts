@@ -1289,6 +1289,30 @@ it("rejects a stale source picker catalog after a disconnected authority change"
   }
 });
 
+it("keeps the same source authority through a same-principal cookie lease renewal", async () => {
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  const cookie = {
+    kind: "cookie" as const,
+    baseUrl: "/api/studio",
+    csrfToken: "first",
+    environmentId: "env",
+    principalId: "owner",
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    onExpired: () => () => {},
+  };
+  app.session = cookie;
+  document.body.appendChild(app);
+  try {
+    const original = app.auth;
+    app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+    expect(app.auth).toBe(original);
+    app.session = { ...cookie, principalId: "other" };
+    expect(app.auth).not.toBe(original);
+  } finally {
+    app.remove();
+  }
+});
+
 it("pins read-only style discovery before requests while accepting same-authority cookie renewal", async () => {
   const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
   const cookie = {
@@ -1310,7 +1334,7 @@ it("pins read-only style discovery before requests while accepting same-authorit
     const old = provider.sessionIdentity;
     app.session = { ...cookie, csrfToken: "renewed" };
     expect(provider.sessionIdentity).toBe(app.auth);
-    expect(provider.sessionIdentity).not.toBe(old);
+    expect(provider.sessionIdentity).toBe(old);
     workspace = "workspace-b";
     await expect(provider.list()).rejects.toThrow("workspace authority changed");
     expect(fetch).not.toHaveBeenCalled();
