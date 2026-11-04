@@ -2,7 +2,7 @@ import type { CatalogDataset } from "../client/studio-client.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionState } from "../composition/model.js";
-import { applyCompositionCommands } from "../composition/reducer.js";
+import { applyCompositionCommands, isCompositionCommandError } from "../composition/reducer.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
@@ -230,7 +230,9 @@ export class CompositionEditor {
         await this.#applyToDraft(edit);
         return { ok: true };
       } catch (error) {
-        if (authority.epoch.isCurrent(edit.generation) && edit.binding === drafts.binding) drafts.markConflict();
+        const reconcile = !(error instanceof LocallyRefusedEdit);
+        if (reconcile && authority.epoch.isCurrent(edit.generation) && edit.binding === drafts.binding)
+          drafts.markConflict();
         return { ok: false, reason: errorMessage(error) };
       }
     });
@@ -251,7 +253,7 @@ export class CompositionEditor {
       // style candidate is validated against the canvas's current style snapshot.
       anchor = { ...current, mapSpec };
     }
-    const target = applyCompositionCommands(anchor, commands).state;
+    const target = locallyValidatedTarget(anchor, commands);
     const observed = styleCommand
       ? {
           ...(await binding.replaceStyle(styleCommand.mapSpec)),
@@ -303,5 +305,17 @@ export class CompositionEditor {
   #isLeaseCurrent(lease: LeaseSnapshot): boolean {
     const { authority } = this.options;
     return authority.auth === lease.auth && authority.lease.isCurrent(lease.token);
+  }
+}
+
+/** The reducer refused the edit before anything reached the server, so the draft needs no reconciliation. */
+class LocallyRefusedEdit extends Error {}
+
+function locallyValidatedTarget(anchor: CompositionState, commands: readonly CompositionCommand[]): CompositionState {
+  try {
+    return applyCompositionCommands(anchor, commands).state;
+  } catch (error) {
+    if (isCompositionCommandError(error)) throw new LocallyRefusedEdit(error.message, { cause: error });
+    throw error;
   }
 }
