@@ -6,7 +6,6 @@ import { renderContent } from "../pages/content.js";
 import { type HomeViewContext, renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
 
-/** What every route renders with: the catalog client, the session and the add-to-map action. */
 export type RouteContext = Required<HomeViewContext>;
 
 export interface StudioRoute {
