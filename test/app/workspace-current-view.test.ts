@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
@@ -7,6 +7,7 @@ import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 
 registerAllStudioElements();
 
+const authoredView = { bbox: [-158, 21, -157, 22] };
 const initialDraft = {
   draftId: "original",
   itemId: "item",
@@ -18,7 +19,7 @@ const initialDraft = {
     format: "honua_map_package.v1",
     body: {
       layers: [],
-      view: { bbox: [-158, 21, -157, 22] },
+      view: authoredView,
       title: "Preserved title",
     },
   },
@@ -26,8 +27,8 @@ const initialDraft = {
 const camera = { center: [-157.85, 21.31] as const, zoom: 11, bearing: 325, pitch: 45 };
 
 let app: HonuaStudioAppElement;
-let save: ReturnType<typeof vi.spyOn<StudioLifecycleClient, "saveAsVersion">>;
-let replace: ReturnType<typeof vi.spyOn<StudioLifecycleClient, "replaceDraft">>;
+let save: MockInstance<StudioLifecycleClient["saveAsVersion"]>;
+let replace: MockInstance<StudioLifecycleClient["replaceDraft"]>;
 
 beforeEach(async () => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network disabled")));
@@ -72,14 +73,14 @@ describe("workspace saved camera", () => {
     await app.saveWorkspaceVersion();
     expect(replace).not.toHaveBeenCalled();
     expect(save).toHaveBeenCalledOnce();
-    expect(app.composition.state.view).toEqual(initialDraft.envelope.body.view);
+    expect(app.composition.state.view).toEqual(authoredView);
   });
 
   it("does not create a version after a rejected camera write", async () => {
     replace.mockRejectedValue(new Error("generation conflict"));
     await expect(app.saveWorkspaceVersion()).rejects.toThrow("generation conflict");
     expect(save).not.toHaveBeenCalled();
-    expect(app.composition.state.view).toEqual(initialDraft.envelope.body.view);
+    expect(app.composition.state.view).toEqual(authoredView);
     await expect(app.saveWorkspaceVersion()).rejects.toThrow("pending");
     expect(replace).toHaveBeenCalledOnce();
   });

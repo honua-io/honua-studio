@@ -91,6 +91,10 @@ disabled because the pinned Chromium 149 download was unavailable. The ordinary
 CI browser remains pinned by Playwright. These are fixture-based package checks;
 installed authenticated workflows and real-model qualification remain separate.
 
+Camera persistence adds five focused unit regressions and two real-camera save/reopen
+journeys. The complete local run passed 1,749 unit tests across 143 files and all
+38 standalone browser checks against the mock server.
+
 The Blazor packaging follow-up also passed all six browser checks against its
 built assets and real ASP.NET Core host, including a composition-bound canvas
 that loads its worker beneath `/studio/` and paints vendored land features.
