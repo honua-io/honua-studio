@@ -6,6 +6,7 @@
  */
 
 export declare const DEPENDABOT_EXEMPTION: string;
+export declare const RELEASE_PLEASE_EXEMPTION: string;
 
 /** Every `code` the validator can fail with; the messages name the violation. */
 export type PullRequestDispositionCode =
@@ -47,15 +48,18 @@ export interface DispositionIssue {
 }
 
 export interface AutomationExemptionInput {
+  repository?: string;
   authorLogin?: string;
   authorType?: string;
+  title?: string;
   headRefName?: string;
+  headRepository?: string;
+  baseRefName?: string;
+  baseRepository?: string;
 }
 
 export interface DispositionValidationInput extends AutomationExemptionInput {
-  repository?: string;
   body?: unknown;
-  title?: string;
   issues?: unknown;
   closingIssueNumbers?: unknown;
 }

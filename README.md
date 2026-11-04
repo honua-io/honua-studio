@@ -112,12 +112,14 @@ BYOM preview against it: the page loads from the container, runtime
 tool catalog, and the browser composes, saves, reopens, and proposes. A
 separate approver returns the URL. That journey does not use a demo
 credential or a hosted model, and it is not a substitute for the Preview
-publish gates. A `v*` tag runs
-[`release.yml`](.github/workflows/release.yml), which builds a reproducible
-static tarball, pushes the version-only image
-`ghcr.io/honua-io/honua-studio:<version>`, and attaches the tarball, its
-checksum, and a receipt binding version/source SHA/image digest to the GitHub
-release. No such tag has been cut, so no image or tarball exists to pull yet —
+publish gates. Each `v*` release, cut by Release Please, runs
+[`release.yml`](.github/workflows/release.yml), which builds reproducible
+standalone and Console tarballs, pushes the version-only image
+`ghcr.io/honua-io/honua-studio:<version>`, attaches both tarballs, their
+checksums and a receipt binding version/source SHA/image digest to the GitHub
+release, and records a build-provenance attestation for each tarball with the
+repository
+([how a release is cut](docs/preview-release-posture.md#cutting-a-release)). No such tag has been cut, so no image or tarball exists to pull yet —
 see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
 on the public demo remains a 2026.2 decision (D2), so treat every capability
 below as something you verify by running it, not by visiting a URL.
