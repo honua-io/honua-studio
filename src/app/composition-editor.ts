@@ -3,6 +3,7 @@ import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
+import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
@@ -227,7 +228,15 @@ export class CompositionEditor {
     authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     if (binding !== drafts.binding) throw new Error("The active map changed before the edit began.");
     const styleCommand = commands.length === 1 && commands[0]?.name === "setMapStyle" ? commands[0] : undefined;
-    const anchor = styleCommand ? await this.#styleAnchor(edit) : composition.state;
+    let anchor = composition.state;
+    if (styleCommand) {
+      const current = anchor;
+      const mapSpec = await this.#requireCanvas().editableMapStyle();
+      this.#requireUnchangedSince(edit, current);
+      // New composition sources are resolved by the authorized canvas, not supplied by the editor, so the
+      // style candidate is validated against the canvas's current style snapshot.
+      anchor = { ...current, mapSpec };
+    }
     const target = applyCompositionCommands(anchor, commands).state;
     const observed = styleCommand
       ? {
@@ -244,21 +253,18 @@ export class CompositionEditor {
     drafts.announce();
   }
 
-  /**
-   * New composition sources are resolved by the authorized canvas, not supplied by the editor, so a style
-   * candidate is validated against the canvas's current style snapshot.
-   */
-  async #styleAnchor(edit: DraftEdit): Promise<CompositionState> {
-    const { authority, composition, drafts } = this.options;
-    const current = composition.state;
+  #requireCanvas(): HonuaStudioCanvasElement {
     const canvas = this.options.children.canvas();
     if (!canvas) throw new Error("Open the map canvas before editing its style.");
-    const mapSpec = await canvas.editableMapStyle();
+    return canvas;
+  }
+
+  #requireUnchangedSince(edit: DraftEdit, state: CompositionState): void {
+    const { authority, composition, drafts } = this.options;
     if (!authority.epoch.isCurrent(edit.generation) || edit.binding !== drafts.binding)
       throw new Error(WORKSPACE_SESSION_CHANGED);
-    if (current !== composition.state || edit.isCurrent?.() === false)
+    if (state !== composition.state || edit.isCurrent?.() === false)
       throw new Error("The map changed while preparing its style.");
-    return { ...current, mapSpec };
   }
 
   #originalTargetGuard(options: CommandOptions | undefined): () => void {

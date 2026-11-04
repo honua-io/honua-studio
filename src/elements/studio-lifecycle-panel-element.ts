@@ -1,4 +1,3 @@
-import { runtimeLifecycleClient } from "../app/runtime-clients.js";
 /**
  * `<honua-studio-lifecycle-panel>` (honua-studio#9 build item 2) — the open
  * item/draft view: draft status (generation, validation summary), save-as-
@@ -36,6 +35,7 @@ import { runtimeLifecycleClient } from "../app/runtime-clients.js";
  *
  * @module
  */
+import { runtimeLifecycleClient } from "../app/runtime-clients.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type {
   StudioContentVersion,

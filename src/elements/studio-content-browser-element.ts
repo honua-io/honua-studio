@@ -1,4 +1,3 @@
-import { runtimeLifecycleClient } from "../app/runtime-clients.js";
 /**
  * `<honua-studio-content-browser>` (honua-studio#9 build item 1) — lists
  * Studio content items (immutable, saved) and package drafts (mutable),
@@ -15,6 +14,7 @@ import { runtimeLifecycleClient } from "../app/runtime-clients.js";
  *
  * @module
  */
+import { runtimeLifecycleClient } from "../app/runtime-clients.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type {
   StudioContentItemState,

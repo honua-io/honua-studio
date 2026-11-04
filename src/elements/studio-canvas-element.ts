@@ -1,4 +1,3 @@
-import { sourceStyleProvider } from "../app/runtime-clients.js";
 /**
  * `<honua-studio-canvas>` — the composition canvas surface.
  *
@@ -42,6 +41,7 @@ import { sourceStyleProvider } from "../app/runtime-clients.js";
  * leak-detection probe (`instanceCount`) and cleanup discipline are
  * unchanged.
  */
+import { sourceStyleProvider } from "../app/runtime-clients.js";
 import type { CompositionController } from "../composition/controller.js";
 import type {
   CompositionAnnotation,

@@ -99,7 +99,7 @@ export class RecipeSourceChoices {
 
   async resolve(sourceId: string, signal: AbortSignal): Promise<ExploreDatasetMetadata> {
     const resolution: Resolution = { sourceId, signal, generation: this.options.recipeAuthority.current };
-    await this.#revalidateStaleSelection(resolution);
+    if (this.#isStaleSelection(resolution)) await this.#revalidateSelection(resolution);
     const choices = this.#choices;
     const source = this.#selectableSource(resolution);
     const requireSameChoices = () => {
@@ -150,13 +150,23 @@ export class RecipeSourceChoices {
     });
   }
 
-  /** A selection from an older listing re-lists the sources and must still name the same published source. */
-  async #revalidateStaleSelection({ sourceId, signal, generation }: Resolution): Promise<void> {
+  #rememberedChoice(sourceId: string): CatalogDataset | undefined {
+    return (
+      this.#choices?.find((entry) => entry.id === sourceId) ??
+      this.#previousChoices?.find((entry) => entry.id === sourceId)
+    );
+  }
+
+  /** A selection from an older listing, or one the catalog no longer confirms, is re-listed before use. */
+  #isStaleSelection({ sourceId, generation }: Resolution): boolean {
     const selected = this.#choices?.find((entry) => entry.id === sourceId);
     const current = this.options.catalog.find(sourceId);
-    const remembered = selected ?? this.#previousChoices?.find((entry) => entry.id === sourceId);
-    if ((selected && current && this.#choicesAuthority === generation) || !remembered) return;
-    const previous = structuredClone(remembered);
+    return Boolean(this.#rememberedChoice(sourceId)) && !(selected && current && this.#choicesAuthority === generation);
+  }
+
+  /** The re-listed sources must still name the same published source with the same geometry. */
+  async #revalidateSelection({ sourceId, signal }: Resolution): Promise<void> {
+    const previous = structuredClone(this.#rememberedChoice(sourceId)!);
     await this.options.host.listRecipeSources(signal);
     const refreshed = this.#choices?.find((entry) => entry.id === sourceId);
     if (
