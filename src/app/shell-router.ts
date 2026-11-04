@@ -3,19 +3,17 @@ import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { HonuaStudioNavigateDetail, HonuaStudioRoutingMode } from "../elements/types.js";
 import { renderAbout } from "../pages/about.js";
 import { renderContent } from "../pages/content.js";
-import { renderHome } from "../pages/home.js";
+import { type HomeViewContext, renderHome } from "../pages/home.js";
 import { Router } from "../router/router.js";
+
+/** What every route renders with: the catalog client, the session and the add-to-map action. */
+export type RouteContext = Required<HomeViewContext>;
 
 export interface StudioRoute {
   readonly path: string;
   readonly navTestId: string;
   readonly label: string;
-  readonly render: (
-    root: HTMLElement,
-    client: StudioClient,
-    auth: AuthSession,
-    onAddSource: (dataset: CatalogDataset) => Promise<void>,
-  ) => void;
+  readonly render: (root: HTMLElement, context: RouteContext) => void;
 }
 
 export const STUDIO_ROUTES: readonly StudioRoute[] = [
@@ -23,13 +21,13 @@ export const STUDIO_ROUTES: readonly StudioRoute[] = [
     path: "/",
     navTestId: "nav-home",
     label: "Home",
-    render: (root, client, auth, onAddSource) => renderHome(root, client, auth, onAddSource),
+    render: (root, context) => renderHome(root, context),
   },
   {
     path: "/content",
     navTestId: "nav-content",
     label: "Content",
-    render: (root, _client, auth) => renderContent(root, auth),
+    render: (root, { auth }) => renderContent(root, auth),
   },
   { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
 ];
@@ -138,7 +136,7 @@ export class ShellRouter {
 
   #renderRoute(route: StudioRoute, root: HTMLElement): void {
     const { host } = this.options;
-    route.render(root, host.studioClient, host.auth, this.options.addCatalogSource);
+    route.render(root, { client: host.studioClient, auth: host.auth, onAddSource: this.options.addCatalogSource });
     this.options.onRouteRendered();
   }
 }

@@ -26,12 +26,13 @@ function renderGate(list: HTMLElement, testId: string, message: string): void {
  * reports a fresh session, and a session that expires mid-view is reported
  * distinctly from a generic fetch failure.
  */
-export function renderHome(
-  root: HTMLElement,
-  client: StudioClient,
-  auth: AuthSession,
-  onAddSource?: (dataset: CatalogDataset) => Promise<void>,
-): void {
+export interface HomeViewContext {
+  readonly client: StudioClient;
+  readonly auth: AuthSession;
+  readonly onAddSource?: (dataset: CatalogDataset) => Promise<void>;
+}
+
+export function renderHome(root: HTMLElement, { client, auth, onAddSource }: HomeViewContext): void {
   root.innerHTML = `
     <section class="hn-panel view-section" aria-labelledby="catalog-heading" data-testid="catalog-section">
       <h2 id="catalog-heading" class="hn-panel-title">Catalog</h2>
