@@ -8,10 +8,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import type { CompositionCommand } from "../../src/composition/commands.js";
-import { applyCompositionCommand } from "../../src/composition/reducer.js";
+import { CompositionCommandError, applyCompositionCommand } from "../../src/composition/reducer.js";
 import { readCompositionBody } from "../../src/lifecycle/composition-draft-store.js";
 import { McpClient } from "../../src/mcp/client.js";
-import { StudioMcpToolClient, parseStudioDraftResult } from "../../src/mcp/studio-tools.js";
+import { McpToolError } from "../../src/mcp/errors.js";
+import { type StudioMcpDraft, StudioMcpToolClient, parseStudioDraftResult } from "../../src/mcp/studio-tools.js";
 import { buildServerToolInvocation, resolveToolCall, toStudioCompositionBody } from "../../src/mcp/tool-bridge.js";
 
 interface ExpectedError {
@@ -25,6 +26,7 @@ interface ParityCase {
   readonly name: string;
   readonly body: string;
   readonly command: CompositionCommand;
+  readonly tool: { readonly name: string; readonly arguments: Record<string, unknown> };
   readonly expect: { readonly body?: unknown; readonly error?: ExpectedError };
 }
 
@@ -54,16 +56,45 @@ async function seededDraft(client: McpClient, body: unknown) {
   });
 }
 
-async function applyThroughMock({ body, command }: ParityCase): Promise<unknown> {
+async function openMockDraft(body: string) {
   server = await startMockServer();
   const token = mintFixtureAccessToken();
   const client = new McpClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
-  const draft = await seededDraft(client, FIXTURE.bodies[body]);
+  return { client, draft: await seededDraft(client, FIXTURE.bodies[body]) };
+}
+
+/** The fixture's own tool call, for honua-server to replay, must be the call the bridge sends. */
+function fixtureInvocation({ command, tool }: ParityCase, draft: StudioMcpDraft) {
+  const invocation = {
+    name: tool.name,
+    arguments: { ...tool.arguments, draftId: draft.draftId, generation: draft.generation },
+  };
   const resolution = resolveToolCall({ toolName: command.name, arguments: { ...command } });
   if (!resolution.ok || !resolution.serverToolName) throw new Error(`No server tool for ${command.name}.`);
-  const invocation = buildServerToolInvocation(resolution, draft)!;
+  expect(invocation).toEqual(buildServerToolInvocation(resolution, draft));
+  return invocation;
+}
+
+async function applyThroughMock(parityCase: ParityCase): Promise<unknown> {
+  const { client, draft } = await openMockDraft(parityCase.body);
+  const invocation = fixtureInvocation(parityCase, draft);
   const result = parseStudioDraftResult(await client.callTool(invocation.name, invocation.arguments));
   return readComparableBody(result.envelope.body);
+}
+
+async function refuseThroughMock(parityCase: ParityCase): Promise<{ error: McpToolError; unchanged: boolean }> {
+  const { client, draft } = await openMockDraft(parityCase.body);
+  const invocation = fixtureInvocation(parityCase, draft);
+  const error = await client.callTool(invocation.name, invocation.arguments).then(
+    () => undefined,
+    (thrown: unknown) => thrown,
+  );
+  if (!(error instanceof McpToolError)) throw new Error(`Expected a tool error, got ${String(error)}.`);
+  const after = await new StudioMcpToolClient(client).getDraft(draft.draftId);
+  const unchanged =
+    after.generation === draft.generation &&
+    JSON.stringify(readComparableBody(after.envelope.body)) === JSON.stringify(readComparableBody(draft.envelope.body));
+  return { error, unchanged };
 }
 
 function applyThroughReducer({ body, command }: ParityCase): unknown {
@@ -71,12 +102,19 @@ function applyThroughReducer({ body, command }: ParityCase): unknown {
   return readComparableBody(toStudioCompositionBody(state));
 }
 
-function expectedMessage(error: ExpectedError): string | RegExp {
-  return error.message ?? new RegExp(escapeRegExp(error.messageIncludes ?? ""));
+function expectMessage(actual: string, expected: ExpectedError): void {
+  if (expected.message !== undefined) expect(actual).toBe(expected.message);
+  else expect(actual).toContain(expected.messageIncludes);
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function captureReducerError(parityCase: ParityCase): CompositionCommandError {
+  try {
+    applyThroughReducer(parityCase);
+  } catch (error) {
+    if (error instanceof CompositionCommandError) return error;
+    throw error;
+  }
+  throw new Error(`The reducer accepted "${parityCase.name}".`);
 }
 
 function readComparableBody(body: unknown) {
@@ -93,13 +131,15 @@ describe("mock server composition tools match the client reducer", () => {
   });
 
   it.each(REFUSED)("$name", async (parityCase) => {
-    const error = parityCase.expect.error!;
-    expect(() => applyThroughReducer(parityCase)).toThrow(
-      expect.objectContaining({ code: error.reducerCode, message: expect.stringMatching(expectedMessage(error)) }),
-    );
-    await expect(applyThroughMock(parityCase)).rejects.toMatchObject({
-      code: error.mcpCode,
-      message: expect.stringMatching(expectedMessage(error)),
-    });
+    const expected = parityCase.expect.error!;
+    const reducerError = captureReducerError(parityCase);
+    expect(reducerError.code).toBe(expected.reducerCode);
+    expectMessage(reducerError.message, expected);
+
+    const { error, unchanged } = await refuseThroughMock(parityCase);
+    expect(error.code).toBe(expected.mcpCode);
+    expect(error.data).toEqual({ code: expected.mcpCode, message: error.message });
+    expectMessage(error.message, expected);
+    expect(unchanged).toBe(true);
   });
 });

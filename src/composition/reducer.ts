@@ -56,6 +56,7 @@ import {
   compositionTargetsEqual,
   interactionsReferencingControl,
 } from "./model.js";
+import { layerRemovalBlocker } from "./source-use.mjs";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -380,27 +381,9 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
   }
 }
 
-/**
- * A control or widget must not be left reading a source that no layer binds any more. Like honua-server,
- * the first offender in document order, controls before widgets, is reported.
- */
 function guardSourceStillUsed(state: CompositionState, layerId: string, command: CompositionCommand): void {
-  const removed = state.layers.find((layer) => layer.id === layerId);
-  if (!removed) return;
-  const remaining = state.layers.filter((layer) => layer.id !== layerId);
-  const orphaned = (sourceId: string | undefined): sourceId is string =>
-    sourceId !== undefined &&
-    (sourceId === removed.id || sourceId === removed.sourceId) &&
-    !remaining.some((layer) => layer.sourceId === sourceId);
-  const control = state.controls.find((candidate) => orphaned(candidate.sourceId));
-  const widget = control ? undefined : state.widgets.find((candidate) => orphaned(candidate.sourceId));
-  const offender = control ? { role: "control", ...control } : widget ? { role: "widget", ...widget } : undefined;
-  if (!offender) return;
-  throw new CompositionCommandError(
-    "source-in-use",
-    `Cannot remove layer '${layerId}' because ${offender.role} '${offender.id}' still uses sourceId '${offender.sourceId}'. Remove or rebind the ${offender.role} first.`,
-    { command },
-  );
+  const blocker = layerRemovalBlocker(state, layerId);
+  if (blocker) throw new CompositionCommandError("source-in-use", blocker.message, { command });
 }
 
 function applyAddLayer(

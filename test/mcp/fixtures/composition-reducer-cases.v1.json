@@ -78,11 +78,7 @@
           }
         ],
         "metadata": {
-          "honua:compositionLayerIds": [
-            "parcels",
-            "parcel-labels",
-            "roads"
-          ]
+          "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
         }
       },
       "layers": [
@@ -104,10 +100,7 @@
         }
       ],
       "view": {
-        "center": [
-          -157.86,
-          21.3
-        ],
+        "center": [-157.86, 21.3],
         "zoom": 9
       },
       "widgets": []
@@ -197,11 +190,7 @@
           }
         ],
         "metadata": {
-          "honua:compositionLayerIds": [
-            "parcels",
-            "parcel-labels",
-            "roads"
-          ]
+          "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
         }
       },
       "layers": [
@@ -223,10 +212,7 @@
         }
       ],
       "view": {
-        "center": [
-          -157.86,
-          21.3
-        ],
+        "center": [-157.86, 21.3],
         "zoom": 9
       },
       "widgets": []
@@ -307,11 +293,7 @@
           }
         ],
         "metadata": {
-          "honua:compositionLayerIds": [
-            "parcels",
-            "parcel-labels",
-            "roads"
-          ]
+          "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
         }
       },
       "layers": [
@@ -333,10 +315,7 @@
         }
       ],
       "view": {
-        "center": [
-          -157.86,
-          21.3
-        ],
+        "center": [-157.86, 21.3],
         "zoom": 9
       },
       "widgets": [],
@@ -424,11 +403,7 @@
           }
         ],
         "metadata": {
-          "honua:compositionLayerIds": [
-            "parcels",
-            "parcel-labels",
-            "roads"
-          ]
+          "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
         }
       },
       "layers": [
@@ -450,10 +425,7 @@
         }
       ],
       "view": {
-        "center": [
-          -157.86,
-          21.3
-        ],
+        "center": [-157.86, 21.3],
         "zoom": 9
       },
       "widgets": [
@@ -540,11 +512,7 @@
           }
         ],
         "metadata": {
-          "honua:compositionLayerIds": [
-            "parcels",
-            "parcel-labels",
-            "roads"
-          ]
+          "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
         }
       },
       "layers": [
@@ -566,10 +534,7 @@
         }
       ],
       "view": {
-        "center": [
-          -157.86,
-          21.3
-        ],
+        "center": [-157.86, 21.3],
         "zoom": 9
       },
       "widgets": [
@@ -663,11 +628,7 @@
           }
         ],
         "metadata": {
-          "honua:compositionLayerIds": [
-            "parcels",
-            "parcel-labels",
-            "roads"
-          ]
+          "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
         }
       },
       "layers": [
@@ -689,10 +650,7 @@
         }
       ],
       "view": {
-        "center": [
-          -157.86,
-          21.3
-        ],
+        "center": [-157.86, 21.3],
         "zoom": 9
       },
       "widgets": [],
@@ -703,6 +661,130 @@
           "sourceId": "parcels"
         }
       ]
+    },
+    "layer-id-names-another-source": {
+      "sourceBindings": [
+        {
+          "sourceId": "dataset",
+          "protocol": "geoservices-feature-service",
+          "locator": {
+            "url": "/rest/services/dataset/FeatureServer/0",
+            "serviceId": "dataset",
+            "layerId": 0
+          }
+        },
+        {
+          "sourceId": "different",
+          "protocol": "geoservices-feature-service",
+          "locator": {
+            "url": "/rest/services/different/FeatureServer/0",
+            "serviceId": "different",
+            "layerId": 0
+          }
+        }
+      ],
+      "layers": [
+        {
+          "id": "presentation",
+          "sourceId": "dataset",
+          "visible": true
+        },
+        {
+          "id": "dataset",
+          "sourceId": "different",
+          "visible": true
+        }
+      ],
+      "controls": [
+        {
+          "id": "dataset-filter",
+          "kind": "filterSelect",
+          "sourceId": "dataset"
+        }
+      ],
+      "view": {
+        "center": [-157.86, 21.3],
+        "zoom": 9
+      },
+      "widgets": []
+    },
+    "binding-survives-for-layer-id": {
+      "sourceBindings": [
+        {
+          "sourceId": "dataset",
+          "protocol": "geoservices-feature-service",
+          "locator": {
+            "url": "/rest/services/dataset/FeatureServer/0",
+            "serviceId": "dataset",
+            "layerId": 0
+          }
+        },
+        {
+          "sourceId": "presentation",
+          "protocol": "geoservices-feature-service",
+          "locator": {
+            "url": "/rest/services/presentation/FeatureServer/0",
+            "serviceId": "presentation",
+            "layerId": 0
+          }
+        }
+      ],
+      "layers": [
+        {
+          "id": "presentation",
+          "sourceId": "dataset",
+          "visible": true
+        }
+      ],
+      "controls": [
+        {
+          "id": "presentation-filter",
+          "kind": "filterSelect",
+          "sourceId": "presentation"
+        }
+      ],
+      "view": {
+        "center": [-157.86, 21.3],
+        "zoom": 9
+      },
+      "widgets": []
+    },
+    "another-layer-declares-the-source": {
+      "sourceBindings": [
+        {
+          "sourceId": "dataset",
+          "protocol": "geoservices-feature-service",
+          "locator": {
+            "url": "/rest/services/dataset/FeatureServer/0",
+            "serviceId": "dataset",
+            "layerId": 0
+          }
+        }
+      ],
+      "layers": [
+        {
+          "id": "presentation",
+          "sourceId": "dataset",
+          "visible": true
+        },
+        {
+          "id": "detail",
+          "sourceId": "dataset",
+          "visible": true
+        }
+      ],
+      "controls": [
+        {
+          "id": "dataset-filter",
+          "kind": "filterSelect",
+          "sourceId": "dataset"
+        }
+      ],
+      "view": {
+        "center": [-157.86, 21.3],
+        "zoom": 9
+      },
+      "widgets": []
     }
   },
   "cases": [
@@ -757,10 +839,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcels",
-                "parcel-labels"
-              ]
+              "honua:compositionLayerIds": ["parcels", "parcel-labels"]
             }
           },
           "layers": [
@@ -776,10 +855,7 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 9
           },
           "widgets": []
@@ -874,10 +950,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcel-labels",
-                "roads"
-              ]
+              "honua:compositionLayerIds": ["parcel-labels", "roads"]
             }
           },
           "layers": [
@@ -894,10 +967,7 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 9
           },
           "widgets": []
@@ -955,10 +1025,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcels",
-                "parcel-labels"
-              ]
+              "honua:compositionLayerIds": ["parcels", "parcel-labels"]
             }
           },
           "layers": [
@@ -974,10 +1041,7 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 9
           },
           "widgets": []
@@ -1144,10 +1208,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcel-labels",
-                "roads"
-              ]
+              "honua:compositionLayerIds": ["parcel-labels", "roads"]
             }
           },
           "layers": [
@@ -1164,10 +1225,7 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 9
           },
           "widgets": [],
@@ -1275,11 +1333,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcels",
-                "parcel-labels",
-                "roads"
-              ]
+              "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
             }
           },
           "layers": [
@@ -1301,10 +1355,7 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 12
           },
           "widgets": []
@@ -1453,11 +1504,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcels",
-                "parcel-labels",
-                "roads"
-              ]
+              "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
             }
           },
           "layers": [
@@ -1480,10 +1527,7 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 9
           },
           "widgets": []
@@ -1584,11 +1628,7 @@
               }
             ],
             "metadata": {
-              "honua:compositionLayerIds": [
-                "parcels",
-                "parcel-labels",
-                "roads"
-              ]
+              "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"]
             }
           },
           "layers": [
@@ -1609,13 +1649,109 @@
             }
           ],
           "view": {
-            "center": [
-              -157.86,
-              21.3
-            ],
+            "center": [-157.86, 21.3],
             "zoom": 9
           },
           "widgets": []
+        }
+      }
+    },
+    {
+      "name": "a surviving layer whose id equals the source does not keep it declared",
+      "body": "layer-id-names-another-source",
+      "command": {
+        "name": "removeLayer",
+        "target": {
+          "kind": "layer",
+          "id": "presentation"
+        }
+      },
+      "tool": {
+        "name": "honua_studio_remove_layer",
+        "arguments": {
+          "layerId": "presentation"
+        }
+      },
+      "expect": {
+        "error": {
+          "reducerCode": "source-in-use",
+          "mcpCode": "invalid_argument",
+          "message": "Cannot remove layer 'presentation' because control 'dataset-filter' still uses sourceId 'dataset'. Remove or rebind the control first."
+        }
+      }
+    },
+    {
+      "name": "a surviving binding for the removed layer's id does not keep a consumer of that id served",
+      "body": "binding-survives-for-layer-id",
+      "command": {
+        "name": "removeLayer",
+        "target": {
+          "kind": "layer",
+          "id": "presentation"
+        }
+      },
+      "tool": {
+        "name": "honua_studio_remove_layer",
+        "arguments": {
+          "layerId": "presentation"
+        }
+      },
+      "expect": {
+        "error": {
+          "reducerCode": "source-in-use",
+          "mcpCode": "invalid_argument",
+          "message": "Cannot remove layer 'presentation' because control 'presentation-filter' still uses sourceId 'presentation'. Remove or rebind the control first."
+        }
+      }
+    },
+    {
+      "name": "another layer declaring the same sourceId allows the removal",
+      "body": "another-layer-declares-the-source",
+      "command": {
+        "name": "removeLayer",
+        "target": {
+          "kind": "layer",
+          "id": "presentation"
+        }
+      },
+      "tool": {
+        "name": "honua_studio_remove_layer",
+        "arguments": {
+          "layerId": "presentation"
+        }
+      },
+      "expect": {
+        "body": {
+          "sourceBindings": [
+            {
+              "sourceId": "dataset",
+              "protocol": "geoservices-feature-service",
+              "locator": {
+                "url": "/rest/services/dataset/FeatureServer/0",
+                "serviceId": "dataset",
+                "layerId": 0
+              }
+            }
+          ],
+          "layers": [
+            {
+              "id": "detail",
+              "sourceId": "dataset",
+              "visible": true
+            }
+          ],
+          "view": {
+            "center": [-157.86, 21.3],
+            "zoom": 9
+          },
+          "widgets": [],
+          "controls": [
+            {
+              "id": "dataset-filter",
+              "kind": "filterSelect",
+              "sourceId": "dataset"
+            }
+          ]
         }
       }
     }

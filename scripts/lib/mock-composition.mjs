@@ -52,20 +52,6 @@ function mapSpecWithoutLayer(mapSpec, layers, removedLayer) {
   };
 }
 
-/** The control or widget that would be left reading an unbound source, reported as honua-server reports it. */
-export function layerRemovalBlocker(body, removedLayer) {
-  const remaining = body.layers.filter((layer) => layer.id !== removedLayer.id);
-  const orphaned = (sourceId) =>
-    sourceId !== undefined &&
-    (sourceId === removedLayer.id || sourceId === removedLayer.sourceId) &&
-    !remaining.some((layer) => layer.sourceId === sourceId);
-  const control = (body.controls ?? []).find((candidate) => orphaned(candidate.sourceId));
-  const widget = control ? undefined : (body.widgets ?? []).find((candidate) => orphaned(candidate.sourceId));
-  const [role, offender] = control ? ["control", control] : widget ? ["widget", widget] : [];
-  if (!offender) return undefined;
-  return `Cannot remove layer '${removedLayer.id}' because ${role} '${offender.id}' still uses sourceId '${offender.sourceId}'. Remove or rebind the ${role} first.`;
-}
-
 export function compositionWithoutLayer(body, removedLayer) {
   const { layers } = body;
   return {
