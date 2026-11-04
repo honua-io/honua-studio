@@ -1,0 +1,223 @@
+import type { CompositionController } from "../composition/controller.js";
+import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
+import { runtimeMcpBaseUrl } from "../runtime-config.js";
+import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
+import type { MapStyleDocument, MapStyleField } from "../styles/map-style-edit.js";
+import { MapStyleEditor, type MapStyleEditorOptions } from "../styles/map-style-editor.js";
+import type { CompositionEditor } from "./composition-editor.js";
+import type { ShellChrome } from "./shell-chrome.js";
+import type { SourceCatalog } from "./source-catalog.js";
+import type { EpochToken } from "./staleness-epoch.js";
+import type { WorkspaceAuthority } from "./workspace-authority.js";
+import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
+
+/** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
+export interface StyleEditorHostElement extends EventTarget {
+  readonly styleEditorAssetsUrl: string;
+  prepareWorkspaceTurn(): Promise<unknown>;
+  attachWorkspaceDraft(draftId: string): Promise<void>;
+}
+
+export interface StyleEditorHostOptions {
+  readonly host: StyleEditorHostElement;
+  readonly authority: WorkspaceAuthority;
+  readonly drafts: WorkspaceDraftSession;
+  readonly catalog: SourceCatalog;
+  readonly composition: CompositionController;
+  readonly chrome: ShellChrome;
+  readonly editor: CompositionEditor;
+  readonly canvas: () => HonuaStudioCanvasElement | undefined;
+}
+
+/** The draft and authority one editor session was opened for. */
+interface EditingSession {
+  readonly canvas: HonuaStudioCanvasElement;
+  readonly generation: EpochToken;
+  readonly identity: WorkspaceDraftIdentity;
+}
+
+const AUTHORITY_CHANGED = "The workspace authority changed.";
+
+/** The visual map-style editor docked beside the map; edits stay local until saved to the draft. */
+export class StyleEditorHost {
+  #editor: MapStyleEditor | undefined;
+  #panel: HTMLElement | undefined;
+  #unsubscribe: (() => void) | undefined;
+
+  constructor(private readonly options: StyleEditorHostOptions) {}
+
+  get hasUnsavedChanges(): boolean {
+    return this.#editor?.dirty ?? false;
+  }
+
+  async settled(): Promise<void> {
+    await this.#editor?.settled();
+  }
+
+  contains(element: Element): boolean {
+    return this.#panel?.contains(element) ?? false;
+  }
+
+  async open(selectedLayerId: string | undefined): Promise<void> {
+    if (this.#editor) return;
+    const { authority, drafts } = this.options;
+    await this.options.host.prepareWorkspaceTurn();
+    if (!drafts.binding) throw new Error("Attach an authorized map draft before editing its style.");
+    const canvas = this.options.canvas();
+    if (!canvas) throw new Error("Open the map canvas before its style editor.");
+    if (!this.options.composition.state.mapSpec) await this.#initializeDraftStyle(canvas);
+    const generation = authority.epoch.current;
+    const identity = drafts.identity;
+    if (!identity) throw new Error("The workspace draft is unavailable.");
+    const document = await canvas.editableMapStyle();
+    if (!authority.epoch.isCurrent(generation) || identity.draftId !== drafts.identity?.draftId)
+      throw new Error("The workspace draft changed while opening the style editor.");
+    const session: EditingSession = { canvas, generation, identity };
+    const editor = new MapStyleEditor(this.#editorOptions(session, document, selectedLayerId));
+    this.#editor = editor;
+    this.#unsubscribe = this.options.composition.subscribe(() => {
+      if (editor.dirty) return;
+      void canvas
+        .editableMapStyle()
+        .then((style) => {
+          if (this.#editor === editor && authority.epoch.isCurrent(generation)) editor.observeSavedDocument(style);
+        })
+        .catch(() => {});
+    });
+  }
+
+  async close(): Promise<void> {
+    if (this.hasUnsavedChanges) throw new Error("Save or discard visual style edits before leaving.");
+    this.dispose();
+  }
+
+  async discard(): Promise<void> {
+    await this.#editor?.discard();
+  }
+
+  dispose(): void {
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
+    this.#editor?.dispose();
+    this.#editor = undefined;
+    this.#panel?.remove();
+    this.#panel = undefined;
+    this.options.chrome.appSlots()?.removeAttribute("data-style-mode");
+    this.options.chrome.paintHistory();
+    const canvas = this.options.canvas();
+    if (canvas) canvas.stylePreview = undefined;
+    this.#announceDirty(false);
+  }
+
+  /** A draft without a map style first adopts the canvas's authorized style as its baseline. */
+  async #initializeDraftStyle(canvas: HonuaStudioCanvasElement): Promise<void> {
+    const { authority, drafts, composition } = this.options;
+    const binding = drafts.binding!;
+    const epoch = authority.epoch.current;
+    await drafts.enqueue(async () => {
+      const style = await canvas.editableMapStyle();
+      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(AUTHORITY_CHANGED);
+      const observed = await binding.initializeStyle(style);
+      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(AUTHORITY_CHANGED);
+      composition.resetBaseline({
+        ...observed,
+        pins: composition.state.pins,
+        annotations: composition.state.annotations,
+      });
+      drafts.announce();
+    });
+  }
+
+  #mountPanel(): HTMLElement {
+    const panel = window.document.createElement("section");
+    panel.setAttribute("aria-label", "Map style editor");
+    this.options.chrome.appSlots()?.prepend(panel);
+    this.#panel = panel;
+    this.options.chrome.appSlots()?.setAttribute("data-style-mode", "");
+    return panel;
+  }
+
+  #editorOptions(
+    session: EditingSession,
+    document: MapStyleDocument,
+    selectedLayerId: string | undefined,
+  ): MapStyleEditorOptions {
+    const { state } = this.options.composition;
+    return {
+      container: this.#mountPanel(),
+      document,
+      assetsUrl: this.options.host.styleEditorAssetsUrl,
+      scope: {
+        kind: "map-local",
+        detachesSharedStyles: state.layers.some(
+          (layer) =>
+            layer.styleRef &&
+            state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId)?.body === undefined,
+        ),
+      },
+      layers: state.layers.map((layer) => ({ id: layer.id, sourceId: layer.sourceId, title: layer.title })),
+      selectedLayerId,
+      getFields: (sourceId) => this.#describeFields(session, sourceId),
+      onPreview: (style) => {
+        session.canvas.stylePreview = style;
+      },
+      onDirty: (dirty) => {
+        this.options.chrome.paintHistory();
+        this.#announceDirty(dirty);
+      },
+      onSave: (style) => this.#save(session, style),
+      onDiscard: () => this.#reloadDraft(session),
+    };
+  }
+
+  async #describeFields(session: EditingSession, sourceId: string): Promise<readonly MapStyleField[]> {
+    const source = this.options.catalog.find(sourceId);
+    if (!source) throw new Error("Refresh the authorized source catalog before selecting thematic fields.");
+    const { canvas } = session;
+    const { authority } = this.options;
+    const provider = new AuthoritativeStyleProvider({
+      baseUrl: canvas.sourceAuthBaseUrl,
+      ...(canvas.sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
+      documentUrl: window.document.baseURI,
+      getAuth: () => authority.auth,
+      signal: AbortSignal.timeout(8000),
+    });
+    const fields = await provider.describeSource(source);
+    authority.epoch.assertCurrent(session.generation, AUTHORITY_CHANGED);
+    return fields;
+  }
+
+  async #save(session: EditingSession, style: MapStyleDocument): Promise<MapStyleDocument> {
+    const { authority, drafts } = this.options;
+    if (!authority.epoch.isCurrent(session.generation) || session.identity.draftId !== drafts.identity?.draftId)
+      throw new Error(`${AUTHORITY_CHANGED} Reopen the visual editor.`);
+    const result = await this.options.editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
+    if (!result.ok) throw new Error(result.reason);
+    authority.epoch.assertCurrent(session.generation, AUTHORITY_CHANGED);
+    return session.canvas.editableMapStyle();
+  }
+
+  /** Explicit discard permits an authoritative refresh; no stale buffer is written. */
+  async #reloadDraft(session: EditingSession): Promise<MapStyleDocument> {
+    const { authority, drafts } = this.options;
+    session.canvas.stylePreview = undefined;
+    const id = drafts.identity?.draftId;
+    if (!id || !authority.epoch.isCurrent(session.generation)) throw new Error(AUTHORITY_CHANGED);
+    const editor = this.#editor;
+    this.#editor = undefined;
+    try {
+      await this.options.host.attachWorkspaceDraft(id);
+    } finally {
+      if (authority.epoch.isCurrent(session.generation)) this.#editor = editor;
+      else editor?.dispose();
+    }
+    authority.epoch.assertCurrent(session.generation, AUTHORITY_CHANGED);
+    return session.canvas.editableMapStyle();
+  }
+
+  #announceDirty(dirty: boolean): void {
+    this.options.host.dispatchEvent(
+      new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty }, bubbles: true, composed: true }),
+    );
+  }
+}

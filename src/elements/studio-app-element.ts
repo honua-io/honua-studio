@@ -12,10 +12,13 @@ import {
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
 import { CompositionEditor, historyShortcutAction } from "../app/composition-editor.js";
+import { DesignInspectorHost, type DesignRelationship } from "../app/design-inspector-host.js";
+import { hasEditedFormControl } from "../app/dirty-form.js";
 import { ShellChrome } from "../app/shell-chrome.js";
 import { ShellRouter } from "../app/shell-router.js";
 import { type ProcessSourceChoice, SourceCatalog } from "../app/source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "../app/staleness-epoch.js";
+import { StyleEditorHost } from "../app/style-editor-host.js";
 import { WorkspaceAuthority } from "../app/workspace-authority.js";
 import { type WorkspaceDraftIdentity, WorkspaceDraftSession } from "../app/workspace-draft-session.js";
 import { WorkspacePublication } from "../app/workspace-publication.js";
@@ -24,7 +27,6 @@ import {
   type AuthoritativeStyleDefinition,
   AuthoritativeStyleProvider,
 } from "../styles/authoritative-style-provider.js";
-import { MapStyleEditor } from "../styles/map-style-editor.js";
 import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 
 import type { AuthSession, SessionAdapter } from "../auth/index.js";
@@ -38,9 +40,8 @@ import {
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import { CompositionController } from "../composition/controller.js";
-import { type CompositionState, createEmptyCompositionState } from "../composition/model.js";
+import { createEmptyCompositionState } from "../composition/model.js";
 import { canonicalCompositionJson } from "../composition/model.js";
-import type { DesignInspectorPanel } from "../design/design-inspector-panel.js";
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { StudioPackageDraftCreateRequest } from "../lifecycle/lifecycle-types.js";
@@ -164,7 +165,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   readonly #composition = new CompositionController(createEmptyCompositionState());
-  readonly #authority = new WorkspaceAuthority({
+  readonly #authority: WorkspaceAuthority = new WorkspaceAuthority({
     isConnected: () => this.isConnected,
     onAuthReplaced: (auth) => this.#drafts.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth })),
     // Never renderView() from this listener: every getAccessToken() dispatches a state change and the home
@@ -214,17 +215,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #themeLoader: ThemeLoader | undefined;
-  readonly #chrome = new ShellChrome({
+  readonly #chrome: ShellChrome = new ShellChrome({
     host: this,
     setShadowHtml: (html) => this.setShadowHtml(html),
     connectedSignal: () => this.connectedSignal,
     authStatus: () => this.#authority.resolvedAuth?.getState().status ?? "signed-out",
-    isDesignInspectorOpen: () => Boolean(this.#designInspector),
+    isDesignInspectorOpen: () => this.#designInspector.isOpen,
     isHistoryBusy: () => this.#drafts.historyBusy,
     liveStatus: () => ({ live: this.#orchestrator?.isLive === true, packageKey: this.#liveCompositionPackageKey }),
     onNavigate: (path, event) => this.#router.requestNavigation(path, event),
   });
-  readonly #router = new ShellRouter({
+  readonly #router: ShellRouter = new ShellRouter({
     host: this,
     hasView: () => this.#chrome.hasView(),
     viewRoot: () => this.#chrome.viewRoot(),
@@ -232,251 +233,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     isWorkspaceHost: () => this.#isWorkspaceHost(),
     addCatalogSource: (dataset) => this.#editor.addCatalogSource(dataset),
   });
-  #designInspector: DesignInspectorPanel | undefined;
-  #designInspectorContainer: HTMLElement | undefined;
-  #designInspectorOpening = new StalenessEpoch();
-  #designRelationship: { readonly interactionId: string; readonly ownerRef: string } | undefined;
-  #designRelationshipState: CompositionState | undefined;
-  #designRelationshipSelection: readonly unknown[] | undefined;
-  public get selectedDesignRelationship(): { readonly interactionId: string; readonly ownerRef: string } | undefined {
-    const relationship = this.#designRelationship;
-    if (
-      !relationship ||
-      this.#designRelationshipSelection !== this.composition.selection ||
-      this.#designRelationshipState !== this.composition.state ||
-      !this.composition.state.interactions.some((entry) => entry.id === relationship.interactionId)
-    )
-      return undefined;
-    const owner = this.composition.selection[0];
-    const ref =
-      owner && owner.kind !== "feature"
-        ? `${owner.kind === "component" ? "widget" : owner.kind}:${owner.id}`
-        : undefined;
-    return ref === relationship.ownerRef ? { ...relationship } : undefined;
-  }
-
-  /** Shared embedded editor surface; hosts may open this beside their one conversation. */
-  public async openDesignInspector(): Promise<void> {
-    if (this.#designInspector) return;
-    const opening = this.#designInspectorOpening.next();
-    const generation = this.#authority.epoch.current;
-    const identity = this.#drafts.identity?.draftId;
-    const { DesignInspectorPanel: Panel } = await import("../design/design-inspector-panel.js");
-    if (
-      !this.isConnected ||
-      !this.#designInspectorOpening.isCurrent(opening) ||
-      !this.#authority.epoch.isCurrent(generation) ||
-      identity !== this.#drafts.identity?.draftId
-    )
-      return;
-    const container = document.createElement("div");
-    container.id = "design-inspector-panel";
-    this.#chrome.appSlots()?.before(container);
-    this.#designInspectorContainer = container;
-    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined;
-    this.#designInspector = new Panel({
-      container,
-      controller: this.composition,
-      canvas,
-      describeSource: async (sourceId, signal) => {
-        if (this.auth.getState().status !== "fresh") throw new Error("Sign in to describe authorized source fields.");
-        const source = this.#catalog.find(sourceId);
-        if (!source)
-          throw new Error(
-            "Source is absent from the authorized catalog. Refresh source access before describing fields.",
-          );
-        const baseUrl = canvas?.sourceAuthBaseUrl ?? runtimeMcpBaseUrl();
-        const provider = new AuthoritativeStyleProvider({
-          baseUrl,
-          ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-          documentUrl: document.baseURI,
-          getAuth: () => this.auth,
-          signal,
-        });
-        const fields = await provider.describeSource(source);
-        signal.throwIfAborted();
-        if (!this.#authority.epoch.isCurrent(generation) || identity !== this.#drafts.identity?.draftId)
-          throw new Error("The workspace draft or authority changed.");
-        return fields;
-      },
-      select: (consumer, interactionId) => {
-        this.#designRelationship =
-          interactionId && this.composition.state.interactions.some((entry) => entry.id === interactionId)
-            ? { interactionId, ownerRef: consumer.ref }
-            : undefined;
-        this.#designRelationshipState = this.composition.state;
-        this.composition.select([consumer.target]);
-        this.#designRelationshipSelection = this.composition.selection;
-        this.dispatchTypedEvent("honua-studio-selection-change", {
-          targets: [consumer.target],
-          ...(this.selectedDesignRelationship ? { relationship: this.selectedDesignRelationship } : {}),
-        });
-      },
-      close: () => {
-        this.closeDesignInspector();
-        this.#chrome.focus("design-inspector-toggle");
-      },
-    });
-    this.#chrome.setExpanded("design-inspector-toggle", true);
-    container.querySelector<HTMLButtonElement>("button")?.focus();
-  }
-
-  public closeDesignInspector(): void {
-    this.#designInspectorOpening.next();
-    this.#designInspector?.dispose();
-    this.#designInspector = undefined;
-    this.#designInspectorContainer?.remove();
-    this.#designInspectorContainer = undefined;
-    this.#designRelationship = undefined;
-    this.#designRelationshipState = undefined;
-    this.#designRelationshipSelection = undefined;
-    this.#chrome.setExpanded("design-inspector-toggle", false);
-  }
-  #styleEditor: MapStyleEditor | undefined;
-  #styleEditorPanel: HTMLElement | undefined;
-  #styleEditorUnsubscribe: (() => void) | undefined;
-  public styleEditorAssetsUrl = "/maputnik/index.html";
-  public get hasUnsavedStyleChanges(): boolean {
-    return this.#styleEditor?.dirty ?? false;
-  }
-  public async openStyleEditor(_options: { layerId?: string } = {}): Promise<void> {
-    if (this.#styleEditor) return;
-    await this.prepareWorkspaceTurn();
-    if (!this.#drafts.binding) throw new Error("Attach an authorized map draft before editing its style.");
-    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-    if (!canvas) throw new Error("Open the map canvas before its style editor.");
-    if (!this.composition.state.mapSpec) {
-      const binding = this.#drafts.binding;
-      const epoch = this.#authority.epoch.current;
-      await this.#drafts.enqueue(async () => {
-        const style = await canvas.editableMapStyle();
-        if (!this.#authority.epoch.isCurrent(epoch) || this.#drafts.binding !== binding)
-          throw new Error("The workspace authority changed.");
-        const observed = await binding.initializeStyle(style);
-        if (!this.#authority.epoch.isCurrent(epoch) || this.#drafts.binding !== binding)
-          throw new Error("The workspace authority changed.");
-        this.composition.resetBaseline({
-          ...observed,
-          pins: this.composition.state.pins,
-          annotations: this.composition.state.annotations,
-        });
-        this.#drafts.announce();
-      });
-    }
-    const generation = this.#authority.epoch.current;
-    const identity = this.#drafts.identity;
-    if (!identity) throw new Error("The workspace draft is unavailable.");
-    const document = await canvas.editableMapStyle();
-    if (!this.#authority.epoch.isCurrent(generation) || identity.draftId !== this.#drafts.identity?.draftId)
-      throw new Error("The workspace draft changed while opening the style editor.");
-    const panel = window.document.createElement("section");
-    panel.setAttribute("aria-label", "Map style editor");
-    this.#chrome.appSlots()?.prepend(panel);
-    this.#styleEditorPanel = panel;
-    this.#chrome.appSlots()?.setAttribute("data-style-mode", "");
-    this.#styleEditor = new MapStyleEditor({
-      container: panel,
-      document,
-      assetsUrl: this.styleEditorAssetsUrl,
-      scope: {
-        kind: "map-local",
-        detachesSharedStyles: this.composition.state.layers.some(
-          (layer) =>
-            layer.styleRef &&
-            this.composition.state.styleRefs?.find((ref) => ref.styleId === layer.styleRef?.styleId)?.body ===
-              undefined,
-        ),
-      },
-      layers: this.composition.state.layers.map((layer) => ({
-        id: layer.id,
-        sourceId: layer.sourceId,
-        title: layer.title,
-      })),
-      selectedLayerId: _options?.layerId,
-      getFields: async (sourceId) => {
-        const source = this.#catalog.find(sourceId);
-        if (!source) throw new Error("Refresh the authorized source catalog before selecting thematic fields.");
-        const provider = new AuthoritativeStyleProvider({
-          baseUrl: canvas.sourceAuthBaseUrl,
-          ...(canvas.sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-          documentUrl: window.document.baseURI,
-          getAuth: () => this.auth,
-          signal: AbortSignal.timeout(8000),
-        });
-        const fields = await provider.describeSource(source);
-        this.#authority.epoch.assertCurrent(generation, "The workspace authority changed.");
-        return fields;
-      },
-      onPreview: (style) => {
-        canvas.stylePreview = style;
-      },
-      onDirty: (dirty) => {
-        this.#chrome.paintHistory();
-        this.dispatchEvent(
-          new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty }, bubbles: true, composed: true }),
-        );
-      },
-      onSave: async (style) => {
-        if (!this.#authority.epoch.isCurrent(generation) || identity.draftId !== this.#drafts.identity?.draftId)
-          throw new Error("The workspace authority changed. Reopen the visual editor.");
-        const result = await this.#editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
-        if (!result.ok) throw new Error(result.reason);
-        this.#authority.epoch.assertCurrent(generation, "The workspace authority changed.");
-        return canvas.editableMapStyle();
-      },
-      onDiscard: async () => {
-        // Explicit discard permits authoritative refresh; no stale buffer is written.
-        canvas.stylePreview = undefined;
-        const id = this.#drafts.identity?.draftId;
-        if (!id || !this.#authority.epoch.isCurrent(generation)) throw new Error("The workspace authority changed.");
-        const editor = this.#styleEditor;
-        this.#styleEditor = undefined;
-        try {
-          await this.attachWorkspaceDraft(id);
-        } finally {
-          if (this.#authority.epoch.isCurrent(generation)) this.#styleEditor = editor;
-          else editor?.dispose();
-        }
-        this.#authority.epoch.assertCurrent(generation, "The workspace authority changed.");
-        return canvas.editableMapStyle();
-      },
-    });
-    const editor = this.#styleEditor;
-    this.#styleEditorUnsubscribe = this.composition.subscribe(() => {
-      if (editor.dirty) return;
-      void canvas
-        .editableMapStyle()
-        .then((style) => {
-          if (this.#styleEditor === editor && this.#authority.epoch.isCurrent(generation))
-            editor.observeSavedDocument(style);
-        })
-        .catch(() => {});
-    });
-  }
-  public async closeStyleEditor(): Promise<void> {
-    if (this.hasUnsavedStyleChanges) throw new Error("Save or discard visual style edits before leaving.");
-    this.#disposeStyleEditor();
-  }
-  public async discardStyleChanges(): Promise<void> {
-    await this.#styleEditor?.discard();
-  }
-  #disposeStyleEditor(): void {
-    this.#styleEditorUnsubscribe?.();
-    this.#styleEditorUnsubscribe = undefined;
-    this.#styleEditor?.dispose();
-    this.#styleEditor = undefined;
-    this.#styleEditorPanel?.remove();
-    this.#styleEditorPanel = undefined;
-    this.#chrome.appSlots()?.removeAttribute("data-style-mode");
-    this.#chrome.paintHistory();
-    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-    if (canvas) canvas.stylePreview = undefined;
-    this.dispatchEvent(
-      new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty: false }, bubbles: true, composed: true }),
-    );
-  }
-
-  readonly #catalog = new SourceCatalog(this.#authority, {
+  readonly #catalog: SourceCatalog = new SourceCatalog(this.#authority, {
     isConnected: () => this.isConnected,
     onCatalogReplacing: () => {
       this.closeDesignInspector();
@@ -495,13 +252,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#recipeSourcesAuthority = undefined;
     },
   });
-  readonly #drafts = new WorkspaceDraftSession(this.#authority, this.#composition, {
+  readonly #drafts: WorkspaceDraftSession = new WorkspaceDraftSession(this.#authority, this.#composition, {
     prepareWorkspaceTurn: () => this.prepareWorkspaceTurn(),
     attachWorkspaceDraft: (draftId) => this.attachWorkspaceDraft(draftId),
     hasDirtyForm: () => this.#hasDirtyWorkspaceForm(),
-    settleStyleEdits: async () => {
-      await this.#styleEditor?.settled();
-    },
+    settleStyleEdits: () => this.#styleEditor.settled(),
     onDraftRequested: () => this.closeDesignInspector(),
     beforeMapSwitch: (draftId) => {
       this.closeDesignInspector();
@@ -513,8 +268,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         new CustomEvent("honua-workspace-draft-change", { bubbles: true, composed: true, detail: identity }),
       ),
   });
-  readonly #publication = new WorkspacePublication(this.#authority, this.#drafts, () => this.prepareWorkspaceTurn());
-  readonly #editor = new CompositionEditor({
+  readonly #publication: WorkspacePublication = new WorkspacePublication(this.#authority, this.#drafts, () =>
+    this.prepareWorkspaceTurn(),
+  );
+  readonly #editor: CompositionEditor = new CompositionEditor({
     authority: this.#authority,
     drafts: this.#drafts,
     catalog: this.#catalog,
@@ -525,6 +282,56 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
     hasUnsavedStyleChanges: () => this.hasUnsavedStyleChanges,
   });
+  readonly #designInspector: DesignInspectorHost = new DesignInspectorHost({
+    host: this,
+    authority: this.#authority,
+    drafts: this.#drafts,
+    catalog: this.#catalog,
+    composition: this.#composition,
+    chrome: this.#chrome,
+    canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
+  });
+  readonly #styleEditor: StyleEditorHost = new StyleEditorHost({
+    host: this,
+    authority: this.#authority,
+    drafts: this.#drafts,
+    catalog: this.#catalog,
+    composition: this.#composition,
+    chrome: this.#chrome,
+    editor: this.#editor,
+    canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
+  });
+
+  public get selectedDesignRelationship(): DesignRelationship | undefined {
+    return this.#designInspector.selectedRelationship;
+  }
+
+  /** Shared embedded editor surface; hosts may open this beside their one conversation. */
+  public openDesignInspector(): Promise<void> {
+    return this.#designInspector.open();
+  }
+
+  public closeDesignInspector(): void {
+    this.#designInspector.close();
+  }
+
+  public styleEditorAssetsUrl = "/maputnik/index.html";
+
+  public get hasUnsavedStyleChanges(): boolean {
+    return this.#styleEditor.hasUnsavedChanges;
+  }
+
+  public openStyleEditor(options: { layerId?: string } = {}): Promise<void> {
+    return this.#styleEditor.open(options?.layerId);
+  }
+
+  public closeStyleEditor(): Promise<void> {
+    return this.#styleEditor.close();
+  }
+
+  public discardStyleChanges(): Promise<void> {
+    return this.#styleEditor.discard();
+  }
   #orchestrator: ToolCallOrchestrator | undefined;
   #liveCompositionPackageKey: string | undefined;
   #aiMapKit: HonuaAiMapKit | undefined;
@@ -942,36 +749,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   #hasDirtyWorkspaceForm(): boolean {
     if (this.hasUnsavedStyleChanges) return true;
-    const dirty = (root: ParentNode): boolean => {
-      for (const element of root.querySelectorAll("*")) {
-        if (
-          element.tagName === "HONUA-STUDIO-CHAT" ||
-          element.tagName === "HONUA-STUDIO-CONTROL-BAR" ||
-          this.#styleEditorPanel?.contains(element) ||
-          this.#chrome.recipeOutlet()?.contains(element)
-        )
-          continue;
-        if (element instanceof HTMLInputElement) {
-          const checkable = element.type === "checkbox" || element.type === "radio";
-          if (checkable ? element.checked !== element.defaultChecked : element.value !== element.defaultValue)
-            return true;
-        } else if (element instanceof HTMLTextAreaElement && element.value !== element.defaultValue) return true;
-        if (element instanceof HTMLSelectElement) {
-          const explicitDefault = [...element.options].some((option) => option.defaultSelected);
-          if (
-            [...element.options].some(
-              (option, index) =>
-                option.selected !== (option.defaultSelected || (!explicitDefault && !element.multiple && index === 0)),
-            )
-          )
-            return true;
-        }
-        if (element instanceof HTMLElement && element.isContentEditable) return true;
-        if (element.shadowRoot && dirty(element.shadowRoot)) return true;
-      }
-      return false;
-    };
-    return dirty(this) || Boolean(this.shadowRoot && dirty(this.shadowRoot));
+    const isIgnored = (element: Element) =>
+      this.#styleEditor.contains(element) || Boolean(this.#chrome.recipeOutlet()?.contains(element));
+    return (
+      hasEditedFormControl(this, isIgnored) ||
+      Boolean(this.shadowRoot && hasEditedFormControl(this.shadowRoot, isIgnored))
+    );
   }
 
   /** Configure the SDK verifier with verification keys explicitly trusted by the host. */
@@ -1013,7 +796,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (!samePrincipal) {
       this.closeDesignInspector();
       this.#resetRecipeAuthority();
-      this.#disposeStyleEditor();
+      this.#styleEditor.dispose();
       this.#authority.epoch.next();
       if (hadAuthority) {
         // Cached human descriptor metadata belongs to the former authority too.
