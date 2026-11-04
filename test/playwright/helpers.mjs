@@ -7,6 +7,23 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const START_TIMEOUT_MS = 20_000;
 const BLAZOR_START_TIMEOUT_MS = 30_000;
 
+/** `main.ts` assigns `window.__honuaStudioApp` after its top-level config load, which can finish after `load`. */
+export async function waitForStudioApp(page) {
+  await page.waitForFunction(() => Boolean(window.__honuaStudioApp));
+}
+
+/** Signing in loads the catalog, and a new catalog restarts the map view: wait for the view that renders it. */
+export async function waitForSignedInMap(page) {
+  await page.waitForFunction(
+    () => {
+      const canvas = document.querySelector("honua-studio-canvas");
+      return canvas?.sourceCatalog !== undefined && canvas?.mapView?.status === "ready";
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+}
+
 /**
  * @param {Record<string,string>} extraEnv
  * @param {string[]} extraArgs

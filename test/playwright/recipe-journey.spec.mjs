@@ -1,17 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
 async function boot(page, preview) {
   await page.goto(preview.url);
+  await waitForStudioApp(page);
   await page.evaluate((token) => {
     window.__honuaStudioApp.session = { getToken: async () => token, onExpired: () => () => {} };
   }, mintFixtureAccessToken());
-  await expect
-    .poll(() => page.evaluate(() => document.querySelector("honua-studio-canvas")?.mapView?.status), {
-      timeout: 20_000,
-    })
-    .toBe("ready");
+  await waitForSignedInMap(page);
   await page.getByTestId("recipe-toggle").focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("recipe-panel")).toBeVisible();
