@@ -1,5 +1,6 @@
 import { isCookieSession, isSameCookiePrincipal, verifiedSourcePathBase } from "../auth/host-session.js";
 import type { SessionAdapter } from "../auth/index.js";
+import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import type { HonuaStudioAppElement } from "../elements/studio-app-element.js";
@@ -53,7 +54,10 @@ export class StudioWorkspace {
     this.router = this.#createRouter();
     this.catalog = this.#createCatalog();
     this.drafts = this.#createDrafts();
-    this.publication = new WorkspacePublication(this.authority, this.drafts, () => host.prepareWorkspaceTurn());
+    this.publication = new WorkspacePublication(this.authority, this.drafts, {
+      prepareWorkspaceTurn: () => host.prepareWorkspaceTurn(),
+      saveCurrentView: (current) => this.#saveCurrentView(current),
+    });
     this.editor = this.#createEditor();
     this.designInspector = new DesignInspectorHost({ host, ...this.#editingParts(), children: this.children });
     this.styleEditor = new StyleEditorHost({
@@ -171,6 +175,25 @@ export class StudioWorkspace {
     if (status === "signed-out" || status === "expired") this.recipes.resetAuthority();
     if (status !== "fresh" || this.catalog.catalog !== undefined) return;
     this.catalog.refresh();
+  }
+
+  async #saveCurrentView(current: () => void): Promise<void> {
+    const mapView = this.children.canvas()?.mapView;
+    await mapView?.settleAuthoredView();
+    current();
+    const camera = mapView?.camera();
+    if (!camera) return;
+    const command: CompositionCommand = { name: "setView", view: { ...camera, pitch: camera.pitch ?? 0 } };
+    const outcome = await this.editor.applyQueuedDraftCommands([command]);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    current();
+    this.children.chat()?.activityLog.append("composition_command_applied", {
+      toolName: command.name,
+      mode: "workspace",
+      command: command.name,
+      commandInput: structuredClone(command),
+      ...this.drafts.identity,
+    });
   }
 
   #editingParts() {

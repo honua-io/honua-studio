@@ -93,6 +93,12 @@ describe("composition/reducer applyCompositionCommand", () => {
     expect(state.view).toEqual({ zoom: 12, center: [1, 2] });
   });
 
+  it("setView replaces a previous bbox when a camera center is supplied", () => {
+    const initial = { ...createEmptyCompositionState(), view: { bbox: [0, 0, 1, 1] as const } };
+    const command = cmd({ name: "setView", view: { center: [2, 3], zoom: 10 } });
+    expect(applyCompositionCommand(initial, command).state.view).toEqual({ center: [2, 3], zoom: 10 });
+  });
+
   it("setView rejects out-of-bounds zoom/pitch/bearing", () => {
     for (const view of [{ zoom: 25 }, { zoom: -1 }, { pitch: 90 }, { bearing: 360 }, { bearing: -1 }]) {
       try {

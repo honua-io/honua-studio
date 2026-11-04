@@ -45,7 +45,10 @@ workflow qualification remain separate from the producer's fixture checks.
 - **Durable artifacts** — compositions serialize to the Studio package
   families (`@honua/sdk-js/studio`) and save through
   [honua-server](https://github.com/honua-io/honua-server)'s Studio package
-  lifecycle: drafts, immutable versions, comparisons, publish, rollback.
+  lifecycle: drafts, immutable versions, comparisons, publish, rollback. Saving an active workspace
+  version records the rendered center, zoom, bearing and pitch; reopening restores that view.
+  Pending authored camera transitions finish at their target before capture.
+  Without a rendered camera, the authored view is retained.
 - **Collaboration through the platform** — asynchronous today via shared
   drafts and version history. Live co-editing exists server-side
   (honua-io/honua-server#2999, landed in honua-server PR #3035); Studio has no
@@ -88,6 +91,9 @@ under its mount. Local browser checks used cached Chromium 147 with retries
 disabled because the pinned Chromium 149 download was unavailable. The ordinary
 CI browser remains pinned by Playwright. These are fixture-based package checks;
 installed authenticated workflows and real-model qualification remain separate.
+
+Camera persistence is covered by eight focused unit regressions and three real-camera
+save/reopen journeys against the mock server.
 
 The Blazor packaging follow-up also passed all six browser checks against its
 built assets and real ASP.NET Core host, including a composition-bound canvas
@@ -360,7 +366,7 @@ Other commands:
 | `npm run check` / `npm run check:fix` | Biome lint + format check / autofix |
 | `npm test` | Unit tests (Vitest), including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); current audience integration totals and installed end-to-end workflow qualification remain pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
-| `npm run test:browser` | Builds, then runs Playwright boot/harness/journey/accessibility tests (chromium); includes the Explore recipe rendered/filter/save-reopen and lost-response/denied-source journeys |
+| `npm run test:browser` | Builds, then runs Playwright boot/harness/journey/accessibility tests (chromium); includes camera save/reopen from world and bbox views, plus the Explore recipe rendered/filter/save-reopen and lost-response/denied-source journeys |
 | `npm run test:console-assets` | Builds production Console assets, then runs five public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
 | `npm run test:self-hosted-preview` | Browser BYOM preview receipt against the built `honua-studio:ci` image; needs that image and Playwright chromium. The container smoke builds the image, then runs this. Uses no demo credential |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
