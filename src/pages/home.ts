@@ -20,10 +20,9 @@ function renderGate(list: HTMLElement, testId: string, message: string): void {
 }
 
 /**
- * Home view: proves REQ-002 (tokens render real chrome), REQ-003 (data loads
- * from the wired server) — and, as of honua-studio#4, AD-6 ("authenticated to
- * honua-server, always"): the catalog/packages calls only fire once `auth`
- * reports a fresh session, and a session that expires mid-view is reported
+ * Home view. Tokens render real chrome, and catalog data loads from the
+ * wired server. The catalog and package calls only fire once `auth` reports
+ * a fresh session, and a session that expires mid-view is reported
  * distinctly from a generic fetch failure.
  */
 export interface HomeViewContext {

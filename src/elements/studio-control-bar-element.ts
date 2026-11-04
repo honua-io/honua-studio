@@ -2,7 +2,6 @@ import type { CompositionController } from "../composition/controller.js";
 import type { CompositionControl, CompositionTarget } from "../composition/model.js";
 /**
  * `<honua-studio-control-bar>` — the controls collection, rendered
- * (honua-studio#25).
  *
  * honua-studio#24 gave the agent widgets: surfaces that *display*. This gives
  * it controls: affordances that *input*. The distinction is the whole reason
@@ -63,7 +62,7 @@ import {
   pathLengthMeters,
   ringAreaSquareMeters,
 } from "../controls/geodesy.js";
-// Concrete modules, never `../interactions/index.js` — honua-studio#23's
+// Concrete modules, never `../interactions/index.js` — the
 // lazy-chunk rule (see `./studio-canvas-element.ts`'s import block for the
 // double-module-evaluation hazard a barrel round-trip creates under Blazor).
 import type { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
@@ -244,10 +243,6 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       </section>
     `);
   }
-
-  // -------------------------------------------------------------------------
-  // Rendering
-  // -------------------------------------------------------------------------
 
   #renderControl(control: CompositionControl): string {
     const controller = this.#composition;
@@ -647,10 +642,6 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // filterSelect domain derivation
-  // -------------------------------------------------------------------------
-
   /**
    * ADR-0031 says `sourceId` names "the layer whose field values populate a
    * filterSelect", so a select with no authored options derives them — one
@@ -740,10 +731,6 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       });
     return { status: "loading" };
   }
-
-  // -------------------------------------------------------------------------
-  // Delegated interaction
-  // -------------------------------------------------------------------------
 
   #onClick(event: Event): void {
     const target = actionElement(event, [
@@ -954,7 +941,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     this.#applyIntrinsic({ name: "setView", view: { ...bookmark.view } });
   }
 
-  /** Runs an intrinsic mutation through the reducer — the same discipline honua-studio#24's TOC toggle established. */
+  /** Runs an intrinsic mutation through the reducer — the same discipline the TOC toggle established. */
   #applyIntrinsic(command: unknown): void {
     const controller = this.#composition;
     if (!controller) return;

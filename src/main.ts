@@ -37,7 +37,7 @@ import { installRuntimeConfig, loadRuntimeConfig } from "./runtime-config.js";
 declare global {
   interface Window {
     /**
-     * Test-only fixture-mode hook (honua-studio#6), set via
+     * Test-only fixture-mode hook, set via
      * `page.addInitScript` — the same pattern
      * `harness/bare/mount.ts`'s `__honuaStudioFixtureToken` and
      * `test/playwright/host-adapter-boot.spec.mjs`'s window-global session

@@ -1,5 +1,5 @@
 /**
- * `src/auth` — public surface (honua-studio#4).
+ * `src/auth` — public surface.
  *
  * `createAuthSession()` is the one entry point main.ts calls: it picks
  * standalone OIDC ({@link OidcAuthSession}) or embed host-adapter mode
@@ -32,7 +32,7 @@ export type {
 
 /**
  * The well-known global a host page sets *before* Studio boots to hand it a
- * session (REQ-003). A future custom-element property (honua-studio#5) will
+ * session. A future custom-element property will
  * supersede this as the primary attach point; both will detect the same
  * {@link SessionAdapter} shape. See docs/embed-session.md.
  */

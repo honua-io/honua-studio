@@ -1,5 +1,5 @@
 /**
- * Pure token-lifecycle reducer (honua-studio#4): fresh -> refresh -> rotate,
+ * Pure token-lifecycle reducer: fresh -> refresh -> rotate,
  * or -> expire. Kept independent of the OAuth2 provider / DOM / network so
  * the state machine itself is directly unit-testable — see
  * test/auth/state-machine.test.ts. {@link OidcAuthSession} and

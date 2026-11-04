@@ -1,6 +1,6 @@
 import type { StudioAiChatEvent, StudioAiStopReason } from "./ai-contract.js";
 /**
- * Pure message-state reducer (honua-studio#6). `<honua-studio-chat>` is a
+ * Pure message-state reducer. `<honua-studio-chat>` is a
  * thin renderer over this module's `ChatState` — every state transition is a
  * `chatReducer(state, action) -> state` call, so the streaming
  * text-accumulation / tool-call-card lifecycle / annotation-chip lifecycle

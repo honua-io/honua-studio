@@ -4,13 +4,13 @@
  * message list with streaming text, an activity-log-backed history, and a
  * composer with removable annotation reference chips (spec REQ-012). Talks
  * to the model exclusively through the `ChatTransport` seam
- * (`../chat/transport.js`) — `SseChatTransport` (honua-server#3010) by
+ * (`../chat/transport.js`) — `SseChatTransport` by
  * default, or a host-assigned `FixtureChatTransport` for deterministic
  * dev/CI/demo replay (AD-4).
  *
  * Per the issue framing (AD-5/AD-8): this element EMITS tool-call intents
  * (`honua-studio-chat-tool-call-result`) and renders results — it does not
- * own composition state. A future composition engine (honua-studio#8) is
+ * own composition state. A future composition engine is
  * the intended consumer of that event.
  */
 import {

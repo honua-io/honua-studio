@@ -50,10 +50,6 @@ import type {
   StudioMcpWidgetInput,
 } from "./studio-tools.js";
 
-// ---------------------------------------------------------------------------
-// Resolution result
-// ---------------------------------------------------------------------------
-
 export type ToolBridgeVocabulary = "composition" | "chat-fixture" | "server-mcp";
 
 export type ToolBridgeErrorCode = "unknown-tool" | "unsupported" | "invalid-arguments";
@@ -87,10 +83,6 @@ function failure(toolName: string, code: ToolBridgeErrorCode, reason: string): T
   return { ok: false, toolName, code, reason };
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
   const proto = Object.getPrototypeOf(value);
@@ -115,10 +107,6 @@ function finalizeCommand(name: CompositionCommandName, fields: Record<string, un
 function styleRefFromString(styleRef: unknown): CompositionStyleRef | undefined {
   return isNonEmptyString(styleRef) ? { kind: "style-ref", styleId: styleRef } : undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Bridge table entries
-// ---------------------------------------------------------------------------
 
 interface BridgeTableEntry {
   readonly vocabulary: ToolBridgeVocabulary;
@@ -148,7 +136,7 @@ function compositionPassthroughEntry(
 }
 
 const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
-  // ---- This engine's own vocabulary (camelCase) --------------------------
+  // This engine's own vocabulary (camelCase).
   addLayer: compositionPassthroughEntry("addLayer", "honua_studio_add_layer"),
   removeLayer: compositionPassthroughEntry("removeLayer", "honua_studio_remove_layer"),
   setLayerStyleRef: compositionPassthroughEntry("setLayerStyleRef", "honua_studio_set_layer_style"),
@@ -159,8 +147,8 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
     build: (args) => finalizeCommand("setMapStyle", { mapSpec: args.mapSpec }),
   },
   /**
-   * honua-studio#24's TOC/compare/time toggles and any agent-authored "hide
-   * the parcels" both land here, and both now delegate (honua-studio#31).
+   * the TOC/compare/time toggles and any agent-authored "hide
+   * the parcels" both land here, and both now delegate.
    *
    * This entry carried no `serverToolName` while honua-server had no tool for
    * it, which made a toggle sync-fragile in a way pins are not: `visible`
@@ -186,7 +174,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   pin: compositionPassthroughEntry("pin"),
   unpin: compositionPassthroughEntry("unpin"),
 
-  // ---- honua-studio#6's chat-fixture vocabulary (snake_case) -------------
+  // Chat-fixture vocabulary (snake_case).
   // `src/chat/fixtures/compose-districts-map.json`'s `add_layer`:
   // `{ datasetId, styleBy }`. `styleBy` is treated as a style catalog id —
   // the fixture's own placeholder vocabulary doesn't distinguish "style id"
@@ -233,7 +221,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
     },
   },
 
-  // ---- honua-server#3002's honua_studio_* vocabulary ----------------------
+  // honua_studio_* vocabulary.
   honua_studio_add_layer: {
     vocabulary: "server-mcp",
     serverToolName: "honua_studio_add_layer",
@@ -334,7 +322,7 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
       return finalizeCommand("removeWidget", { target: { kind: "component", id: args.widgetId } });
     },
   },
-  // honua-server#3196's tool names, understood on the INBOUND side already:
+  // the tool names, understood on the INBOUND side already:
   // an external MCP client (or the model, once the tools are advertised) may
   // call them against this app's tool plane before this app is calling them
   // outbound, and refusing to interpret a call whose semantics we implement
@@ -386,10 +374,6 @@ const TOOL_BRIDGE_TABLE: Readonly<Record<string, BridgeTableEntry>> = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// resolveToolCall
-// ---------------------------------------------------------------------------
-
 /**
  * Resolves one `{ toolName, arguments }` tool-call intent — from a chat
  * event, a fixture script, or an inbound `tools/call` request — into a
@@ -427,9 +411,7 @@ export function bridgedToolNames(): readonly string[] {
   return Object.keys(TOOL_BRIDGE_TABLE);
 }
 
-// ---------------------------------------------------------------------------
 // Server tool argument construction (the AD-8 authoritative path)
-// ---------------------------------------------------------------------------
 
 export interface ServerToolInvocation {
   readonly name: StudioMcpToolName;
@@ -521,10 +503,8 @@ function targetId(target: CompositionTarget): string {
   return target.id;
 }
 
-// ---------------------------------------------------------------------------
 // Server draft body -> local composition state (the "local state refresh
 // from the returned draft" half of the orchestration flow)
-// ---------------------------------------------------------------------------
 
 /**
  * Projects a `StudioCompositionBody` (the server's wire shape for a

@@ -1,12 +1,12 @@
 /**
- * Minimal, dependency-free Server-Sent-Events frame parser (honua-studio#6).
+ * Minimal, dependency-free Server-Sent-Events frame parser.
  * Exists as its own module — independent of `fetch`/`ReadableStream` — so
  * split-chunk boundary behavior (a frame's bytes arriving across two or more
  * `TextDecoder.decode()` calls, at ANY split point: mid-field-name,
  * mid-value, mid-line-terminator, mid-blank-line-terminator) is unit
  * testable without a real network stream.
  *
- * Only the two fields honua-server#3010's `StudioAiProxyEndpoints` actually
+ * Only the two fields the `StudioAiProxyEndpoints` actually
  * writes are parsed (`event:`, `data:`); `id:`/`retry:`/comment (`:`-prefixed)
  * lines are recognized (so they don't corrupt buffering) and otherwise
  * ignored, matching the SSE spec's field vocabulary at

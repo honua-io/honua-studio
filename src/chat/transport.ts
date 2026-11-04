@@ -1,5 +1,5 @@
 /**
- * Chat transport seam (honua-studio#6, AD-4). `<honua-studio-chat>` depends
+ * Chat transport seam. `<honua-studio-chat>` depends
  * only on this interface — never on `fetch` or a concrete provider — so the
  * same element renders identically whether the model is behind the real
  * server AI proxy ({@link SseChatTransport}, honua-server#3010) or a

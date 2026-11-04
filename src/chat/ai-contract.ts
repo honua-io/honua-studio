@@ -1,5 +1,5 @@
 /**
- * Provider-neutral Studio AI proxy wire contract (honua-studio#6, AD-4/AD-8).
+ * Provider-neutral Studio AI proxy wire contract.
  * Client/fixture projection of honua-server#3010 (`POST /api/v1/studio/ai/chat`, SSE) —
  * see that PR's `src/Honua.Ai/Features/StudioAiProxy/Domain/StudioAiChatEvent.cs`
  * and `StudioAiChatModels.cs`, and `src/Honua.Server/Features/StudioAi/StudioAiProxyEndpoints.cs`.
@@ -22,7 +22,7 @@
  *    `message_stop`, `error`, `transcript_provenance` — independent of the
  *    JSON naming policy above. `SSE_EVENT_NAME_TO_TYPE` bridges the two
  *    vocabularies.
- *  - `transcriptProvenance` (honua-io/honua-sdk-js#1748) is the proxy's
+ * - `transcriptProvenance` is the proxy's
  *    detached signed transcript for a certification-bound request. It is the
  *    terminal event of a round and carries no chat content: the SDK's
  *    `StudioAgentSession` verifies it before dispatching any model-selected
@@ -47,7 +47,6 @@ export interface StudioAiChatMessage {
  * `StudioAiTranscriptCertification` minus `tenantId`, which the proxy
  * resolves itself. A request carrying it is answered with a signed
  * `transcriptProvenance` event. The proxy admits it only from admin callers
- * (honua-io/honua-sdk-js#1744).
  */
 export interface StudioAiTranscriptCertification {
   readonly candidateId: string;
