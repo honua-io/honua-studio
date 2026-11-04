@@ -85,9 +85,9 @@ interface HomeLoader {
 
 function createHomeLoader(lists: HomeLists, { client, onAddSource }: HomeViewContext): HomeLoader {
   let loaded = false;
-  const failed = (list: HTMLElement, testIdPrefix: string, label: string) => (error: unknown) => {
+  const failed = (list: HTMLElement, subject: LoadSubject) => (error: unknown) => {
     loaded = false;
-    renderLoadError(list, testIdPrefix, label, error);
+    renderLoadError(list, subject, error);
   };
   return {
     load() {
@@ -98,11 +98,11 @@ function createHomeLoader(lists: HomeLists, { client, onAddSource }: HomeViewCon
       client
         .listCatalog()
         .then((datasets) => renderCatalog(lists.catalog, datasets, onAddSource))
-        .catch(failed(lists.catalog, "catalog", "the catalog"));
+        .catch(failed(lists.catalog, CATALOG_SUBJECT));
       client
         .listPackages()
         .then((packages) => renderPackages(lists.packages, packages))
-        .catch(failed(lists.packages, "packages", "Studio packages"));
+        .catch(failed(lists.packages, PACKAGES_SUBJECT));
     },
     reset() {
       loaded = false;
@@ -112,7 +112,15 @@ function createHomeLoader(lists: HomeLists, { client, onAddSource }: HomeViewCon
 
 const LOADING_ITEM = '<li class="hn-muted">Loading…</li>';
 
-function renderLoadError(list: HTMLElement, testIdPrefix: string, label: string, error: unknown): void {
+interface LoadSubject {
+  readonly testIdPrefix: string;
+  readonly label: string;
+}
+
+const CATALOG_SUBJECT: LoadSubject = { testIdPrefix: "catalog", label: "the catalog" };
+const PACKAGES_SUBJECT: LoadSubject = { testIdPrefix: "packages", label: "Studio packages" };
+
+function renderLoadError(list: HTMLElement, { testIdPrefix, label }: LoadSubject, error: unknown): void {
   list.innerHTML =
     error instanceof StudioSessionExpiredError
       ? `<li class="hn-error" data-testid="${testIdPrefix}-session-expired">${describeError(error)}</li>`
@@ -122,22 +130,29 @@ function renderLoadError(list: HTMLElement, testIdPrefix: string, label: string,
 type AddSource = HomeViewContext["onAddSource"];
 
 function renderCatalog(list: HTMLElement, datasets: readonly CatalogDataset[], onAddSource: AddSource): void {
-  list.innerHTML = datasets.length
-    ? datasets.map((dataset, index) => catalogItem(dataset, index, onAddSource !== undefined)).join("")
-    : '<li class="hn-muted" data-testid="catalog-empty">No datasets yet.</li>';
-  if (!onAddSource) return;
+  if (!datasets.length) {
+    list.innerHTML = '<li class="hn-muted" data-testid="catalog-empty">No datasets yet.</li>';
+    return;
+  }
+  if (!onAddSource) {
+    list.innerHTML = datasets.map((dataset) => `<li>${catalogSummary(dataset)}</li>`).join("");
+    return;
+  }
+  list.innerHTML = datasets
+    .map((dataset, index) => `<li>${catalogSummary(dataset)}${addAction(dataset, index)}</li>`)
+    .join("");
   for (const button of list.querySelectorAll<HTMLButtonElement>("button[data-catalog-index]")) {
     const dataset = datasets[Number(button.dataset.catalogIndex)];
     if (dataset) bindAddButton(button, () => onAddSource(dataset));
   }
 }
 
-function catalogItem(dataset: CatalogDataset, index: number, addable: boolean): string {
-  const title = escapeHtml(dataset.title);
-  const addButton = addable
-    ? `<button type="button" class="hn-btn hn-btn--sm" data-catalog-index="${index}" aria-label="Add ${title} to map">Add to map</button><span role="status"></span>`
-    : "";
-  return `<li><span class="hn-badge">${escapeHtml(dataset.protocol)}</span> ${title} <span class="hn-muted">(${escapeHtml(dataset.geometryType)})</span> ${addButton}</li>`;
+function catalogSummary(dataset: CatalogDataset): string {
+  return `<span class="hn-badge">${escapeHtml(dataset.protocol)}</span> ${escapeHtml(dataset.title)} <span class="hn-muted">(${escapeHtml(dataset.geometryType)})</span> `;
+}
+
+function addAction(dataset: CatalogDataset, index: number): string {
+  return `<button type="button" class="hn-btn hn-btn--sm" data-catalog-index="${index}" aria-label="Add ${escapeHtml(dataset.title)} to map">Add to map</button><span role="status"></span>`;
 }
 
 function bindAddButton(button: HTMLButtonElement, add: () => Promise<void>): void {
