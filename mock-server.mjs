@@ -127,6 +127,7 @@ import {
   compositionWithoutLayer,
   viewBoundsViolation,
 } from "./scripts/lib/mock-composition.mjs";
+import { layerRemovalBlocker } from "./src/composition/source-use.mjs";
 
 // Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
 // file's module doc for why it's a duplicate, not an import.
@@ -709,6 +710,8 @@ function createMcpDispatcher(store, catalogDatasets) {
         if (!removedLayer) {
           return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
         }
+        const blocker = layerRemovalBlocker(body, removedLayer.id);
+        if (blocker) return { error: toolError("invalid_argument", blocker.message) };
         return { body: compositionWithoutLayer(body, removedLayer) };
       });
     },

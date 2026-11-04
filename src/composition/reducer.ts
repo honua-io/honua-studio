@@ -56,6 +56,7 @@ import {
   compositionTargetsEqual,
   interactionsReferencingControl,
 } from "./model.js";
+import { layerRemovalBlocker } from "./source-use.mjs";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -74,7 +75,8 @@ export type CompositionCommandErrorCode =
    * the offending binding ids and the way forward, because "the removal
    * failed" without them is a dead end for both a human and an agent.
    */
-  | "interaction-conflict";
+  | "interaction-conflict"
+  | "source-in-use";
 
 /** Thrown by {@link applyCompositionCommand} for any rejected command. Never thrown mid-mutation — state is untouched on failure. */
 export class CompositionCommandError extends Error {
@@ -235,6 +237,7 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       const resolution = requireResolved(state, command.target, "layer", command);
       guardPin(resolution, command);
       const id = nonFeatureTargetId(command.target);
+      guardSourceStillUsed(state, id, command);
       const metadata = state.mapSpec?.metadata as Record<string, unknown> | undefined;
       const captured = metadata?.[COMPOSITION_STYLE_LAYER_IDS];
       return {
@@ -376,6 +379,11 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
     case "unpin":
       return applyUnpin(state, command.target);
   }
+}
+
+function guardSourceStillUsed(state: CompositionState, layerId: string, command: CompositionCommand): void {
+  const blocker = layerRemovalBlocker(state, layerId);
+  if (blocker) throw new CompositionCommandError("source-in-use", blocker.message, { command });
 }
 
 function applyAddLayer(
