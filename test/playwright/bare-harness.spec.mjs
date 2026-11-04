@@ -26,7 +26,7 @@ test.describe("bare embed harness (harness/bare)", () => {
       // soon as the page parses) sees it when constructing the fixture
       // session assigned to <honua-studio-app>.session — the PRIMARY embed
       // injection path (docs/embed-session.md), not the window-global
-      // fallback #4's own host-adapter-boot.spec.mjs exercises.
+      // fallback that host-adapter-boot.spec.mjs exercises.
       await page.addInitScript((token) => {
         window.__honuaStudioFixtureToken = token;
       }, mintFixtureAccessToken());

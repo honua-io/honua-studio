@@ -25,7 +25,6 @@ if (!inputPath) {
   process.exit(2);
 }
 
-/** Rounds one position and drops it when it repeats the previous one. */
 function quantizeRing(ring) {
   const out = [];
   for (const position of ring) {

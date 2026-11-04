@@ -1308,8 +1308,7 @@ function createStudioLifecycleRestRouter(store) {
         if (familiesResult.families && !familiesResult.families.includes(item.family)) return false;
         if (workspaceId !== undefined && item.workspaceId !== workspaceId) return false;
         // Ownership stand-in per the doc: filters on the item's recorded
-        // creator (createdBy) until honua-server#3001 lands per-item
-        // ownership.
+        // creator (createdBy) until the server records per-item ownership.
         if (owner !== undefined && item.createdBy !== owner) return false;
         if (states && !states.includes(itemState(item))) return false;
         if (q && !item.packageKey.toLowerCase().includes(q)) return false;
@@ -1976,7 +1975,6 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
       if (rest === "/cancel" && method === "POST") {
         const current = computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets);
         if (current.status === "successful" || current.status === "failed" || current.status === "dismissed") {
-          // A terminal job is returned unchanged.
           apiResponse(res, 200, current);
           return true;
         }
@@ -1999,7 +1997,8 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
 }
 
 // Geometry is generated, not copied: a deterministic grid, clearly synthetic,
-// so fixture journeys stay byte-stable and never claim to be real parcels.
+// sized so the whole collection fits in one bounded response. Fixture
+// journeys stay byte-stable and never claim to be real parcels.
 // OGC API Features serves the `ogc-features` datasets; GeoServices metadata
 // and paged queries serve FeatureServer.
 

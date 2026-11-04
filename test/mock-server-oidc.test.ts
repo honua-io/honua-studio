@@ -175,7 +175,7 @@ describe("mock-server.mjs OIDC issuer + protected Studio routes", () => {
     expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
 
     // Replaying the ORIGINAL (now-spent) refresh token must fail — this is
-    // the P2-8 rotation guarantee, not silent-iframe refresh.
+    // the rotation guarantee, not silent-iframe refresh.
     const replay = await fetch(discovery.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

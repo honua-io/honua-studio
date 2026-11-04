@@ -26,7 +26,7 @@ const readMapState = () => {
 };
 
 /**
- * Studio is a signed-in application (#1 REQ-009) and the catalog the map
+ * Studio is a signed-in application, and the catalog the map
  * resolves sources against is bearer-gated, so every journey here starts by
  * assigning a session — the same `SessionAdapter` shape
  * `mcp-compose-journey.spec.mjs` uses. Without it the composition would still

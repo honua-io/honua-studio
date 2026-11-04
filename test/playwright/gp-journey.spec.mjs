@@ -91,7 +91,6 @@ test.describe("GP journey: validate -> preview -> confirm -> execute -> monitor 
       // The honest caveat is always visible, not gated behind any action.
       await expect(page.getByTestId("gp-validation-caveat")).toContainText(/envelope-only/i);
 
-      // Validate.
       await page.getByTestId("gp-panel-validate").click();
       await expect(page.getByTestId("gp-panel-validation-status")).toContainText("valid");
 
