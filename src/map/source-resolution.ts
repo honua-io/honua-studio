@@ -54,6 +54,14 @@ export type MapPackageProtocol =
   | "raster_tile"
   | "pmtiles";
 
+const GEOSERVICES_FEATURE_SERVICE_PROTOCOL = "geoservices_feature_service" satisfies MapPackageProtocol;
+const OGC_FEATURES_PROTOCOL = "ogc_features" satisfies MapPackageProtocol;
+
+export const DRAFT_WRITER_PROTOCOLS = [
+  GEOSERVICES_FEATURE_SERVICE_PROTOCOL,
+  OGC_FEATURES_PROTOCOL,
+] as const satisfies readonly MapPackageProtocol[];
+
 /** A durable source binding — structurally the SDK's `HonuaMapPackageSourceBinding`. */
 export interface CompositionSourceBinding {
   readonly sourceId: string;
@@ -282,7 +290,7 @@ export function resolveCompositionSource(
     return {
       binding: {
         sourceId: layer.sourceId,
-        protocol: "ogc_features",
+        protocol: OGC_FEATURES_PROTOCOL,
         locator: { url: collectionRoot, collectionId },
       },
       source: {
@@ -310,7 +318,7 @@ export function resolveCompositionSource(
     return {
       binding: {
         sourceId: layer.sourceId,
-        protocol: "geoservices_feature_service",
+        protocol: GEOSERVICES_FEATURE_SERVICE_PROTOCOL,
         locator: { url: serviceUrl, layerId },
       },
       source: {
