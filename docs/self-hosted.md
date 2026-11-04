@@ -40,7 +40,7 @@ Changing `config.json` and restarting the container repoints the same image;
 no `npm` install or asset rebuild is involved. OIDC redirect URIs must include
 the externally visible Studio URL. The server must allow that origin.
 
-The tag release workflow runs the pinned Trivy and Scorecard scans and the full
+The tag release workflow runs the pinned Trivy scan and the full
 smoke suite ([`smoke-suite.yml`](../.github/workflows/smoke-suite.yml) — the
 same container, browser and Blazor-host smokes CI runs on every pull request).
 It then builds a reproducible static archive, verifies runtime config on the
