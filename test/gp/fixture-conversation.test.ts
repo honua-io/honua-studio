@@ -54,7 +54,6 @@ describe("GP fixture journey: author -> validate -> preview -> confirm -> execut
       outputs: expect.arrayContaining([expect.objectContaining({ id: "affected-parcels" })]),
     });
     expect(authored.validation).toBeDefined();
-    // REQ-002: the preview plan is job-backed for the gp family.
     expect(authored.preview).toMatchObject({ requiresJob: true });
 
     // "Confirm" = the human has seen the requiresJob preview plan above and

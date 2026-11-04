@@ -183,7 +183,6 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
       });
       expect(compiled).toEqual({ ok: true, pairs: ["change -> setFilter"] });
 
-      // Clearing the control clears the map filter.
       await page.getByTestId("studio-control-filter-select").selectOption("");
       await expect.poll(() => page.evaluate(readLayerFilter, "hi-parcels")).toBeNull();
 

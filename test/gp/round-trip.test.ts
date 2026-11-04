@@ -68,7 +68,6 @@ describe("gp round trip: open -> validate -> preview -> submit -> save-version -
     const firstJob = await jobs.submit({ draftId: opened.draftId });
     expect(firstJob.status).toBe("accepted");
 
-    // "Save as version": captures the envelope as v1.
     const v1 = await lifecycle.saveAsVersion(opened.draftId);
     expect(v1.envelope.body).toEqual(FIXTURE_BODY);
 
