@@ -1,5 +1,5 @@
 /**
- * Embed host-adapter boot (honua-studio#4 REQ-003, docs/embed-session.md).
+ * Embed host-adapter boot (docs/embed-session.md).
  * Injects `window.__HONUA_STUDIO_HOST_SESSION__` before any Studio code
  * runs — via `page.addInitScript`, a plain inline object, deliberately
  * *not* the TypeScript fixture in src/auth/, to prove the contract really

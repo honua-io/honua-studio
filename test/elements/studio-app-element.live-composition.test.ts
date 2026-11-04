@@ -27,7 +27,7 @@ registerAllStudioElements();
  * Same discipline as `studio-app-element.test.ts`: assign a `SessionAdapter`
  * BEFORE `appendChild` so the element is in host-adapter auth mode (no OIDC
  * discovery fetch to race), and disable the network so the catalog fetch this
- * shell now makes on connect (honua-studio#23) fails fast and silently.
+ * shell makes on connect fails fast and silently.
  * Nothing in this file is about either.
  */
 function mount(): HonuaStudioAppElement {

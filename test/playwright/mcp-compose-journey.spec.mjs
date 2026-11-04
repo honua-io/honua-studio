@@ -1,17 +1,10 @@
 /**
- * The compose fixture journey (honua-studio#6's `compose-districts-map`
- * scripted conversation), now flowing through the REAL MCP client
- * (`src/mcp/client.ts`, via `<honua-studio-app>`'s `.enableLiveComposition()`
- * — honua-studio#7) against `mock-server.mjs`'s real `/mcp` endpoint,
- * end to end in a real browser: chat tool-call event -> tool-bridge ->
- * `McpClient.initialize()` + `tools/call` (`honua_studio_add_layer` /
- * `honua_studio_add_widget`) -> local composition state refreshed from the
- * server's returned draft -> `<honua-studio-canvas>` re-renders.
+ * `compose-districts-map` flows through the real MCP client against
+ * `mock-server.mjs`'s `/mcp` endpoint: a chat tool-call reaches `tools/call`,
+ * and the canvas re-renders from the returned draft.
  *
- * The chat side stays on `FixtureChatTransport` (AD-4's no-model
- * fixture-conversation mode, same as `chat-fixture-journey.spec.mjs`) — this
- * spec's own subject is the MCP tool plane the tool-call intents flow
- * through, not the chat streaming path #6 already covers.
+ * Chat stays on `FixtureChatTransport` (no model). The subject is the MCP
+ * tool plane, not the chat stream.
  */
 import { expect, test } from "@playwright/test";
 
@@ -88,7 +81,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
       const afterSecondCall = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation);
       expect(afterSecondCall).toBeGreaterThan(afterFirstCall.generation);
 
-      // The canvas readout (honua-studio#8) reflects the server-confirmed state.
+      // The canvas readout reflects the server-confirmed state.
       await expect(page.getByTestId("studio-canvas-layers")).toContainText("hi-parcels");
       await expect(page.getByTestId("studio-canvas-widgets")).toContainText("chart-hi-parcels-zoning_code");
 
@@ -209,8 +202,8 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers[0]?.visible))
         .toBe(false);
 
-      // An unrelated composition mutation syncs the draft — the exact
-      // sequence that used to bring a hidden layer back (honua-studio#31).
+      // An unrelated composition mutation syncs the draft. The hidden layer
+      // must stay hidden.
       await page.evaluate(() =>
         window.__honuaStudioApp.toolCallOrchestrator.handleToolCall({
           toolName: "setView",

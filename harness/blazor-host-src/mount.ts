@@ -1,5 +1,5 @@
 /**
- * Blazor Web App test host glue (honua-studio#5; see
+ * Blazor Web App test host glue (see
  * harness/blazor-host/README.md § Findings for the full story). Built by
  * ../../vite.blazor-assets.config.ts into
  * harness/blazor-host/StudioHost/wwwroot/studio/{mount.js,style.css},
@@ -50,7 +50,7 @@ const BASE_PATH = "/studio";
 const CONTAINER_ID = "studio-host";
 
 function ensureContainer(): HTMLElement {
-  // honua-studio#5 finding (harness/blazor-host/README.md § Findings,
+  // harness/blazor-host/README.md § Findings,
   // hazard 1): this container is created here, in JS, and NEVER declared in
   // any .razor file. A version of this that instead targeted a
   // server-rendered `<div id="studio-host">` — whether inside <Routes/>,
@@ -102,7 +102,7 @@ function syncCurrentPath(): void {
 }
 
 /**
- * honua-studio#5 finding (harness/blazor-host/README.md § Findings, hazard
+ * harness/blazor-host/README.md § Findings, hazard
  * 1): `mount()` alone is not enough. Empirically (three placements tried:
  * inside `<Routes/>`, in the shared layout outside `@Body`, and a plain JS
  * container prepended straight to `<body>`, even to `<html>` itself), a

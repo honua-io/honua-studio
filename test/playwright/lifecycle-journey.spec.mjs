@@ -1,5 +1,5 @@
 /**
- * The package lifecycle journey (honua-studio#9): browse -> open -> edit ->
+ * The package lifecycle journey: browse -> open -> edit ->
  * version -> compare -> publish-confirm, driven through
  * `<honua-studio-content-browser>` + `<honua-studio-lifecycle-panel>` in a
  * REAL browser against `mock-server.mjs`'s real REST lifecycle routes —

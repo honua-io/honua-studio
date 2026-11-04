@@ -1,5 +1,5 @@
 /**
- * Versioned, re-runnable GP packages (honua-studio#10 REQ-005): a saved `gp`
+ * Versioned, re-runnable GP packages: a saved `gp`
  * version reopens as a draft and re-executes with new parameters — the
  * SAME open -> save-version -> reopen round trip
  * `test/lifecycle/round-trip.test.ts` proves for map/query/dashboard,

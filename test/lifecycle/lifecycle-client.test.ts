@@ -1,6 +1,6 @@
 /**
  * `StudioLifecycleClient` against the REAL `mock-server.mjs` REST lifecycle
- * routes (honua-studio#9) — mirrors `test/mcp/mock-mcp-server.test.ts`'s
+ * routes — mirrors `test/mcp/mock-mcp-server.test.ts`'s
  * "exercise the actual fixture, not a re-implementation of it" approach.
  * Covers the full endpoint table (`docs/internal/admin-api/studio-package-lifecycle.md`):
  * capability discovery, draft CRUD + validate/preview-plan, save-as-version,

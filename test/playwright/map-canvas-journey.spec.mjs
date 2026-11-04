@@ -1,20 +1,8 @@
 /**
- * honua-studio#23's acceptance criteria, in a real browser with a real
- * MapLibre GL renderer:
- *
- *  - streaming tool calls visibly mutate a real map (REQ-001),
- *  - fixture mode remains deterministic and the default (REQ-005),
- *  - live composition is reachable from the UI (REQ-004),
- *  - no runtime CDN fetches (REQ-003).
- *
- * The last one is asserted the only way it can be asserted honestly: by
- * recording **every** request the page makes and failing on any that leaves
- * the preview origin. A test that merely checked for a hard-coded CDN
- * hostname would pass the day someone added a different one.
- *
- * The chat side stays on `FixtureChatTransport` (AD-4's no-model
- * fixture-conversation mode, same as `chat-fixture-journey.spec.mjs`) — the
- * subject here is the map surface the tool calls land on.
+ * Off-origin requests are caught by recording every request and failing when
+ * one leaves the preview origin. A hard-coded CDN hostname would miss the
+ * next host. Chat stays on `FixtureChatTransport` (no model); the subject is
+ * the map surface the tool calls land on.
  */
 import { expect, test } from "@playwright/test";
 

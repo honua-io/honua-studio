@@ -1,6 +1,6 @@
 /**
  * Protocol-level tests against `mock-server.mjs`'s `/mcp` endpoint over real
- * loopback HTTP (honua-studio#7) — the same fixture `src/mcp/client.ts` and
+ * loopback HTTP — the same fixture `src/mcp/client.ts` and
  * the parity test drive. Mirrors `test/mock-server-oidc.test.ts`'s
  * "exercise the actual fixture, not a re-implementation of it" approach.
  */

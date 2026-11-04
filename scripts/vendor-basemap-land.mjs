@@ -1,6 +1,6 @@
 /**
  * Re-vendors `src/map/assets/natural-earth-land-110m.json` from a freshly
- * downloaded Natural Earth 1:110m land GeoJSON (honua-studio#23 REQ-003).
+ * downloaded Natural Earth 1:110m land GeoJSON.
  *
  * The vendored asset is a build INPUT that ships in the bundle, so how it was
  * produced has to be reproducible rather than remembered — run this script,

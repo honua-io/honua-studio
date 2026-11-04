@@ -1,6 +1,6 @@
 /**
  * `DraftSync` over the REAL SDK lifecycle client, against the REAL
- * `mock-server.mjs` REST lifecycle store (honua-studio#30).
+ * `mock-server.mjs` REST lifecycle store.
  *
  * `composition/history.ts` described this adapter in prose for three
  * releases; nothing checked it, because the pinned SDK had no lifecycle
@@ -112,8 +112,7 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
     expect(draft.envelope.body.view).toEqual(state.view);
     expect(draft.envelope.body.widgets).toEqual(state.widgets);
     expect(draft.envelope.body.controls).toEqual(state.controls);
-    // …and pins do not, deliberately: honua-studio#30 excludes app-only
-    // annotations and pins from the durable envelope, and
+    // Pins and annotations stay out of the durable envelope.
     // `StudioCompositionBodyEditor` models neither server-side.
     expect(state.pins).toHaveLength(1);
     expect(draft.envelope.body.pins).toEqual([]);

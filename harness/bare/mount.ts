@@ -1,12 +1,8 @@
 /**
- * Bare embed harness bootstrap (honua-studio#5 REQ-003). Mounts
- * `<honua-studio-app>` with a fixture session assigned through the PRIMARY
- * embed injection path — the element's own `.session` property
- * (docs/embed-session.md) — using nothing beyond the public element
- * contract (src/elements/index.js) — the same contract the standalone shell
- * (src/main.ts) and the Blazor test host (harness/blazor-host) use. Proves
- * third-party hosting without console and without the standalone shell's
- * own chrome/theming choices.
+ * Mounts `<honua-studio-app>` through the element's own `.session` property
+ * (docs/embed-session.md) and only the public element contract, the same
+ * contract the standalone shell and the Blazor test host use. Proves
+ * third-party hosting without the standalone shell's chrome.
  */
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";

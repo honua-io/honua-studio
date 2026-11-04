@@ -1,119 +1,20 @@
 /**
- * Mock honua-server fixture (honua-studio#3 REQ-003, honua-studio#4 REQ-001).
+ * Loopback stand-in for honua-server and the OIDC provider it delegates to.
+ * No network. The Vite proxy rewrites `/api` and forwards `/oidc`, so this
+ * fixture and a real server are interchangeable from the client.
  *
- * A tiny, dependency-free `node:http` server that serves canned Studio
- * catalog/lifecycle JSON and stands in for BOTH honua-server and the OIDC
- * identity provider it delegates to (`Oidc__Generic__Authority` in
- * honua-server's own config) — modeled on honua-sdk-js's
- * examples/*\/mock-server.mjs pattern (plain node:http, no framework,
- * exports a start function and is also directly runnable). No network
- * access; loopback only.
+ * `/mcp` and the REST lifecycle routes share one in-memory store per
+ * `startMockServer()` call. A draft mutated through a tool is the same record
+ * a REST read returns. `honua_studio_propose_publication` records an
+ * `AwaitingApproval` proposal and does not publish; a different principal
+ * decides it, and the proposer's own token is refused.
  *
- * Routes (unprefixed — vite.config.ts's dev/preview proxy rewrites
- * /api/* -> * and passes /oidc/* straight through before forwarding, so
- * this fixture and a real honua-server + external IdP (behind
- * HONUA_BASE_URL / HONUA_OIDC_ISSUER) are interchangeable from the
- * client's point of view):
- *   GET  /health                                -> { status, mode }
- *   GET  /v1/studio/catalog                      -> { datasets: CatalogDataset[] }   [bearer required]
- *   GET  /v1/studio/packages                     -> { packages: StudioPackageSummary[] } [bearer required]
- *   GET  /v1/studio/ai/capabilities              -> ApiResponse<StudioAiCapabilitiesResponse> [bearer required]
- *   POST /v1/studio/ai/chat                      -> SSE StudioAiChatEvent stream       [bearer required]
- *   GET  /oidc/.well-known/openid-configuration  -> OIDC discovery document
- *   GET  /oidc/authorize                         -> 302, auto-approves the fixture user (no login UI)
- *   POST /oidc/token                             -> authorization_code exchange + refresh_token ROTATION
- *   POST /oidc/revoke                            -> best-effort refresh-token revocation (RFC 7009)
- *   POST /mcp                                    -> JSON-RPC 2.0 MCP endpoint (honua-studio#7, see below)
- *   GET  /v1/studio/package-families             -> ApiResponse<StudioPackageFamilyCapabilities> [bearer]
- *   GET  /v1/studio/content-items                -> ApiResponse<StudioContentItemListResponse> [bearer]
- *   POST /v1/studio/package-drafts                -> ApiResponse<StudioPackageDraft> [bearer]
- *   GET  /v1/studio/package-drafts                -> ApiResponse<StudioPackageDraftListResponse> [bearer]
- *   GET/PUT/DELETE /v1/studio/package-drafts/{id}  -> ApiResponse<StudioPackageDraft|object> [bearer]
- *   POST /v1/studio/package-drafts/{id}/validate         -> ApiResponse<StudioValidationSummary> [bearer]
- *   POST /v1/studio/package-drafts/{id}/preview-plan     -> ApiResponse<StudioPreviewPlan> [bearer]
- *   POST /v1/studio/package-drafts/{id}/content-versions -> ApiResponse<StudioContentVersion> [bearer]
- *   GET  /v1/studio/content-items/{itemId}/versions              -> ApiResponse<StudioContentVersionListResponse>
- *   GET  /v1/studio/content-items/{itemId}/versions/{versionId}  -> ApiResponse<StudioContentVersion>
- *   POST /v1/studio/content-items/{itemId}/version-comparisons   -> ApiResponse<StudioVersionComparison>
- *   POST /v1/studio/content-items/{itemId}/versions/{versionId}/publish-requests -> ApiResponse<StudioPublicationRequest>
- *   POST /v1/studio/content-items/{itemId}/versions/{versionId}/reopen           -> ApiResponse<StudioPackageDraft>
- *   POST /v1/studio/content-items/{itemId}/rollback-requests                    -> ApiResponse<StudioRollbackRequest>
- *   POST /v1/studio/gp-jobs                      -> ApiResponse<GpJobSnapshot> [bearer] (honua-studio#10)
- *   GET  /v1/studio/gp-jobs/{jobId}               -> ApiResponse<GpJobSnapshot> [bearer]
- *   POST /v1/studio/gp-jobs/{jobId}/cancel        -> ApiResponse<GpJobSnapshot> [bearer]
- *
- * The REST lifecycle + enumeration routes above (honua-studio#9) implement
- * honua-server's `docs/internal/admin-api/studio-package-lifecycle.md`
- * (issue #1180) plus the content-item/draft enumeration endpoints from
- * server PR #3014 (issue #3003) — `src/lifecycle/lifecycle-client.ts` is the
- * typed client that speaks this shape exactly. Successful responses use the
- * documented `ApiResponse<T>` envelope (`{ success, data, timestamp }`);
- * errors use RFC 7807 problem details (`type: "https://honua.io/problems/studio"`).
- * Every lifecycle route requires the same bearer the rest of this fixture's
- * protected routes require (the doc: "require admin authorization in the
- * MVP" — this fixture's one user is always `roles: ["admin"]`, so bearer
- * presence is the only check that matters here).
- *
- * `/mcp` (honua-studio#7) and the REST lifecycle routes above share ONE
- * `createStudioLifecycleStore()` instance per `startMockServer()` call
- * (honua-studio#9 build item 1: "mock-server.mjs gains the REST lifecycle +
- * enumeration endpoints over the same in-memory draft store the /mcp
- * dispatcher uses (ONE store, both surfaces)") — proving spec AD-8
- * coherence in dev mode: a draft an agent mutates through
- * `honua_studio_update_draft` is the exact same record `GET
- * /v1/studio/package-drafts/{draftId}` returns. `honua_studio_propose_publication`
- * records a canonical `AwaitingApproval` proposal for an already-saved
- * version in that same store; it does not publish.
- *
- * `/mcp` (honua-studio#7): a minimal JSON-RPC 2.0 dispatcher over the SAME
- * `initialize` / `tools/list` / `tools/call` methods `src/mcp/client.ts`
- * speaks, exposing the 13 `honua_studio_*` tool names honua-server#3002
- * documents (`STUDIO_MCP_TOOL_NAMES` in `src/mcp/studio-tools.ts` — kept a
- * deliberately duplicated literal list here, same reason as
- * `CHAT_EVENT_TYPE_TO_SSE_NAME` above: this file runs under plain `node`,
- * never a TypeScript loader). Backed by the shared in-memory draft store
- * with the exact same optimistic-concurrency contract `FixtureDraftStore`
- * (`src/composition/history.ts`) documents: `generation` starts at `1` on
- * create, increments by exactly `1` on every successful mutation, and a
- * stale `generation` on a mutating call returns a `failed_precondition`
- * tool error rather than silently clobbering a concurrent edit. Composition
- * mutation tools (add/remove layer, set style, set layer visibility, set
- * view, add/remove widget)
- * mirror honua-server's `StudioCompositionBodyEditor` semantics: duplicate
- * ids on add are `invalid_argument`, missing ids on remove/set are
- * `not_found`, and only `map`/`app`-family drafts accept them
- * (`invalid_argument` otherwise). `initialize`/`tools/list` are open per the
- * honua-server MCP doc ("handshake methods are open"); `tools/call` requires
- * the same bearer this file's other protected routes require. CRITICALLY,
- * `honua_studio_propose_publication` submits `{ itemId, versionId,
- * contentHash, route, visibility }` and returns an `AwaitingApproval`
- * proposal. It never moves `publishedVersionId` and never accepts an
- * approval field. A different principal decides the proposal through
- * `POST /v1/studio/publication-proposals/{proposalId}/decision`. Private
- * and public visibility both stay pending until that decision. The
- * proposer's own token is refused. See `test/lifecycle/share-preview-smoke.test.ts`.
- *
- * Auth model (P2-8 review finding): access tokens are short-lived signed
- * JWTs (HS256, dev-only secret — never used outside this loopback fixture);
- * refresh tokens are opaque and single-use — each `refresh_token` grant
- * deletes the presented token and issues a brand-new one, so a stolen or
- * replayed refresh token stops working the moment the legitimate client
- * rotates it. There is no hidden-iframe silent refresh anywhere in this
- * fixture or in src/auth/ — see docs/embed-session.md.
- *
- * The `/v1/studio/ai/chat` route (honua-studio#6, honua-server#3010) plays
- * `src/chat/fixtures/compose-districts-map.json` back turn-by-turn, keyed
- * by how many `role: "user"` messages the client's own accumulated request
- * history contains (this fixture is stateless server-side — the client's
- * own message history IS the turn cursor) — so `npm run dev`'s default
- * `SseChatTransport` (pointed at `/api`, per `<honua-studio-chat>`'s own
- * default) gets a real, scripted SSE conversation end to end, with zero
- * model credentials anywhere. This route deliberately does NOT import
- * anything from `src/` — this file runs under plain `node`, not a
- * TypeScript loader (see scripts/dev-mock.mjs) — so the SSE event-name
- * vocabulary below is a small, intentionally duplicated mirror of
- * `src/chat/ai-contract.ts`'s `CHAT_EVENT_TYPE_TO_SSE_NAME`, and the
- * fixture JSON is read directly via `node:fs`, never through a `.ts` import.
+ * Tool names and SSE event names are duplicated literals: this file runs under
+ * plain `node`, with no TypeScript loader. Access tokens are short-lived HS256
+ * JWTs signed with a dev-only secret; refresh tokens are opaque and single-use,
+ * so a replayed refresh token dies when the legitimate client rotates. There is
+ * no hidden-iframe refresh. The chat route is stateless: the client's own
+ * user-message count is the turn cursor, and no model credentials are read.
  */
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -129,8 +30,7 @@ import {
 } from "./scripts/lib/mock-composition.mjs";
 import { layerRemovalBlocker } from "./src/composition/source-use.mjs";
 
-// Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
-// file's module doc for why it's a duplicate, not an import.
+// Duplicated from src/chat/ai-contract.ts. This file runs under plain node, not a TypeScript loader.
 const CHAT_EVENT_TYPE_TO_SSE_NAME = {
   messageStart: "message_start",
   textDelta: "text_delta",
@@ -180,17 +80,13 @@ const AI_CAPABILITIES = {
   ],
 };
 
-/** Writes one SSE frame exactly as honua-server#3010's `StudioAiProxyEndpoints.WriteSseEventAsync` does: `event: <name>\ndata: <json>\n\n`. */
 function writeSseEvent(res, event) {
   const sseName = CHAT_EVENT_TYPE_TO_SSE_NAME[event.type] ?? "message";
   res.write(`event: ${sseName}\n`);
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-// ── /mcp: honua_studio_* tool plane (honua-studio#7) ────────────────────────
-
-// Mirrors src/mcp/studio-tools.ts's STUDIO_MCP_TOOL_NAMES — see this file's
-// module doc for why it's a duplicate literal, not an import.
+// Duplicated from src/mcp/studio-tools.ts. This file runs under plain node, not a TypeScript loader.
 const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_create_draft",
   "honua_studio_get_draft",
@@ -243,19 +139,11 @@ function toolError(code, message) {
   return { isError: true, structuredContent: { code, message } };
 }
 
-// ── Shared Studio lifecycle store (honua-studio#9 build item 1) ────────────
+// `/mcp` tools and the REST lifecycle routes share these maps, so a mutation
+// on one surface is the record the other reads.
 //
-// ONE store, both surfaces: `/mcp`'s `honua_studio_*` tools and the REST
-// lifecycle + enumeration routes below read/write the exact same
-// `drafts`/`items`/`versions`/`publicationRequests`/`rollbackRequests` maps
-// — see this file's module doc for why that matters (spec AD-8 coherence).
-//
-// Field names on every stored record already match the server DTOs'
-// camelCase `[JsonPropertyName]`s (`src/lifecycle/lifecycle-types.ts`
-// mirrors the same names) so REST responses need no translation; the MCP
-// surface's `draftPublic()` below still projects down to the smaller
-// `StudioMcpDraft` shape `src/mcp/studio-tools.ts` documents, unchanged from
-// before this store was shared.
+// Stored names match the server DTOs' camelCase, so REST responses need no
+// translation. `draftPublic()` still projects the smaller MCP draft shape.
 const FIXTURE_ACTOR = "studio-dev-user";
 
 function createStudioLifecycleStore() {
@@ -277,7 +165,7 @@ function createStudioLifecycleStore() {
     return new Date().toISOString();
   }
 
-  /** Creates or refreshes the content item a draft belongs to — called on every draft create/update so `items` always reflects the latest draft's packageKey/workspaceId/family, matching the doc's "(workspaceId, family, packageKey) uniqueness" framing loosely (this mock does not enforce that uniqueness constraint). */
+  /** Refreshes the draft's content item. This mock does not enforce (workspaceId, family, packageKey) uniqueness. */
   function touchItem(itemId, { packageKey, workspaceId, family, actor }) {
     const existing = items.get(itemId);
     const ts = now();
@@ -386,7 +274,7 @@ function proposalStatusPayload(proposal) {
   return payload;
 }
 
-/** JSON-RPC 2.0 method dispatcher for `POST /mcp` (honua-studio#7) — see this file's module doc. Takes the shared {@link createStudioLifecycleStore} instance so its draft mutations are visible to the REST lifecycle routes (honua-studio#9). */
+/** Shares the lifecycle store so a tool mutation is the record the REST routes read. */
 function createMcpDispatcher(store, catalogDatasets) {
   const drafts = store.drafts;
 
@@ -633,11 +521,9 @@ function createMcpDispatcher(store, catalogDatasets) {
     honua_studio_validate_draft(args) {
       const { draft, error } = requireDraft(args?.draftId);
       if (error) return error;
-      // Persists the validation summary onto the STORED draft — "ONE store,
-      // both surfaces" (this file's module doc): an agent driving validation
-      // via this tool must leave the draft in the SAME state the REST
-      // `/validate` endpoint below would (honua-studio#10's GP job submit
-      // guard reads exactly this field — see `/gp-jobs` POST below).
+      // Persist on the stored draft. The GP submit guard reads this field, so
+      // a tool-driven validate must leave the same state the REST `/validate`
+      // route would.
       const validation = { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: store.now() };
       drafts.set(draft.draftId, {
         ...draft,
@@ -651,13 +537,9 @@ function createMcpDispatcher(store, catalogDatasets) {
     honua_studio_preview_draft(args) {
       const { draft, error } = requireDraft(args?.draftId);
       if (error) return error;
-      // Mirrors the REST `/preview-plan` endpoint's shape AND side effect
-      // below (honua-studio#9/#10) exactly — "ONE store, both surfaces"
-      // extends to preview-plan too: an agent driving preview via
-      // `honua_studio_preview_draft` sees the SAME requiresJob/steps a human
-      // driving `<honua-studio-gp-panel>` via the REST client sees, and
-      // leaves the draft in the same validated state the REST path would
-      // (so the GP job submit guard below accepts either path).
+      // Same shape and side effect as REST `/preview-plan`: either path must
+      // show the same requiresJob/steps and leave the draft validated, so the
+      // GP submit guard accepts both.
       const validation = { status: "valid", diagnostics: [], unsupportedCapabilities: [], generatedAt: store.now() };
       drafts.set(draft.draftId, {
         ...draft,
@@ -729,7 +611,7 @@ function createMcpDispatcher(store, catalogDatasets) {
       });
     },
 
-    /** honua-server#3199 (landed in honua-server PR #3207): `{ draftId, generation, layerId, visible }`, all four required, `additionalProperties: false`. */
+    /** Wire body is `{ draftId, generation, layerId, visible }`, all four required, with no extra properties. */
     honua_studio_set_layer_visibility(args) {
       if (typeof args?.layerId !== "string" || !args.layerId) {
         return toolError("invalid_argument", "'layerId' is required.");
@@ -1045,14 +927,8 @@ function createMcpDispatcher(store, catalogDatasets) {
   };
 }
 
-// ── Studio package lifecycle REST + enumeration routes (honua-studio#9) ────
-//
-// Implements `docs/internal/admin-api/studio-package-lifecycle.md`
-// (honua-server issue #1180) plus the `GET /content-items` / `GET
-// /package-drafts` enumeration endpoints from server PR #3014 (issue
-// #3003), over the SAME `store` `/mcp`'s dispatcher above uses (see this
-// file's module doc — "ONE store, both surfaces"). `src/lifecycle/lifecycle-client.ts`
-// is the typed client this router is built to satisfy exactly.
+// Implements honua-server's `docs/internal/admin-api/studio-package-lifecycle.md`,
+// including content-item and draft enumeration, over the same store `/mcp` uses.
 
 const STUDIO_LIFECYCLE_PROBLEM_TYPE = "https://honua.io/problems/studio";
 const STUDIO_CONTENT_ITEM_STATES = new Set(["draft", "current", "published"]);
@@ -1092,7 +968,7 @@ function trailingSeq(id) {
   return match ? Number(match[1]) : 0;
 }
 
-/** Orders DESC by `updatedAt`, then DESC by the id's trailing numeric sequence (falling back to string compare) — the same stable tiebreak the doc's enumeration section documents (REQ-001: "pages stay stable even as other rows are concurrently created or updated"). */
+/** Stable tiebreak so a page does not shuffle when other rows are created or updated. */
 function compareEnumerationOrder(aUpdatedAt, aId, bUpdatedAt, bId) {
   if (aUpdatedAt !== bUpdatedAt) return aUpdatedAt < bUpdatedAt ? 1 : -1;
   const aSeq = trailingSeq(aId);
@@ -1290,13 +1166,9 @@ function createStudioLifecycleRestRouter(store) {
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     };
-    // Simplified same-store publication badge synthesis (honua-studio#9):
-    // this fixture does not stand up a separate Content Publication
-    // Registry store, so the badge is derived straight from the item's own
-    // `publishedVersionId` rather than joined from a second store the way
-    // the doc's "Publication-Registry Lifecycle Badge" section describes.
-    // Good enough to exercise the content browser's badge rendering; NOT a
-    // claim that this mock reproduces the registry's own route lifecycle.
+    // No separate publication-registry store: the badge comes from the item's
+    // own `publishedVersionId`. Enough to exercise the content browser, not a
+    // claim that this mock reproduces the registry's route lifecycle.
     if (item.publishedVersionId) {
       const publishedVersion = store.versions.get(item.publishedVersionId);
       summary.publication = {
@@ -1402,13 +1274,11 @@ function createStudioLifecycleRestRouter(store) {
    * own 404).
    */
   async function handle(req, res, method, subPath, searchParams) {
-    // GET /package-families
     if (method === "GET" && subPath === "/package-families") {
       apiResponse(res, 200, packageFamilyCapabilities());
       return true;
     }
 
-    // GET /content-items (enumeration)
     if (method === "GET" && subPath === "/content-items") {
       const familiesResult = parseFamiliesParam(searchParams.get("family"));
       if (familiesResult.invalid) {
@@ -1459,7 +1329,6 @@ function createStudioLifecycleRestRouter(store) {
       return true;
     }
 
-    // GET /package-drafts (enumeration) / POST /package-drafts (create)
     if (subPath === "/package-drafts" && method === "GET") {
       const familiesResult = parseFamiliesParam(searchParams.get("family"));
       if (familiesResult.invalid) {
@@ -1567,7 +1436,6 @@ function createStudioLifecycleRestRouter(store) {
       return true;
     }
 
-    // /package-drafts/{draftId}(/...)
     const draftMatch = /^\/package-drafts\/([^/]+)(\/.*)?$/.exec(subPath);
     if (draftMatch) {
       const draftId = decodeURIComponent(draftMatch[1]);
@@ -1700,7 +1568,6 @@ function createStudioLifecycleRestRouter(store) {
       }
     }
 
-    // /content-items/{itemId}(/...)
     const itemMatch = /^\/content-items\/([^/]+)(\/.*)?$/.exec(subPath);
     if (itemMatch) {
       const itemId = decodeURIComponent(itemMatch[1]);
@@ -1939,29 +1806,13 @@ function createStudioLifecycleRestRouter(store) {
   return { handle };
 }
 
-// ── GP async batch-execution job surface (honua-studio#10 REQ-003) ─────────
-//
-// `/v1/studio/gp-jobs` — this fixture's stand-in for honua-server's
-// not-yet-real GP batch job endpoint (see `src/gp/job-client.ts`'s module
-// doc's "the seam" section). Deliberately shaped to match
-// `@honua/sdk-js`'s canonical async-operation vocabulary
-// (`src/contract/jobs.ts`'s `JobStatus`: accepted -> running -> a terminal
-// state) rather than inventing a new one — `src/gp/gp-types.ts`'s
-// `GpJobStatus` is that exact five-value union.
-//
-// State machine (deterministic, keyed by a per-job `pollCount` — same
-// pattern `examples/geoprocessing-job-runner`'s own fixture process client
-// uses): `accepted` on submit, `running` on the first `GET` status poll,
-// `successful` from the second poll onward (idempotent — outputs are
-// registered into `catalogDatasets` exactly once, on the transition, not on
-// every subsequent poll). `simulateFailure: true` on submit forces the
-// second poll to `failed` instead, with a diagnostic `error` — the fixture
-// hook `test/gp/*.test.ts` uses to prove "failures surface diagnostics
-// honestly" without a flaky real failure. `cancel` is idempotent: a job
-// already in a terminal state returns that SAME terminal snapshot
-// unchanged (mirrors `IJobRun.cancel()`'s documented race-tolerant
-// contract), never overwrites a `successful`/`failed` outcome with
-// `dismissed`.
+// Deterministic stand-in for the async GP job API, using the SDK job
+// vocabulary rather than a private status enum. `accepted` on submit,
+// `running` on the first status GET, `successful` from the second poll on.
+// Outputs register once, on that transition. `simulateFailure: true` makes
+// the second poll `failed`, so tests can show a diagnostic without a flaky
+// failure. Cancel is idempotent: a terminal job returns that same snapshot
+// and is never overwritten with `dismissed`.
 function createGpJobStore() {
   const jobs = new Map();
   let nextJobSeq = 1;
@@ -2064,15 +1915,9 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
         );
         return true;
       }
-      // REQ-002/REQ-006: execution is offered only after a confirmed preview
-      // plan — this mock's own honest proxy for that is requiring the draft
-      // to have been through /validate or /preview-plan at least once
-      // (either sets `draft.validation` to something other than
-      // "not-validated" — see the `/validate` and `/preview-plan` handlers
-      // above). This does not itself enforce the human-confirmation step —
-      // that discipline lives entirely client-side (THE HUMAN GATE,
-      // `src/gp/job-client.ts`'s module doc) — it only refuses to accept a
-      // submission for a draft nobody has ever asked the server about.
+      // Execution is offered only after validate or preview-plan has run.
+      // This does not enforce the human confirmation; that stays client-side.
+      // It only refuses a draft nobody has asked the server about.
       const validationStatus = draft.validation?.status ?? "not-validated";
       if (validationStatus === "not-validated") {
         problemResponse(
@@ -2121,10 +1966,8 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
       }
 
       if (rest === "" && method === "GET") {
-        // Poll-driven state machine: THIS call advances `pollCount`, never a
-        // background timer (NFR-001: deterministic, no timers — every
-        // transition is caller-driven, exactly like `GpJobClient.status()`'s
-        // own doc promises).
+        // This call advances `pollCount`. There is no background timer, so
+        // every transition is caller-driven and deterministic.
         if (!record.override) record.pollCount += 1;
         apiResponse(res, 200, computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets));
         return true;
@@ -2133,7 +1976,7 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
       if (rest === "/cancel" && method === "POST") {
         const current = computeGpJobSnapshot(record, studioLifecycleStore, catalogDatasets);
         if (current.status === "successful" || current.status === "failed" || current.status === "dismissed") {
-          // Idempotent race-tolerant cancel — see this section's module doc.
+          // A terminal job is returned unchanged.
           apiResponse(res, 200, current);
           return true;
         }
@@ -2155,22 +1998,10 @@ function createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets
   return { handle };
 }
 
-// ── Fixture feature data (honua-studio#23) ──────────────────────────────────
-//
-// honua-studio#23 REQ-001 asks for a map that *visibly mutates* as tool calls
-// stream. The catalog above advertises four datasets but this fixture served
-// no geometry for any of them, so before this change an offline "add the
-// parcels layer" produced a correct composition and an empty map — the exact
-// gap the issue was filed about.
-//
-// So the fixture now serves features, the same way a real honua-server does:
-// OGC API – Features (`/ogc/collections/{id}/items`) for the `ogc-features`
-// datasets and GeoServices metadata + paged JSON/GeoJSON queries for FeatureServer.
-// The geometry is **generated, not copied** — a deterministic grid over Oʻahu,
-// clearly synthetic, sized so the whole collection fits in one bounded
-// response. Nothing here claims to be real parcel data; it is fixture data
-// with a plausible shape, which is what makes the fixture journey both
-// legible and byte-stable (REQ-005).
+// Geometry is generated, not copied: a deterministic grid, clearly synthetic,
+// so fixture journeys stay byte-stable and never claim to be real parcels.
+// OGC API Features serves the `ogc-features` datasets; GeoServices metadata
+// and paged queries serve FeatureServer.
 
 /** Bounding box the fixture datasets are generated inside: Oʻahu, where `compose-districts-map` composes. */
 const FIXTURE_EXTENT = { west: -158.28, south: 21.25, east: -157.65, north: 21.72 };
@@ -2190,7 +2021,7 @@ function round6(value) {
   return Number(value.toFixed(6));
 }
 
-/** 8x6 grid of rectangular "parcels", each tagged with the district/zoning fields `compose-districts-map` styles and charts by. */
+/** Parcel attributes are the district and zoning fields the fixture conversation styles and charts. */
 function buildFixtureParcels() {
   const columns = 8;
   const rows = 6;
@@ -2228,7 +2059,6 @@ function buildFixtureParcels() {
   return features;
 }
 
-/** Six road centerlines: three running east-west, three north-south. */
 function buildFixtureRoads() {
   const features = [];
   for (let index = 0; index < 3; index += 1) {
@@ -2264,7 +2094,6 @@ function buildFixtureRoads() {
   return features;
 }
 
-/** Twenty monitoring wells on a 5x4 lattice. */
 function buildFixtureWells() {
   const features = [];
   for (let row = 0; row < 4; row += 1) {
@@ -2390,7 +2219,6 @@ function timingSafeEqualStrings(a, b) {
   return timingSafeEqual(bufA, bufB);
 }
 
-/** Verifies signature + expiry; returns the decoded payload, or null. */
 function verifyFixtureJwt(token) {
   if (typeof token !== "string") return null;
   const parts = token.split(".");
@@ -2439,10 +2267,6 @@ function unauthorized(res) {
   json(res, 401, { error: { code: 401, message: "Unauthorized" } }, { "www-authenticate": "Bearer" });
 }
 
-/**
- * Starts the fixture server on an ephemeral loopback port.
- * @returns {Promise<{ server: import("node:http").Server, url: string, close: () => Promise<void> }>}
- */
 export async function startMockServer({ port = 0, model = "fixture" } = {}) {
   if (model !== "fixture" && model !== "byom-preview") {
     throw new Error('Mock model must be "fixture" or "byom-preview".');
@@ -2453,19 +2277,16 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
   // spent, so replaying a rotated-out refresh token always 400s.
   const activeRefreshTokens = new Set();
-  // The shared Studio lifecycle store (honua-studio#9 build item 1): one
-  // instance per server, read/written by BOTH `/mcp`'s `honua_studio_*`
-  // tools and the REST lifecycle + enumeration routes below. See this
-  // file's module doc for why that sharing is load-bearing (spec AD-8).
+  // One lifecycle store per server, read and written by both `/mcp` tools
+  // and the REST lifecycle routes.
   const studioLifecycleStore = createStudioLifecycleStore();
   const studioLifecycleRest = createStudioLifecycleRestRouter(studioLifecycleStore);
-  // /mcp (honua-studio#7): a set of live `Mcp-Session-Id`s per server
-  // instance, matching honua-server's "a session is bound at initialize"
-  // contract (docs/guides/connect/ai-agents-mcp.md).
+  // Live `Mcp-Session-Id`s for this server. A session is bound at initialize
+  // (docs/guides/connect/ai-agents-mcp.md).
   const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
   const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
   const mcpSessions = new Set();
-  // Per-instance mutable catalog (honua-studio#10 REQ-004): starts as a copy
+  // Per-instance mutable catalog: starts as a copy
   // of the static CATALOG.datasets fixture below and gains one entry per GP
   // job output on job completion — never mutates the shared module-level
   // CATALOG constant itself, so one test's completed job can never leak a
@@ -2475,8 +2296,8 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
 
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
-    // The real REST API keeps /api; direct fixture callers historically
-    // used /v1. Normalize the alias before every Studio route, including AI.
+    // The real REST API keeps `/api`; direct fixture callers use `/v1`.
+    // Normalize the alias before every Studio route, including AI.
     const pathname = requestUrl.pathname.replace(/^\/api(?=\/v1\/studio(?:\/|$))/, "");
     const issuer = `http://${req.headers.host}/oidc`;
 
@@ -2490,7 +2311,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       return;
     }
 
-    // ── OIDC discovery ──────────────────────────────────────────
     if (pathname === "/oidc/.well-known/openid-configuration" && req.method === "GET") {
       json(res, 200, {
         issuer,
@@ -2507,7 +2327,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       return;
     }
 
-    // ── OIDC: authorization endpoint (auto-approves the fixture user) ──
     if (pathname === "/oidc/authorize" && req.method === "GET") {
       const params = requestUrl.searchParams;
       const clientId = params.get("client_id");
@@ -2533,7 +2352,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       return;
     }
 
-    // ── OIDC: token endpoint (code exchange + refresh-token rotation) ──
     if (pathname === "/oidc/token" && req.method === "POST") {
       const body = new URLSearchParams(await readBody(req));
       const grantType = body.get("grant_type");
@@ -2568,7 +2386,7 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
         // Rotation: the presented token is spent unconditionally, and a
         // fresh one takes its place — replaying `presented` after this
         // point always fails, even if the response below is lost in
-        // flight (fail-closed, matches P2-8's rotation requirement).
+        // flight (fail-closed).
         activeRefreshTokens.delete(presented);
         const rotated = randomUUID();
         activeRefreshTokens.add(rotated);
@@ -2580,7 +2398,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       return;
     }
 
-    // ── OIDC: revocation endpoint (RFC 7009, best-effort) ───────
     if (pathname === "/oidc/revoke" && req.method === "POST") {
       const body = new URLSearchParams(await readBody(req));
       activeRefreshTokens.delete(body.get("token") ?? "");
@@ -2588,7 +2405,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       return;
     }
 
-    // ── Protected Studio API routes ─────────────────────────────
     if (pathname === "/v1/studio/catalog" && req.method === "GET") {
       if (!verifyFixtureJwt(bearerToken(req))) {
         unauthorized(res);
@@ -2619,7 +2435,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       });
       return;
     }
-    // ── Studio AI proxy: fixture chat SSE stream (honua-studio#6) ──
     if (pathname === "/v1/studio/ai/chat" && req.method === "POST") {
       if (!verifyFixtureJwt(bearerToken(req))) {
         unauthorized(res);
@@ -2683,7 +2498,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       res.end();
       return;
     }
-    // ── MCP tool plane (honua-studio#7) ─────────────────────────
     if (pathname === "/mcp" && req.method === "POST") {
       let request;
       try {
@@ -2752,7 +2566,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       return;
     }
 
-    // ── Studio package lifecycle REST + enumeration (honua-studio#9) ────
     if (pathname.startsWith("/v1/studio/") || pathname === "/v1/studio") {
       const subPath = pathname.slice("/v1/studio".length) || "/";
       // Every lifecycle route requires the same bearer the rest of this
@@ -2776,7 +2589,6 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
         if (handled) return;
       }
 
-      // ── GP async batch-execution job surface (honua-studio#10) ─────────
       const knownGpJobPrefix = subPath === "/gp-jobs" || subPath.startsWith("/gp-jobs/");
       if (knownGpJobPrefix) {
         if (!verifyFixtureJwt(bearerToken(req))) {
@@ -2788,12 +2600,10 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
       }
     }
 
-    // ── Feature data planes the composition map reads (honua-studio#23) ──
-    //
-    // Deliberately unauthenticated, matching honua-server's own posture for
+    // Deliberately unauthenticated, matching honua-server's posture for
     // published read-only collections. The SDK paging adapter also reads
     // layer metadata and GeoServices feature pages before projecting GeoJSON.
-    // Only GET is served here (#1 REQ-005 / server ADR-0028).
+    // Only GET is served (server ADR-0028).
     if (pathname === "/ogc/collections" && req.method === "GET") {
       json(res, 200, {
         collections: catalogDatasets

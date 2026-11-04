@@ -1,18 +1,11 @@
 // @vitest-environment happy-dom
 /**
- * `<honua-studio-control-bar>` — honua-studio#25's acceptance criteria at the
- * element level:
- *
- *  - every upstream kind renders **or** reports explicit unsupported
- *    (REQ-001), with the reason visible in the DOM rather than in a console;
- *  - intrinsic behavior needs no authored interaction (REQ-003) — and where
- *    it mutates the composition it goes through the reducer, not around it;
- *  - a `change` publishes through the interaction runtime (REQ-002).
+ * An unsupported control reports its reason in the DOM. Intrinsic behavior
+ * that mutates the composition goes through the reducer.
  *
  * The map is a plain object literal satisfying {@link ControlBarMapBridge} —
- * the same injection discipline `mapFactory` (honua-studio#23) and
- * `dataLoader` (honua-studio#24) established, so every intrinsic affordance
- * is exercised in `environment: "node"`-style isolation without a renderer.
+ * the same injection discipline `mapFactory` and `dataLoader` established, so
+ * every intrinsic affordance is exercised without a renderer.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 

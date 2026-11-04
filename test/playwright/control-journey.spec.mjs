@@ -1,21 +1,8 @@
 /**
- * honua-studio#25's acceptance criteria in a real browser, against the real
- * MapLibre renderer honua-studio#23 put on the canvas:
- *
- *  - every upstream control kind renders or reports explicit unsupported
- *    (REQ-001),
- *  - a `control:{id}` + `change` binding dispatches through the compiler and
- *    **moves the map**, with no cascade (REQ-002),
- *  - standard chrome behaves without any authored binding (REQ-003).
- *
- * REQ-002 is the one that genuinely needs a browser. A node test can prove a
- * `<select>` publishes a `FilterClause` and that the runtime computes a
- * MapLibre expression from it; only this can prove the composed style the
- * renderer is actually holding carries that `filter` — the difference between
- * a working filter control and a decorative one.
- *
- * honua-studio#23's no-off-origin-requests rule is re-asserted here, because
- * a filter control derives its option domain by fetching features.
+ * A node test can prove a `<select>` publishes a `FilterClause`. Only a
+ * browser can prove the composed style the renderer holds carries that
+ * `filter`. The no-off-origin rule is re-asserted here because a filter
+ * control fetches features for its option domain.
  */
 import { expect, test } from "@playwright/test";
 
@@ -98,7 +85,6 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
         )
         .toEqual(["hi-parcels"]);
 
-      // ---- REQ-001: every kind renders or reports ---------------------------
       await page.evaluate(
         (kinds) => {
           for (const kind of kinds) {
@@ -139,7 +125,6 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
       // `search` is the one kind with no provider vocabulary upstream.
       await expect(page.getByTestId("studio-control-unsupported").first()).toContainText("no search provider");
 
-      // ---- REQ-003: intrinsic chrome, with nothing authored -----------------
       const zoomBefore = await page.evaluate(() =>
         document.querySelector("honua-studio-canvas")?.mapView?.map?.getZoom(),
       );
@@ -162,7 +147,6 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
         )
         .toBe("#0b161d");
 
-      // ---- REQ-002: a change binding moves the map --------------------------
       await page.evaluate(applyCommand, {
         name: "addControl",
         control: {
@@ -203,7 +187,6 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
       await page.getByTestId("studio-control-filter-select").selectOption("");
       await expect.poll(() => page.evaluate(readLayerFilter, "hi-parcels")).toBeNull();
 
-      // ---- opacity: same transport, paint rather than filter ----------------
       await page.evaluate(applyCommand, {
         name: "addControl",
         control: { id: "fade", kind: "opacity", title: "Fade", sourceId: "hi-parcels" },
@@ -220,7 +203,6 @@ test.describe("the agent composes controls around the map (honua-studio#25)", ()
         })
         .toBeCloseTo(0.4, 2);
 
-      // ---- the readout lists controls too -----------------------------------
       await expect(page.getByTestId("studio-canvas-controls")).toContainText("Zoning");
       await expect(page.getByTestId("studio-canvas-controls")).toContainText("filterSelect");
 

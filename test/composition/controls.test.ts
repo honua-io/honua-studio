@@ -1,7 +1,6 @@
 /**
  * The `controls` collection in the composition model and the bounded command
- * set (honua-studio#25), mirroring what `set-visibility.test.ts` did for
- * honua-studio#24.
+ * set.
  *
  * The load-bearing case is `removeControl`'s dangling-binding obligation:
  * ADR-0031 rules out exactly one outcome — silently retaining an unresolvable

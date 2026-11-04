@@ -1,6 +1,6 @@
 /**
- * `StudioGpJobClient` against the REAL `mock-server.mjs` GP job store
- * (honua-studio#10 REQ-003): submit -> status polling (accepted -> running
+ * `StudioGpJobClient` against the REAL `mock-server.mjs` GP job store:
+ * submit -> status polling (accepted -> running
  * -> terminal) -> cancel, plus the honest failure path and the
  * validate-before-submit guard. Mirrors `test/lifecycle/lifecycle-client.test.ts`'s
  * "real fixture, not a re-implementation" approach.

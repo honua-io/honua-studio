@@ -1,6 +1,6 @@
 /**
- * Boot smoke: `npm run dev`'s mode (honua-studio#3 REQ-003, fixture path) —
- * now also the full mock-issuer login journey (honua-studio#4 REQ-001):
+ * Boot smoke: `npm run dev`'s mode (fixture path) —
+ * now also the full mock-issuer login journey:
  * login -> authenticated catalog call -> logout. Builds are produced by
  * `npm run test:browser` before Playwright runs (package.json). This spec
  * proxies the built preview server at the mock fixture, exactly as

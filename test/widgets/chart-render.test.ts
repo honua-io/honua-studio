@@ -1,6 +1,4 @@
 /**
- * The bounded SVG renderer (honua-studio#24 REQ-004's documented trade).
- *
  * These assert structure and accessibility rather than pixels: which mark was
  * drawn, that every datum is reachable as a `<title>` tooltip, and that the
  * chart carries a text equivalent. A chart that draws but cannot be read is

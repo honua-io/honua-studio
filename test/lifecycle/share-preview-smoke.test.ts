@@ -1,5 +1,5 @@
 /**
- * Governed preview share smoke (honua-studio#26). The fixture server is the
+ * Governed preview share smoke. The fixture server is the
  * self-hosted preview, not a GA server. Private and public both wait for a
  * different principal, and the conversation copies a URL only from an Active
  * status read.

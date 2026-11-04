@@ -1,5 +1,5 @@
 /**
- * The full scripted GP journey (honua-studio#10 NFR-001):
+ * The full scripted GP journey:
  * author -> validate -> preview -> confirm -> execute -> complete ->
  * add-output-layer, driven against the REAL `mock-server.mjs` end to end.
  *
@@ -42,7 +42,6 @@ describe("GP fixture journey: author -> validate -> preview -> confirm -> execut
     const token = mintFixtureAccessToken();
     const auth = { getAccessToken: async () => token };
 
-    // ---- AGENT HALF: author -> validate -> preview -------------------------
     const mcpClient = new McpClient({ baseUrl: server.url, auth });
     const tools = new StudioMcpToolClient(mcpClient);
     const session = new GpAuthoringSession({ tools, packageKey: BUFFER_INTERSECT_PACKAGE_KEY });
@@ -58,7 +57,6 @@ describe("GP fixture journey: author -> validate -> preview -> confirm -> execut
     // REQ-002: the preview plan is job-backed for the gp family.
     expect(authored.preview).toMatchObject({ requiresJob: true });
 
-    // ---- HUMAN HALF: confirm -> execute -----------------------------------
     // "Confirm" = the human has seen the requiresJob preview plan above and
     // types the package key into the panel's confirm dialog — modeled here
     // as simply proceeding to submit, since the dialog discipline itself is
@@ -69,7 +67,6 @@ describe("GP fixture journey: author -> validate -> preview -> confirm -> execut
     const submitted = await jobs.submit({ draftId: authored.draft.draftId });
     expect(submitted.status).toBe("accepted");
 
-    // ---- Monitor: two caller-driven status polls, no timer -----------------
     const running = await jobs.status(submitted.jobId);
     expect(running.status).toBe("running");
     const completed = await jobs.status(submitted.jobId);
@@ -78,14 +75,12 @@ describe("GP fixture journey: author -> validate -> preview -> confirm -> execut
     expect(output?.outputId).toBe("affected-parcels");
     expect(output?.datasetId).toBeTruthy();
 
-    // ---- REQ-004: the output registered as a catalog dataset --------------
     const catalogResponse = await fetch(`${server.url}/v1/studio/catalog`, {
       headers: { authorization: `Bearer ${token}` },
     });
     const catalog = await catalogResponse.json();
     expect(catalog.datasets.map((dataset: { id: string }) => dataset.id)).toContain(output?.datasetId);
 
-    // ---- add-output-layer: the SAME composition path a chat tool-call intent uses ----
     const controller = new CompositionController(createEmptyCompositionState());
     const orchestrator = new ToolCallOrchestrator({
       controller,

@@ -1,5 +1,5 @@
 /**
- * The full conversational-GP-authoring journey (honua-studio#10) in a real
+ * The full conversational-GP-authoring journey in a real
  * browser against the real `mock-server.mjs`: an agent-authored `gp`
  * package (seeded via REST here, the same way `lifecycle-journey.spec.mjs`
  * seeds its draft — draft AUTHORING itself is proven end to end by
