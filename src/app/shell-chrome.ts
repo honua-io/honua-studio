@@ -108,16 +108,28 @@ export class ShellChrome {
     return this.#root?.querySelector<HTMLElement>("[data-recipe-outlet]") ?? null;
   }
 
-  setExpanded(testId: string, expanded: boolean): void {
-    this.#control(testId)?.setAttribute("aria-expanded", String(expanded));
+  markExpanded(testId: string): void {
+    this.#control(testId)?.setAttribute("aria-expanded", "true");
+  }
+
+  markCollapsed(testId: string): void {
+    this.#control(testId)?.setAttribute("aria-expanded", "false");
   }
 
   focus(testId: string): void {
     this.#control(testId)?.focus();
   }
 
-  hideChatSlot(hidden: boolean): void {
-    this.#root?.querySelector('slot[name="chat"]')?.toggleAttribute("hidden", hidden);
+  hideChatSlot(): void {
+    this.#chatSlot()?.setAttribute("hidden", "");
+  }
+
+  showChatSlot(): void {
+    this.#chatSlot()?.removeAttribute("hidden");
+  }
+
+  #chatSlot(): Element | null | undefined {
+    return this.#root?.querySelector('slot[name="chat"]');
   }
 
   setHistoryStatus(text: string): void {
@@ -358,6 +370,6 @@ export class ShellChrome {
   #closeLiveForm(): void {
     const form = this.#control<HTMLFormElement>("live-composition-form");
     if (form) form.hidden = true;
-    this.setExpanded("live-composition-toggle", false);
+    this.markCollapsed("live-composition-toggle");
   }
 }

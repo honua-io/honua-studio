@@ -125,7 +125,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       chat.detachAgentSession();
       chat.agentSessionAdapter = adapter;
     }
-    this.#chrome.hideChatSlot(Boolean(adapter));
+    if (adapter) this.#chrome.hideChatSlot();
+    else this.#chrome.showChatSlot();
   }
 
   public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {

@@ -159,7 +159,7 @@ export class RecipeSourceChoices {
     );
   }
 
-  /** A selection from an older listing, or one the catalog no longer confirms, is re-listed before use. */
+  /** A selection from an older listing, or one the current catalog does not confirm, is re-listed before use. */
   #isStaleSelection({ sourceId, generation }: Resolution): boolean {
     const selected = this.#choices?.find((entry) => entry.id === sourceId);
     const current = this.options.catalog.find(sourceId);

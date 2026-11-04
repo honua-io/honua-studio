@@ -31,7 +31,7 @@ export class WorkspaceDraftSession {
   readonly activeMap = new StalenessEpoch();
   #binding: WorkspaceDraftBinding | undefined;
   #conflict = false;
-  #historyBusy = false;
+  historyBusy = false;
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -46,14 +46,6 @@ export class WorkspaceDraftSession {
 
   get identity(): WorkspaceDraftIdentity | undefined {
     return this.#binding?.identity;
-  }
-
-  get historyBusy(): boolean {
-    return this.#historyBusy;
-  }
-
-  set historyBusy(busy: boolean) {
-    this.#historyBusy = busy;
   }
 
   /** Blocks further edits until the human explicitly reloads the draft. */
@@ -73,7 +65,7 @@ export class WorkspaceDraftSession {
   }
 
   isEditPending(): boolean {
-    return this.#historyBusy || this.#conflict || this.hooks.hasDirtyForm();
+    return this.historyBusy || this.#conflict || this.hooks.hasDirtyForm();
   }
 
   /** Forgets the draft of a former authority. */

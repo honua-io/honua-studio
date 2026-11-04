@@ -104,7 +104,7 @@ export class DesignInspectorHost {
         this.options.chrome.focus(TOGGLE);
       },
     });
-    this.options.chrome.setExpanded(TOGGLE, true);
+    this.options.chrome.markExpanded(TOGGLE);
     container.querySelector<HTMLButtonElement>("button")?.focus();
   }
 
@@ -117,7 +117,7 @@ export class DesignInspectorHost {
     this.#relationship = undefined;
     this.#relationshipState = undefined;
     this.#relationshipSelection = undefined;
-    this.options.chrome.setExpanded(TOGGLE, false);
+    this.options.chrome.markCollapsed(TOGGLE);
   }
 
   async #describeSource(

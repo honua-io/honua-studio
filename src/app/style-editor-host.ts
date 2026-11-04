@@ -104,7 +104,7 @@ export class StyleEditorHost {
     this.options.chrome.paintHistory();
     const canvas = this.options.children.canvas();
     if (canvas) canvas.stylePreview = undefined;
-    this.#announceDirty(false);
+    this.#announceDirtyChange({ dirty: false });
   }
 
   /** A draft without a map style first adopts the canvas's authorized style as its baseline. */
@@ -161,7 +161,7 @@ export class StyleEditorHost {
       },
       onDirty: (dirty) => {
         this.options.chrome.paintHistory();
-        this.#announceDirty(dirty);
+        this.#announceDirtyChange({ dirty });
       },
       onSave: (style) => this.#save(session, style),
       onDiscard: () => this.#reloadDraft(session),
@@ -210,9 +210,9 @@ export class StyleEditorHost {
     return session.canvas.editableMapStyle();
   }
 
-  #announceDirty(dirty: boolean): void {
+  #announceDirtyChange(detail: { readonly dirty: boolean }): void {
     this.options.host.dispatchEvent(
-      new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty }, bubbles: true, composed: true }),
+      new CustomEvent("honua-studio-style-dirty-change", { detail, bubbles: true, composed: true }),
     );
   }
 }

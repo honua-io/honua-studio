@@ -104,7 +104,7 @@ export class RecipeController {
       },
       canChangeInputs: (id) => !this.#submissions.get(id)?.submission.submitted,
     });
-    this.options.chrome.setExpanded(TOGGLE, true);
+    this.options.chrome.markExpanded(TOGGLE);
     this.#panel.resume();
   }
 
@@ -117,7 +117,7 @@ export class RecipeController {
       }
     const outlet = this.options.chrome.recipeOutlet();
     if (outlet) outlet.hidden = true;
-    this.options.chrome.setExpanded(TOGGLE, false);
+    this.options.chrome.markCollapsed(TOGGLE);
     this.options.chrome.focus(TOGGLE);
   }
 
