@@ -229,6 +229,101 @@ function emptyCompositionBody() {
   return { layers: [], view: {}, widgets: [] };
 }
 
+// Composition semantics mirror the client reducer (src/composition/reducer.ts); the parity tests in
+// test/mcp/mock-reducer-parity.test.ts drive both with the same commands.
+const INLINE_STYLE_PREFIX = "honua-inline:";
+const STYLE_LAYER_OWNERS_KEY = "honua:compositionLayerIds";
+const STYLE_LAYER_OWNER_KEY = "honua:compositionLayerId";
+const VIEW_BOUNDS = [
+  ["zoom", (value) => value >= 0 && value <= 24, "[0, 24]"],
+  ["pitch", (value) => value >= 0 && value <= 85, "[0, 85]"],
+  ["bearing", (value) => value >= 0 && value < 360, "[0, 360)"],
+];
+
+function viewBoundsError(view) {
+  for (const [field, isInBounds, bounds] of VIEW_BOUNDS) {
+    const value = view[field];
+    if (value !== undefined && !isInBounds(value))
+      return toolError("invalid_argument", `'view.${field}' ${value} is out of bounds ${bounds}.`);
+  }
+  return undefined;
+}
+
+/** A source stays bound only while a remaining layer still draws from it. */
+function isSourceStillUsed(layers, removedLayerId, sourceId) {
+  return layers.some((layer) => layer.id !== removedLayerId && layer.sourceId === sourceId);
+}
+
+/** Drops the removed layer's own style layers, its outline and its owner entry from the captured map style. */
+function mapSpecWithoutLayer(mapSpec, layers, removedLayer) {
+  const metadata = mapSpec.metadata;
+  const owners = metadata?.[STYLE_LAYER_OWNERS_KEY];
+  const sources = mapSpec.sources && typeof mapSpec.sources === "object" ? mapSpec.sources : undefined;
+  return {
+    ...mapSpec,
+    ...(Array.isArray(owners)
+      ? { metadata: { ...metadata, [STYLE_LAYER_OWNERS_KEY]: owners.filter((owner) => owner !== removedLayer.id) } }
+      : {}),
+    ...(sources
+      ? {
+          sources: Object.fromEntries(
+            Object.entries(sources).filter(
+              ([sourceId]) =>
+                sourceId !== removedLayer.sourceId || isSourceStillUsed(layers, removedLayer.id, sourceId),
+            ),
+          ),
+        }
+      : {}),
+    layers: mapSpec.layers.filter(
+      (styleLayer) =>
+        styleLayer.id !== removedLayer.id &&
+        styleLayer.id !== `${removedLayer.id}__outline` &&
+        styleLayer.metadata?.[STYLE_LAYER_OWNER_KEY] !== removedLayer.id,
+    ),
+  };
+}
+
+function compositionWithoutLayer(body, removedLayer) {
+  const { layers } = body;
+  return {
+    ...body,
+    layers: layers.filter((layer) => layer.id !== removedLayer.id),
+    ...(body.sourceBindings
+      ? {
+          sourceBindings: body.sourceBindings.filter((binding) =>
+            isSourceStillUsed(layers, removedLayer.id, binding.sourceId),
+          ),
+        }
+      : {}),
+    ...(body.styleRefs
+      ? { styleRefs: body.styleRefs.filter((ref) => ref.styleId !== `${INLINE_STYLE_PREFIX}${removedLayer.id}`) }
+      : {}),
+    ...(body.mapSpec && Array.isArray(body.mapSpec.layers)
+      ? { mapSpec: mapSpecWithoutLayer(body.mapSpec, layers, removedLayer) }
+      : {}),
+  };
+}
+
+/** A style body is stored as the layer's own inline style; otherwise the layer binds (or clears) a shared one. */
+function compositionWithLayerStyle(body, index, { styleRef, styleBody }) {
+  const layers = [...body.layers];
+  const { styleRef: _previous, ...layer } = layers[index];
+  if (styleBody === undefined) {
+    layers[index] = styleRef ? { ...layer, styleRef } : layer;
+    return { ...body, layers };
+  }
+  const inlineId = `${INLINE_STYLE_PREFIX}${layer.id}`;
+  layers[index] = { ...layer, styleRef: inlineId };
+  return {
+    ...body,
+    layers,
+    styleRefs: [
+      ...(body.styleRefs ?? []).filter((ref) => ref.styleId !== inlineId),
+      { styleId: inlineId, body: styleBody },
+    ],
+  };
+}
+
 function toolSuccess(value) {
   return { structuredContent: value };
 }
@@ -700,10 +795,11 @@ function createMcpDispatcher(store, catalogDatasets) {
         return toolError("invalid_argument", "'layerId' is required.");
       }
       return mutateComposition(args.draftId, args.generation, (body) => {
-        if (!body.layers.some((existing) => existing.id === args.layerId)) {
+        const removedLayer = body.layers.find((existing) => existing.id === args.layerId);
+        if (!removedLayer) {
           return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
         }
-        return { body: { ...body, layers: body.layers.filter((existing) => existing.id !== args.layerId) } };
+        return { body: compositionWithoutLayer(body, removedLayer) };
       });
     },
 
@@ -716,9 +812,7 @@ function createMcpDispatcher(store, catalogDatasets) {
         if (index < 0) {
           return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
         }
-        const layers = [...body.layers];
-        layers[index] = { ...layers[index], styleRef: args.styleRef ?? undefined };
-        return { body: { ...body, layers } };
+        return { body: compositionWithLayerStyle(body, index, args) };
       });
     },
 
@@ -745,7 +839,11 @@ function createMcpDispatcher(store, catalogDatasets) {
       if (!args?.view || typeof args.view !== "object") {
         return toolError("invalid_argument", "'view' is required.");
       }
-      return mutateComposition(args.draftId, args.generation, (body) => ({ body: { ...body, view: args.view } }));
+      const boundsError = viewBoundsError(args.view);
+      if (boundsError) return boundsError;
+      return mutateComposition(args.draftId, args.generation, (body) => ({
+        body: { ...body, view: { ...body.view, ...args.view } },
+      }));
     },
 
     honua_studio_add_widget(args) {
