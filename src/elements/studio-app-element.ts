@@ -11,6 +11,8 @@ import {
   type StudioAiTranscriptSigningManifest,
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
+import { ShellChrome } from "../app/shell-chrome.js";
+import { ShellRouter } from "../app/shell-router.js";
 import { type EpochToken, StalenessEpoch } from "../app/staleness-epoch.js";
 import { WorkspaceAuthority } from "../app/workspace-authority.js";
 import { verifiedSourcePathBase } from "../auth/host-session.js";
@@ -48,9 +50,6 @@ import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composi
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
-import { renderAbout } from "../pages/about.js";
-import { renderContent } from "../pages/content.js";
-import { renderHome } from "../pages/home.js";
 import {
   type ExploreDatasetInput,
   type ExploreDatasetMetadata,
@@ -58,16 +57,13 @@ import {
 } from "../recipes/explore-dataset.js";
 import { RecipePanel } from "../recipes/recipe-panel.js";
 import { RecipeSubmission } from "../recipes/recipe-submission.js";
-import { Router } from "../router/router.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { createCatalogWidgetDataLoader } from "../widgets/widget-data.js";
-import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
 import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "./studio-chat-element.js";
-import { appShellStyles, baseElementStyles } from "./styles.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
   HonuaStudioCommandOutcome,
@@ -75,7 +71,6 @@ import type {
   HonuaStudioGpActivityDetail,
   HonuaStudioGpAddOutputDetail,
   HonuaStudioLifecycleActivityDetail,
-  HonuaStudioNavigateDetail,
   HonuaStudioRoutingMode,
   HonuaStudioThemeChangeDetail,
   HonuaStudioThemeSwitcherVisibility,
@@ -162,70 +157,11 @@ function orchestrationAgentResult(
   } as unknown as HonuaAgentToolResult;
 }
 
-interface StudioRoute {
-  path: string;
-  navTestId: string;
-  label: string;
-  render: (
-    root: HTMLElement,
-    client: StudioClient,
-    auth: AuthSession,
-    onAddSource: (dataset: CatalogDataset) => Promise<void>,
-  ) => void;
-}
-
 interface LiveCompositionOptions {
   readonly baseUrl: string;
   readonly packageKey: string;
   readonly family?: StudioPackageFamilyWire;
   readonly schemaVersion?: string;
-}
-
-const ROUTES: readonly StudioRoute[] = [
-  {
-    path: "/",
-    navTestId: "nav-home",
-    label: "Home",
-    render: (root, client, auth, onAddSource) => renderHome(root, client, auth, onAddSource),
-  },
-  {
-    path: "/content",
-    navTestId: "nav-content",
-    label: "Content",
-    render: (root, _client, auth) => renderContent(root, auth),
-  },
-  { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
-];
-
-/** Package families whose drafts carry a composition body; mirrors the server gate and `mock-server.mjs`. */
-const LIVE_COMPOSITION_FAMILIES: readonly StudioPackageFamilyWire[] = ["map", "app"];
-
-const FIXTURE_MODE_LABEL = "Fixture mode";
-
-const THEME_SETS: readonly ThemeSet[] = ["standalone", "console"];
-const THEME_MODES: readonly ThemeMode[] = ["light", "dark", "auto"];
-const THEME_SET_LABELS: Record<ThemeSet, string> = { standalone: "Standalone", console: "Console" };
-const THEME_MODE_LABELS: Record<ThemeMode, string> = { light: "Light", dark: "Dark", auto: "Auto" };
-
-function normalizePath(path: string): string {
-  if (!path || path === "") return "/";
-  return path.startsWith("/") ? path : `/${path}`;
-}
-
-function stripBasePath(path: string, basePath: string | null): string {
-  if (!basePath) return path;
-  const trimmedBase = basePath.replace(/\/$/, "");
-  if (trimmedBase && path.startsWith(trimmedBase)) {
-    const rest = path.slice(trimmedBase.length);
-    return normalizePath(rest === "" ? "/" : rest);
-  }
-  return path;
-}
-
-function withBasePath(path: string, basePath: string | null): string {
-  if (!basePath) return path;
-  const trimmedBase = basePath.replace(/\/$/, "");
-  return path === "/" ? trimmedBase || "/" : `${trimmedBase}${path}`;
 }
 
 export class HonuaStudioAppElement extends HonuaStudioElementBase {
@@ -240,7 +176,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // Never renderView() from this listener: every getAccessToken() dispatches a state change and the home
     // route fetches with a token, so re-rendering routes here loops forever. Routes subscribe themselves.
     onAuthStateChange: () => {
-      this.paintAuthControls();
+      this.#chrome.paintAuth();
       this.#onAuthStatusChanged();
     },
   });
@@ -267,7 +203,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       chat.detachAgentSession();
       chat.agentSessionAdapter = adapter;
     }
-    this.shadowRoot?.querySelector('slot[name="chat"]')?.toggleAttribute("hidden", Boolean(adapter));
+    this.#chrome.hideChatSlot(Boolean(adapter));
   }
 
   #isWorkspaceHost(): boolean {
@@ -279,17 +215,29 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #syncWorkspaceChrome(): void {
     const host = this.#isWorkspaceHost();
     this.toggleAttribute("data-workspace-host", host);
-    if (host) {
-      this.#hashRouter?.stop();
-      this.#hashRouter = undefined;
-    }
+    if (host) this.#router.stop();
     if (this.isConnected) this.renderView();
   }
 
   #themeLoader: ThemeLoader | undefined;
-  #hashRouter: Router | undefined;
-  #currentPath = "/";
-  #chromeBuilt = false;
+  readonly #chrome = new ShellChrome({
+    host: this,
+    setShadowHtml: (html) => this.setShadowHtml(html),
+    connectedSignal: () => this.connectedSignal,
+    authStatus: () => this.#authority.resolvedAuth?.getState().status ?? "signed-out",
+    isDesignInspectorOpen: () => Boolean(this.#designInspector),
+    isHistoryBusy: () => this.#historyBusy,
+    liveStatus: () => ({ live: this.#orchestrator?.isLive === true, packageKey: this.#liveCompositionPackageKey }),
+    onNavigate: (path, event) => this.#router.requestNavigation(path, event),
+  });
+  readonly #router = new ShellRouter({
+    host: this,
+    hasView: () => this.#chrome.hasView(),
+    viewRoot: () => this.#chrome.viewRoot(),
+    onRouteRendered: () => this.#chrome.syncNav(),
+    isWorkspaceHost: () => this.#isWorkspaceHost(),
+    addCatalogSource: (dataset) => this.#addCatalogSource(dataset),
+  });
   #composition: CompositionController | undefined;
   #designInspector: DesignInspectorPanel | undefined;
   #designInspectorContainer: HTMLElement | undefined;
@@ -330,7 +278,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return;
     const container = document.createElement("div");
     container.id = "design-inspector-panel";
-    this.shadowRoot?.querySelector(".app-slots")?.before(container);
+    this.#chrome.appSlots()?.before(container);
     this.#designInspectorContainer = container;
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined;
     this.#designInspector = new Panel({
@@ -373,10 +321,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       },
       close: () => {
         this.closeDesignInspector();
-        this.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="design-inspector-toggle"]')?.focus();
+        this.#chrome.focus("design-inspector-toggle");
       },
     });
-    this.shadowRoot?.querySelector('[data-testid="design-inspector-toggle"]')?.setAttribute("aria-expanded", "true");
+    this.#chrome.setExpanded("design-inspector-toggle", true);
     container.querySelector<HTMLButtonElement>("button")?.focus();
   }
 
@@ -389,8 +337,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#designRelationship = undefined;
     this.#designRelationshipState = undefined;
     this.#designRelationshipSelection = undefined;
-    const toggle = this.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="design-inspector-toggle"]');
-    toggle?.setAttribute("aria-expanded", "false");
+    this.#chrome.setExpanded("design-inspector-toggle", false);
   }
   #styleEditor: MapStyleEditor | undefined;
   #styleEditorPanel: HTMLElement | undefined;
@@ -433,9 +380,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       throw new Error("The workspace draft changed while opening the style editor.");
     const panel = window.document.createElement("section");
     panel.setAttribute("aria-label", "Map style editor");
-    this.shadowRoot?.querySelector(".app-slots")?.prepend(panel);
+    this.#chrome.appSlots()?.prepend(panel);
     this.#styleEditorPanel = panel;
-    this.shadowRoot?.querySelector(".app-slots")?.setAttribute("data-style-mode", "");
+    this.#chrome.appSlots()?.setAttribute("data-style-mode", "");
     this.#styleEditor = new MapStyleEditor({
       container: panel,
       document,
@@ -473,7 +420,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         canvas.stylePreview = style;
       },
       onDirty: (dirty) => {
-        this.paintHistoryControls();
+        this.#chrome.paintHistory();
         this.dispatchEvent(
           new CustomEvent("honua-studio-style-dirty-change", { detail: { dirty }, bubbles: true, composed: true }),
         );
@@ -532,8 +479,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#styleEditor = undefined;
     this.#styleEditorPanel?.remove();
     this.#styleEditorPanel = undefined;
-    this.shadowRoot?.querySelector(".app-slots")?.removeAttribute("data-style-mode");
-    this.paintHistoryControls();
+    this.#chrome.appSlots()?.removeAttribute("data-style-mode");
+    this.#chrome.paintHistory();
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas) canvas.stylePreview = undefined;
     this.dispatchEvent(
@@ -560,7 +507,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   >();
   #workspaceDraftConflict = false;
   #workspaceDraftQueue: Promise<unknown> = Promise.resolve();
-  #historyUnsubscribe: (() => void) | undefined;
   #historyBusy = false;
   #orchestrator: ToolCallOrchestrator | undefined;
   #liveCompositionPackageKey: string | undefined;
@@ -608,7 +554,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Optional host entrypoint; viewing and choosing inputs never creates a draft. */
   public openRecipePicker(): void {
-    const outlet = this.shadowRoot?.querySelector<HTMLElement>("[data-recipe-outlet]");
+    const outlet = this.#chrome.recipeOutlet();
     if (!outlet) throw new Error("Connect the Studio element before opening recipes.");
     outlet.hidden = false;
     this.#recipePanel ??= new RecipePanel(outlet, {
@@ -622,7 +568,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       },
       canChangeInputs: (id) => !this.#recipeSubmissions.get(id)?.submission.submitted,
     });
-    this.shadowRoot?.querySelector("[data-testid='recipe-toggle']")?.setAttribute("aria-expanded", "true");
+    this.#chrome.setExpanded("recipe-toggle", true);
     this.#recipePanel.resume();
   }
 
@@ -633,11 +579,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         entry.attachmentAllowed = false;
         entry.metadataAbort?.abort();
       }
-    const outlet = this.shadowRoot?.querySelector<HTMLElement>("[data-recipe-outlet]");
+    const outlet = this.#chrome.recipeOutlet();
     if (outlet) outlet.hidden = true;
-    const button = this.shadowRoot?.querySelector<HTMLButtonElement>("[data-testid='recipe-toggle']");
-    button?.setAttribute("aria-expanded", "false");
-    button?.focus();
+    this.#chrome.setExpanded("recipe-toggle", false);
+    this.#chrome.focus("recipe-toggle");
   }
 
   #disposeRecipePicker(): void {
@@ -1219,7 +1164,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           element.tagName === "HONUA-STUDIO-CHAT" ||
           element.tagName === "HONUA-STUDIO-CONTROL-BAR" ||
           this.#styleEditorPanel?.contains(element) ||
-          this.shadowRoot?.querySelector("[data-recipe-outlet]")?.contains(element)
+          this.#chrome.recipeOutlet()?.contains(element)
         )
           continue;
         if (element instanceof HTMLInputElement) {
@@ -1260,7 +1205,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#historyBusy || this.hasUnsavedStyleChanges) return false;
     const authGeneration = this.#authority.epoch.current;
     this.#historyBusy = true;
-    this.paintHistoryControls();
+    this.#chrome.paintHistory();
     try {
       let applied: boolean;
       if (this.#workspaceDraft) {
@@ -1287,22 +1232,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           generation,
         });
       }
-      const status = this.shadowRoot?.querySelector('[data-testid="history-status"]');
-      if (status)
-        status.textContent = applied
-          ? action === "undo"
-            ? "Undone"
-            : "Redone"
-          : `Unable to ${action}. Review the activity log.`;
+      this.#chrome.setHistoryStatus(
+        applied ? (action === "undo" ? "Undone" : "Redone") : `Unable to ${action}. Review the activity log.`,
+      );
       return applied;
     } catch (error) {
       if (this.#workspaceDraft && this.#authority.epoch.isCurrent(authGeneration)) this.#workspaceDraftConflict = true;
-      const status = this.shadowRoot?.querySelector('[data-testid="history-status"]');
-      if (status) status.textContent = error instanceof Error ? error.message : `Unable to ${action}.`;
+      this.#chrome.setHistoryStatus(error instanceof Error ? error.message : `Unable to ${action}.`);
       return false;
     } finally {
       this.#historyBusy = false;
-      this.paintHistoryControls();
+      this.#chrome.paintHistory();
     }
   }
 
@@ -1395,10 +1335,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     }
     // auth.mode decides whether sign-in/out buttons exist at all, so a new principal rebuilds the chrome.
     // A cookie lease renewal keeps the DOM so the style editor iframe keeps uncommitted field text.
-    if (!samePrincipal) this.#chromeBuilt = false;
+    if (!samePrincipal) this.#chrome.invalidate();
     this.renderChrome();
     // Routes receive `auth` as an argument, so re-render the current route once with the new session.
-    if (this.routingMode === "hash") this.#setupHashRouter();
+    if (this.routingMode === "hash") this.#router.startHashRouting();
     else this.renderView();
     // The catalog is bearer-gated, so a new session needs a new catalog.
     this.#refreshSourceCatalog(Boolean(samePrincipal));
@@ -1673,7 +1613,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #announceCompositionMode(detail: HonuaStudioCompositionModeChangeDetail): void {
-    this.paintLiveCompositionControls();
+    this.#chrome.paintLiveComposition();
     const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
     chat?.activityLog.append("composition_mode_changed", { ...detail });
     this.dispatchTypedEvent<HonuaStudioCompositionModeChangeDetail>("honua-studio-composition-mode-change", detail);
@@ -1697,7 +1637,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * when the element wants to navigate.
    */
   public get currentPath(): string {
-    return this.#currentPath;
+    return this.#router.currentPath;
   }
 
   public set currentPath(path: string) {
@@ -1739,32 +1679,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#themeLoader;
   }
 
-  /** Binds a fresh hash router to the current `#view`; a chrome rebuild replaces that node. */
-  #setupHashRouter(): void {
-    if (this.routingMode !== "hash" || this.#isWorkspaceHost()) return;
-    this.#hashRouter?.stop();
-    this.#hashRouter = new Router(
-      this.viewRoot(),
-      ROUTES.map((route) => ({
-        path: route.path,
-        render: (root) => {
-          this.#currentPath = route.path;
-          route.render(root, this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
-          this.syncNavCurrent();
-        },
-      })),
-      {
-        path: "*",
-        render: (root) => {
-          this.#currentPath = "/";
-          ROUTES[0]?.render(root, this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
-          this.syncNavCurrent();
-        },
-      },
-    );
-    this.#hashRouter.start();
-  }
-
   protected onConnect(signal: AbortSignal): void {
     // The chrome markup depends on auth.mode, so auth resolves first.
     this.#authority.resetAuth();
@@ -1803,12 +1717,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       loader.boot();
     }
 
-    const basePath = this.getAttribute("base-path");
-    if (this.routingMode === "hash") {
-      this.#setupHashRouter();
-    } else {
-      this.#currentPath = stripBasePath(normalizePath(this.getAttribute("current-path") ?? "/"), basePath);
-    }
+    if (this.routingMode === "hash") this.#router.startHashRouting();
+    else this.#router.followHostPath(this.getAttribute("current-path"));
 
     if (!this.querySelector("honua-studio-chat")) {
       const chat = document.createElement("honua-studio-chat");
@@ -2143,17 +2053,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   protected onDisconnect(): void {
     this.closeDesignInspector();
     this.#disposeRecipePicker();
-    this.#historyUnsubscribe?.();
-    this.#historyUnsubscribe = undefined;
+    this.#chrome.dispose();
     if (!this.#workspaceAgentAdapter) {
       this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     }
     this.#agentSetup.next();
-    this.#hashRouter?.stop();
-    this.#hashRouter = undefined;
+    this.#router.stop();
     this.#authority.disposeAuth();
     this.#themeLoader = undefined;
-    this.#chromeBuilt = false;
   }
 
   public attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -2163,12 +2070,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         themeSet: this.themeSet,
         mode: this.themeMode,
       });
-      this.syncThemeControls();
+      this.#chrome.syncTheme();
       return;
     }
     if (name === "current-path" && this.routingMode === "host") {
-      const basePath = this.getAttribute("base-path");
-      this.#currentPath = stripBasePath(normalizePath(newValue ?? "/"), basePath);
+      this.#router.followHostPath(newValue);
       this.renderView();
       return;
     }
@@ -2178,8 +2084,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     }
     if (name === "routing-mode" || name === "base-path") {
       // Re-run onConnect's routing setup on the still-live connection signal, so its listeners still clean up.
-      this.#hashRouter?.stop();
-      this.#hashRouter = undefined;
+      this.#router.stop();
       const signal = this.connectedSignal;
       if (signal) this.onConnect(signal);
       this.render();
@@ -2191,320 +2096,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.renderView();
   }
 
-  private viewRoot(): HTMLElement {
-    const root = this.shadowRoot?.querySelector<HTMLElement>("#view");
-    if (!root) throw new Error("honua-studio-app: shell markup is missing its #view outlet.");
-    return root;
-  }
-
   private renderChrome(): void {
-    if (this.#chromeBuilt && this.shadowRoot?.querySelector(".app-shell")) {
-      this.syncThemeControls();
-      this.syncNavCurrent();
-      this.paintAuthControls();
-      return;
-    }
-    const switcherHidden = this.themeSwitcherVisibility === "hidden";
-    // An embed host owns sign-in/out, so host-adapter mode renders only a status label.
-    const authControlsMarkup =
-      this.auth.mode === "standalone"
-        ? `<button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signin" hidden>Sign in</button>
-           <button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signout" hidden>Sign out</button>`
-        : "";
-    this.setShadowHtml(`
-      <style>${baseElementStyles()}${appShellStyles()}</style>
-      <div class="app-shell" data-testid="app-shell">
-        <header class="app-header hn-panel">
-          <div class="app-brand">
-            <p class="hn-register">Honua Studio</p>
-            <h1 class="app-title">Natural language to map app.</h1>
-          </div>
-          <nav class="app-nav" aria-label="Studio">
-            ${ROUTES.map(
-              (route) =>
-                `<a href="#${route.path}" data-path="${route.path}" data-testid="${route.navTestId}">${route.label}</a>`,
-            ).join("")}
-          </nav>
-          <div class="app-auth" data-testid="auth-controls" role="group" aria-label="Session">
-            <span class="hn-muted" data-testid="auth-status"></span>
-            ${authControlsMarkup}
-          </div>
-          <div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Composition mode">
-            <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
-            <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
-            <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
-            <button type="button" class="hn-btn hn-btn--sm" data-testid="design-inspector-toggle" aria-expanded="false" aria-controls="design-inspector-panel">Inspect data and interactions</button>
-            <span class="hn-muted" data-testid="history-status" role="status"></span>
-            <button type="button" class="hn-btn hn-btn--sm" data-testid="recipe-toggle" aria-expanded="false" aria-controls="recipe-outlet">Start from a recipe</button>
-            <button
-              type="button"
-              class="hn-btn hn-btn--sm"
-              data-testid="live-composition-toggle"
-              aria-expanded="false"
-              aria-controls="live-composition-form"
-            >Go live…</button>
-            <form class="live-form" id="live-composition-form" data-testid="live-composition-form" hidden>
-              <label class="live-field">
-                <span class="hn-muted">Studio package key</span>
-                <input type="text" required data-testid="live-composition-package-key" placeholder="pkg-…" />
-              </label>
-              <label class="live-field">
-                <span class="hn-muted">Family</span>
-                <select data-testid="live-composition-family">
-                  ${LIVE_COMPOSITION_FAMILIES.map((family) => `<option value="${family}">${family}</option>`).join("")}
-                </select>
-              </label>
-              <div class="live-actions">
-                <button type="submit" class="hn-btn hn-btn--sm" data-testid="live-composition-submit">Connect</button>
-                <button type="button" class="hn-btn hn-btn--sm" data-testid="live-composition-cancel">Cancel</button>
-              </div>
-              <p class="hn-muted live-note">
-                Tool calls will mutate a real Studio draft on the connected server instead of local fixture state.
-              </p>
-            </form>
-          </div>
-          <div class="app-theme-controls" data-testid="theme-controls" ${switcherHidden ? "hidden" : ""}>
-            <div class="theme-group" role="group" aria-label="Theme set">
-              ${THEME_SETS.map(
-                (set) =>
-                  `<button type="button" class="hn-btn hn-btn--sm" data-theme-set-option="${set}" data-testid="theme-set-${set}">${THEME_SET_LABELS[set]}</button>`,
-              ).join("")}
-            </div>
-            <div class="theme-group" role="group" aria-label="Theme mode">
-              ${THEME_MODES.map(
-                (mode) =>
-                  `<button type="button" class="hn-btn hn-btn--sm" data-theme-mode-option="${mode}" data-testid="theme-mode-${mode}">${THEME_MODE_LABELS[mode]}</button>`,
-              ).join("")}
-            </div>
-          </div>
-        </header>
-        <main id="view" class="app-view" data-testid="app-view"></main>
-        <div id="recipe-outlet" data-recipe-outlet hidden></div>
-        <div class="app-slots" data-testid="app-slots">
-          <slot name="chat" ${this.#workspaceAgentAdapter ? "hidden" : ""}></slot>
-          <slot name="canvas"></slot>
-        </div>
-      </div>
-    `);
-    this.#chromeBuilt = true;
-
-    const root = this.shadowRoot;
-    const signal = this.connectedSignal;
-    root?.querySelector("[data-testid='recipe-toggle']")?.addEventListener(
-      "click",
-      () => {
-        const outlet = root.querySelector<HTMLElement>("[data-recipe-outlet]");
-        if (outlet?.hidden) this.openRecipePicker();
-        else this.closeRecipePicker();
-      },
-      { signal },
-    );
-    for (const button of root?.querySelectorAll<HTMLButtonElement>("[data-theme-set-option]") ?? []) {
-      button.addEventListener(
-        "click",
-        () => {
-          this.themeSet = button.dataset.themeSetOption as ThemeSet;
-        },
-        { signal },
-      );
-    }
-    for (const button of root?.querySelectorAll<HTMLButtonElement>("[data-theme-mode-option]") ?? []) {
-      button.addEventListener(
-        "click",
-        () => {
-          this.themeMode = button.dataset.themeModeOption as ThemeMode;
-        },
-        { signal },
-      );
-    }
-    for (const link of root?.querySelectorAll<HTMLAnchorElement>("[data-path]") ?? []) {
-      link.addEventListener(
-        "click",
-        (event) => {
-          const path = link.dataset.path;
-          if (!path) return;
-          if (this.routingMode === "host") {
-            // Host owns the URL: never touch window.location, only request.
-            event.preventDefault();
-            const basePath = this.getAttribute("base-path");
-            this.dispatchTypedEvent<HonuaStudioNavigateDetail>("honua-studio-navigate", {
-              path: withBasePath(path, basePath),
-            });
-          }
-          // In "hash" mode the anchor's own href does the navigating; the
-          // Router's hashchange listener picks it up.
-        },
-        { signal },
-      );
-    }
-    root?.querySelector('[data-testid="auth-signin"]')?.addEventListener(
-      "click",
-      () => {
-        void this.auth.signIn();
-      },
-      { signal },
-    );
-    root?.querySelector('[data-testid="auth-signout"]')?.addEventListener(
-      "click",
-      () => {
-        void this.auth.signOut();
-      },
-      { signal },
-    );
-
-    this.bindLiveCompositionControls();
-    root?.querySelector('[data-testid="design-inspector-toggle"]')?.addEventListener(
-      "click",
-      () => {
-        if (this.#designInspector) this.closeDesignInspector();
-        else void this.openDesignInspector();
-      },
-      { signal },
-    );
-    for (const action of ["undo", "redo"] as const) {
-      root?.querySelector(`[data-testid="history-${action}"]`)?.addEventListener(
-        "click",
-        () => {
-          void this.applyHistoryAction(action);
-        },
-        { signal },
-      );
-    }
-    this.#historyUnsubscribe?.();
-    this.#historyUnsubscribe = this.composition.subscribe(() => this.paintHistoryControls());
-    this.paintHistoryControls();
-
-    this.syncThemeControls();
-    this.syncNavCurrent();
-    this.paintAuthControls();
-    this.paintLiveCompositionControls();
-  }
-
-  /** Listeners are `connectedSignal`-scoped, so a chrome rebuild never doubles them up. */
-  private bindLiveCompositionControls(): void {
-    const root = this.shadowRoot;
-    const signal = this.connectedSignal;
-    if (!root) return;
-    const form = root.querySelector<HTMLFormElement>('[data-testid="live-composition-form"]');
-    const toggle = root.querySelector<HTMLButtonElement>('[data-testid="live-composition-toggle"]');
-    toggle?.addEventListener(
-      "click",
-      () => {
-        // One button, two jobs, decided by the mode you are in: open the
-        // connect form from fixture mode, drop back to fixture from live.
-        if (this.toolCallOrchestrator.isLive) {
-          this.disableLiveComposition();
-          return;
-        }
-        if (!form) return;
-        form.hidden = !form.hidden;
-        toggle.setAttribute("aria-expanded", String(!form.hidden));
-        if (!form.hidden) {
-          root.querySelector<HTMLInputElement>('[data-testid="live-composition-package-key"]')?.focus();
-        }
-      },
-      { signal },
-    );
-    root.querySelector<HTMLButtonElement>('[data-testid="live-composition-cancel"]')?.addEventListener(
-      "click",
-      () => {
-        if (form) form.hidden = true;
-        toggle?.setAttribute("aria-expanded", "false");
-      },
-      { signal },
-    );
-    form?.addEventListener(
-      "submit",
-      (event) => {
-        event.preventDefault();
-        const packageKey = root
-          .querySelector<HTMLInputElement>('[data-testid="live-composition-package-key"]')
-          ?.value.trim();
-        if (!packageKey) return;
-        const family = root.querySelector<HTMLSelectElement>('[data-testid="live-composition-family"]')?.value as
-          | StudioPackageFamilyWire
-          | undefined;
-        form.hidden = true;
-        toggle?.setAttribute("aria-expanded", "false");
-        this.enableLiveComposition({ packageKey, ...(family ? { family } : {}) });
-      },
-      { signal },
-    );
-  }
-
-  private paintLiveCompositionControls(): void {
-    const root = this.shadowRoot;
-    if (!root) return;
-    const live = this.#orchestrator?.isLive === true;
-    const status = root.querySelector<HTMLElement>('[data-testid="live-composition-status"]');
-    if (status) {
-      status.textContent = live ? `Live · ${this.#liveCompositionPackageKey ?? "connected"}` : FIXTURE_MODE_LABEL;
-      status.setAttribute("data-mode", live ? "live" : "fixture");
-    }
-    const toggle = root.querySelector<HTMLButtonElement>('[data-testid="live-composition-toggle"]');
-    if (toggle) toggle.textContent = live ? "Return to fixture" : "Go live…";
-    if (live) {
-      const form = root.querySelector<HTMLFormElement>('[data-testid="live-composition-form"]');
-      if (form) form.hidden = true;
-      toggle?.setAttribute("aria-expanded", "false");
-    }
-  }
-
-  private paintHistoryControls(): void {
-    for (const action of ["undo", "redo"] as const) {
-      const button = this.shadowRoot?.querySelector<HTMLButtonElement>(`[data-testid="history-${action}"]`);
-      if (button)
-        button.disabled =
-          this.#historyBusy ||
-          this.hasUnsavedStyleChanges ||
-          !(action === "undo" ? this.composition.canUndo() : this.composition.canRedo());
-    }
-  }
-
-  private syncThemeControls(): void {
-    const root = this.shadowRoot;
-    if (!root) return;
-    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-theme-set-option]")) {
-      button.setAttribute("aria-pressed", String(button.dataset.themeSetOption === this.themeSet));
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-theme-mode-option]")) {
-      button.setAttribute("aria-pressed", String(button.dataset.themeModeOption === this.themeMode));
-    }
-    const controls = root.querySelector<HTMLElement>('[data-testid="theme-controls"]');
-    if (controls) controls.hidden = this.themeSwitcherVisibility === "hidden";
-  }
-
-  private syncNavCurrent(): void {
-    const root = this.shadowRoot;
-    if (!root) return;
-    for (const link of root.querySelectorAll<HTMLAnchorElement>("[data-path]")) {
-      if (link.dataset.path === this.#currentPath) link.setAttribute("aria-current", "page");
-      else link.removeAttribute("aria-current");
-    }
-  }
-
-  private paintAuthControls(): void {
-    const root = this.shadowRoot;
-    if (!root) return;
-    const state = this.#authority.resolvedAuth?.getState() ?? { status: "signed-out" as const };
-    const statusEl = root.querySelector<HTMLElement>('[data-testid="auth-status"]');
-    if (statusEl) statusEl.textContent = AUTH_STATUS_LABELS[state.status];
-    const signInButton = root.querySelector<HTMLButtonElement>('[data-testid="auth-signin"]');
-    const signOutButton = root.querySelector<HTMLButtonElement>('[data-testid="auth-signout"]');
-    const signedIn = state.status === "fresh" || state.status === "refreshing";
-    if (signInButton) signInButton.hidden = signedIn;
-    if (signOutButton) signOutButton.hidden = !signedIn;
+    this.#chrome.render();
   }
 
   private renderView(): void {
-    if (!this.shadowRoot?.querySelector("#view")) return;
-    if (this.#isWorkspaceHost()) {
-      this.viewRoot().replaceChildren();
-      return;
-    }
-    const route = ROUTES.find((candidate) => candidate.path === this.#currentPath) ?? ROUTES[0];
-    route?.render(this.viewRoot(), this.studioClient, this.auth, (dataset) => this.#addCatalogSource(dataset));
-    this.syncNavCurrent();
+    this.#router.render();
   }
 }
 
