@@ -2,18 +2,13 @@
  * The package lifecycle journey: browse -> open -> edit ->
  * version -> compare -> publish-confirm, driven through
  * `<honua-studio-content-browser>` + `<honua-studio-lifecycle-panel>` in a
- * REAL browser against `mock-server.mjs`'s real REST lifecycle routes —
- * mirrors `mcp-compose-journey.spec.mjs`'s "real fixture, real browser, real
- * DOM interactions" approach.
+ * real browser against `mock-server.mjs`'s real REST lifecycle routes.
  *
- * A draft is seeded via one direct REST call before navigating (there is no
- * "create a new draft" button in this issue's scope — draft creation is an
- * agent/chat-tool-call or per-family-editor concern, tracked separately);
- * everything from "browse" onward is driven purely through the UI. "Edit" is
- * likewise a single direct REST PUT between the two "Save as version" clicks
- * — this issue's lifecycle panel has no body editor (that is per-family
- * editor scope, honua-studio's Phase 2 backlog) — documented here rather
- * than faked as a UI interaction that doesn't exist yet.
+ * A draft is seeded via one direct REST call before navigating. There is no
+ * create-draft button; draft creation is an agent or per-family editor
+ * concern. Everything from browse onward is driven through the UI. Edit is
+ * one direct REST PUT between the two save-as-version clicks, because the
+ * lifecycle panel has no body editor.
  */
 import { expect, test } from "@playwright/test";
 
@@ -39,8 +34,7 @@ test.describe("package lifecycle journey: browse -> open -> edit -> version -> c
         return json.data;
       }
 
-      // Seed: one draft, as if an agent (or a per-family editor, out of this
-      // issue's scope) had already composed it.
+      // Seed one draft that an agent has already composed.
       const seeded = await restCall("POST", "/v1/studio/package-drafts", {
         packageKey: "journey-parcels-overview",
         envelope: {
@@ -64,25 +58,20 @@ test.describe("package lifecycle journey: browse -> open -> edit -> version -> c
         window.__honuaStudioApp.session = { getToken: async () => fixtureToken, onExpired: () => () => {} };
       }, token);
 
-      // Navigate to /content (hash router).
       await page.getByTestId("nav-content").click();
       await expect(page.getByTestId("content-route")).toBeVisible();
       await expect(page.getByTestId("content-browser")).toBeVisible();
 
-      // Browse: the seeded draft is listed.
       await expect(page.getByTestId("draft-row")).toContainText("journey-parcels-overview");
 
-      // Open: click "Open" on the draft row -> lifecycle panel shows it.
       await page.getByTestId("draft-open").click();
       await expect(page.getByTestId("content-route-panel")).toBeVisible();
       await expect(page.getByTestId("lifecycle-panel-generation")).toContainText("1");
 
-      // Version: save the seeded draft as v1.
       await page.getByTestId("lifecycle-panel-save-version").click();
       await expect(page.getByTestId("lifecycle-version-row")).toHaveCount(1);
 
-      // Edit: a real body change via direct REST (no body-editor UI in this
-      // issue's scope — see the module doc).
+      // A real body change via direct REST. This panel has no body editor.
       const draftAfterV1 = await restCall("GET", `/v1/studio/package-drafts/${seeded.draftId}`);
       await restCall("PUT", `/v1/studio/package-drafts/${seeded.draftId}`, {
         packageKey: "journey-parcels-overview",
@@ -99,7 +88,6 @@ test.describe("package lifecycle journey: browse -> open -> edit -> version -> c
       await page.getByTestId("lifecycle-panel-save-version").click();
       await expect(page.getByTestId("lifecycle-version-row")).toHaveCount(2);
 
-      // Compare: select v1 as left, v2 as right, click Compare.
       const leftRadios = page.getByTestId("lifecycle-compare-left");
       const rightRadios = page.getByTestId("lifecycle-compare-right");
       await leftRadios.nth(0).check();
