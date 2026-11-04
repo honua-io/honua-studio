@@ -44,9 +44,7 @@
  * @module
  */
 
-// ---------------------------------------------------------------------------
 // GP package envelope body (family "gp")
-// ---------------------------------------------------------------------------
 
 /** One data input the GP package consumes — a bound catalog dataset (or another package's output, for a chained analysis). */
 export interface GpPackageInput {
@@ -95,9 +93,7 @@ export interface GpPackageBody {
   readonly steps: readonly GpPackageStep[];
 }
 
-// ---------------------------------------------------------------------------
 // Async batch execution job surface (REQ-003) — see the module doc.
-// ---------------------------------------------------------------------------
 
 /** OGC API Processes 1.0 status vocabulary — identical to `@honua/sdk-js`'s `JobStatus` (`src/contract/jobs.ts`). */
 export type GpJobStatus = "accepted" | "running" | "successful" | "failed" | "dismissed";

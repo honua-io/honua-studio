@@ -1,5 +1,5 @@
 /**
- * The composition map surface (honua-studio#23).
+ * The composition map surface.
  *
  * Import shape matters here. `<honua-studio-canvas>` reaches this module
  * through a **dynamic** `import("../map/index.js")`, and nothing in this

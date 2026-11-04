@@ -59,7 +59,7 @@ export function defaultPaintFor(layerType: CompositionLayerType, color: string):
 
 /**
  * The paint property a layer archetype fades through, and the base value it
- * fades from. honua-studio#25's `opacity` control multiplies the archetype's
+ * fades from. the `opacity` control multiplies the archetype's
  * own default rather than overwriting it, so dragging a fill layer's slider
  * to 100% restores the 0.45 wash the projection chose — not an opaque slab
  * that hides everything beneath it.
@@ -95,7 +95,7 @@ export function styleRefFallbackOverride(
 ): Record<string, unknown> {
   return {
     // The override replaces the layer's whole `paint`, so a runtime opacity
-    // (honua-studio#25) has to be folded in HERE as well as in the projected
+    // has to be folded in HERE as well as in the projected
     // layer. Without this, an `opacity` control on a style-ref'd layer moves
     // and nothing happens — the override silently restores the archetype's
     // default, which is exactly the "control that changes nothing" failure

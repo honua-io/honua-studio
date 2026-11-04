@@ -80,7 +80,7 @@ export interface CompositionMapLike {
   queryRenderedFeatures?(point: unknown, options?: { layers?: readonly string[] }): readonly unknown[];
   resize(): unknown;
   remove(): void;
-  // honua-studio#25's map-affordance controls. Every one is OPTIONAL, and
+  // the map-affordance controls. Every one is OPTIONAL, and
   // that is the contract, not laziness: a real `maplibre-gl.Map` has all of
   // them, a test double has whichever the test needs, and a control whose
   // method is missing renders disabled with a stated reason rather than
@@ -135,7 +135,7 @@ export interface CompositionMapViewOptions {
   readonly onSelection?: (targets: readonly CompositionTarget[]) => void;
   /**
    * Called with the geographic point of EVERY map click, hit or miss — what a
-   * `measure` control (honua-studio#25) collects vertices from. Kept separate
+   * `measure` control collects vertices from. Kept separate
    * from `onSelection` because measuring cares about empty water as much as
    * about a parcel, and a measurement click must not also select.
    */
@@ -328,7 +328,7 @@ export class CompositionMapView {
 
   /**
    * Applies runtime control appearance — per-layer filters and opacity
-   * (honua-studio#25). Goes through the normal projection + style-diff path,
+   * Goes through the normal projection + style-diff path,
    * which is the only path that survives the next composition change; see
    * `./map-package-projection.ts`'s `appearance` doc for why an imperative
    * `map.setFilter` would not.

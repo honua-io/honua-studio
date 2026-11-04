@@ -9,7 +9,7 @@
  * one compiler in the process.
  *
  * A barrel for hosts and tests. **Element modules import the concrete files
- * instead** — honua-studio#23's lazy-chunk rule: a dynamically imported
+ * instead** — the lazy-chunk rule: a dynamically imported
  * module that reaches back into a barrel the entry also imports statically
  * makes the same module evaluate twice under two URLs (fatally, under
  * ASP.NET Core's fingerprinted `MapStaticAssets`). See

@@ -40,9 +40,7 @@
  * @module
  */
 
-// ---------------------------------------------------------------------------
 // Enums (server: StudioPackageEnums.cs)
-// ---------------------------------------------------------------------------
 
 export type StudioPackageFamily =
   | "query"
@@ -95,9 +93,7 @@ export type StudioContentItemState = "draft" | "current" | "published";
 /** A joined publication's route lifecycle (Content Publication Registry API). */
 export type StudioPublicationRouteLifecycle = "active" | "suspended" | "archived";
 
-// ---------------------------------------------------------------------------
 // Package envelope (server: StudioPackageModels.cs)
-// ---------------------------------------------------------------------------
 
 export interface StudioPackageBinding {
   readonly key: string;
@@ -164,9 +160,7 @@ export interface StudioPackageEnvelope {
   readonly body?: unknown;
 }
 
-// ---------------------------------------------------------------------------
 // Package family capabilities (GET /package-families)
-// ---------------------------------------------------------------------------
 
 export interface StudioPackageFamilyDescriptor {
   readonly family: StudioPackageFamily;
@@ -187,9 +181,7 @@ export interface StudioPackageFamilyCapabilities {
   readonly families: readonly StudioPackageFamilyDescriptor[];
 }
 
-// ---------------------------------------------------------------------------
 // Drafts (mutable)
-// ---------------------------------------------------------------------------
 
 export interface StudioPackageDraft {
   readonly draftId: string;
@@ -225,9 +217,7 @@ export interface StudioPackageDraftReplaceRequest {
   readonly generation?: number;
 }
 
-// ---------------------------------------------------------------------------
 // Content versions (immutable)
-// ---------------------------------------------------------------------------
 
 export interface StudioContentVersion {
   readonly itemId: string;
@@ -283,12 +273,10 @@ export interface StudioPreviewPlan {
   readonly validation: StudioValidationSummary;
 }
 
-// ---------------------------------------------------------------------------
 // Publish / reopen / rollback — the human-confirmed lifecycle gates
 // (spec REQ-009: propose-publication records INTENT on the draft; only a
 // human-confirmed UI interaction may call requestPublish/requestRollback —
 // see lifecycle-client.ts's module doc and studio-lifecycle-panel-element.ts.)
-// ---------------------------------------------------------------------------
 
 export interface StudioPublishRequestInput {
   /** Falls back to the version envelope's `publicationIntent` when omitted (matches server semantics). */
@@ -324,10 +312,6 @@ export interface StudioRollbackRequest {
   readonly reason?: string;
   readonly createdAt: string;
 }
-
-// ---------------------------------------------------------------------------
-// Enumeration (server PR #3014, issue #3003)
-// ---------------------------------------------------------------------------
 
 export interface StudioContentItemQuery {
   readonly families?: readonly StudioPackageFamily[];
@@ -384,9 +368,7 @@ export interface StudioPackageDraftListResponse {
   readonly nextCursor: string | null;
 }
 
-// ---------------------------------------------------------------------------
 // Envelope for successful responses (server: ApiResponse<T>)
-// ---------------------------------------------------------------------------
 
 export interface StudioApiResponse<T> {
   readonly success: true;

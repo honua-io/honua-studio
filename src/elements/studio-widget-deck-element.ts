@@ -6,7 +6,6 @@ import type { CompositionLayer, CompositionTarget, CompositionWidget } from "../
 import { compositionLayerColor } from "../composition/palette.js";
 /**
  * `<honua-studio-widget-deck>` — the chrome the agent composes around the map
- * (honua-studio#24).
  *
  * honua-studio#8 put `table | chart | compare | time | legend` in the
  * composition model and #23 put a real map on the canvas, but nothing ever
@@ -34,7 +33,7 @@ import { compositionLayerColor } from "../composition/palette.js";
  * travels the route the host gives it through {@link commandDispatch} — in
  * the composed app, the same `ToolCallOrchestrator` an agent's tool call
  * goes through, which in live mode calls `honua_studio_set_layer_visibility`
- * and re-reads the returned draft (honua-studio#31). So an intrinsic toggle
+ * and re-reads the returned draft. So an intrinsic toggle
  * and an agent's authored `setVisibility` are the same write path, with the
  * same validation, the same pin enforcement, the same generation threading,
  * and the same activity-log entry. That is not a tidiness argument: `visible`
@@ -49,7 +48,7 @@ import { compositionLayerColor } from "../composition/palette.js";
  * ## Selection (REQ-005)
  *
  * A grid row resolves to `{ kind: "feature", sourceId, featureId }` — the
- * same deictic target a map click produces (#23) — and is handed to the host
+ * same deictic target a map click produces — and is handed to the host
  * through {@link onSelection}, which `<honua-studio-canvas>` points at its own
  * `#applySelection`. So a row click, a map click, and a readout row all end in
  * exactly one place: `controller.select(...)` plus one
@@ -305,7 +304,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
    * Where an intrinsic mutation goes — see {@link HonuaStudioCommandDispatch}.
    * `<honua-studio-canvas>` sets this so a TOC toggle travels the same route
    * an agent's `setVisibility` travels and reaches
-   * `honua_studio_set_layer_visibility` in live mode (honua-studio#31). Left
+   * `honua_studio_set_layer_visibility` in live mode. Left
    * unset (a standalone deck), the element applies through its own
    * controller.
    */
@@ -420,10 +419,6 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
       </section>
     `);
   }
-
-  // -------------------------------------------------------------------------
-  // Per-kind rendering
-  // -------------------------------------------------------------------------
 
   #renderWidget(controller: CompositionController, widget: CompositionWidget): string {
     const body = this.#renderWidgetBody(controller, widget);
@@ -750,10 +745,6 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Data
-  // -------------------------------------------------------------------------
-
   /** Returns the chart pipeline, importing it the first time a chart widget asks — see {@link ChartPipeline}. */
   #requireChartPipeline(): ChartPipeline | undefined {
     if (this.#chart || this.#chartPending) return this.#chart;
@@ -841,10 +832,6 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
       });
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Delegated interaction
-  // -------------------------------------------------------------------------
 
   #onClick(event: Event): void {
     const target = actionElement(event, ["select-layer", "select-feature", "compare", "page"]);
@@ -958,7 +945,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
    * command goes there — the same route an agent's command takes, so in live
    * mode it round-trips through `honua_studio_set_layer_visibility` rather
    * than mutating state the next draft sync would overwrite
-   * (honua-studio#31). Without one, it applies through this deck's own
+   * Without one, it applies through this deck's own
    * controller, which is what fixture/offline mode does anyway.
    *
    * Either way the deck re-renders from whatever state the write actually

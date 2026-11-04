@@ -1,20 +1,17 @@
 /**
  * The deterministic identity colour of a composed entity.
  *
- * This started life inside `../map/style-presets.ts` (honua-studio#23), which
- * is still its only *paint* consumer. honua-studio#24 gave it a second,
- * non-map consumer: a legend and a layer list have to show the **same**
- * swatch the map draws, or the chrome is quietly lying about which layer is
- * which. So the hash and the palette live here — in the composition layer,
- * which both the renderer and the chrome already depend on — and
- * `style-presets.ts` re-exports them, leaving every existing import intact.
+ * A legend and a layer list have to show the same swatch the map draws, or
+ * the chrome is quietly lying about which layer is which. The hash and the
+ * palette live here — in the composition layer, which both the renderer and
+ * the chrome already depend on — and `style-presets.ts` re-exports them.
+ * That file is still the only paint consumer.
  *
  * There is also a bundling reason. `src/map/` is reached through a dynamic
  * import so MapLibre stays out of the entry chunk; the widget deck is a
- * registered element and therefore *is* in the entry. Had the deck imported
+ * registered element and therefore is in the entry. Had the deck imported
  * the palette from `src/map/`, the lazy map chunk would import back into the
- * entry — the circularity honua-studio#23 had to fix, whose symptom is an
- * element module evaluating twice under two URLs.
+ * entry, and an element module would evaluate twice under two URLs.
  *
  * @module
  */

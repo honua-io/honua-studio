@@ -18,8 +18,8 @@
  * itself". A scorer that cannot fail is not a scorer.
  *
  * Tool-call vocabularies are mixed on purpose: tasks script this engine's own
- * camelCase commands, honua-studio#6's snake_case chat-fixture names, and
- * honua-server#3002's `honua_studio_*` names, because `../mcp/tool-bridge.ts`
+ * camelCase commands, the snake_case chat-fixture names, and
+ * the `honua_studio_*` names, because `../mcp/tool-bridge.ts`
  * must keep resolving all three to the same composition semantics — and a
  * live model will be offered the `honua_studio_*` set.
  *

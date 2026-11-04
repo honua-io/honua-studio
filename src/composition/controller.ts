@@ -60,7 +60,7 @@ export class CompositionController {
     return diff;
   }
 
-  /** Pushes external state directly — see `CompositionHistory.replaceState`'s doc (honua-studio#7, AD-8). Notifies subscribers, same as `apply()`. */
+  /** Pushes external state directly — see `CompositionHistory.replaceState`'s doc. Notifies subscribers, same as `apply()`. */
   /** Attach an authorized baseline without allowing undo into a previous draft. */
   public resetBaseline(state: CompositionState): void {
     this.#history.resetBaseline(state);

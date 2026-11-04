@@ -19,10 +19,6 @@
  */
 import type { GpPackageBody, GpPackageInput, GpPackageOutput, GpPackageParameter, GpPackageStep } from "./gp-types.js";
 
-// ---------------------------------------------------------------------------
-// Builders
-// ---------------------------------------------------------------------------
-
 export function createEmptyGpPackageBody(title: string, description?: string): GpPackageBody {
   return {
     title,
@@ -89,9 +85,7 @@ export class GpModelError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Structural validation (client-side, pre-round-trip — see the module doc)
-// ---------------------------------------------------------------------------
 
 export interface GpPackageBodyValidation {
   readonly ok: boolean;
@@ -138,9 +132,7 @@ function duplicateIdErrors(entries: readonly { readonly id: string }[], label: s
   return errors;
 }
 
-// ---------------------------------------------------------------------------
 // The honesty caveat (REQ-006-adjacent — see gp-types.ts's module doc)
-// ---------------------------------------------------------------------------
 
 /**
  * The ONE canonical honest-validation caveat string this app renders

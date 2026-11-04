@@ -1,5 +1,5 @@
 /**
- * The replayable activity log (honua-studio#6): every tool call/result and
+ * The replayable activity log: every tool call/result and
  * annotation event `<honua-studio-chat>` produces is appended here as a
  * structured entry (spec REQ-012: "annotations are visible, removable, and
  * recorded in the activity log like any other context"). `<honua-studio-chat>`
@@ -20,7 +20,7 @@ export type ActivityLogEntryType =
   | "assistant_turn_cancelled"
   | "annotation_added"
   | "annotation_removed"
-  // honua-studio#7: the orchestrator's own record of what a tool-call intent
+  // the orchestrator's own record of what a tool-call intent
   // actually did to composition state — distinct from `tool_call_completed`
   // (which only records that the model's tool call finished; these two
   // record whether `../mcp/tool-bridge.ts`'s resolution + application
@@ -28,12 +28,12 @@ export type ActivityLogEntryType =
   // landed).
   | "composition_command_applied"
   | "composition_command_rejected"
-  // honua-studio#9: draft/version/publish/rollback actions taken in
+  // draft/version/publish/rollback actions taken in
   // `<honua-studio-lifecycle-panel>`, logged into the same shared activity
   // log — `detail.kind` carries the finer-grained lifecycle action
   // (`HonuaStudioLifecycleActivityDetail["kind"]` in `../elements/types.js`).
   | "lifecycle_action"
-  // honua-studio#10: GP authoring/validation/preview/execution actions taken
+  // GP authoring/validation/preview/execution actions taken
   // in `<honua-studio-gp-panel>` — `detail.kind` carries the finer-grained
   // GP action (`HonuaStudioGpActivityDetail["kind"]` in `../elements/types.js`).
   | "gp_action"

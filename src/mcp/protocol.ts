@@ -1,5 +1,5 @@
 /**
- * JSON-RPC 2.0 / MCP wire types (honua-studio#7, REQ-001/002/004).
+ * JSON-RPC 2.0 / MCP wire types.
  *
  * These mirror the subset of the MCP `2025-03-26` Streamable HTTP transport
  * that `src/mcp/client.ts` actually speaks — `initialize`, `tools/list`,
@@ -47,10 +47,6 @@ export function isJsonRpcErrorResponse(response: JsonRpcResponse): response is J
   return "error" in response && response.error !== undefined;
 }
 
-// ---------------------------------------------------------------------------
-// initialize
-// ---------------------------------------------------------------------------
-
 export interface McpClientInfo {
   readonly name: string;
   readonly version: string;
@@ -68,10 +64,6 @@ export interface McpInitializeResult {
   readonly capabilities?: Record<string, unknown>;
   readonly serverInfo?: McpClientInfo;
 }
-
-// ---------------------------------------------------------------------------
-// tools/list
-// ---------------------------------------------------------------------------
 
 /** MCP behavior annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`) — advertised per tool, per the honua-server doc's "Verify" section. */
 export interface McpToolAnnotations {
@@ -98,10 +90,6 @@ export interface McpToolsListResult {
   readonly tools: readonly McpToolDescriptor[];
   readonly nextCursor?: string;
 }
-
-// ---------------------------------------------------------------------------
-// tools/call
-// ---------------------------------------------------------------------------
 
 export interface McpToolsCallParams {
   readonly name: string;

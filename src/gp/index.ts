@@ -1,6 +1,6 @@
 /**
  * Public entry point for conversational GP authoring + async batch
- * execution (honua-studio#10). Side-effect-free on import, like every other
+ * execution. Side-effect-free on import, like every other
  * barrel in this package.
  *
  * @module

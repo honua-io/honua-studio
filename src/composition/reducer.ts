@@ -1,6 +1,6 @@
 import { COMPOSITION_STYLE_LAYER_IDS, validateMapStyleEdit } from "../styles/map-style-edit.js";
 /**
- * The composition engine's pure reducer (honua-studio#8): `state, command`
+ * The composition engine's pure reducer: `state, command`
  * in, `{ state, diff }` out, or a thrown {@link CompositionCommandError}.
  * Never touches the DOM (honua-studio#8 REQ-004) and never calls out to a
  * server itself — persistence is `history.ts`'s job (AD-8: this reducer is
@@ -58,10 +58,6 @@ import {
 } from "./model.js";
 import { layerRemovalBlocker } from "./source-use.mjs";
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
 export type CompositionCommandErrorCode =
   | "invalid-command"
   | "duplicate-id"
@@ -106,9 +102,7 @@ export function isPinViolation(error: unknown): error is CompositionCommandError
   return isCompositionCommandError(error) && error.code === "pin-violation";
 }
 
-// ---------------------------------------------------------------------------
 // Diff (the preview payload)
-// ---------------------------------------------------------------------------
 
 export type CompositionChangeKind = "add" | "remove" | "replace";
 
@@ -136,10 +130,6 @@ export interface CompositionApplyBatchResult {
   readonly diffs: readonly CompositionDiff[];
 }
 
-// ---------------------------------------------------------------------------
-// Target resolution
-// ---------------------------------------------------------------------------
-
 export interface CompositionTargetResolution {
   readonly target: CompositionTarget;
   readonly exists: boolean;
@@ -159,7 +149,7 @@ export function isPinned(state: CompositionState, target: CompositionTarget): bo
  * report `exists: true` — composition state does not itself track feature
  * selection (that lives in the SDK's exploration context), so a `feature`
  * target resolves structurally only. Exposed publicly so the chat console
- * (honua-studio#6) can validate an annotation-derived target before
+ * can validate an annotation-derived target before
  * dispatching a command built from it.
  */
 export function resolveCompositionTarget(
@@ -184,10 +174,6 @@ export function resolveCompositionTarget(
   }
   return { target, exists: true, pinned: isPinned(state, target) };
 }
-
-// ---------------------------------------------------------------------------
-// Apply
-// ---------------------------------------------------------------------------
 
 /**
  * Applies one command to `state`, returning the new state plus a structured
@@ -483,7 +469,7 @@ function applyRemoveControl(
   };
 }
 
-/** `bindInteraction` is add-or-**replace** by id, matching honua-server#3175's editor: re-binding the same id is an edit, not a duplicate-id error. */
+/** `bindInteraction` is add-or-**replace** by id, matching the editor: re-binding the same id is an edit, not a duplicate-id error. */
 function applyBindInteraction(state: CompositionState, interaction: CompositionInteraction): CompositionState {
   const index = state.interactions.findIndex((existing) => existing.id === interaction.id);
   if (index === -1) return { ...state, interactions: [...state.interactions, interaction] };
@@ -601,10 +587,6 @@ function nonFeatureTargetId(target: CompositionTarget): string {
   if (target.kind === "feature") throw new Error("unreachable: feature target has no scalar id");
   return target.id;
 }
-
-// ---------------------------------------------------------------------------
-// Diff
-// ---------------------------------------------------------------------------
 
 function diffCompositionState(before: CompositionState, after: CompositionState): readonly CompositionChange[] {
   return [

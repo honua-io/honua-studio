@@ -1,5 +1,5 @@
 /**
- * Leaf constants shared across `src/map/` (honua-studio#23).
+ * Leaf constants shared across `src/map/`.
  *
  * They live in their own module for a bundling reason, not a stylistic one:
  * `./basemap.ts` imports 86 KB of vendored land geometry, so anything that
