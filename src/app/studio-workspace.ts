@@ -1,5 +1,6 @@
 import { isCookieSession, isSameCookiePrincipal, verifiedSourcePathBase } from "../auth/host-session.js";
 import type { SessionAdapter } from "../auth/index.js";
+import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import type { HonuaStudioAppElement } from "../elements/studio-app-element.js";
@@ -177,19 +178,22 @@ export class StudioWorkspace {
   }
 
   async #saveCurrentView(current: () => void): Promise<void> {
-    const camera = this.children.canvas()?.mapView?.camera();
-    const binding = this.drafts.binding;
-    if (!camera || !binding) return;
-    const view = { ...camera, pitch: camera.pitch ?? 0 };
-    try {
-      const observed = await binding.replace({ ...this.composition.state, view });
-      current();
-      this.composition.replaceState(observed);
-      this.drafts.announce();
-    } catch (error) {
-      if (binding === this.drafts.binding) this.drafts.markConflict();
-      throw error;
-    }
+    const mapView = this.children.canvas()?.mapView;
+    await mapView?.settleAuthoredView();
+    current();
+    const camera = mapView?.camera();
+    if (!camera) return;
+    const command: CompositionCommand = { name: "setView", view: { ...camera, pitch: camera.pitch ?? 0 } };
+    const outcome = await this.editor.applyQueuedDraftCommands([command]);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    current();
+    this.children.chat()?.activityLog.append("composition_command_applied", {
+      toolName: command.name,
+      mode: "workspace",
+      command: command.name,
+      commandInput: structuredClone(command),
+      ...this.drafts.identity,
+    });
   }
 
   #editingParts() {

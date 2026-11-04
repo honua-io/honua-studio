@@ -221,21 +221,29 @@ export class CompositionEditor {
     });
   }
 
+  applyQueuedDraftCommands(commands: readonly CompositionCommand[]): Promise<HonuaStudioCommandOutcome> {
+    const { binding } = this.options.drafts;
+    if (!binding) return Promise.resolve({ ok: false, reason: "Open a map draft before editing." });
+    return this.#runDraftEdit({ binding, generation: this.options.authority.epoch.current, commands });
+  }
+
   #dispatchToDraft(edit: DraftEdit): Promise<HonuaStudioCommandOutcome> {
+    return this.options.drafts.enqueue(() => this.#runDraftEdit(edit));
+  }
+
+  async #runDraftEdit(edit: DraftEdit): Promise<HonuaStudioCommandOutcome> {
     const { authority, drafts } = this.options;
-    return drafts.enqueue(async (): Promise<HonuaStudioCommandOutcome> => {
-      if (edit.isCurrent?.() === false)
-        return { ok: false, reason: "The initiating view changed before the edit began." };
-      try {
-        await this.#applyToDraft(edit);
-        return { ok: true };
-      } catch (error) {
-        const reconcile = !(error instanceof LocallyRefusedEdit);
-        if (reconcile && authority.epoch.isCurrent(edit.generation) && edit.binding === drafts.binding)
-          drafts.markConflict();
-        return { ok: false, reason: errorMessage(error) };
-      }
-    });
+    if (edit.isCurrent?.() === false)
+      return { ok: false, reason: "The initiating view changed before the edit began." };
+    try {
+      await this.#applyToDraft(edit);
+      return { ok: true };
+    } catch (error) {
+      const reconcile = !(error instanceof LocallyRefusedEdit);
+      if (reconcile && authority.epoch.isCurrent(edit.generation) && edit.binding === drafts.binding)
+        drafts.markConflict();
+      return { ok: false, reason: errorMessage(error) };
+    }
   }
 
   async #applyToDraft(edit: DraftEdit): Promise<void> {

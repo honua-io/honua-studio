@@ -47,6 +47,7 @@ workflow qualification remain separate from the producer's fixture checks.
   [honua-server](https://github.com/honua-io/honua-server)'s Studio package
   lifecycle: drafts, immutable versions, comparisons, publish, rollback. Saving an active workspace
   version records the rendered center, zoom, bearing and pitch; reopening restores that view.
+  Pending authored camera transitions finish at their target before capture.
   Without a rendered camera, the authored view is retained.
 - **Collaboration through the platform** — asynchronous today via shared
   drafts and version history. Live co-editing exists server-side
@@ -91,7 +92,7 @@ disabled because the pinned Chromium 149 download was unavailable. The ordinary
 CI browser remains pinned by Playwright. These are fixture-based package checks;
 installed authenticated workflows and real-model qualification remain separate.
 
-Camera persistence is covered by five focused unit regressions and two real-camera
+Camera persistence is covered by eight focused unit regressions and three real-camera
 save/reopen journeys against the mock server.
 
 The Blazor packaging follow-up also passed all six browser checks against its

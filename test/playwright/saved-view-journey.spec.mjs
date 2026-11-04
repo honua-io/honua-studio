@@ -9,13 +9,16 @@ async function camera(page) {
   });
 }
 
-async function boot(page, preview) {
+async function boot(page, preview, transitionMs = 0) {
   await page.goto(preview.url);
   await waitForStudioApp(page);
-  await page.evaluate((token) => {
-    window.__honuaStudioApp.session = { getToken: async () => token, onExpired: () => () => {} };
-    document.querySelector("honua-studio-canvas").viewTransitionMs = 0;
-  }, mintFixtureAccessToken());
+  await page.evaluate(
+    ({ token, transitionMs }) => {
+      window.__honuaStudioApp.session = { getToken: async () => token, onExpired: () => () => {} };
+      document.querySelector("honua-studio-canvas").viewTransitionMs = transitionMs;
+    },
+    { token: mintFixtureAccessToken(), transitionMs },
+  );
   await waitForSignedInMap(page);
 }
 
@@ -83,3 +86,24 @@ for (const initialView of [{}, { bbox: [-158.3, 21.2, -157.6, 21.8] }]) {
     }
   });
 }
+
+test("saving immediately after an authored view retains its target", async ({ page }) => {
+  const mock = await startMockServer();
+  const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url }, ["--port", "4295"]);
+  try {
+    await boot(page, preview, 10000);
+    const target = { center: [-122.4, 37.8], zoom: 12, bearing: 80, pitch: 40 };
+    const savedView = await page.evaluate(async (view) => {
+      const app = window.__honuaStudioApp;
+      const canvas = document.querySelector("honua-studio-canvas");
+      await app.createWorkspaceDraft("authored-camera");
+      await canvas.commandDispatch([{ name: "setView", view }]);
+      const version = await app.saveWorkspaceVersion();
+      return version.envelope.body.view;
+    }, target);
+    expectCamera(savedView, target);
+  } finally {
+    await preview.close();
+    await mock.close();
+  }
+});

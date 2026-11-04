@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyCompositionCommand } from "../../src/composition/reducer.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
+import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 
 registerAllStudioElements();
@@ -44,7 +46,10 @@ beforeEach(async () => {
   document.body.appendChild(app);
   await app.attachWorkspaceDraft("original");
   const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
-  vi.spyOn(canvas, "mapView", "get").mockReturnValue({ camera: () => camera } as never);
+  vi.spyOn(canvas, "mapView", "get").mockReturnValue({
+    camera: () => camera,
+    settleAuthoredView: async () => {},
+  } as never);
 });
 
 afterEach(() => {
@@ -55,6 +60,7 @@ afterEach(() => {
 
 describe("workspace saved camera", () => {
   it("persists the camera before the immutable version and drops the old bbox", async () => {
+    const before = app.composition.state;
     await app.saveWorkspaceVersion();
     expect(replace).toHaveBeenCalledOnce();
     expect(replace.mock.calls[0]?.[1]).toMatchObject({
@@ -64,7 +70,54 @@ describe("workspace saved camera", () => {
     expect((replace.mock.calls[0]?.[1].envelope.body as { view: unknown }).view).toEqual(camera);
     expect(replace.mock.invocationCallOrder[0]).toBeLessThan(save.mock.invocationCallOrder[0]!);
     expect(app.composition.state.view).toEqual(camera);
+    expect(app.composition.history.revisions().some((revision) => revision.command?.name === "setView")).toBe(true);
+    const chat = app.querySelector("honua-studio-chat") as HonuaStudioChatElement;
+    expect(chat.activityLog.entries()).toContainEqual(
+      expect.objectContaining({
+        type: "composition_command_applied",
+        detail: expect.objectContaining({ commandInput: { name: "setView", view: camera }, generation: 2 }),
+      }),
+    );
+    const accepted = chat.activityLog.entries().find((entry) => entry.type === "composition_command_applied");
+    expect(applyCompositionCommand(before, accepted!.detail.commandInput).state.view).toEqual(camera);
     expect(await app.prepareWorkspaceTurn()).toMatchObject({ generation: 2 });
+  });
+
+  it("waits for the rendered authored view before reading the camera", async () => {
+    let finish!: () => void;
+    const settling = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const readCamera = vi.fn(() => camera);
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    const settle = vi.fn(() => settling);
+    vi.spyOn(canvas, "mapView", "get").mockReturnValue({ camera: readCamera, settleAuthoredView: settle } as never);
+    const pending = app.saveWorkspaceVersion();
+    await vi.waitFor(() => expect(settle).toHaveBeenCalledOnce());
+    expect(readCamera).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    finish();
+    await pending;
+    expect(readCamera).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it("does not capture the camera when its session changes while rendering settles", async () => {
+    let finish!: () => void;
+    const settling = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    const settle = vi.fn(() => settling);
+    vi.spyOn(canvas, "mapView", "get").mockReturnValue({ camera: () => camera, settleAuthoredView: settle } as never);
+    const pending = app.saveWorkspaceVersion();
+    const rejected = expect(pending).rejects.toThrow(/session.*changed/);
+    await vi.waitFor(() => expect(settle).toHaveBeenCalledOnce());
+    app.session = { getToken: async () => "replacement-token", onExpired: () => () => {} };
+    finish();
+    await rejected;
+    expect(replace).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("keeps an authored view when there is no rendered camera", async () => {
@@ -94,7 +147,7 @@ describe("workspace saved camera", () => {
         }),
     );
     const pending = app.saveWorkspaceVersion();
-    const rejected = expect(pending).rejects.toThrow("session or map changed");
+    const rejected = expect(pending).rejects.toThrow(/session.*changed/);
     await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
     app.session = { getToken: async () => "replacement-token", onExpired: () => () => {} };
     finish({ ...initialDraft, generation: 2 });

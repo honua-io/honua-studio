@@ -519,7 +519,12 @@ function applySetView(
       command,
     });
   }
-  return { ...view, ...patch };
+  const next = { ...view, ...patch };
+  if (patch.center && patch.bbox === undefined) {
+    const { bbox: _bbox, ...cameraView } = next;
+    return cameraView;
+  }
+  return next;
 }
 
 function applyPin(state: CompositionState, target: CompositionTarget): CompositionState {

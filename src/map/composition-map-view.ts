@@ -89,6 +89,7 @@ export interface CompositionMapLike {
   getCenter?(): { lng: number; lat: number } | readonly [number, number];
   getBearing?(): number;
   getPitch?(): number;
+  isMoving?(): boolean;
   getContainer?(): HTMLElement;
 }
 
@@ -314,6 +315,7 @@ export class CompositionMapView {
   #queue: Promise<void> = Promise.resolve();
   #generation = 0;
   #appliedView: CompositionView | undefined;
+  #authoredViewPending = false;
   #appearance: CompositionLayerAppearance | undefined;
   #basemap: BasemapStyle | undefined;
   #disposed = false;
@@ -344,6 +346,11 @@ export class CompositionMapView {
   public setBasemap(basemap: BasemapStyle | undefined): void {
     this.#basemap = basemap;
     this.#scheduleUpdate();
+  }
+
+  public async settleAuthoredView(): Promise<void> {
+    await this.settled();
+    if (this.#authoredViewPending) this.restoreComposedView();
   }
 
   public restoreComposedView(): void {
@@ -502,6 +509,9 @@ export class CompositionMapView {
       this.#map = undefined;
       return;
     }
+    this.#map.on("moveend", () => {
+      this.#authoredViewPending = false;
+    });
     this.#bindClicks(this.#map);
     this.#appliedView = this.#options.controller.state.view;
     // A bbox view cannot be expressed as construction-time center/zoom —
@@ -758,6 +768,7 @@ export class CompositionMapView {
   /** Applies a {@link CompositionView}. `bbox` wins over `center`/`zoom` — it is the more specific statement of intent. */
   #applyView(map: CompositionMapLike, view: CompositionView, immediate: boolean): void {
     const duration = immediate ? 0 : (this.#options.viewTransitionMs ?? 700);
+    this.#authoredViewPending = false;
     try {
       if (view.bbox) {
         map.fitBounds(view.bbox, {
@@ -765,16 +776,17 @@ export class CompositionMapView {
           ...(view.pitch !== undefined ? { pitch: view.pitch } : {}),
           ...(view.bearing !== undefined ? { bearing: view.bearing } : {}),
         });
-        return;
+      } else {
+        const camera: Record<string, unknown> = {};
+        if (view.center) camera.center = [...view.center];
+        if (view.zoom !== undefined) camera.zoom = view.zoom;
+        if (view.pitch !== undefined) camera.pitch = view.pitch;
+        if (view.bearing !== undefined) camera.bearing = view.bearing;
+        if (Object.keys(camera).length === 0) return;
+        if (duration === 0) map.jumpTo(camera);
+        else map.easeTo({ ...camera, duration });
       }
-      const camera: Record<string, unknown> = {};
-      if (view.center) camera.center = [...view.center];
-      if (view.zoom !== undefined) camera.zoom = view.zoom;
-      if (view.pitch !== undefined) camera.pitch = view.pitch;
-      if (view.bearing !== undefined) camera.bearing = view.bearing;
-      if (Object.keys(camera).length === 0) return;
-      if (duration === 0) map.jumpTo(camera);
-      else map.easeTo({ ...camera, duration });
+      this.#authoredViewPending = duration > 0 && (map.isMoving?.() ?? true);
     } catch (error) {
       this.#statusDetail = `The map could not move to the composed view: ${
         error instanceof Error ? error.message : String(error)
