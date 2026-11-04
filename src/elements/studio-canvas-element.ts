@@ -280,6 +280,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   /** An authorized baseline changed documents/callers; exploration belongs to the former draft. */
   public resetExploration(): void {
+    this.#mapView?.restoreComposedView();
     this.#teardownInteractions();
     this.#mapView?.setAppearance({ filters: {}, opacity: {} });
     this.#syncControlBar();

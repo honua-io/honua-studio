@@ -40,11 +40,16 @@ export class WorkspacePublication {
   constructor(
     private readonly authority: WorkspaceAuthority,
     private readonly drafts: WorkspaceDraftSession,
-    private readonly prepareWorkspaceTurn: () => Promise<unknown>,
+    private readonly hooks: {
+      readonly prepareWorkspaceTurn: () => Promise<unknown>;
+      readonly saveCurrentView: (current: () => void) => Promise<void>;
+    },
   ) {}
 
   saveVersion(): Promise<StudioContentVersion> {
     return this.#withLifecycle(async ({ client, identity, current }) => {
+      await this.hooks.saveCurrentView(current);
+      current();
       const version = await client.saveAsVersion(identity.draftId);
       current();
       return version;
@@ -190,7 +195,7 @@ export class WorkspacePublication {
     const generation = this.authority.epoch.current;
     const identity = binding?.identity;
     if (!binding || !identity) throw new Error("Open a map draft before using saved versions.");
-    await this.prepareWorkspaceTurn();
+    await this.hooks.prepareWorkspaceTurn();
     const current = () => {
       if (!this.authority.epoch.isCurrent(generation) || binding !== this.drafts.binding)
         throw new Error(SESSION_OR_MAP_CHANGED);

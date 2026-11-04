@@ -88,6 +88,7 @@ export interface CompositionMapLike {
   getZoom?(): number;
   getCenter?(): { lng: number; lat: number } | readonly [number, number];
   getBearing?(): number;
+  getPitch?(): number;
   getContainer?(): HTMLElement;
 }
 
@@ -96,6 +97,7 @@ export interface CompositionMapCamera {
   readonly zoom: number;
   readonly center: readonly [number, number];
   readonly bearing: number;
+  readonly pitch?: number;
 }
 
 export interface CompositionMapFactoryOptions {
@@ -344,6 +346,10 @@ export class CompositionMapView {
     this.#scheduleUpdate();
   }
 
+  public restoreComposedView(): void {
+    if (this.#map) this.#applyView(this.#map, this.#options.controller.state.view, true);
+  }
+
   /** The live camera, normalized. `undefined` when the map cannot report one — a `scale` control then says so instead of drawing a bar from a guess. */
   public camera(): CompositionMapCamera | undefined {
     const map = this.#map;
@@ -356,7 +362,13 @@ export class CompositionMapView {
         : [Number((rawCenter as { lng: number }).lng), Number((rawCenter as { lat: number }).lat)];
       if (!Number.isFinite(zoom) || !Number.isFinite(center[0]) || !Number.isFinite(center[1])) return undefined;
       const bearing = typeof map.getBearing === "function" ? map.getBearing() : 0;
-      return { zoom, center, bearing: Number.isFinite(bearing) ? bearing : 0 };
+      const pitch = typeof map.getPitch === "function" ? map.getPitch() : 0;
+      return {
+        zoom,
+        center,
+        bearing: Number.isFinite(bearing) ? ((bearing % 360) + 360) % 360 : 0,
+        pitch: Number.isFinite(pitch) ? pitch : 0,
+      };
     } catch {
       return undefined;
     }

@@ -114,6 +114,16 @@ async function startView(overrides: Partial<CompositionMapViewOptions> = {}) {
 }
 
 describe("CompositionMapView (honua-studio#23)", () => {
+  it("reads pitch and normalizes the live bearing for saved composition views", async () => {
+    const { map, view } = await startView();
+    map.getCenter = () => ({ lng: -157.85, lat: 21.31 });
+    map.getZoom = () => 11;
+    map.getBearing = () => -35;
+    map.getPitch = () => 45;
+    expect(view.camera()).toEqual({ center: [-157.85, 21.31], zoom: 11, bearing: 325, pitch: 45 });
+    view.dispose();
+  });
+
   it("keeps canonical primary and outline ownership despite conflicting metadata", () => {
     expect([
       ...ownedVisualLayerIds(

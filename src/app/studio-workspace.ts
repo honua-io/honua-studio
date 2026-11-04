@@ -53,7 +53,10 @@ export class StudioWorkspace {
     this.router = this.#createRouter();
     this.catalog = this.#createCatalog();
     this.drafts = this.#createDrafts();
-    this.publication = new WorkspacePublication(this.authority, this.drafts, () => host.prepareWorkspaceTurn());
+    this.publication = new WorkspacePublication(this.authority, this.drafts, {
+      prepareWorkspaceTurn: () => host.prepareWorkspaceTurn(),
+      saveCurrentView: (current) => this.#saveCurrentView(current),
+    });
     this.editor = this.#createEditor();
     this.designInspector = new DesignInspectorHost({ host, ...this.#editingParts(), children: this.children });
     this.styleEditor = new StyleEditorHost({
@@ -171,6 +174,22 @@ export class StudioWorkspace {
     if (status === "signed-out" || status === "expired") this.recipes.resetAuthority();
     if (status !== "fresh" || this.catalog.catalog !== undefined) return;
     this.catalog.refresh();
+  }
+
+  async #saveCurrentView(current: () => void): Promise<void> {
+    const camera = this.children.canvas()?.mapView?.camera();
+    const binding = this.drafts.binding;
+    if (!camera || !binding) return;
+    const view = { ...camera, pitch: camera.pitch ?? 0 };
+    try {
+      const observed = await binding.replace({ ...this.composition.state, view });
+      current();
+      this.composition.replaceState(observed);
+      this.drafts.announce();
+    } catch (error) {
+      if (binding === this.drafts.binding) this.drafts.markConflict();
+      throw error;
+    }
   }
 
   #editingParts() {
