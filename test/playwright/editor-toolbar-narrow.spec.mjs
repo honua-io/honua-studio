@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 
 import { startMockServer } from "../../mock-server.mjs";
 import { startPreviewServer, waitForStudioApp } from "./helpers.mjs";
@@ -9,6 +9,20 @@ const TOOLBAR_CONTROLS = [
   ["design-inspector-toggle", "Inspect data and interactions"],
   ["recipe-toggle", "Start from a recipe"],
 ];
+
+const test = base.extend({
+  workspaceEditor: async ({ page }, use) => {
+    const mock = await startMockServer();
+    const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
+    try {
+      await openWorkspaceEditor(page, preview.url);
+      await use(page);
+    } finally {
+      await preview.close();
+      await mock.close();
+    }
+  },
+});
 
 async function openWorkspaceEditor(page, url) {
   await page.goto(url);
@@ -70,40 +84,28 @@ async function expectToolbarClearOfCanvas(page) {
   return layout;
 }
 
-test.describe("workspace editor toolbar", () => {
-  test("keeps every label clear of the canvas at 390px", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    const mock = await startMockServer();
-    const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
-    try {
-      await openWorkspaceEditor(page, preview.url);
-      for (const [testId, label] of TOOLBAR_CONTROLS) {
-        await expect(page.getByTestId(testId)).toHaveText(label);
-        await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
-      }
-      await expectToolbarClearOfCanvas(page);
-      await page.getByTestId("design-inspector-toggle").focus();
-      await expect(page.getByTestId("design-inspector-toggle")).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(page.getByTestId("recipe-toggle")).toBeFocused();
-    } finally {
-      await preview.close();
-      await mock.close();
-    }
-  });
+test.describe("workspace editor toolbar at phone width", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
 
-  test("keeps the same controls on one row at desktop width", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const mock = await startMockServer();
-    const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
-    try {
-      await openWorkspaceEditor(page, preview.url);
-      const layout = await expectToolbarClearOfCanvas(page);
-      const tops = layout.controls.map((control) => control.top);
-      expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(4);
-    } finally {
-      await preview.close();
-      await mock.close();
+  test("keeps every label clear of the canvas", async ({ workspaceEditor: page }) => {
+    for (const [testId, label] of TOOLBAR_CONTROLS) {
+      await expect(page.getByTestId(testId)).toHaveText(label);
+      await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
+    await expectToolbarClearOfCanvas(page);
+    await page.getByTestId("design-inspector-toggle").focus();
+    await expect(page.getByTestId("design-inspector-toggle")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("recipe-toggle")).toBeFocused();
+  });
+});
+
+test.describe("workspace editor toolbar at desktop width", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("keeps the same controls on one row", async ({ workspaceEditor: page }) => {
+    const layout = await expectToolbarClearOfCanvas(page);
+    const tops = layout.controls.map((control) => control.top);
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(4);
   });
 });
