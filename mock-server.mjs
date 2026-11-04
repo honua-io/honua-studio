@@ -2276,20 +2276,18 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
   // Active (unrotated) refresh tokens -> true. Deleted the moment they're
   // spent, so replaying a rotated-out refresh token always 400s.
   const activeRefreshTokens = new Set();
-  // One lifecycle store per server, read and written by both `/mcp` tools
-  // and the REST lifecycle routes.
   const studioLifecycleStore = createStudioLifecycleStore();
   const studioLifecycleRest = createStudioLifecycleRestRouter(studioLifecycleStore);
-  // Live `Mcp-Session-Id`s for this server. A session is bound at initialize
-  // (docs/guides/connect/ai-agents-mcp.md).
-  const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
-  const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
-  const mcpSessions = new Set();
   // Per-instance mutable catalog: starts as a copy
   // of the static CATALOG.datasets fixture below and gains one entry per GP
   // job output on job completion — never mutates the shared module-level
   // CATALOG constant itself, so one test's completed job can never leak a
   // registered dataset into a different `startMockServer()` instance.
+  const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
+  const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
+  // Live `Mcp-Session-Id`s for this server. A session is bound at initialize
+  // (docs/guides/connect/ai-agents-mcp.md).
+  const mcpSessions = new Set();
   const gpJobStore = createGpJobStore();
   const gpJobRest = createGpJobRestRouter(gpJobStore, studioLifecycleStore, catalogDatasets);
 

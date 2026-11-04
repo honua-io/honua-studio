@@ -6,9 +6,9 @@
  *
  * A draft is seeded via one direct REST call before navigating. There is no
  * create-draft button; draft creation is an agent or per-family editor
- * concern. Everything from browse onward is driven through the UI. Edit is
- * one direct REST PUT between the two save-as-version clicks, because the
- * lifecycle panel has no body editor.
+ * concern. Except for the REST edit, interactions from browse onward use the
+ * UI. Edit is one direct REST PUT between the two save-as-version clicks,
+ * because the lifecycle panel has no body editor.
  */
 import { expect, test } from "@playwright/test";
 
@@ -34,7 +34,6 @@ test.describe("package lifecycle journey: browse -> open -> edit -> version -> c
         return json.data;
       }
 
-      // Seed one draft that an agent has already composed.
       const seeded = await restCall("POST", "/v1/studio/package-drafts", {
         packageKey: "journey-parcels-overview",
         envelope: {

@@ -1,7 +1,6 @@
 /**
- * Boot smoke: `npm run dev`'s mode (fixture path) —
- * now also the full mock-issuer login journey:
- * login -> authenticated catalog call -> logout. Builds are produced by
+ * Boot smoke: `npm run dev`'s fixture path, including the mock-issuer login
+ * journey: login -> authenticated catalog call -> logout. Builds are produced by
  * `npm run test:browser` before Playwright runs (package.json). This spec
  * proxies the built preview server at the mock fixture, exactly as
  * scripts/dev-mock.mjs wires `npm run dev`.

@@ -81,7 +81,6 @@ test.describe("compose fixture journey through the real MCP client (standalone s
       const afterSecondCall = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation);
       expect(afterSecondCall).toBeGreaterThan(afterFirstCall.generation);
 
-      // The canvas readout reflects the server-confirmed state.
       await expect(page.getByTestId("studio-canvas-layers")).toContainText("hi-parcels");
       await expect(page.getByTestId("studio-canvas-widgets")).toContainText("chart-hi-parcels-zoning_code");
 

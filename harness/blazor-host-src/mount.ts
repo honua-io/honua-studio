@@ -113,9 +113,10 @@ resync();
 document.addEventListener("enhancedload", resync);
 document.addEventListener("honua-studio-host-navigation", resync);
 
-// Both events fire when navigation starts. The interactive-circuit DOM
-// rewrite lands later, so an immediate resync is wiped again. The observer
-// reacts when the element disappears instead of guessing a delay.
+// `honua-studio-host-navigation` fires when navigation starts. The
+// interactive-circuit DOM rewrite lands later, so an immediate resync is
+// wiped again. The observer reacts when the element disappears instead of
+// guessing a delay.
 const watchdog = new MutationObserver(() => {
   if (!document.getElementById(CONTAINER_ID)?.querySelector("honua-studio-app")) resync();
 });
