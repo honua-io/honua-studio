@@ -8,24 +8,26 @@ const fixture: unknown = JSON.parse(
   readFileSync(new URL("./fixtures/composition-reducer-cases.v1.json", import.meta.url), "utf8"),
 );
 
-function collectProtocols(node: unknown, found: string[]): void {
-  if (Array.isArray(node)) {
-    for (const item of node) collectProtocols(item, found);
-    return;
-  }
-  if (typeof node !== "object" || node === null) return;
-  for (const [key, value] of Object.entries(node)) {
-    if (key === "protocol" && typeof value === "string") found.push(value);
-    else collectProtocols(value, found);
-  }
+function collectProtocols(node: unknown): unknown[] {
+  if (Array.isArray(node)) return node.flatMap((item) => collectProtocols(item));
+  if (typeof node !== "object" || node === null) return [];
+  return Object.entries(node).flatMap(([key, value]) => (key === "protocol" ? [value] : collectProtocols(value)));
+}
+
+function protocolsOutsideWriter(node: unknown): unknown[] {
+  const written = new Set<string>(DRAFT_WRITER_PROTOCOLS);
+  return collectProtocols(node).filter((protocol) => typeof protocol !== "string" || !written.has(protocol));
 }
 
 describe("composition reducer fixture", () => {
   it("uses protocol values the draft writer emits", () => {
-    const protocols: string[] = [];
-    collectProtocols(fixture, protocols);
-    expect(protocols.length).toBeGreaterThan(0);
-    const written = new Set<string>(DRAFT_WRITER_PROTOCOLS);
-    expect(protocols.filter((protocol) => !written.has(protocol))).toEqual([]);
+    expect(collectProtocols(fixture).length).toBeGreaterThan(0);
+    expect(protocolsOutsideWriter(fixture)).toEqual([]);
+  });
+
+  it("keeps non-string and non-writer protocol values visible", () => {
+    const sample = { sourceBindings: [{ protocol: null }, { protocol: "geoservices-feature-service" }] };
+    expect(collectProtocols(sample)).toEqual([null, "geoservices-feature-service"]);
+    expect(protocolsOutsideWriter(sample)).toEqual([null, "geoservices-feature-service"]);
   });
 });
