@@ -5,6 +5,8 @@ import { StudioClient } from "../client/studio-client.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import { StalenessEpoch } from "./staleness-epoch.js";
 
+export const WORKSPACE_AUTHORITY_CHANGED = "The workspace authority changed.";
+
 export interface WorkspaceAuthorityHooks {
   readonly isConnected: () => boolean;
   readonly onAuthReplaced: (auth: AuthSession) => void;
