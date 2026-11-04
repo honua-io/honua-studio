@@ -79,7 +79,6 @@ export class WorkspaceAuthority {
     return runtimeLifecycleClient(this.auth);
   }
 
-  /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
   createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions = {}): AuthoritativeStyleProvider {
     const generation = this.epoch.current;
     const authority = options.getAuthority?.();

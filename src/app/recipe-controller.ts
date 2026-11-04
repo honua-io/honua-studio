@@ -152,7 +152,6 @@ export class RecipeController {
     return this.#sources.resolve(sourceId, signal);
   }
 
-  /** Explicit create. Stable submission IDs reuse the same canonical request and Idempotency-Key. */
   createDraft(requestedInput: ExploreDatasetInput, submissionId: string): Promise<WorkspaceDraftIdentity> {
     const input = frozenCopy(requestedInput);
     if (!/^[A-Za-z0-9-]{1,100}$/.test(submissionId))

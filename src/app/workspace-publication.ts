@@ -43,7 +43,6 @@ export class WorkspacePublication {
     private readonly prepareWorkspaceTurn: () => Promise<unknown>,
   ) {}
 
-  /** Save the active server draft as an immutable version; never publish it. */
   saveVersion(): Promise<StudioContentVersion> {
     return this.#withLifecycle(async ({ client, identity, current }) => {
       const version = await client.saveAsVersion(identity.draftId);
@@ -52,7 +51,6 @@ export class WorkspacePublication {
     });
   }
 
-  /** List versions belonging to the active draft's server-owned content item. */
   listVersions(): Promise<readonly StudioContentVersion[]> {
     return this.#withLifecycle(async ({ client, identity, current }) => {
       const draft = await client.getDraft(identity.draftId);
@@ -63,7 +61,6 @@ export class WorkspacePublication {
     });
   }
 
-  /** Read the exact saved version for the host's human publication review. Never submits. */
   review(versionId: string): Promise<StudioContentVersion> {
     return this.#withLifecycle(async ({ client, identity, current, generation }) => {
       const draft = await client.getDraft(identity.draftId);
@@ -133,7 +130,6 @@ export class WorkspacePublication {
     }
   }
 
-  /** Read an active item's publication receipt without flushing edits or submitting a mutation. */
   async readPublication(versionId: string, requestId: string): PublicationReceipt {
     const binding = this.drafts.binding;
     const generation = this.authority.epoch.current;
@@ -158,7 +154,6 @@ export class WorkspacePublication {
     return receipt;
   }
 
-  /** Reopen a version of the active map as a new draft, preserving the saved version. */
   reopenVersion(versionId: string): Promise<void> {
     return this.#withLifecycle(async ({ client, identity, current, generation }) => {
       const draft = await client.getDraft(identity.draftId);

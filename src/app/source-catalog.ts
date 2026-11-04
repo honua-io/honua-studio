@@ -88,7 +88,6 @@ export class SourceCatalog {
     void this.#fetchOnce();
   }
 
-  /** Actual published choices for the canonical GP layer picker; no map focus is inferred. */
   async listProcessSources(): Promise<readonly ProcessSourceChoice[]> {
     const { authority } = this;
     const generation = authority.epoch.current;

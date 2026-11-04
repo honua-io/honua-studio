@@ -90,7 +90,6 @@ export class WorkspaceDraftSession {
     this.hooks.onDraftChange(this.identity);
   }
 
-  /** Explicit human create action; never creates a draft as a side effect of viewing or chatting. */
   async create(packageKey: string): Promise<WorkspaceDraftIdentity> {
     const key = packageKey.trim();
     if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
@@ -152,7 +151,6 @@ export class WorkspaceDraftSession {
     this.announce();
   }
 
-  /** Idle observation for external draft changes; never discard an unsaved form value. */
   async refresh(): Promise<boolean> {
     const binding = this.#binding;
     const generation = this.authority.epoch.current;
@@ -168,7 +166,6 @@ export class WorkspaceDraftSession {
     return this.authority.epoch.isCurrent(generation) && !this.hooks.hasDirtyForm();
   }
 
-  /** Flush accepted human edits before the host captures a durable native turn. */
   async prepareTurn(): Promise<WorkspaceDraftIdentity | undefined> {
     await this.hooks.settleStyleEdits();
     await this.#queue;

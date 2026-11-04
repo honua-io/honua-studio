@@ -137,7 +137,6 @@ export class CompositionEditor {
     if (!result.ok) throw new Error(result.reason);
   }
 
-  /** Resolve an observed published receipt against the live catalog before adding it to the map. */
   async addPublishedLayer(layer: PublishedLayer, options?: CommandOptions): Promise<HonuaStudioCommandOutcome> {
     const { authority } = this.options;
     const lease = { auth: authority.auth, token: authority.lease.current };
@@ -152,7 +151,6 @@ export class CompositionEditor {
     );
   }
 
-  /** Undo/redo in the authoritative draft before advancing the visible history. */
   async applyHistory(action: HistoryAction): Promise<boolean> {
     const { drafts, chrome, authority } = this.options;
     if (drafts.historyBusy || this.options.hasUnsavedStyleChanges()) return false;

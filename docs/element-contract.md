@@ -39,7 +39,8 @@ open inspector and relationship focus. An accepted revision change invalidates
 that relationship focus; attempting to open a different draft closes the panel
 and cancels its metadata while the prospective read runs.
 
-Implementation: `src/elements/studio-app-element.ts`. Composes a header
+Implementation: `src/elements/studio-app-element.ts` is the public facade over the
+controllers in `src/app/` that `StudioWorkspace` assembles. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
 routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
 + `<honua-studio-canvas>` (created automatically unless the host already
