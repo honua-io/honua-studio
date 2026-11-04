@@ -93,7 +93,7 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run check && npm run typecheck && npm test && npm run build
+      - run: npm run check && npm run typecheck && npm test && npm run build && npm run build:console-assets
 
       - name: Resolve release version
         id: version
@@ -114,8 +114,11 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
-          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -czf "honua-studio-${VERSION}.tar.gz" -C dist .
-          sha256sum "honua-studio-${VERSION}.tar.gz" > "honua-studio-${VERSION}.tar.gz.sha256"
+          for bundle in "honua-studio:dist" "honua-studio-console-assets:dist-console"; do
+            name="${bundle%%:*}-${VERSION}.tar.gz"
+            tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -czf "$name" -C "${bundle#*:}" .
+            sha256sum "$name" > "$name.sha256"
+          done
         shell: bash
 
       - name: Authenticate to GHCR
@@ -160,4 +163,6 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --verify-tag --generate-notes
-          gh release upload "$VERSION" "honua-studio-${VERSION}.tar.gz" "honua-studio-${VERSION}.tar.gz.sha256" "honua-studio-${VERSION}.receipt.json" --clobber
+          gh release upload "$VERSION" "honua-studio-${VERSION}.tar.gz" "honua-studio-${VERSION}.tar.gz.sha256" \
+            "honua-studio-console-assets-${VERSION}.tar.gz" "honua-studio-console-assets-${VERSION}.tar.gz.sha256" \
+            "honua-studio-${VERSION}.receipt.json" --clobber
