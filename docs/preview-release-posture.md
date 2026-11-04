@@ -60,7 +60,13 @@ Releases are semver tags `vX.Y.Z`, cut by Release Please
    release. That tag is created with `GITHUB_TOKEN`, which starts no
    workflow, so the run then dispatches
    `gh workflow run release.yml --ref vX.Y.Z -f version=vX.Y.Z`. The gates
-   above run on that tag.
+   above run on that tag. Scorecard analyses the tag without publishing to
+   the OpenSSF API, which accepts results only from `main`.
+
+Before a change to the release path merges, run it as a dry run from its
+branch: `gh workflow run release.yml --ref <branch> -f publish=false`. A dry
+run runs the smokes, Trivy, Scorecard and every build, packs both tarballs and
+builds and checks the image, but pushes, attests and uploads nothing.
 
 Versioning starts from the `0.0.0` that `package.json` reports, which
 release-please treats as "never released". `initial-version` makes the first
