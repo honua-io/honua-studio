@@ -2,7 +2,8 @@
 
 Studio is packaged as both a static tarball and the container image
 `ghcr.io/honua-io/honua-studio:<version>`. Both are produced by
-[`release.yml`](../.github/workflows/release.yml) when a `v*` tag is pushed.
+[`release.yml`](../.github/workflows/release.yml) for each `v*` release
+([how a release is cut](preview-release-posture.md#cutting-a-release)).
 
 > **No release has been cut yet.** No `v*` tag exists, so there is nothing to
 > pull from GHCR and no release asset to download today. Until the first tag,
@@ -66,6 +67,6 @@ publish requirement. The receipt contains no model transcript or proxy-issued
 model-origin signature, so it cannot establish that a hosted provider produced
 any turn. A future credentialed model lane must define and verify that
 non-forgeable evidence before claiming model execution. The nightly demo lane
-is separate and does not block a tag. Nothing is published to GHCR until an
-operator pushes a `v*` tag and `release.yml` attaches the tarball, checksum,
-and source/image receipt to the GitHub release.
+is separate and does not block a tag. Nothing is published to GHCR until a
+`v*` release is cut and `release.yml` attaches the tarballs, checksums,
+attestations and source/image receipt to the GitHub release.
