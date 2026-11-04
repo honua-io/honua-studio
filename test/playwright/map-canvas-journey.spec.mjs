@@ -19,7 +19,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
 /** Reads live MapLibre state out of the page through the canvas element's public `.mapView`. */
 const readMapState = () => {
@@ -46,7 +46,7 @@ const readMapState = () => {
  * (correctly) report the source as unresolvable.
  */
 async function signIn(page) {
-  await page.waitForFunction(() => Boolean(window.__honuaStudioApp));
+  await waitForStudioApp(page);
   const token = mintFixtureAccessToken();
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
@@ -79,12 +79,11 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
       // longer the primary view (REQ-001).
       await expect(page.getByTestId("studio-canvas-map")).toBeVisible();
       await expect(page.getByTestId("studio-canvas-mode-map")).toHaveAttribute("aria-pressed", "true");
-      await expect
-        .poll(() => page.evaluate(readMapState).then((state) => state.status), { timeout: 20_000 })
-        .toBe("ready");
+      await waitForSignedInMap(page);
 
       // The vendored basemap is what is on screen before any tool call, and
       // it is genuinely rendering (a real WebGL canvas, not a placeholder).
+      await waitForSignedInMap(page);
       const initial = await page.evaluate(readMapState);
       expect(initial.styleLayerIds).toContain("honua-basemap-land");
       expect(initial.renderedLayerIds).toEqual([]);
@@ -167,13 +166,15 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
     const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
     try {
       await page.goto(preview.url);
-      await signIn(page);
-      await expect
-        .poll(() => page.evaluate(readMapState).then((state) => state.status), { timeout: 20_000 })
-        .toBe("ready");
-
+      await waitForStudioApp(page);
+      // A map view reads its transition when it starts, so set it before sign-in restarts the view.
       await page.evaluate(() => {
         document.querySelector("honua-studio-canvas").viewTransitionMs = 0;
+      });
+      await signIn(page);
+      await waitForSignedInMap(page);
+
+      await page.evaluate(() => {
         window.__honuaStudioApp.composition.apply({
           name: "setView",
           view: { center: [-157.85, 21.31], zoom: 11 },
@@ -198,9 +199,7 @@ test.describe("the composition map mutates as tool calls stream (standalone shel
     try {
       await page.goto(preview.url);
       await signIn(page);
-      await expect
-        .poll(() => page.evaluate(readMapState).then((state) => state.status), { timeout: 20_000 })
-        .toBe("ready");
+      await waitForSignedInMap(page);
 
       await page.getByTestId("studio-canvas-mode-details").click();
       await expect(page.getByTestId("studio-canvas-map")).toBeHidden();

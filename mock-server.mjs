@@ -122,6 +122,11 @@ import { fileURLToPath } from "node:url";
 
 import { planByomPreviewTurn } from "./scripts/lib/byom-preview-model.mjs";
 import { createFixtureTranscriptSigner } from "./scripts/lib/fixture-transcript-signer.mjs";
+import {
+  compositionWithLayerStyle,
+  compositionWithoutLayer,
+  viewBoundsViolation,
+} from "./scripts/lib/mock-composition.mjs";
 
 // Mirrors src/chat/ai-contract.ts's CHAT_EVENT_TYPE_TO_SSE_NAME — see this
 // file's module doc for why it's a duplicate, not an import.
@@ -700,10 +705,11 @@ function createMcpDispatcher(store, catalogDatasets) {
         return toolError("invalid_argument", "'layerId' is required.");
       }
       return mutateComposition(args.draftId, args.generation, (body) => {
-        if (!body.layers.some((existing) => existing.id === args.layerId)) {
+        const removedLayer = body.layers.find((existing) => existing.id === args.layerId);
+        if (!removedLayer) {
           return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
         }
-        return { body: { ...body, layers: body.layers.filter((existing) => existing.id !== args.layerId) } };
+        return { body: compositionWithoutLayer(body, removedLayer) };
       });
     },
 
@@ -716,9 +722,7 @@ function createMcpDispatcher(store, catalogDatasets) {
         if (index < 0) {
           return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
         }
-        const layers = [...body.layers];
-        layers[index] = { ...layers[index], styleRef: args.styleRef ?? undefined };
-        return { body: { ...body, layers } };
+        return { body: compositionWithLayerStyle(body, index, args) };
       });
     },
 
@@ -745,7 +749,11 @@ function createMcpDispatcher(store, catalogDatasets) {
       if (!args?.view || typeof args.view !== "object") {
         return toolError("invalid_argument", "'view' is required.");
       }
-      return mutateComposition(args.draftId, args.generation, (body) => ({ body: { ...body, view: args.view } }));
+      const boundsViolation = viewBoundsViolation(args.view);
+      if (boundsViolation) return toolError("invalid_argument", boundsViolation);
+      return mutateComposition(args.draftId, args.generation, (body) => ({
+        body: { ...body, view: { ...body.view, ...args.view } },
+      }));
     },
 
     honua_studio_add_widget(args) {

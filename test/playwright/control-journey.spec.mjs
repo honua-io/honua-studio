@@ -20,7 +20,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
 /**
  * A fixed, non-default preview port. Several agents run Playwright against
@@ -42,8 +42,6 @@ const readLayerPaint = ({ layerId, property }) => {
   return layer?.paint?.[property] ?? null;
 };
 
-const mapStatus = () => document.querySelector("honua-studio-canvas")?.mapView?.status;
-
 const applyCommand = (command) => window.__honuaStudioApp.composition.apply(command);
 
 const controlBar = () =>
@@ -51,7 +49,7 @@ const controlBar = () =>
 
 async function signIn(page) {
   const token = mintFixtureAccessToken();
-  await expect.poll(() => page.evaluate(() => Boolean(window.__honuaStudioApp))).toBe(true);
+  await waitForStudioApp(page);
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
   }, token);
@@ -63,7 +61,7 @@ async function bootComposedStudio(page, preview) {
   }, "compose-districts-map");
   await page.goto(preview.url);
   await signIn(page);
-  await expect.poll(() => page.evaluate(mapStatus), { timeout: 20_000 }).toBe("ready");
+  await waitForSignedInMap(page);
 }
 
 test.describe("the agent composes controls around the map (honua-studio#25)", () => {

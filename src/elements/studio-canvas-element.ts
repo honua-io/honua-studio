@@ -41,6 +41,7 @@
  * leak-detection probe (`instanceCount`) and cleanup discipline are
  * unchanged.
  */
+import { sourceStyleProvider } from "../app/runtime-clients.js";
 import type { CompositionController } from "../composition/controller.js";
 import type {
   CompositionAnnotation,
@@ -68,7 +69,6 @@ import type { CompositionMapFactory, CompositionMapView } from "../map/compositi
 import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
-import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import type { MapStyleDocument } from "../styles/map-style-edit.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
@@ -725,12 +725,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         controller,
         ...(this.#sourceCatalog?.some((source) => source.locator?.serviceId)
           ? {
-              styleProvider: new AuthoritativeStyleProvider({
+              styleProvider: sourceStyleProvider({
                 baseUrl: this.#sourceAuthBaseUrl,
-                ...(this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl()
-                  ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() }
-                  : {}),
-                documentUrl: document.baseURI,
                 getAuth: () => resolveInjectedAuth(this),
               }),
             }

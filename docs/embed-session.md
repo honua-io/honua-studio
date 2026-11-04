@@ -115,7 +115,7 @@ implementation:
   navigate the browser, open a popup, or call a token endpoint.
 - `isRedirectCallback()` is always `false`; `handleRedirectCallback()` is a
   no-op. There is no redirect leg to complete in this mode.
-- `<honua-studio-app>` (`src/elements/studio-app-element.ts`) renders no
+- `<honua-studio-app>` (its header is `src/app/shell-chrome.ts`) renders no
   sign-in/sign-out buttons at all when `auth.mode === "host-adapter"` — only
   a status label — so there is no UI affordance that could even attempt to
   trigger Studio's own flow. (Standalone mode's redirect-callback completion

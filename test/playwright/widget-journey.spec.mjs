@@ -25,7 +25,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
 /** Live MapLibre layout state for one composed layer — the ground truth a TOC toggle has to move. */
 const readLayerVisibility = (layerId) => {
@@ -34,12 +34,11 @@ const readLayerVisibility = (layerId) => {
   return { present: Boolean(layer), visibility: layer?.layout?.visibility ?? "visible" };
 };
 
-const mapStatus = () => document.querySelector("honua-studio-canvas")?.mapView?.status;
-
 /** Applies a composition command through the same reducer every tool call uses. */
 const applyCommand = (command) => window.__honuaStudioApp.composition.apply(command);
 
 async function signIn(page) {
+  await waitForStudioApp(page);
   const token = mintFixtureAccessToken();
   await page.evaluate((accessToken) => {
     window.__honuaStudioApp.session = { getToken: async () => accessToken, onExpired: () => () => {} };
@@ -52,7 +51,7 @@ async function bootComposedStudio(page, preview) {
   }, "compose-districts-map");
   await page.goto(preview.url);
   await signIn(page);
-  await expect.poll(() => page.evaluate(mapStatus), { timeout: 20_000 }).toBe("ready");
+  await waitForSignedInMap(page);
 }
 
 test.describe("the agent composes chrome around the map (honua-studio#24)", () => {
