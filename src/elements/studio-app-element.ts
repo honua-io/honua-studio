@@ -1,38 +1,7 @@
 /**
- * `<honua-studio-app>` — the full Studio shell (honua-studio#5 REQ-001/002).
- *
- * The standalone shell (src/main.ts) is now exactly this element mounted by
- * a thin bootstrap: header chrome (brand, nav, session/auth controls,
- * optional theme switcher) plus a routed `#view` outlet, plus a persistent
- * composition area slotting in `<honua-studio-chat>` and
- * `<honua-studio-canvas>`. See docs/element-contract.md for the full
- * attribute/property/event contract and docs/embed-session.md for the
- * session contract this element drives; this file is the implementation,
- * not a second copy of either doc.
- *
- * Session/auth (honua-studio#4 REQ-001/003, reconciled here after #4 merged
- * ahead of this branch): `.session` is the embed injection surface — an
- * optional host-provided `SessionAdapter` (`../auth/types.js`), the SAME
- * type `window.__HONUA_STUDIO_HOST_SESSION__` already used, just promoted
- * to the primary path (see docs/embed-session.md). Internally this element
- * always resolves a full `AuthSession` via `createAuthSession()` — standalone
- * OIDC when no adapter is present (property or window global), a
- * `HostAdapterAuthSession` wrapping the adapter otherwise — and that's what
- * drives the auth-status label, the standalone sign-in/out controls (never
- * rendered in host-adapter mode — REQ-003), and gates the catalog/packages
- * fetch in `../pages/home.js`.
- *
- * Composition + MCP tool-call orchestration (honua-studio#7, AD-8): this
- * element owns the one `CompositionController` its auto-composed
- * `<honua-studio-canvas>` renders, and the one `ToolCallOrchestrator`
- * (`../mcp/orchestrator.js`) that turns the auto-composed
- * `<honua-studio-chat>`'s `honua-studio-chat-tool-call-result` events into
- * composition mutations — fixture/offline mode (the reducer only) by
- * default, or the AD-8 authoritative server-draft path once a host calls
- * `.enableLiveComposition()`. A host that supplies its own chat/canvas
- * children (skipping the auto-compose block below) is responsible for its
- * own wiring — this element never reaches into a host-supplied child beyond
- * the same public properties/events any embedder could use.
+ * `<honua-studio-app>`: the Studio shell. Attribute, property and event contract: docs/element-contract.md;
+ * session contract: docs/embed-session.md. A host that supplies its own chat or canvas child wires it itself;
+ * this element only uses the public properties and events any embedder could use.
  */
 import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
 import {
@@ -228,10 +197,9 @@ const ROUTES: readonly StudioRoute[] = [
   { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
 ];
 
-/** Package families whose drafts carry a composition body — mirrors `mock-server.mjs`'s `COMPOSITION_ELIGIBLE_FAMILIES` and honua-server#3002's own gate. */
+/** Package families whose drafts carry a composition body; mirrors the server gate and `mock-server.mjs`. */
 const LIVE_COMPOSITION_FAMILIES: readonly StudioPackageFamilyWire[] = ["map", "app"];
 
-/** Shown when composition applies through the local reducer only — the default (REQ-005). */
 const FIXTURE_MODE_LABEL = "Fixture mode";
 
 const THEME_SETS: readonly ThemeSet[] = ["standalone", "console"];
@@ -260,7 +228,7 @@ function withBasePath(path: string, basePath: string | null): string {
   return path === "/" ? trimmedBase || "/" : `${trimmedBase}${path}`;
 }
 
-/** `AuthSession` implementations that own an external subscription (`HostAdapterAuthSession`) expose `dispose()`; `OidcAuthSession` doesn't need one. Duck-typed so this element never imports the concrete classes. */
+/** Duck-typed: only sessions that own an external subscription expose `dispose()`. */
 function disposeAuthSession(auth: AuthSession | undefined): void {
   (auth as (AuthSession & { dispose?: () => void }) | undefined)?.dispose?.();
 }
@@ -926,9 +894,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return run;
   }
 
-  /** Runtime-tool seam. Server-backed composition tools are discovered from
-   * the authenticated MCP endpoint by sdk-js 0.1.9; hosts/tests may replace
-   * the local provider without changing chat or composition wiring. */
+  /** Local runtime tools offered to the agent; server-backed tools are discovered over MCP. */
   public get agentToolDefinitions(): (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike> {
     return (
       this.#agentToolDefinitions ??
@@ -942,14 +908,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Certified-dispatch options for the live agent session: a certification
-   * binding and a transcript verifier (for example the SDK's
-   * `StudioAiTranscriptVerifier` over the proxy's published
-   * `transcriptSigning` keys). The SDK dispatches a model-selected tool only
-   * after it verifies that round's signed `transcriptProvenance`
-   * (honua-io/honua-sdk-js#1748); without these options the turn ends with
-   * the SDK's refusal as a turn error. Assigning rebuilds a live session, so
-   * a new binding (and run nonce) takes effect on the next turn.
+   * Certification binding and transcript verifier for the live agent session. The SDK dispatches a
+   * model-selected tool only after verifying that round's signed provenance; without these options the turn
+   * ends with the SDK's refusal. Assigning rebuilds a live session so a new binding applies to the next turn.
    */
   public get agentCertification(): StudioAgentCertificationOptions | undefined {
     return this.#agentCertification;
@@ -1359,13 +1320,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Host-injected session adapter — the primary embed injection path
-   * (docs/embed-session.md). `getToken()`/`onExpired()`, matching
-   * `window.__HONUA_STUDIO_HOST_SESSION__`'s documented fallback shape
-   * exactly (honua-studio#4 REQ-003) — a host may use either, never both.
-   * Unset means: use the window global if present, else run standalone
-   * OIDC. Assigning this after the element is already connected tears down
-   * and rebuilds `.auth` (and disposes the previous session cleanly).
+   * Host-injected session adapter (docs/embed-session.md); same shape as
+   * `window.__HONUA_STUDIO_HOST_SESSION__`, and a host uses one or the other. Unset means the window
+   * global if present, else standalone OIDC. Reassigning while connected rebuilds `.auth`.
    */
   public get session(): SessionAdapter | undefined {
     return this.#session;
@@ -1439,55 +1396,28 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     for (const canvas of this.querySelectorAll<HonuaStudioCanvasElement>("honua-studio-canvas")) {
       canvas.widgetDeck?.refreshSession();
     }
-    // Both live clients capture the AuthSession supplied at construction.
-    // Replace them explicitly when an embedding host swaps credentials;
-    // a host-owned catalog intentionally does not refresh and therefore
-    // cannot be relied on to incidentally rebuild the agent session.
+    // Live clients capture their AuthSession at construction, and a host-owned catalog never refreshes,
+    // so nothing else would rebuild the agent session with the new credentials.
     if (this.#orchestrator?.isLive && this.#liveCompositionOptions) {
       this.#replaceLiveCompositionSession(this.#liveCompositionOptions);
     }
-    // auth.mode may have just changed (standalone <-> host-adapter), and
-    // the chrome's sign-in/out button markup depends on that — a
-    // paintAuthControls()-only refresh (what auth.subscribe's listener
-    // already triggers on every dispatch) only toggles [hidden] on existing
-    // buttons, it can't add/remove them. Force a full chrome rebuild so a
-    // `.session` reassignment after connection — a capability #4's original
-    // app.ts never needed, since it built one fixed AuthSession per app
-    // lifetime — is actually correct, not just "usually fine because nobody
-    // does this". Also re-render the route content ONCE so it picks up the
-    // new `.auth` (route render functions receive `auth` as a fresh
-    // argument, not a live binding) — deliberately NOT done from inside
-    // auth.subscribe's own listener below; see that listener's comment.
-    // A cookie lease changes credentials, not the editor's DOM or authority.
-    // Retain the iframe so uncommitted field text survives renewal.
+    // auth.mode decides whether sign-in/out buttons exist at all, so a new principal rebuilds the chrome.
+    // A cookie lease renewal keeps the DOM so the style editor iframe keeps uncommitted field text.
     if (!samePrincipal) this.#chromeBuilt = false;
     this.renderChrome();
-    // renderChrome() just replaced the shadow DOM wholesale — in hash mode
-    // that orphans any existing #hashRouter's captured #view node (see
-    // #setupHashRouter's doc), so rebuild it against the fresh one; its
-    // own `.start()` re-renders the current route with the new `.auth` in
-    // the process. In host mode there's no router to rebind — renderView()
-    // already re-queries `#view` live on every call.
+    // Routes receive `auth` as an argument, so re-render the current route once with the new session.
     if (this.routingMode === "hash") this.#setupHashRouter();
     else this.renderView();
-    // honua-studio#23: the composition map resolves its sources against the
-    // catalog, which is bearer-gated — so a new session means a new catalog
-    // (and, on a standalone boot, the first one that can be read at all).
+    // The catalog is bearer-gated, so a new session needs a new catalog.
     this.#refreshSourceCatalog(Boolean(samePrincipal));
   }
 
-  /**
-   * The resolved, live `AuthSession` this element (and, through
-   * `src/elements/session.ts`'s `resolveInjectedAuth`, every descendant
-   * placeholder) actually drives its UI from — standalone OIDC or a
-   * `HostAdapterAuthSession` wrapping `.session`, decided by
-   * `createAuthSession()`. Read-only; constructed lazily.
-   */
+  /** The resolved `AuthSession` this element and its descendants (`resolveInjectedAuth`) use; built lazily. */
   public get auth(): AuthSession {
     return this.#auth ?? this.resetAuth();
   }
 
-  /** The `StudioClient` powering the catalog/packages view — bearer-attached via `.auth`. Defaults to a fresh instance reading from `/api`; override for fixtures/tests. */
+  /** Catalog and packages client bound to `.auth`; assign one for fixtures and tests. */
   public get studioClient(): StudioClient {
     if (!this.#studioClient)
       this.#studioClient = new StudioClient(runtimeServerBaseUrl(), this.auth, runtimeMcpBaseUrl());
@@ -1500,24 +1430,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.renderView();
   }
 
-  /**
-   * The composition engine state (honua-studio#7/#8) the auto-composed
-   * `<honua-studio-canvas>` renders and `.toolCallOrchestrator` mutates.
-   * Lazily created (empty state) on first access; persists for this
-   * element's lifetime — reconnecting does not reset it.
-   */
+  /** Composition state the canvas renders; it survives reconnection. */
   public get composition(): CompositionController {
     if (!this.#composition) this.#composition = new CompositionController(createEmptyCompositionState());
     return this.#composition;
   }
 
   /**
-   * The MCP tool-call orchestrator (honua-studio#7) wired to `.composition`
-   * and, when the auto-composed `<honua-studio-chat>` is present, that
-   * chat's own `ActivityLog` — so composition entries interleave with chat
-   * entries in a shared `<honua-studio-activity-log>`. Fixture/offline mode
-   * (the local reducer only) until `.enableLiveComposition()` attaches a
-   * live MCP session (AD-8's authoritative server-draft path).
+   * Tool-call orchestrator over `.composition`, logging to the chat's activity log when a chat child
+   * exists. Applies through the local reducer until `.enableLiveComposition()` attaches a live MCP session.
    */
   public get toolCallOrchestrator(): ToolCallOrchestrator {
     if (!this.#orchestrator) {
@@ -1527,13 +1448,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#orchestrator;
   }
 
-  /**
-   * The catalog the composition map resolves layer sources against
-   * (honua-studio#23) and the AI map kit advertises to a model. Fetched once
-   * per connection from `.studioClient`; a host that already has the listing
-   * (or wants to constrain it) may assign it instead, which also skips the
-   * fetch.
-   */
   /** Actual published choices for the canonical GP layer picker; no map focus is inferred. */
   public async listProcessSources(): Promise<readonly { id: string; title: string }[]> {
     const generation = this.#workspaceAuthority.current;
@@ -1599,6 +1513,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
   }
 
+  /**
+   * Catalog the map resolves layer sources against and the AI map kit advertises. Fetched once per
+   * connection; a host may assign its own listing instead, which skips the fetch.
+   */
   public get sourceCatalog(): readonly CatalogDataset[] | undefined {
     return this.#sourceCatalog;
   }
@@ -1637,21 +1555,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.isConnected && this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
   }
 
-  /**
-   * Fetches the catalog once and hands it to the canvas. Failure is
-   * deliberately silent at this level: no catalog means composed layers
-   * report as "not renderable" in the canvas (with a reason and a readout
-   * row), which is a better failure than a shell that refuses to boot
-   * because a listing endpoint was unreachable.
-   */
+  /** Fetches the catalog once. Failure is silent: the canvas reports layers as not renderable instead. */
   async #loadSourceCatalog(revalidate = false): Promise<void> {
     if (this.#catalogRequested || (!revalidate && this.#sourceCatalog !== undefined)) return;
-    // Never fetch while signed out. `StudioClient` turns a second 401 into a
-    // `StudioSessionExpiredError` and the session records the failure, so an
-    // eager anonymous fetch would flip a freshly-booted, never-signed-in
-    // shell from "Signed out" to "Session expired" — a false and alarming
-    // claim, and one `test/playwright/boot-mock.spec.mjs` rightly fails on.
-    // `#onAuthStatusChanged` calls back here the moment a session exists.
+    // Never fetch while signed out: a second 401 marks the session expired, which would show a
+    // never-signed-in shell as "Session expired". The auth status listener retries once signed in.
     const status = this.auth.getState().status;
     if (status !== "fresh" && status !== "refreshing") return;
     this.#catalogRequested = true;
@@ -1670,24 +1578,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (previousCatalog && canonicalCompositionJson(previousCatalog) === canonicalCompositionJson(catalog)) return;
       this.#applySourceCatalog(catalog);
     } catch {
-      // See the doc above — an unreachable catalog degrades the map, it does
-      // not break the shell. It is also *expected* on a standalone boot: the
-      // catalog is bearer-gated and the shell renders before sign-in, which
-      // is exactly what `#refreshSourceCatalog` below exists to recover from.
+      // An unreachable catalog degrades the map; it must not break the shell.
     }
   }
 
   /**
-   * Re-fetches the catalog after the session changed — a new session can mean
-   * a different server, a different tenant, or simply the first one that can
-   * actually read the catalog at all.
-   *
-   * Called from two places: the `.session` setter (a host swapping the
-   * adapter) and an auth **status transition** into `"fresh"`. The transition
-   * gate is not incidental: `AuthSession.getAccessToken()` dispatches a state
-   * change on every single call (see `resetAuth`'s comment about the render
-   * loop this already caused once) and `listCatalog()` calls it, so retrying
-   * on every dispatch would be an unbounded fetch loop.
+   * Re-fetches the catalog after the session changed. Only call it on a session replacement or a status
+   * transition: every `getAccessToken()` dispatches a state change, so refetching per dispatch would loop.
    */
   #refreshSourceCatalog(preserve = false): void {
     if (this.#catalogFromHost) return;
@@ -1708,15 +1605,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#refreshSourceCatalog();
   }
 
-  /**
-   * The SDK AI map kit (honua-studio#23 REQ-002) over `.composition` —
-   * `createHonuaAiMapKit`'s tool definitions (Honua/MCP/OpenAI shapes),
-   * capability-aware map context, system prompt, and policy-gated
-   * `execute()`. Lazily built and rebuilt whenever the catalog it advertises
-   * changes, so a model driving Studio can only reference sources the server
-   * actually published (#1 REQ-001). See `../map/agent-map-kit.ts` for the
-   * sdk-js#1259 `StudioAgentSession` seam.
-   */
+  /** SDK AI map kit over `.composition`; rebuilt with the catalog so a model only sees published sources. */
   public get aiMapKit(): HonuaAiMapKit {
     if (!this.#aiMapKit) {
       this.#aiMapKit = createStudioAiMapKit({
@@ -1728,19 +1617,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Attaches a live MCP session so subsequent chat tool-call intents mutate
-   * a real Studio lifecycle draft via `honua_studio_*` tools (AD-8's
-   * authoritative path) instead of applying through the local reducer only.
-   * Bearer-attached via `.auth`, same as `.studioClient`. A host that never
-   * calls this stays in fixture/offline mode — the only mode CI and the
-   * default dev/demo experience use (NFR-001).
-   *
-   * honua-studio#23 REQ-004: this is still the public API, but it is no
-   * longer only reachable from `window.__honuaStudioApp`. The shell's own
-   * "Go live…" control in the header calls exactly this method, and every
-   * mode change (either direction) is announced as
-   * `honua-studio-composition-mode-change` and recorded in the shared
-   * activity log.
+   * Attaches a live MCP session so tool calls mutate a server draft through `honua_studio_*` tools instead
+   * of the local reducer. The header's "Go live…" control calls this; every mode change is announced as
+   * `honua-studio-composition-mode-change` and logged.
    */
   public enableLiveComposition(options: {
     readonly baseUrl?: string;
@@ -1791,12 +1670,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
   }
 
-  /**
-   * Returns composition to fixture/offline mode — the default the whole app
-   * boots in (REQ-005). Detaching does NOT roll back state the server
-   * already accepted; it stops future tool calls going to the server, which
-   * is the honest thing for a control that says "return to fixture mode".
-   */
+  /** Returns to fixture mode. State the server already accepted stays; only future tool calls stay local. */
   public disableLiveComposition(): void {
     if (!this.toolCallOrchestrator.isLive) return;
     this.toolCallOrchestrator.detachLiveSession();
@@ -1838,17 +1712,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public set currentPath(path: string) {
-    // Delegates entirely to the `current-path` attribute + attributeChangedCallback
-    // — the single place base-path stripping happens (see stripBasePath()
-    // below). honua-studio#5 finding: this setter used to normalize and
-    // write `#currentPath` directly, WITHOUT stripping base-path, which
-    // then immediately overwrote the correctly-stripped value
-    // attributeChangedCallback had just computed for the same call —
-    // harness/blazor-host's watchdog remount path calls `mount()` (sets the
-    // attribute directly, base-path correctly stripped) followed by
-    // `syncCurrentPath()` (used this setter, silently un-stripping it back
-    // to the raw host path) on every single resync, so `<honua-studio-app>`
-    // always rendered its home route instead of the one the URL said.
+    // Base-path stripping happens only in attributeChangedCallback.
     if (this.getAttribute("current-path") === path) return;
     this.setAttribute("current-path", path);
   }
@@ -1886,7 +1750,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#themeLoader;
   }
 
-  /** (Re)builds `.auth` from the current `.session`, disposing whatever was there before. Always leaves `#auth` set; returns it. */
+  /** Rebuilds `.auth` from the current `.session`, disposing the previous one. */
   private resetAuth(): AuthSession {
     this.#authUnsubscribe?.();
     this.#authUnsubscribe = undefined;
@@ -1896,22 +1760,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const auth = createAuthSession({ hostAdapter: this.#session });
     this.#auth = auth;
     this.#workspaceDraft?.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth }));
-    // honua-studio#5 finding: paintAuthControls() ONLY here — never
-    // renderView(). AuthSession implementations dispatch a state change on
-    // EVERY getAccessToken() call, even when the token is unchanged
-    // (HostAdapterAuthSession.getAccessToken() unconditionally re-dispatches
-    // "credential-issued" — see src/auth/host-session.ts). renderView()
-    // re-invokes the current route's render function, and the home route
-    // (../pages/home.js) calls client.listCatalog()/listPackages(), each of
-    // which calls auth.getAccessToken() to attach a bearer header — which
-    // dispatches again — which (had this listener also called renderView())
-    // would re-invoke the route render, re-fetch, re-dispatch, forever: a
-    // tight synchronous-enough loop that hung page load solid in testing,
-    // with no thrown error to surface it. The route-level view already
-    // manages its OWN reactivity to auth changes via its own independent
-    // `auth.subscribe()` (renderHome's `onAuthState`, unsubscribing itself
-    // once its own DOM is replaced) — this top-level listener's only job is
-    // the header's status label / sign-in-out button visibility.
+    // Never renderView() from this listener: every getAccessToken() dispatches a state change and the home
+    // route fetches with a token, so re-rendering routes here loops forever. Routes subscribe themselves.
     this.#authUnsubscribe = auth.subscribe(() => {
       this.paintAuthControls();
       this.#onAuthStatusChanged();
@@ -1920,15 +1770,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return auth;
   }
 
-  /**
-   * Completes an OIDC Authorization Code redirect back to this page
-   * (honua-studio#4 REQ-001), ported from #4's src/main.ts into the element
-   * itself so every host gets it, not just the standalone shell's own
-   * bootstrap — "no privileged internal APIs" (REQ-002) cuts both ways:
-   * nothing in main.ts does anything the element can't do for itself.
-   * No-op outside standalone mode or when the URL isn't a redirect
-   * callback; runs at most once per connection.
-   */
+  /** Completes a standalone OIDC redirect back to this page, at most once; a no-op otherwise. */
   private async completeStandaloneRedirectCallback(auth: AuthSession): Promise<void> {
     if (this.#redirectCallbackHandled) return;
     if (auth.mode !== "standalone" || !auth.isRedirectCallback()) return;
@@ -1936,30 +1778,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     try {
       await auth.handleRedirectCallback();
     } catch {
-      // The state machine already reflects the failure (auth.subscribe's
-      // listener repaints "expired"); the shell still needs to work so the
-      // user can retry sign-in.
+      // The auth state already shows the failure; the shell stays usable so the user can retry sign-in.
     }
     window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
   }
 
-  /**
-   * (Re)builds `this.#hashRouter` bound to the CURRENT `#view` node.
-   * `routingMode === "hash"` only — stops and discards any prior router
-   * first, so this is safe to call whenever `renderChrome()` has just
-   * replaced the shadow DOM wholesale (`setShadowHtml` creates a brand new
-   * `#view` element every rebuild).
-   *
-   * honua-studio#9 finding: `.session`'s reassignment-after-connect path
-   * (`this.#chromeBuilt = false; this.renderChrome(); ...`) used to leave a
-   * PRE-EXISTING `#hashRouter` bound to the now-DETACHED old `#view` node —
-   * every hash navigation after a post-connect `.session` reassignment
-   * silently rendered into an orphaned, invisible DOM tree (caught by
-   * `test/playwright/lifecycle-journey.spec.mjs`'s `#/content` navigation
-   * after assigning `.session` the same way `mcp-compose-journey.spec.mjs`
-   * already does). Calling this after every chrome rebuild — not just the
-   * first, onConnect one — closes that gap.
-   */
+  /** Binds a fresh hash router to the current `#view`; a chrome rebuild replaces that node. */
   #setupHashRouter(): void {
     if (this.routingMode !== "hash" || this.#isWorkspaceHost()) return;
     this.#hashRouter?.stop();
@@ -1986,15 +1810,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   protected onConnect(signal: AbortSignal): void {
-    // Auth must resolve before the FIRST renderChrome() build below — the
-    // shell's markup depends on `auth.mode` (host-adapter mode renders no
-    // sign-in/out controls at all, REQ-003) and its initial status label.
+    // The chrome markup depends on auth.mode, so auth resolves first.
     this.resetAuth();
 
-    // Chrome (and its #view outlet) must exist before the hash router below
-    // can bind to it — render() (chrome + view) otherwise only runs AFTER
-    // onConnect returns. renderChrome() is idempotent, so the base class's
-    // own post-onConnect render() call is a cheap no-op sync, not a rebuild.
+    // The hash router binds to #view, so the chrome exists before it.
     this.renderChrome();
     this.listen(this, "keydown", (event) => {
       const key = event as KeyboardEvent;
@@ -2023,10 +1842,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
 
     const loader = this.ensureThemeLoader();
-    // A host that already stamped data-theme-set/data-theme (markup, or a
-    // property set before this element upgraded) owns that decision — only
-    // fall back to persisted/default state when neither is present, so the
-    // standalone bootstrap's persistence never fights an embed's own choice.
+    // A host that already stamped a theme owns it; persisted state applies only otherwise.
     if (!this.hasAttribute("data-theme-set") && !this.hasAttribute("data-theme")) {
       loader.boot();
     }
@@ -2038,9 +1854,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#currentPath = stripBasePath(normalizePath(this.getAttribute("current-path") ?? "/"), basePath);
     }
 
-    // Every connection gets its own default chat/canvas composition unless a
-    // host has already supplied its own light-DOM children — a host that
-    // wants total control over the composed surfaces skips this by pre-populating them.
     if (!this.querySelector("honua-studio-chat")) {
       const chat = document.createElement("honua-studio-chat");
       chat.slot = "chat";
@@ -2056,10 +1869,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     if (this.#workspaceAgentAdapter) this.agentSessionAdapter = this.#workspaceAgentAdapter;
 
-    // honua-studio#7: wire the auto-composed chat/canvas pair to
-    // `.composition`/`.toolCallOrchestrator` — a host that supplied its own
-    // children instead is responsible for its own wiring (same "no
-    // privileged internal APIs" boundary `main.ts`'s doc calls out).
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (canvas)
       canvas.sourceAuthBaseUrl =
@@ -2067,35 +1876,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           ? verifiedSourcePathBase(this.#session.sourcePathBase)
           : runtimeMcpBaseUrl();
     if (canvas && !canvas.composition) canvas.composition = this.composition;
-    // honua-studio#31: a widget's intrinsic mutation is a composition command
-    // like any other, so it goes through the SAME orchestrator a chat tool
-    // call goes through — which is what routes `setVisibility` to
-    // `honua_studio_set_layer_visibility` in live mode. Assigned only when
-    // the canvas has not been given one by its host.
     if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#dispatchCommands(commands);
-    // honua-studio#23: the canvas needs the catalog to turn a composition
-    // layer's bare `sourceId` into something MapLibre can draw. Assign what
-    // we already have synchronously; otherwise fetch it in the background so
-    // the shell never blocks on it.
     if (canvas && this.#sourceCatalog) canvas.sourceCatalog = this.#sourceCatalog;
     else void this.#loadSourceCatalog();
-    void this.toolCallOrchestrator; // constructs it now, while `<honua-studio-chat>` (if any) is resolvable for its ActivityLog.
+    // Construct the orchestrator while the chat child is resolvable for its activity log.
+    void this.toolCallOrchestrator;
     void this.#resumeSharePreview();
     this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
       const detail = (event as CustomEvent<HonuaStudioChatToolCallResultDetail>).detail;
       void this.#handleChatToolCall(detail);
     });
 
-    // honua-studio#9 build item 5: lifecycle actions taken in
-    // `<honua-studio-lifecycle-panel>` (mounted by `../pages/content.js`
-    // inside this element's OWN shadow `#view`) are logged to the SAME
-    // shared activity log chat/composition entries already use — REQ-012's
-    // "recorded in the activity log like any other context" extended to
-    // draft/version/publish/rollback actions. `honua-studio-lifecycle-activity`
-    // is `composed: true` (`dispatchTypedEvent`), so it escapes both the
-    // panel's own shadow root AND this element's shadow root and reaches
-    // this listener on `this`, the same way `<honua-studio-canvas>`'s
-    // selection-change event already does from a light-DOM position.
     this.listen(this, "honua-studio-lifecycle-activity", (event) => {
       const detail = (event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail;
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
@@ -2104,22 +1895,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     this.agentSessionAdapter = this.#workspaceAgentAdapter;
     if (this.#workspaceConversation.length) this.setWorkspaceConversation(this.#workspaceConversation);
-    // honua-studio#10 build item 2: GP authoring/validation/preview/execution
-    // actions taken in `<honua-studio-gp-panel>` (mounted by a host the same
-    // way `<honua-studio-lifecycle-panel>` is — see the listener above) are
-    // logged to the SAME shared activity log — REQ-012's "recorded in the
-    // activity log like any other context" extended to GP actions.
     this.listen(this, "honua-studio-gp-activity", (event) => {
       const detail = (event as CustomEvent<HonuaStudioGpActivityDetail>).detail;
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
       chat?.activityLog.append("gp_action", { ...detail });
     });
 
-    // honua-studio#10 build item 4: "the agent can offer add-to-composition
-    // (via the existing composition path)" — a completed GP job's output is
-    // added the SAME way a chat tool-call intent adds any other layer:
-    // through `.toolCallOrchestrator`'s `addLayer` command, never a
-    // GP-specific composition code path.
     this.listen(this, "honua-studio-gp-add-output", (event) => {
       const detail = (event as CustomEvent<HonuaStudioGpAddOutputDetail>).detail;
       void this.toolCallOrchestrator.handleToolCall({
@@ -2130,7 +1911,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       });
     });
 
-    void signal; // Router cleanup goes through router.stop() in onDisconnect, not this signal — Router owns its own listener bookkeeping.
+    void signal;
   }
 
   async #attachLiveAgentSession(baseUrl: string): Promise<void> {
@@ -2182,10 +1963,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       workflowKnowledge: true,
       tools: [...this.agentToolDefinitions(kit)],
       execute: async (call) => {
-        // Local runtime tools execute through the kit. The compatibility
-        // forwarding remains for a host that deliberately supplies the
-        // visibility mutation through the public runtime-tool seam; normally
-        // sdk-js discovers and dispatches it through MCP.
+        // A host may supply the visibility mutation through the runtime-tool seam; route it through the
+        // orchestrator. Every other local tool executes through the kit.
         const forwardedCall = call as unknown as {
           readonly name: string;
           readonly args?: Readonly<Record<string, unknown>>;
@@ -2249,18 +2028,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
   }
 
-  /**
-   * Runs a widget's intrinsic mutation through `.toolCallOrchestrator` — the
-   * one composition write path (honua-studio#31). The orchestrator decides
-   * local vs. server per command from the tool bridge's `serverToolName`, so
-   * a TOC toggle reaches `honua_studio_set_layer_visibility` in live mode and
-   * the reducer in fixture mode, with the generation threading and the
-   * activity-log entry an agent's command already gets.
-   *
-   * Commands run in order and the batch stops at the first failure: a compare
-   * switch's two toggles are one user gesture, and half of it landing is
-   * worse than none of it.
-   */
   /** Resolve an observed published receipt against the live catalog before adding it to the map. */
   public async addPublishedLayer(
     layer: { readonly layerId: number; readonly serviceName: string; readonly layerName?: string },
@@ -2307,6 +2074,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
   }
 
+  /**
+   * The one composition write path for widgets, chat and the editor. Commands run in order and stop at the
+   * first failure: a compare switch's two toggles are one gesture, and half of it landing is worse than none.
+   */
   async #dispatchCommands(
     commands: readonly CompositionCommand[],
     options?: { readonly isCurrent?: () => boolean },
@@ -2396,9 +2167,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     }
   }
 
-  /** Resolves one chat-emitted tool-call intent through `.toolCallOrchestrator` (honua-studio#7). Never throws — every outcome is recorded on the orchestrator's activity log; see `../mcp/orchestrator.js`'s module doc. */
+  /** Resolves one chat tool-call intent. Never throws: every outcome lands in the activity log. */
   async #handleChatToolCall(detail: HonuaStudioChatToolCallResultDetail): Promise<void> {
-    if (!detail.toolName) return; // no tool name to resolve — nothing this orchestrator can do with it.
+    if (!detail.toolName) return;
     const args = isPlainObject(detail.arguments) ? detail.arguments : {};
     if (this.#workspaceDraft) {
       const resolved = resolveToolCall({ toolName: detail.toolName, arguments: args });
@@ -2453,12 +2224,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return;
     }
     if (name === "routing-mode" || name === "base-path") {
-      // Mode/base-path changes mid-connection are unusual; re-run onConnect's
-      // routing setup (stop any hash router, re-derive the current path) and
-      // re-render. This reuses the connection's own AbortSignal — still
-      // live, since disconnectedCallback (real unmount) hasn't run — so
-      // listeners set up here still clean up correctly on the next
-      // disconnect, and the chrome's own listeners are untouched.
+      // Re-run onConnect's routing setup on the still-live connection signal, so its listeners still clean up.
       this.#hashRouter?.stop();
       this.#hashRouter = undefined;
       const signal = this.connectedSignal;
@@ -2486,8 +2252,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return;
     }
     const switcherHidden = this.themeSwitcherVisibility === "hidden";
-    // REQ-003: the embed host owns sign-in/out, so Studio never renders
-    // interactive auth controls in host-adapter mode — only a status label.
+    // An embed host owns sign-in/out, so host-adapter mode renders only a status label.
     const authControlsMarkup =
       this.auth.mode === "standalone"
         ? `<button type="button" class="hn-btn hn-btn--sm" data-testid="auth-signin" hidden>Sign in</button>
@@ -2511,11 +2276,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
             <span class="hn-muted" data-testid="auth-status"></span>
             ${authControlsMarkup}
           </div>
-          <!-- honua-studio#23 REQ-004: live composition is a real control,
-               not a test hook. Collapsed by default and announcing "Fixture
-               mode", because fixture/offline IS the default (REQ-005) and a
-               user should be able to see which one they are in without
-               opening a console. -->
           <div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Composition mode">
             <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
@@ -2667,7 +2427,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.paintLiveCompositionControls();
   }
 
-  /** Wires the REQ-004 control group. Listeners are `connectedSignal`-scoped, so a chrome rebuild never doubles them up. */
+  /** Listeners are `connectedSignal`-scoped, so a chrome rebuild never doubles them up. */
   private bindLiveCompositionControls(): void {
     const root = this.shadowRoot;
     const signal = this.connectedSignal;
@@ -2719,7 +2479,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
   }
 
-  /** Reflects the current composition mode into the header — called on every chrome build and on every mode change. */
   private paintLiveCompositionControls(): void {
     const root = this.shadowRoot;
     if (!root) return;
