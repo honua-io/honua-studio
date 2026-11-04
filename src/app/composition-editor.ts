@@ -17,6 +17,7 @@ import type { WorkspaceDraftSession } from "./workspace-draft-session.js";
 
 type HistoryAction = "undo" | "redo";
 type CommandOptions = { readonly isCurrent?: () => boolean };
+type LeaseSnapshot = { readonly auth: unknown; readonly token: EpochToken };
 type PublishedLayer = { readonly layerId: number; readonly serviceName: string; readonly layerName?: string };
 
 interface DraftEdit {
@@ -138,12 +139,25 @@ export class CompositionEditor {
     if (!result.ok) throw new Error(result.reason);
   }
 
+  /**
+   * The last target and lease checks, catalog installation and dispatch run in one continuation, so a map
+   * or session replacement can never receive a catalog or edit discovered for its predecessor. A
+   * same-authority cookie lease may renew during discovery; the catalog is then re-read with the new lease.
+   */
   async addPublishedLayer(layer: PublishedLayer, options?: CommandOptions): Promise<HonuaStudioCommandOutcome> {
     const { authority } = this.options;
-    const lease = { auth: authority.auth, token: authority.lease.current };
+    let lease = this.#leaseSnapshot();
     const requireOriginalTarget = this.#originalTargetGuard(options);
     requireOriginalTarget();
-    const catalog = await this.#readCatalogUnderLease(lease, requireOriginalTarget);
+    let catalog = await authority.studioClient.listCatalog();
+    requireOriginalTarget();
+    if (!this.#isLeaseCurrent(lease)) {
+      lease = this.#leaseSnapshot();
+      catalog = await authority.studioClient.listCatalog();
+      requireOriginalTarget();
+      if (!this.#isLeaseCurrent(lease))
+        throw new Error("The Studio target changed while resolving the published layer.");
+    }
     const source = findPublishedSource(catalog, layer);
     this.options.catalog.apply(catalog);
     return this.dispatch(
@@ -281,20 +295,13 @@ export class CompositionEditor {
     };
   }
 
-  /** A same-authority cookie lease may renew during discovery; never dispatch a catalog read by the old lease. */
-  async #readCatalogUnderLease(
-    lease: { readonly auth: unknown; readonly token: EpochToken },
-    requireOriginalTarget: () => void,
-  ): Promise<readonly CatalogDataset[]> {
+  #leaseSnapshot(): LeaseSnapshot {
     const { authority } = this.options;
-    const catalog = await authority.studioClient.listCatalog();
-    requireOriginalTarget();
-    if (authority.auth === lease.auth && authority.lease.isCurrent(lease.token)) return catalog;
-    const renewed = { auth: authority.auth, token: authority.lease.current };
-    const renewedCatalog = await authority.studioClient.listCatalog();
-    requireOriginalTarget();
-    if (authority.auth !== renewed.auth || !authority.lease.isCurrent(renewed.token))
-      throw new Error("The Studio target changed while resolving the published layer.");
-    return renewedCatalog;
+    return { auth: authority.auth, token: authority.lease.current };
+  }
+
+  #isLeaseCurrent(lease: LeaseSnapshot): boolean {
+    const { authority } = this.options;
+    return authority.auth === lease.auth && authority.lease.isCurrent(lease.token);
   }
 }

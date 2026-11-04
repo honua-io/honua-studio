@@ -193,7 +193,11 @@ export class RecipeController {
     await this.options.host.prepareWorkspaceTurn();
     this.#epoch.assertCurrent(entry.generation, WORKSPACE_AUTHORITY_CHANGED);
     const client = this.options.authority.lifecycleClient();
-    if (!entry.request) entry.request = await this.#buildRequest(entry, input, client);
+    if (!entry.request) {
+      const request = await this.#buildRequest(entry, input, client);
+      this.#epoch.assertCurrent(entry.generation, WORKSPACE_AUTHORITY_CHANGED);
+      entry.request = request;
+    }
     if (!entry.attachmentAllowed && !entry.submission.submitted) throw new Error(CANCELLED_BEFORE_SUBMISSION);
     const created = await entry.submission.createDraft(entry.request, (request, commandId) =>
       client.createDraft(request, commandId),
@@ -221,7 +225,6 @@ export class RecipeController {
       AbortSignal.any([AbortSignal.timeout(15000), entry.metadataAbort!.signal]),
     );
     const { state } = compileExploreDataset(input, metadata);
-    this.#epoch.assertCurrent(entry.generation, WORKSPACE_AUTHORITY_CHANGED);
     return {
       packageKey: input.packageKey,
       envelope: { ...MAP_COMPOSITION_ENVELOPE, body: toCompositionDraftBody(state, input.packageKey) },

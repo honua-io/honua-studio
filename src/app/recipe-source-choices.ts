@@ -119,6 +119,8 @@ export class RecipeSourceChoices {
     if (type.includes("raster") || type.includes("image"))
       throw new Error("Choose a point, line or polygon vector source.");
     const result = await this.#readSampleRows(resolution, source, provider.serverRoot);
+    signal.throwIfAborted();
+    this.options.recipeAuthority.assertCurrent(resolution.generation, WORKSPACE_AUTHORITY_CHANGED);
     requireSameChoices();
     if (!result.ok) throw new Error(`Readable feature queries are required. ${result.reason}`);
     return {
@@ -193,14 +195,10 @@ export class RecipeSourceChoices {
     return source;
   }
 
-  async #readSampleRows(
-    { sourceId, signal, generation }: Resolution,
-    source: CatalogDataset,
-    sourceAuthBaseUrl: string,
-  ) {
+  #readSampleRows({ sourceId, signal, generation }: Resolution, source: CatalogDataset, sourceAuthBaseUrl: string) {
     const { authority, recipeAuthority } = this.options;
     const auth = authority.auth;
-    const result = await createCatalogWidgetDataLoader({
+    return createCatalogWidgetDataLoader({
       catalog: [source],
       baseUrl: runtimeMcpBaseUrl(),
       sourceAuthBaseUrl,
@@ -213,8 +211,5 @@ export class RecipeSourceChoices {
       },
       fetchImpl: (input, init) => (auth.fetchRequest ?? fetch)(input, { ...init, signal }),
     })(sourceId, { signal });
-    signal.throwIfAborted();
-    recipeAuthority.assertCurrent(generation, WORKSPACE_AUTHORITY_CHANGED);
-    return result;
   }
 }
