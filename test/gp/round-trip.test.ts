@@ -1,5 +1,5 @@
 /**
- * Versioned, re-runnable GP packages (honua-studio#10 REQ-005): a saved `gp`
+ * Versioned, re-runnable GP packages: a saved `gp`
  * version reopens as a draft and re-executes with new parameters — the
  * SAME open -> save-version -> reopen round trip
  * `test/lifecycle/round-trip.test.ts` proves for map/query/dashboard,
@@ -68,7 +68,6 @@ describe("gp round trip: open -> validate -> preview -> submit -> save-version -
     const firstJob = await jobs.submit({ draftId: opened.draftId });
     expect(firstJob.status).toBe("accepted");
 
-    // "Save as version": captures the envelope as v1.
     const v1 = await lifecycle.saveAsVersion(opened.draftId);
     expect(v1.envelope.body).toEqual(FIXTURE_BODY);
 
@@ -96,12 +95,12 @@ describe("gp round trip: open -> validate -> preview -> submit -> save-version -
     // Both jobs independently progress to completion with their own
     // parameter overrides intact.
     await jobs.status(firstJob.jobId); // running
-    const firstResult = await jobs.status(firstJob.jobId); // successful
+    const firstResult = await jobs.status(firstJob.jobId);
     expect(firstResult.status).toBe("successful");
     expect(firstResult.parameters).toBeUndefined(); // no override on the first run
 
     await jobs.status(secondJob.jobId); // running
-    const secondResult = await jobs.status(secondJob.jobId); // successful
+    const secondResult = await jobs.status(secondJob.jobId);
     expect(secondResult.status).toBe("successful");
     expect(secondResult.parameters).toEqual(BUFFER_INTERSECT_RERUN_PARAMETERS);
   });

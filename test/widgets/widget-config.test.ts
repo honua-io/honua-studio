@@ -1,6 +1,4 @@
 /**
- * Config normalization (honua-studio#24 REQ-001/REQ-004).
- *
  * The behaviour worth protecting here is the *default*: an agent that says
  * only "chart the parcels by zoning code" must get a working chart, and an
  * agent that says "add a layer list" must get a working TOC. Every assertion

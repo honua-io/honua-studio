@@ -1,10 +1,10 @@
 /**
  * Exercises mock-server.mjs's OIDC issuer + protected Studio routes over
- * real loopback HTTP (honua-studio#4 REQ-001) — the same fixture
+ * real loopback HTTP — the same fixture
  * scripts/dev-mock.mjs and the Playwright specs drive, just without a
  * browser. Proves the discovery document, PKCE-verified authorization-code
  * exchange, bearer-gated catalog/packages routes, and refresh-token
- * ROTATION (P2-8: a spent refresh token never works twice) all hold end to
+ * ROTATION (a spent refresh token never works twice) all hold end to
  * end against the actual fixture — not a re-implementation of it.
  */
 import { createHash, randomBytes } from "node:crypto";
@@ -175,7 +175,7 @@ describe("mock-server.mjs OIDC issuer + protected Studio routes", () => {
     expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
 
     // Replaying the ORIGINAL (now-spent) refresh token must fail — this is
-    // the P2-8 rotation guarantee, not silent-iframe refresh.
+    // the rotation guarantee, not silent-iframe refresh.
     const replay = await fetch(discovery.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -189,7 +189,6 @@ describe("mock-server.mjs OIDC issuer + protected Studio routes", () => {
     const replayBody = await replay.json();
     expect(replayBody.error).toBe("invalid_grant");
 
-    // The rotated token, unlike the replayed one, still works.
     const secondRefresh = await fetch(discovery.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

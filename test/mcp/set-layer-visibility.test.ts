@@ -1,6 +1,6 @@
 /**
- * honua-studio#31 — the TOC visibility toggle delegates to
- * `honua_studio_set_layer_visibility` instead of holding local state.
+ * The TOC visibility toggle delegates to `honua_studio_set_layer_visibility`
+ * instead of holding local state.
  *
  * Driven against the REAL `mock-server.mjs` `/mcp` dispatcher over the REAL
  * `McpClient`, the same way `external-client-parity.test.ts` is, because the
@@ -86,8 +86,8 @@ describe("honua_studio_set_layer_visibility delegation (honua-studio#31)", () =>
       arguments: { target: { kind: "layer", id: "parcels" }, visible: false },
     });
 
-    // An unrelated composition mutation, then a fresh read of the draft —
-    // the sequence that used to clobber a client-side toggle.
+    // An unrelated composition mutation, then a fresh read of the draft.
+    // Visibility must stay hidden.
     await orchestrator.handleToolCall({ toolName: "setView", arguments: { view: { zoom: 9 } } });
     const tools = new StudioMcpToolClient(new McpClient({ baseUrl: server.url, auth: auth() }));
     const stored = await tools.getDraft(orchestrator.draftId as string);

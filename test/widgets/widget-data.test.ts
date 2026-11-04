@@ -1,6 +1,4 @@
 /**
- * The feature-loader seam (honua-studio#24 REQ-001).
- *
  * The load-bearing assertion is the first one: the URL a widget fetches is
  * the URL the *map* resolves for the same source. If these two ever diverge,
  * a grid and the map beneath it would be showing different data with no

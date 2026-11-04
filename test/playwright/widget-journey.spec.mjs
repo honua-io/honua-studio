@@ -1,26 +1,8 @@
 /**
- * honua-studio#24's acceptance criteria in a real browser, against the real
- * MapLibre renderer honua-studio#23 put on the canvas:
- *
- *  - each bounded widget kind renders and updates from composition state
- *    (REQ-001),
- *  - a TOC reflects layers added before *and after* it, with no authored
- *    bindings (REQ-002),
- *  - a TOC toggle moves the actual map — the intrinsic control is wired to
- *    the renderer, not just to a checkbox (REQ-003),
- *  - a chart renders from an agent-authored widget with no hand-written
- *    Vega-Lite spec (REQ-004),
- *  - a grid row selection travels the normal interaction path (REQ-005).
- *
- * REQ-003 is the one that genuinely needs a browser. A node test can prove a
- * checkbox writes a `setVisibility` command; only this can prove the composed
- * MapLibre style actually flipped to `visibility: none` as a result — which is
- * the difference between a working layer list and a decorative one.
- *
- * The chat side stays on `FixtureChatTransport` (AD-4's no-model fixture
- * mode), same as `map-canvas-journey.spec.mjs`, and honua-studio#23's
- * no-off-origin-requests rule is re-asserted here because the widget deck
- * fetches feature rows of its own.
+ * A node test can prove a checkbox writes `setVisibility`. Only a browser can
+ * prove the composed MapLibre style flipped to `visibility: none`. Chat stays
+ * on `FixtureChatTransport` (no model). The no-off-origin rule is re-asserted
+ * here because the widget deck fetches feature rows of its own.
  */
 import { expect, test } from "@playwright/test";
 

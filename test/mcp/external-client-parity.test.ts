@@ -1,7 +1,5 @@
 /**
- * External-client parity proof (honua-studio#7 build item 5; spec
- * acceptance REQ-003: "External MCP client parity: the same tools drive a
- * composition from outside the app").
+ * The same tools drive a composition from outside the app and from inside it.
  *
  * Drives `mock-server.mjs`'s real `/mcp` JSON-RPC endpoint two ways against
  * the SAME running server:
@@ -45,7 +43,6 @@ describe("mcp external-client parity (honua-studio#7 REQ-003)", () => {
     const token = mintFixtureAccessToken();
     const auth = { getAccessToken: async () => token };
 
-    // ---- 1. Bare external client: no app code beyond McpClient/StudioMcpToolClient ----
     const externalClient = new McpClient({ baseUrl: server.url, auth });
     const externalTools = new StudioMcpToolClient(externalClient);
 
@@ -61,7 +58,6 @@ describe("mcp external-client parity (honua-studio#7 REQ-003)", () => {
       view: { center: [-157.86, 21.3], zoom: 9 },
     });
 
-    // ---- 2. In-app path: ToolCallOrchestrator, driven by chat-shaped tool-call intents ----
     const controller = new CompositionController(createEmptyCompositionState());
     const activityLog = createActivityLog();
     const inAppClient = new McpClient({ baseUrl: server.url, auth });
@@ -90,7 +86,6 @@ describe("mcp external-client parity (honua-studio#7 REQ-003)", () => {
     expect(addLayerResult.ok).toBe(true);
     expect(setViewResult.ok).toBe(true);
 
-    // ---- 3. Parity assertion: same layers/view body either way ----
     const externalBody = draft.envelope.body as { layers: unknown[]; view: unknown; widgets: unknown[] };
     const inAppBody = toStudioCompositionBody(controller.state);
 
