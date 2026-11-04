@@ -557,14 +557,14 @@ const undoRestoresPreviousState: EvalTask = {
   knownBad: [
     {
       id: "took-two-actions-so-undo-only-reaches-one",
-      description: "removes the layer as well as adding the chart, so a single undo leaves the chart behind",
+      description: "hides the layer as well as adding the chart, so a single undo leaves the chart behind",
       turns: [
         {
           turnIndex: 0,
           assistant: {
             toolCalls: [
               { toolName: "add_chart", arguments: { datasetId: PARCELS, groupBy: "zoning_code", chartType: "bar" } },
-              { toolName: "honua_studio_remove_layer", arguments: { layerId: PARCELS } },
+              { toolName: "honua_studio_set_layer_visibility", arguments: { layerId: PARCELS, visible: false } },
             ],
           },
         },

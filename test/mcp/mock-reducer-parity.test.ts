@@ -3,6 +3,7 @@
  * composition for the same command: each case seeds one draft body, applies a command through
  * `applyCompositionCommand` and, as the live orchestrator would send it, through the mock's `/mcp` tool.
  */
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
@@ -13,65 +14,26 @@ import { McpClient } from "../../src/mcp/client.js";
 import { StudioMcpToolClient, parseStudioDraftResult } from "../../src/mcp/studio-tools.js";
 import { buildServerToolInvocation, resolveToolCall, toStudioCompositionBody } from "../../src/mcp/tool-bridge.js";
 
-const binding = (sourceId: string) => ({
-  sourceId,
-  protocol: "geoservices-feature-service",
-  locator: { url: `/rest/services/${sourceId}/FeatureServer/0`, serviceId: sourceId, layerId: 0 },
-});
+interface ExpectedError {
+  readonly reducerCode: string;
+  readonly mcpCode: string;
+  readonly message?: string;
+  readonly messageIncludes?: string;
+}
 
-const ROADS_STYLE = { roads: { paint: { "line-color": "#334455" } } };
+interface ParityCase {
+  readonly name: string;
+  readonly body: string;
+  readonly command: CompositionCommand;
+  readonly expect: { readonly body?: unknown; readonly error?: ExpectedError };
+}
 
-/** Two layers share `parcels`; `roads` owns its source, an inline style, an outline and a labelled style layer. */
-const SEEDED_BODY = {
-  sourceBindings: [binding("parcels"), binding("roads")],
-  styleRefs: [{ styleId: "honua-inline:roads", body: ROADS_STYLE }],
-  mapSpec: {
-    version: 8,
-    sources: { parcels: { type: "geojson", data: {} }, roads: { type: "geojson", data: {} } },
-    layers: [
-      { id: "parcels", type: "fill", source: "parcels" },
-      { id: "parcel-labels", type: "symbol", source: "parcels" },
-      { id: "roads", type: "line", source: "roads" },
-      { id: "roads__outline", type: "line", source: "roads" },
-      { id: "road-names", type: "symbol", source: "roads", metadata: { "honua:compositionLayerId": "roads" } },
-    ],
-    metadata: { "honua:compositionLayerIds": ["parcels", "parcel-labels", "roads"] },
-  },
-  layers: [
-    { id: "parcels", sourceId: "parcels", visible: true },
-    { id: "parcel-labels", sourceId: "parcels", visible: true },
-    { id: "roads", sourceId: "roads", visible: true, styleRef: "honua-inline:roads" },
-  ],
-  view: { center: [-157.86, 21.3], zoom: 9 },
-  widgets: [],
-};
+const FIXTURE = JSON.parse(
+  readFileSync(new URL("./fixtures/composition-reducer-cases.v1.json", import.meta.url), "utf8"),
+) as { readonly bodies: Record<string, unknown>; readonly cases: readonly ParityCase[] };
 
-const CASES: readonly { readonly name: string; readonly command: CompositionCommand }[] = [
-  {
-    name: "removing a layer prunes its binding, inline style, map-style source, style layers and owner entry",
-    command: { name: "removeLayer", target: { kind: "layer", id: "roads" } },
-  },
-  {
-    name: "removing one of two layers on a source keeps that source bound and drawn",
-    command: { name: "removeLayer", target: { kind: "layer", id: "parcels" } },
-  },
-  {
-    name: "a partial view merges into the current view",
-    command: { name: "setView", view: { zoom: 12 } },
-  },
-  {
-    name: "a layer style body becomes that layer's inline style",
-    command: {
-      name: "setLayerStyleRef",
-      target: { kind: "layer", id: "parcels" },
-      styleBody: { parcels: { paint: { "fill-color": "#112233" } } },
-    },
-  },
-  {
-    name: "clearing a layer's style keeps the shared style definitions",
-    command: { name: "setLayerStyleRef", target: { kind: "layer", id: "roads" } },
-  },
-];
+const ACCEPTED = FIXTURE.cases.filter((parityCase) => parityCase.expect.body !== undefined);
+const REFUSED = FIXTURE.cases.filter((parityCase) => parityCase.expect.error !== undefined);
 
 let server: Awaited<ReturnType<typeof startMockServer>> | undefined;
 
@@ -80,7 +42,7 @@ afterEach(async () => {
   server = undefined;
 });
 
-async function seededDraft(client: McpClient) {
+async function seededDraft(client: McpClient, body: unknown) {
   const tools = new StudioMcpToolClient(client);
   const draft = await tools.createDraft({ packageKey: "pkg-parity", family: "map", schemaVersion: "1" });
   return tools.updateDraft({
@@ -88,15 +50,15 @@ async function seededDraft(client: McpClient) {
     generation: draft.generation,
     packageKey: "pkg-parity",
     schemaVersion: "1",
-    body: SEEDED_BODY,
+    body,
   });
 }
 
-async function applyThroughMock(command: CompositionCommand): Promise<unknown> {
+async function applyThroughMock({ body, command }: ParityCase): Promise<unknown> {
   server = await startMockServer();
   const token = mintFixtureAccessToken();
   const client = new McpClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
-  const draft = await seededDraft(client);
+  const draft = await seededDraft(client, FIXTURE.bodies[body]);
   const resolution = resolveToolCall({ toolName: command.name, arguments: { ...command } });
   if (!resolution.ok || !resolution.serverToolName) throw new Error(`No server tool for ${command.name}.`);
   const invocation = buildServerToolInvocation(resolution, draft)!;
@@ -104,39 +66,40 @@ async function applyThroughMock(command: CompositionCommand): Promise<unknown> {
   return readComparableBody(result.envelope.body);
 }
 
-function applyThroughReducer(command: CompositionCommand): unknown {
-  const { state } = applyCompositionCommand(readCompositionBody(SEEDED_BODY), command);
+function applyThroughReducer({ body, command }: ParityCase): unknown {
+  const { state } = applyCompositionCommand(readCompositionBody(FIXTURE.bodies[body]), command);
   return readComparableBody(toStudioCompositionBody(state));
 }
 
+function expectedMessage(error: ExpectedError): string | RegExp {
+  return error.message ?? new RegExp(escapeRegExp(error.messageIncludes ?? ""));
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function readComparableBody(body: unknown) {
-  const { sourceBindings, styleRefs, mapSpec, layers, view, widgets } = toStudioCompositionBody(
+  const { sourceBindings, styleRefs, mapSpec, layers, view, widgets, controls } = toStudioCompositionBody(
     readCompositionBody(body),
   );
-  return { sourceBindings, styleRefs, mapSpec, layers, view, widgets };
+  return { sourceBindings, styleRefs, mapSpec, layers, view, widgets, controls };
 }
 
 describe("mock server composition tools match the client reducer", () => {
-  it.each(CASES)("$name", async ({ command }) => {
-    const expected = applyThroughReducer(command);
-
-    expect(await applyThroughMock(command)).toEqual(expected);
+  it.each(ACCEPTED)("$name", async (parityCase) => {
+    expect(applyThroughReducer(parityCase)).toEqual(parityCase.expect.body);
+    expect(await applyThroughMock(parityCase)).toEqual(parityCase.expect.body);
   });
 
-  it("refuses an out-of-bounds view the reducer refuses", async () => {
-    server = await startMockServer();
-    const token = mintFixtureAccessToken();
-    const client = new McpClient({ baseUrl: server.url, auth: { getAccessToken: async () => token } });
-    const draft = await seededDraft(client);
-    const command: CompositionCommand = { name: "setView", view: { zoom: 30 } };
-
-    expect(() => applyThroughReducer(command)).toThrow("out of bounds");
-    await expect(
-      new StudioMcpToolClient(client).setView({
-        draftId: draft.draftId,
-        generation: draft.generation,
-        view: { zoom: 30 },
-      }),
-    ).rejects.toThrow("out of bounds");
+  it.each(REFUSED)("$name", async (parityCase) => {
+    const error = parityCase.expect.error!;
+    expect(() => applyThroughReducer(parityCase)).toThrow(
+      expect.objectContaining({ code: error.reducerCode, message: expect.stringMatching(expectedMessage(error)) }),
+    );
+    await expect(applyThroughMock(parityCase)).rejects.toMatchObject({
+      code: error.mcpCode,
+      message: expect.stringMatching(expectedMessage(error)),
+    });
   });
 });

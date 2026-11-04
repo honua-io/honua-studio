@@ -74,7 +74,8 @@ export type CompositionCommandErrorCode =
    * the offending binding ids and the way forward, because "the removal
    * failed" without them is a dead end for both a human and an agent.
    */
-  | "interaction-conflict";
+  | "interaction-conflict"
+  | "source-in-use";
 
 /** Thrown by {@link applyCompositionCommand} for any rejected command. Never thrown mid-mutation — state is untouched on failure. */
 export class CompositionCommandError extends Error {
@@ -235,6 +236,7 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       const resolution = requireResolved(state, command.target, "layer", command);
       guardPin(resolution, command);
       const id = nonFeatureTargetId(command.target);
+      guardSourceStillUsed(state, id, command);
       const metadata = state.mapSpec?.metadata as Record<string, unknown> | undefined;
       const captured = metadata?.[COMPOSITION_STYLE_LAYER_IDS];
       return {
@@ -376,6 +378,29 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
     case "unpin":
       return applyUnpin(state, command.target);
   }
+}
+
+/**
+ * A control or widget must not be left reading a source that no layer binds any more. Like honua-server,
+ * the first offender in document order, controls before widgets, is reported.
+ */
+function guardSourceStillUsed(state: CompositionState, layerId: string, command: CompositionCommand): void {
+  const removed = state.layers.find((layer) => layer.id === layerId);
+  if (!removed) return;
+  const remaining = state.layers.filter((layer) => layer.id !== layerId);
+  const orphaned = (sourceId: string | undefined): sourceId is string =>
+    sourceId !== undefined &&
+    (sourceId === removed.id || sourceId === removed.sourceId) &&
+    !remaining.some((layer) => layer.sourceId === sourceId);
+  const control = state.controls.find((candidate) => orphaned(candidate.sourceId));
+  const widget = control ? undefined : state.widgets.find((candidate) => orphaned(candidate.sourceId));
+  const offender = control ? { role: "control", ...control } : widget ? { role: "widget", ...widget } : undefined;
+  if (!offender) return;
+  throw new CompositionCommandError(
+    "source-in-use",
+    `Cannot remove layer '${layerId}' because ${offender.role} '${offender.id}' still uses sourceId '${offender.sourceId}'. Remove or rebind the ${offender.role} first.`,
+    { command },
+  );
 }
 
 function applyAddLayer(

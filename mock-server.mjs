@@ -125,6 +125,7 @@ import { createFixtureTranscriptSigner } from "./scripts/lib/fixture-transcript-
 import {
   compositionWithLayerStyle,
   compositionWithoutLayer,
+  layerRemovalBlocker,
   viewBoundsViolation,
 } from "./scripts/lib/mock-composition.mjs";
 
@@ -709,6 +710,8 @@ function createMcpDispatcher(store, catalogDatasets) {
         if (!removedLayer) {
           return { error: toolError("not_found", `No layer with id '${args.layerId}' exists in the composition.`) };
         }
+        const blocker = layerRemovalBlocker(body, removedLayer);
+        if (blocker) return { error: toolError("invalid_argument", blocker) };
         return { body: compositionWithoutLayer(body, removedLayer) };
       });
     },
