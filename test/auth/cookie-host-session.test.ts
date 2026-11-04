@@ -128,16 +128,8 @@ describe("cookie host session", () => {
     release();
     await expect(pending).rejects.toThrow(/session.*renew/i);
   });
-  it("never replays a mutation whose outcome crossed a renewal", async () => {
-    let finish!: (response: Response) => void;
-    const fetch = vi.fn().mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const cookie = {
+  describe("a draft save that crosses a lease renewal", () => {
+    const lease = {
       kind: "cookie" as const,
       baseUrl: "/api/studio" as const,
       csrfToken: "old",
@@ -146,13 +138,72 @@ describe("cookie host session", () => {
       expiresAt: new Date(Date.now() + 60000).toISOString(),
       onExpired: () => () => {},
     };
-    const auth = new HostAdapterAuthSession(cookie);
-    sessions.push(auth);
-    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
-    auth.renewCookie({ ...cookie, csrfToken: "new" });
-    finish(new Response("ok"));
-    await expect(pending).rejects.toThrow(/original outcome/);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    const saved = { draftId: "draft", generation: 2 };
+    function heldWrite() {
+      const held: { finish?: (response: Response) => void } = {};
+      const fetch = vi.fn().mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            held.finish = resolve;
+          }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const auth = new HostAdapterAuthSession(lease);
+      sessions.push(auth);
+      const save = new StudioLifecycleClient({ auth }).replaceDraft("draft", {} as never);
+      return { auth, fetch, save, finish: (response: Response) => held.finish?.(response) };
+    }
+
+    it("reports the saved draft when the renewal keeps the same authority, with exactly one write", async () => {
+      const { auth, fetch, save, finish } = heldWrite();
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      auth.renewCookie({ ...lease, csrfToken: "new", expiresAt: new Date(Date.now() + 120000).toISOString() });
+      finish(new Response(JSON.stringify({ data: saved }), { headers: { "content-type": "application/json" } }));
+      await expect(save).resolves.toMatchObject(saved);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][1].method).toBe("PUT");
+    });
+
+    it("keeps the write's response body readable across a renewal during streaming", async () => {
+      let release!: () => void;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          controller.enqueue(new TextEncoder().encode("saved"));
+          controller.close();
+        },
+      });
+      const fetch = vi.fn().mockResolvedValue(new Response(body));
+      vi.stubGlobal("fetch", fetch);
+      const auth = new HostAdapterAuthSession(lease);
+      sessions.push(auth);
+      const response = await auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+      const text = response.text();
+      auth.renewCookie({ ...lease, csrfToken: "new" });
+      release();
+      await expect(text).resolves.toBe("saved");
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a renewal that changes the authority, so the save cannot complete under another principal", () => {
+      const auth = new HostAdapterAuthSession(lease);
+      sessions.push(auth);
+      for (const changed of [{ principalId: "other" }, { environmentId: "env-b" }, { sourcePathBase: "/tenant-b" }])
+        expect(() => auth.renewCookie({ ...lease, ...changed })).toThrow(/authority/);
+    });
+
+    it("throws without retrying when the session is replaced by another authority mid-save", async () => {
+      const { auth, fetch, save, finish } = heldWrite();
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      auth.dispose();
+      finish(new Response(JSON.stringify({ data: saved })));
+      await expect(save).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringMatching(/original outcome/) }),
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
   });
   it("bounds OGC reads to the actual features collection route", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));

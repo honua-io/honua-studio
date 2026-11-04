@@ -162,20 +162,21 @@ export class HostAdapterAuthSession implements AuthSession {
           headers.set("X-CSRF-Token", cookie.csrfToken);
         let response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
         let responseLease = cookie;
-        if (this.adapter !== cookie) {
-          const method = (init?.method ?? "GET").toUpperCase();
-          const safeRead = ["GET", "HEAD", "OPTIONS"].includes(method) || target === "/api/studio/catalog-mcp";
-          if (!safeRead && response.status !== 401)
-            throw new Error("The session renewed during this request. Check the original outcome before retrying.");
-          if (safeRead) {
-            const renewed = this.adapter;
-            if (!isCookieSession(renewed) || this.getState().status !== "fresh")
-              throw new Error("The host session changed.");
-            if (target === "/api/studio/catalog-mcp") headers.set("X-CSRF-Token", renewed.csrfToken);
-            response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
-            if (this.adapter !== renewed) throw new Error("The session renewed again during this read. Retry it.");
-            responseLease = renewed;
-          }
+        const method = (init?.method ?? "GET").toUpperCase();
+        const safeRead = ["GET", "HEAD", "OPTIONS"].includes(method) || target === "/api/studio/catalog-mcp";
+        // A write is never replayed. renewCookie admits only a lease of the same principal, environment and
+        // source path, so a write that crossed a renewal keeps its outcome; any other authority change
+        // disposes this session.
+        if (!safeRead && this.disposed)
+          throw new Error("The host session changed during this request. Check the original outcome before retrying.");
+        if (safeRead && this.adapter !== cookie) {
+          const renewed = this.adapter;
+          if (!isCookieSession(renewed) || this.getState().status !== "fresh")
+            throw new Error("The host session changed.");
+          if (target === "/api/studio/catalog-mcp") headers.set("X-CSRF-Token", renewed.csrfToken);
+          response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
+          if (this.adapter !== renewed) throw new Error("The session renewed again during this read. Retry it.");
+          responseLease = renewed;
         }
         if (response.status === 401 && this.adapter === responseLease)
           this.dispatch({ type: "refresh-failed", error: "The host session expired." });
@@ -184,7 +185,7 @@ export class HostAdapterAuthSession implements AuthSession {
         let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
         const requireCurrent = () => {
           if (this.disposed || this.getState().status !== "fresh") throw new Error("The host session expired.");
-          if (this.adapter !== responseLease) {
+          if (safeRead && this.adapter !== responseLease) {
             const error = new Error("The session renewed while reading the response.");
             error.name = "CookieLeaseRenewedError";
             throw error;
