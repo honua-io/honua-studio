@@ -17,12 +17,15 @@ interface PublicationReview {
   submission?: { readonly commandId: string; readonly requestJson: string; pending?: PublishReceipt };
 }
 
-type LifecycleAction<T> = (
-  client: StudioLifecycleClient,
-  identity: WorkspaceDraftIdentity,
-  current: () => void,
-  generation: EpochToken,
-) => Promise<T>;
+/** What a queued lifecycle step gets: a fresh client, the draft it started on and its staleness check. */
+interface LifecycleStep {
+  readonly client: StudioLifecycleClient;
+  readonly identity: WorkspaceDraftIdentity;
+  readonly current: () => void;
+  readonly generation: EpochToken;
+}
+
+type LifecycleAction<T> = (step: LifecycleStep) => Promise<T>;
 
 const LIFECYCLE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const SESSION_OR_MAP_CHANGED = "The workspace session or map changed.";
@@ -42,7 +45,7 @@ export class WorkspacePublication {
 
   /** Save the active server draft as an immutable version; never publish it. */
   saveVersion(): Promise<StudioContentVersion> {
-    return this.#withLifecycle(async (client, identity, current) => {
+    return this.#withLifecycle(async ({ client, identity, current }) => {
       const version = await client.saveAsVersion(identity.draftId);
       current();
       return version;
@@ -51,7 +54,7 @@ export class WorkspacePublication {
 
   /** List versions belonging to the active draft's server-owned content item. */
   listVersions(): Promise<readonly StudioContentVersion[]> {
-    return this.#withLifecycle(async (client, identity, current) => {
+    return this.#withLifecycle(async ({ client, identity, current }) => {
       const draft = await client.getDraft(identity.draftId);
       current();
       const result = await client.listVersions(draft.itemId);
@@ -62,7 +65,7 @@ export class WorkspacePublication {
 
   /** Read the exact saved version for the host's human publication review. Never submits. */
   review(versionId: string): Promise<StudioContentVersion> {
-    return this.#withLifecycle(async (client, identity, current, generation) => {
+    return this.#withLifecycle(async ({ client, identity, current, generation }) => {
       const draft = await client.getDraft(identity.draftId);
       current();
       const version = await client.getVersion(draft.itemId, versionId);
@@ -101,7 +104,7 @@ export class WorkspacePublication {
     requireReview();
     const submission = this.#pinSubmission(state, request, commandId);
     if (submission.pending) return submission.pending;
-    const pending = this.#withLifecycle(async (client, _identity, current) => {
+    const pending = this.#withLifecycle(async ({ client, current }) => {
       requireReview();
       const version = await client.getVersion(state.itemId, state.versionId);
       current();
@@ -157,7 +160,7 @@ export class WorkspacePublication {
 
   /** Reopen a version of the active map as a new draft, preserving the saved version. */
   reopenVersion(versionId: string): Promise<void> {
-    return this.#withLifecycle(async (client, identity, current, generation) => {
+    return this.#withLifecycle(async ({ client, identity, current, generation }) => {
       const draft = await client.getDraft(identity.draftId);
       current();
       const reopened = await client.reopenVersion(draft.itemId, versionId);
@@ -201,7 +204,7 @@ export class WorkspacePublication {
     };
     return this.drafts.enqueue(async () => {
       current();
-      return action(this.authority.lifecycleClient(), identity, current, generation);
+      return action({ client: this.authority.lifecycleClient(), identity, current, generation });
     });
   }
 }
