@@ -10,11 +10,13 @@ import { loadCurrentPullRequestDisposition } from "../../scripts/lib/github-pr-i
 import {
   DEPENDABOT_EXEMPTION,
   PullRequestDispositionError,
+  RELEASE_PLEASE_EXEMPTION,
   automationExemption,
   parsePullRequestDisposition,
   validatePullRequestDisposition,
 } from "../../scripts/lib/pr-issue-disposition.mjs";
 import type {
+  AutomationExemptionInput,
   DispositionIssue,
   DispositionValidationInput,
   PullRequestDispositionCode,
@@ -23,6 +25,16 @@ import type {
 const repository = "honua-io/honua-studio";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const cli = path.join(root, "scripts/check-pr-issue-disposition.mjs");
+const releasePleasePullRequest: AutomationExemptionInput = {
+  repository,
+  authorLogin: "honua-io-bot",
+  authorType: "Bot",
+  title: "chore(main): release 0.1.0",
+  headRefName: "release-please--branches--main--components--studio",
+  headRepository: repository,
+  baseRefName: "main",
+  baseRepository: repository,
+};
 
 function readWorkflow(name: string): string {
   return fs.readFileSync(path.join(root, ".github/workflows", name), "utf8").replaceAll("\r\n", "\n");
@@ -254,7 +266,6 @@ describe("pull request issue disposition policy", () => {
       { authorType: "User" },
       { headRefName: "feature/dependabot-lookalike" },
       // The sdk-js automation lanes have no counterpart here and must not pass.
-      { authorLogin: "github-actions[bot]", headRefName: "release-please--branches--main" },
       { authorLogin: "github-actions[bot]", headRefName: "automation/derived-artifacts-1-1" },
       { authorLogin: "github-actions[bot]", headRefName: "automation/mcp-certification-1-1" },
       { authorLogin: "github-actions[bot]", headRefName: "automation/kepler-audit-renewal-2026-09-01" },
@@ -266,6 +277,53 @@ describe("pull request issue disposition policy", () => {
           headRefName: "dependabot/npm_and_yarn/vite-8.1.4",
           ...override,
         }),
+        `unexpected exemption for ${JSON.stringify(override)}`,
+      ).toBeNull();
+    }
+  });
+  it("exempts the Release Please release pull request from either release identity", () => {
+    for (const authorLogin of [
+      "honua-io-bot",
+      "honua-io-bot[bot]",
+      "app/honua-io-bot",
+      "github-actions",
+      "github-actions[bot]",
+      "app/github-actions",
+    ]) {
+      expect(automationExemption({ ...releasePleasePullRequest, authorLogin }), authorLogin).toBe(
+        RELEASE_PLEASE_EXEMPTION,
+      );
+    }
+    expect(automationExemption({ ...releasePleasePullRequest, title: "chore(main): release 12.0.3" })).toBe(
+      RELEASE_PLEASE_EXEMPTION,
+    );
+    expect(
+      validatePullRequestDisposition({ ...releasePleasePullRequest, body: "", issues: [], closingIssueNumbers: [] }),
+    ).toEqual({ status: "exempt", exemption: RELEASE_PLEASE_EXEMPTION, closes: [], refs: [] });
+  });
+
+  it("refuses the Release Please exemption to any other identity, branch, base or title", () => {
+    for (const override of [
+      { authorType: "User" },
+      { authorType: "User", authorLogin: "mikemcdougall" },
+      { authorLogin: "dependabot[bot]" },
+      { authorLogin: "mallory[bot]" },
+      { headRefName: "release-please--branches--main" },
+      { headRefName: "release-please--branches--main--components--studio-next" },
+      { headRefName: "release-please--branches--release/2026.1--components--studio" },
+      { baseRefName: "release/2026.1" },
+      { headRepository: "mallory/honua-studio" },
+      { baseRepository: "honua-io/honua-sdk-js" },
+      { repository: "", headRepository: "", baseRepository: "" },
+      { title: "chore: release main" },
+      { title: "chore(main): release studio 0.1.0" },
+      { title: "chore(main): release 0.1.0-beta.0" },
+      { title: "chore(main): release 0.1" },
+      { title: "chore(main): release 0.1.0 and more" },
+      { title: undefined },
+    ]) {
+      expect(
+        automationExemption({ ...releasePleasePullRequest, ...override }),
         `unexpected exemption for ${JSON.stringify(override)}`,
       ).toBeNull();
     }
@@ -403,6 +461,42 @@ describe("pull request issue disposition CLI", () => {
       );
       expect(dispatched.status).toBe(1);
       expect(dispatched.stderr).toMatch(/The final nonblank line must be/u);
+    } finally {
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("exempts the release pull request from its pull_request event payload", () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "honua-pr-disposition-release-"));
+    try {
+      const eventPath = path.join(temporaryRoot, "event.json");
+      const metadataPath = path.join(temporaryRoot, "metadata.json");
+      fs.writeFileSync(
+        eventPath,
+        JSON.stringify({
+          repository: { full_name: repository },
+          pull_request: {
+            number: 61,
+            title: "chore(main): release 0.1.0",
+            body: ":robot: I have created a release *beep* *boop*",
+            user: { login: "honua-io-bot[bot]", type: "Bot" },
+            head: {
+              ref: "release-please--branches--main--components--studio",
+              sha: "e".repeat(40),
+              repo: { full_name: repository },
+            },
+            base: { ref: "main", sha: "f".repeat(40), repo: { full_name: repository } },
+          },
+        }),
+      );
+      fs.writeFileSync(metadataPath, JSON.stringify({ issues: [], closingIssueNumbers: [] }));
+      const result = spawnSync(process.execPath, [cli, "--event", eventPath, "--metadata", metadataPath], {
+        cwd: root,
+        encoding: "utf8",
+        env: { PATH: process.env.PATH ?? "" },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toMatch(/Exempt: Release Please release pull request/u);
     } finally {
       fs.rmSync(temporaryRoot, { recursive: true, force: true });
     }
