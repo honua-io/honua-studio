@@ -142,7 +142,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts; source-scoped filter controls filter bounded chart/table rows before aggregation and pagination | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
 | Package lifecycle UI — draft, version, compare, publish, rollback against honua-server's Studio package lifecycle REST API | `src/lifecycle/` | #17 |
-| Explore a dataset starter — authorized vector source and actual fields create a canonical map/table/category-filter draft in the existing grid; preview is illustrative | `src/recipes/`, `src/elements/studio-app-element.ts` | #135 |
+| Explore a dataset starter — authorized vector source and actual fields create a canonical map/table/category-filter draft in the existing grid; preview is illustrative | `src/recipes/`, `src/app/recipe-controller.ts` | #135 |
 | Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-workspace.ts`, `src/gp/custom-process-workspace.ts` | #104 |
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
