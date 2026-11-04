@@ -42,6 +42,7 @@ import {
   type StudioAiTranscriptSigningManifest,
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
+import { type EpochToken, StalenessEpoch } from "../app/staleness-epoch.js";
 import { HostAdapterAuthSession, verifiedSourcePathBase } from "../auth/host-session.js";
 import {
   type AuthoritativeStyleDefinition,
@@ -311,7 +312,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.isConnected) this.renderView();
   }
 
-  #cookieLeaseGeneration = 0;
+  #cookieLease = new StalenessEpoch();
   #auth: AuthSession | undefined;
   #authUnsubscribe: (() => void) | undefined;
   #redirectCallbackHandled = false;
@@ -324,7 +325,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #composition: CompositionController | undefined;
   #designInspector: DesignInspectorPanel | undefined;
   #designInspectorContainer: HTMLElement | undefined;
-  #designInspectorGeneration = 0;
+  #designInspectorOpening = new StalenessEpoch();
   #designRelationship: { readonly interactionId: string; readonly ownerRef: string } | undefined;
   #designRelationshipState: CompositionState | undefined;
   #designRelationshipSelection: readonly unknown[] | undefined;
@@ -348,14 +349,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Shared embedded editor surface; hosts may open this beside their one conversation. */
   public async openDesignInspector(): Promise<void> {
     if (this.#designInspector) return;
-    const opening = ++this.#designInspectorGeneration;
-    const generation = this.#workspaceAuthGeneration;
+    const opening = this.#designInspectorOpening.next();
+    const generation = this.#workspaceAuthority.current;
     const identity = this.#workspaceDraft?.identity?.draftId;
     const { DesignInspectorPanel: Panel } = await import("../design/design-inspector-panel.js");
     if (
       !this.isConnected ||
-      opening !== this.#designInspectorGeneration ||
-      generation !== this.#workspaceAuthGeneration ||
+      !this.#designInspectorOpening.isCurrent(opening) ||
+      !this.#workspaceAuthority.isCurrent(generation) ||
       identity !== this.#workspaceDraft?.identity?.draftId
     )
       return;
@@ -385,7 +386,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         });
         const fields = await provider.describeSource(source);
         signal.throwIfAborted();
-        if (generation !== this.#workspaceAuthGeneration || identity !== this.#workspaceDraft?.identity?.draftId)
+        if (!this.#workspaceAuthority.isCurrent(generation) || identity !== this.#workspaceDraft?.identity?.draftId)
           throw new Error("The workspace draft or authority changed.");
         return fields;
       },
@@ -412,7 +413,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public closeDesignInspector(): void {
-    this.#designInspectorGeneration++;
+    this.#designInspectorOpening.next();
     this.#designInspector?.dispose();
     this.#designInspector = undefined;
     this.#designInspectorContainer?.remove();
@@ -438,13 +439,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (!canvas) throw new Error("Open the map canvas before its style editor.");
     if (!this.composition.state.mapSpec) {
       const binding = this.#workspaceDraft;
-      const epoch = this.#workspaceAuthGeneration;
+      const epoch = this.#workspaceAuthority.current;
       const pending = this.#workspaceDraftQueue.then(async () => {
         const style = await canvas.editableMapStyle();
-        if (epoch !== this.#workspaceAuthGeneration || this.#workspaceDraft !== binding)
+        if (!this.#workspaceAuthority.isCurrent(epoch) || this.#workspaceDraft !== binding)
           throw new Error("The workspace authority changed.");
         const observed = await binding.initializeStyle(style);
-        if (epoch !== this.#workspaceAuthGeneration || this.#workspaceDraft !== binding)
+        if (!this.#workspaceAuthority.isCurrent(epoch) || this.#workspaceDraft !== binding)
           throw new Error("The workspace authority changed.");
         this.composition.resetBaseline({
           ...observed,
@@ -456,11 +457,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#workspaceDraftQueue = pending.catch(() => undefined);
       await pending;
     }
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const identity = this.#workspaceDraft?.identity;
     if (!identity) throw new Error("The workspace draft is unavailable.");
     const document = await canvas.editableMapStyle();
-    if (generation !== this.#workspaceAuthGeneration || identity.draftId !== this.#workspaceDraft?.identity?.draftId)
+    if (!this.#workspaceAuthority.isCurrent(generation) || identity.draftId !== this.#workspaceDraft?.identity?.draftId)
       throw new Error("The workspace draft changed while opening the style editor.");
     const panel = window.document.createElement("section");
     panel.setAttribute("aria-label", "Map style editor");
@@ -497,7 +498,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           signal: AbortSignal.timeout(8000),
         });
         const fields = await provider.describeSource(source);
-        if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        this.#workspaceAuthority.assertCurrent(generation, "The workspace authority changed.");
         return fields;
       },
       onPreview: (style) => {
@@ -511,29 +512,29 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       },
       onSave: async (style) => {
         if (
-          generation !== this.#workspaceAuthGeneration ||
+          !this.#workspaceAuthority.isCurrent(generation) ||
           identity.draftId !== this.#workspaceDraft?.identity?.draftId
         )
           throw new Error("The workspace authority changed. Reopen the visual editor.");
         const result = await this.#dispatchCommands([{ name: "setMapStyle", mapSpec: style }]);
         if (!result.ok) throw new Error(result.reason);
-        if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        this.#workspaceAuthority.assertCurrent(generation, "The workspace authority changed.");
         return canvas.editableMapStyle();
       },
       onDiscard: async () => {
         // Explicit discard permits authoritative refresh; no stale buffer is written.
         canvas.stylePreview = undefined;
         const id = this.#workspaceDraft?.identity?.draftId;
-        if (!id || generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        if (!id || !this.#workspaceAuthority.isCurrent(generation)) throw new Error("The workspace authority changed.");
         const editor = this.#styleEditor;
         this.#styleEditor = undefined;
         try {
           await this.attachWorkspaceDraft(id);
         } finally {
-          if (generation === this.#workspaceAuthGeneration) this.#styleEditor = editor;
+          if (this.#workspaceAuthority.isCurrent(generation)) this.#styleEditor = editor;
           else editor?.dispose();
         }
-        if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+        this.#workspaceAuthority.assertCurrent(generation, "The workspace authority changed.");
         return canvas.editableMapStyle();
       },
     });
@@ -543,7 +544,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       void canvas
         .editableMapStyle()
         .then((style) => {
-          if (this.#styleEditor === editor && generation === this.#workspaceAuthGeneration)
+          if (this.#styleEditor === editor && this.#workspaceAuthority.isCurrent(generation))
             editor.observeSavedDocument(style);
         })
         .catch(() => {});
@@ -573,12 +574,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #workspaceDraft: WorkspaceDraftBinding | undefined;
-  #workspaceMapEpoch = 0;
+  #activeMap = new StalenessEpoch();
   #workspacePublicationReviews = new WeakMap<
     StudioContentVersion,
     {
       binding: WorkspaceDraftBinding;
-      generation: number;
+      generation: EpochToken;
       itemId: string;
       versionId: string;
       contentHash: string;
@@ -589,7 +590,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       };
     }
   >();
-  #workspaceAuthGeneration = 0;
+  #workspaceAuthority = new StalenessEpoch();
   #workspaceDraftConflict = false;
   #workspaceDraftQueue: Promise<unknown> = Promise.resolve();
   #historyUnsubscribe: (() => void) | undefined;
@@ -598,20 +599,20 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #liveCompositionPackageKey: string | undefined;
   #aiMapKit: HonuaAiMapKit | undefined;
   #sourceCatalog: readonly CatalogDataset[] | undefined;
-  #processSourceCatalogGeneration: number | undefined;
+  #processSourceCatalogAuthority: EpochToken | undefined;
   #catalogRequested = false;
   #catalogFromHost = false;
   #lastAuthStatus: string | undefined;
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
   #agentCertification: StudioAgentCertificationOptions | undefined;
-  #agentSetupGeneration = 0;
-  #publicationNoteGeneration = 0;
+  #agentSetup = new StalenessEpoch();
+  #publicationNote = new StalenessEpoch();
   #liveAgentBaseUrl = "/api";
   #liveCompositionOptions: LiveCompositionOptions | undefined;
-  #recipeAuthorityGeneration = 0;
+  #recipeAuthority = new StalenessEpoch();
   #revokedRecipeSubmissionIds = new Set<string>();
   #recipePanel: RecipePanel | undefined;
-  #recipeSourcesGeneration: number | undefined;
+  #recipeSourcesAuthority: EpochToken | undefined;
   #recipeSourceChoices: readonly CatalogDataset[] | undefined;
   #recipePreviousChoices: readonly CatalogDataset[] | undefined;
   #recipeSourceIdentity(source: CatalogDataset): string | undefined {
@@ -627,7 +628,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     string,
     {
       input: string;
-      generation: number;
+      generation: EpochToken;
       submission: RecipeSubmission;
       originalDraftId?: string;
       originalDraftGeneration?: number;
@@ -675,7 +676,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #disposeRecipePicker(): void {
     this.#recipePanel?.dispose();
     this.#recipePanel = undefined;
-    this.#recipeSourcesGeneration = undefined;
+    this.#recipeSourcesAuthority = undefined;
     this.#recipeSourceChoices = undefined;
     this.#recipePreviousChoices = undefined;
     this.closeRecipePicker();
@@ -683,15 +684,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   #resetRecipeAuthority(): void {
     this.#disposeRecipePicker();
-    this.#recipeAuthorityGeneration++;
+    this.#recipeAuthority.next();
     for (const id of this.#recipeSubmissions.keys()) this.#revokedRecipeSubmissionIds.add(id);
     this.#recipeSubmissions.clear();
   }
 
   public async listRecipeSources(signal: AbortSignal): Promise<readonly CatalogDataset[]> {
-    const generation = this.#recipeAuthorityGeneration;
-    const leaseGeneration = this.#cookieLeaseGeneration;
-    this.#recipeSourcesGeneration = undefined;
+    const generation = this.#recipeAuthority.current;
+    const leaseGeneration = this.#cookieLease.current;
+    this.#recipeSourcesAuthority = undefined;
     this.#recipeSourceChoices = undefined;
     const hostOwnsCatalog = this.#catalogFromHost;
     const hostCatalog = this.#sourceCatalog;
@@ -707,9 +708,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const catalog = await client.listCatalog();
     signal.throwIfAborted();
     if (
-      generation !== this.#recipeAuthorityGeneration ||
+      !this.#recipeAuthority.isCurrent(generation) ||
       auth !== this.auth ||
-      leaseGeneration !== this.#cookieLeaseGeneration
+      !this.#cookieLease.isCurrent(leaseGeneration)
     )
       throw new Error("The workspace authority changed.");
     let choices: readonly CatalogDataset[] = catalog;
@@ -731,17 +732,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#applySourceCatalog(catalog);
     }
     this.#recipeSourceChoices = structuredClone(choices);
-    this.#recipeSourcesGeneration = generation;
+    this.#recipeSourcesAuthority = generation;
     return structuredClone(choices);
   }
 
   public async resolveRecipeSource(sourceId: string, signal: AbortSignal): Promise<ExploreDatasetMetadata> {
-    const generation = this.#recipeAuthorityGeneration;
+    const generation = this.#recipeAuthority.current;
     let choices = this.#recipeSourceChoices;
     let selectedSource = choices?.find((entry) => entry.id === sourceId);
     let current = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
     if (
-      (!selectedSource || !current || this.#recipeSourcesGeneration !== generation) &&
+      (!selectedSource || !current || this.#recipeSourcesAuthority !== generation) &&
       (selectedSource ?? this.#recipePreviousChoices?.find((entry) => entry.id === sourceId))
     ) {
       const previous = structuredClone(
@@ -758,7 +759,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       ) {
         this.#recipeSourceChoices = undefined;
         this.#recipePreviousChoices = undefined;
-        this.#recipeSourcesGeneration = undefined;
+        this.#recipeSourcesAuthority = undefined;
         throw new Error("The authorized source changed. Refresh the dataset choices before selecting a source.");
       }
     }
@@ -767,12 +768,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       !source ||
       !current ||
       this.#recipeSourceIdentity(current) !== this.#recipeSourceIdentity(source) ||
-      this.#recipeSourcesGeneration !== generation
+      this.#recipeSourcesAuthority !== generation
     )
       throw new Error("Refresh the authorized dataset choices before selecting a source.");
     if (source.protocol !== "geoservices-feature-service")
       throw new Error("Choose a published Honua vector FeatureServer source.");
-    const provider = this.createWorkspaceStyleProvider({ signal, getAuthority: () => this.#recipeAuthorityGeneration });
+    const provider = this.createWorkspaceStyleProvider({ signal, getAuthority: () => this.#recipeAuthority.current });
     const descriptor = await provider.describeDataset(source);
     if (choices !== this.#recipeSourceChoices)
       throw new Error("The source choices changed. Refresh the recipe sources.");
@@ -792,13 +793,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       documentUrl: document.baseURI,
       featureLimit: 100,
       getAuth: () => {
-        if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+        this.#recipeAuthority.assertCurrent(generation, "The workspace authority changed.");
         return this.auth;
       },
       fetchImpl: (input, init) => (auth.fetchRequest ?? fetch)(input, { ...init, signal }),
     })(sourceId, { signal });
     signal.throwIfAborted();
-    if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+    this.#recipeAuthority.assertCurrent(generation, "The workspace authority changed.");
     if (choices !== this.#recipeSourceChoices)
       throw new Error("The source choices changed. Refresh the recipe sources.");
     if (!result.ok) throw new Error(`Readable feature queries are required. ${result.reason}`);
@@ -823,7 +824,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return Promise.reject(new Error("A stable recipe submission ID is required."));
     if (this.#revokedRecipeSubmissionIds.has(submissionId))
       return Promise.reject(new Error("Retry this submission only in its original workspace authority."));
-    const generation = this.#recipeAuthorityGeneration;
+    const generation = this.#recipeAuthority.current;
     const json = canonicalCompositionJson(input);
     let entry = this.#recipeSubmissions.get(submissionId);
     if (entry && (entry.input !== json || entry.generation !== generation))
@@ -844,7 +845,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const submission = entry;
     const run = (async () => {
       await this.prepareWorkspaceTurn();
-      if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+      this.#recipeAuthority.assertCurrent(generation, "The workspace authority changed.");
       const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
       if (!submission.request) {
         submission.originalDraftId = this.#workspaceDraft?.identity?.draftId;
@@ -859,7 +860,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           AbortSignal.any([AbortSignal.timeout(15000), submission.metadataAbort!.signal]),
         );
         const { state } = compileExploreDataset(input, metadata);
-        if (generation !== this.#recipeAuthorityGeneration) throw new Error("The workspace authority changed.");
+        this.#recipeAuthority.assertCurrent(generation, "The workspace authority changed.");
         submission.request = {
           packageKey: input.packageKey,
           envelope: { ...MAP_COMPOSITION_ENVELOPE, body: toCompositionDraftBody(state, input.packageKey) },
@@ -870,8 +871,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const created = await submission.submission.createDraft(submission.request, (request, commandId) =>
         client.createDraft(request, commandId),
       );
-      if (generation !== this.#recipeAuthorityGeneration)
-        throw new Error("The workspace authority changed. Reopen this draft in its original workspace.");
+      this.#recipeAuthority.assertCurrent(
+        generation,
+        "The workspace authority changed. Reopen this draft in its original workspace.",
+      );
       const activeDraftId = this.#workspaceDraft?.identity?.draftId;
       if (!submission.attachmentAllowed)
         throw new Error(
@@ -886,8 +889,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           `Draft ${created.draftId} was created, but the active map changed. Open that draft explicitly to recover it.`,
         );
       const mayAttach = () => {
-        if (generation !== this.#recipeAuthorityGeneration)
-          throw new Error("The workspace authority changed. Reopen this draft in its original workspace.");
+        this.#recipeAuthority.assertCurrent(
+          generation,
+          "The workspace authority changed. Reopen this draft in its original workspace.",
+        );
         if (!submission.attachmentAllowed)
           throw new Error(
             `Draft ${created.draftId} was created, but attachment was cancelled. Open that draft explicitly to recover it.`,
@@ -962,9 +967,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const key = packageKey.trim();
     if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
       throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     await this.prepareWorkspaceTurn();
-    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
     const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
     const created = await client.createDraft({
       packageKey: key,
@@ -973,7 +978,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         body: toCompositionDraftBody(createEmptyCompositionState(), key),
       },
     });
-    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
     await this.attachWorkspaceDraft(created.draftId);
     const identity = this.#workspaceDraft?.identity;
     if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
@@ -987,7 +992,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   #queueWorkspaceDraft(draftId: string, mayAccept?: () => void): Promise<void> {
     if (draftId !== this.#workspaceDraft?.identity?.draftId) this.closeDesignInspector();
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const run = this.#workspaceDraftQueue.then(() => this.#observeWorkspaceDraft(draftId, generation, mayAccept));
     this.#workspaceDraftQueue = run.catch(() => undefined);
     return run;
@@ -1052,7 +1057,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const state = this.#workspacePublicationReviews.get(review);
     if (!state) throw new Error("Review the saved version in the current workspace before publishing.");
     const requireReview = () => {
-      if (state.binding !== this.#workspaceDraft || state.generation !== this.#workspaceAuthGeneration)
+      if (state.binding !== this.#workspaceDraft || !this.#workspaceAuthority.isCurrent(state.generation))
         throw new Error("Review the saved version again in the original workspace session before publishing.");
     };
     requireReview();
@@ -1103,13 +1108,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     requestId: string,
   ): ReturnType<StudioLifecycleClient["getPublicationRequest"]> {
     const binding = this.#workspaceDraft;
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const identity = binding?.identity;
     if (!binding || !identity) throw new Error("Open a map draft before reading its publication.");
     if (![versionId, requestId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id)))
       throw new Error("Version and publication request IDs are required.");
     const current = () => {
-      if (binding !== this.#workspaceDraft || generation !== this.#workspaceAuthGeneration)
+      if (binding !== this.#workspaceDraft || !this.#workspaceAuthority.isCurrent(generation))
         throw new Error("The workspace session or map changed.");
     };
     current();
@@ -1143,16 +1148,16 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       client: StudioLifecycleClient,
       identity: { draftId: string; generation: number; packageKey: string },
       current: () => void,
-      generation: number,
+      generation: EpochToken,
     ) => Promise<T>,
   ): Promise<T> {
     const binding = this.#workspaceDraft;
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const identity = binding?.identity;
     if (!binding || !identity) throw new Error("Open a map draft before using saved versions.");
     await this.prepareWorkspaceTurn();
     const current = () => {
-      if (generation !== this.#workspaceAuthGeneration || binding !== this.#workspaceDraft)
+      if (!this.#workspaceAuthority.isCurrent(generation) || binding !== this.#workspaceDraft)
         throw new Error("The workspace session or map changed.");
       if (this.#historyBusy || this.#workspaceDraftConflict || this.#hasDirtyWorkspaceForm())
         throw new Error("Save or explicitly reload pending Studio edits before using saved versions.");
@@ -1173,8 +1178,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return run;
   }
 
-  async #observeWorkspaceDraft(draftId: string, generation: number, mayAccept?: () => void): Promise<void> {
-    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+  async #observeWorkspaceDraft(draftId: string, generation: EpochToken, mayAccept?: () => void): Promise<void> {
+    this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
     mayAccept?.();
     if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
     const previous = this.#workspaceDraft?.identity;
@@ -1183,7 +1188,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
     );
     const state = await binding.observe(draftId);
-    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+    this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
     mayAccept?.();
     if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
     // A same-principal lease can renew while the prospective GET is in flight.
@@ -1191,7 +1196,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
     if (previous?.draftId !== draftId) this.closeDesignInspector();
     if (previous?.draftId !== draftId && this.#recipeDraftToAttach !== draftId) this.#disposeRecipePicker();
-    if (previous?.draftId !== draftId) this.#workspaceMapEpoch++;
+    if (previous?.draftId !== draftId) this.#activeMap.next();
     this.#workspaceDraft = binding;
     this.#workspaceDraftConflict = false;
     const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
@@ -1213,7 +1218,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Idle observation for external draft changes; never discard an unsaved form value. */
   public async refreshWorkspaceDraft(): Promise<boolean> {
     const binding = this.#workspaceDraft;
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     await this.#workspaceDraftQueue;
     const identity = binding?.identity;
     if (!identity || binding !== this.#workspaceDraft || this.#historyBusy || this.#workspaceDraftConflict)
@@ -1223,7 +1228,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       await this.attachWorkspaceDraft(identity.draftId);
     } catch (error) {
       if (
-        generation !== this.#workspaceAuthGeneration ||
+        !this.#workspaceAuthority.isCurrent(generation) ||
         this.#historyBusy ||
         this.#workspaceDraftConflict ||
         this.#hasDirtyWorkspaceForm()
@@ -1231,7 +1236,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         return false;
       throw error;
     }
-    return generation === this.#workspaceAuthGeneration && !this.#hasDirtyWorkspaceForm();
+    return this.#workspaceAuthority.isCurrent(generation) && !this.#hasDirtyWorkspaceForm();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
@@ -1293,7 +1298,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Undo/redo in the authoritative draft before advancing the visible history. */
   public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
     if (this.#historyBusy || this.hasUnsavedStyleChanges) return false;
-    const authGeneration = this.#workspaceAuthGeneration;
+    const authGeneration = this.#workspaceAuthority.current;
     this.#historyBusy = true;
     this.paintHistoryControls();
     try {
@@ -1302,11 +1307,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         const target = action === "undo" ? this.composition.history.peekUndo() : this.composition.history.peekRedo();
         if (!target) return false;
         const binding = this.#workspaceDraft;
-        const generation = this.#workspaceAuthGeneration;
+        const generation = this.#workspaceAuthority.current;
         const run = this.#workspaceDraftQueue.then(async () => {
-          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+          this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
           const observed = await binding.replace(target);
-          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+          this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
           const changed = action === "undo" ? this.composition.undo() : this.composition.redo();
           this.composition.replaceState(observed);
           this.#announceWorkspaceDraft();
@@ -1331,7 +1336,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           : `Unable to ${action}. Review the activity log.`;
       return applied;
     } catch (error) {
-      if (this.#workspaceDraft && authGeneration === this.#workspaceAuthGeneration) this.#workspaceDraftConflict = true;
+      if (this.#workspaceDraft && this.#workspaceAuthority.isCurrent(authGeneration))
+        this.#workspaceDraftConflict = true;
       const status = this.shadowRoot?.querySelector('[data-testid="history-status"]');
       if (status) status.textContent = error instanceof Error ? error.message : `Unable to ${action}.`;
       return false;
@@ -1385,11 +1391,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.closeDesignInspector();
       this.#resetRecipeAuthority();
       this.#disposeStyleEditor();
-      this.#workspaceAuthGeneration++;
+      this.#workspaceAuthority.next();
       if (hadAuthority) {
         // Cached human descriptor metadata belongs to the former authority too.
         this.#sourceCatalog = undefined;
-        this.#processSourceCatalogGeneration = undefined;
+        this.#processSourceCatalogAuthority = undefined;
         this.#catalogRequested = false;
         this.#aiMapKit = undefined;
         const previousCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
@@ -1403,7 +1409,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       if (hadAuthority) this.#announceWorkspaceDraft();
     }
     this.#session = session;
-    this.#cookieLeaseGeneration++;
+    this.#cookieLease.next();
     this.#syncWorkspaceChrome();
     const sourceCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (sourceCanvas)
@@ -1530,16 +1536,16 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    */
   /** Actual published choices for the canonical GP layer picker; no map focus is inferred. */
   public async listProcessSources(): Promise<readonly { id: string; title: string }[]> {
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const auth = this.auth;
     const client = this.#studioClientOverridden
       ? this.studioClient
       : new StudioClient(runtimeServerBaseUrl(), auth, runtimeMcpBaseUrl());
     const catalog = await client.listCatalog();
-    if (generation !== this.#workspaceAuthGeneration || auth !== this.auth)
+    if (!this.#workspaceAuthority.isCurrent(generation) || auth !== this.auth)
       throw new Error("The workspace authority changed.");
     this.#applySourceCatalog(catalog);
-    this.#processSourceCatalogGeneration = generation;
+    this.#processSourceCatalogAuthority = generation;
     return catalog
       .filter(
         (source) => typeof source.locator?.serviceId === "string" && Number.isSafeInteger(source.locator?.layerId),
@@ -1550,9 +1556,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public async resolveProcessSource(
     sourceId: string,
   ): Promise<{ processLayerId?: number; unavailableReason?: string }> {
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
-    if (!source || this.#processSourceCatalogGeneration !== generation)
+    if (!source || this.#processSourceCatalogAuthority !== generation)
       throw new Error("Refresh the authorized source choices before selecting a process layer.");
     const baseUrl =
       this.#session && "kind" in this.#session && this.#session.kind === "cookie"
@@ -1566,7 +1572,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       signal: AbortSignal.timeout(8000),
     });
     const result = await provider.resolveProcessSource(source);
-    if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace authority changed.");
+    this.#workspaceAuthority.assertCurrent(generation, "The workspace authority changed.");
     return result;
   }
 
@@ -1574,7 +1580,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public createWorkspaceStyleProvider(
     options: { readonly getAuthority?: () => unknown; readonly signal?: AbortSignal } = {},
   ): AuthoritativeStyleProvider {
-    const generation = this.#workspaceAuthGeneration;
+    const generation = this.#workspaceAuthority.current;
     const authority = options.getAuthority?.();
     const baseUrl =
       this.#session && "kind" in this.#session && this.#session.kind === "cookie"
@@ -1586,7 +1592,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       documentUrl: window.document.baseURI,
       signal: options.signal,
       getAuth: () => {
-        if (generation !== this.#workspaceAuthGeneration || options.getAuthority?.() !== authority)
+        if (!this.#workspaceAuthority.isCurrent(generation) || options.getAuthority?.() !== authority)
           throw new Error("The selected style workspace authority changed.");
         return this.auth;
       },
@@ -1620,7 +1626,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (catalog !== this.#sourceCatalog) this.closeDesignInspector();
     if (catalog !== this.#sourceCatalog) {
       if (this.#recipeSourceChoices) this.#recipePreviousChoices = this.#recipeSourceChoices;
-      this.#recipeSourcesGeneration = undefined;
+      this.#recipeSourcesAuthority = undefined;
       this.#recipeSourceChoices = undefined;
     }
     this.#sourceCatalog = catalog;
@@ -1650,13 +1656,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (status !== "fresh" && status !== "refreshing") return;
     this.#catalogRequested = true;
     try {
-      const generation = this.#workspaceAuthGeneration;
+      const generation = this.#workspaceAuthority.current;
       const auth = this.auth;
       const previousCatalog = this.#sourceCatalog;
       const catalog = await this.studioClient.listCatalog();
       if (
         !this.isConnected ||
-        generation !== this.#workspaceAuthGeneration ||
+        !this.#workspaceAuthority.isCurrent(generation) ||
         auth !== this.auth ||
         this.#sourceCatalog !== previousCatalog
       )
@@ -1685,7 +1691,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    */
   #refreshSourceCatalog(preserve = false): void {
     if (this.#catalogFromHost) return;
-    if (preserve) this.#recipeSourcesGeneration = undefined;
+    if (preserve) this.#recipeSourcesAuthority = undefined;
     else this.#sourceCatalog = undefined;
     this.#catalogRequested = false;
     void this.#loadSourceCatalog(preserve);
@@ -1759,7 +1765,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #replaceLiveCompositionSession(options: LiveCompositionOptions): void {
-    this.#agentSetupGeneration += 1;
+    this.#agentSetup.next();
     this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     this.#liveAgentBaseUrl = options.baseUrl;
     this.toolCallOrchestrator.attachLiveSession({
@@ -1773,9 +1779,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   #scheduleLiveAgentSession(): void {
     const setup = this.#attachLiveAgentSession(this.#liveAgentBaseUrl);
-    const generation = this.#agentSetupGeneration;
+    const generation = this.#agentSetup.current;
     void setup.catch((error) => {
-      if (generation !== this.#agentSetupGeneration) return;
+      if (!this.#agentSetup.isCurrent(generation)) return;
       this.disableLiveComposition();
       const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
       chat?.activityLog.append("assistant_turn_error", {
@@ -1794,7 +1800,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public disableLiveComposition(): void {
     if (!this.toolCallOrchestrator.isLive) return;
     this.toolCallOrchestrator.detachLiveSession();
-    this.#agentSetupGeneration += 1;
+    this.#agentSetup.next();
     this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
     if (chat) chat.agentSessionPending = false;
@@ -2138,10 +2144,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       !this.toolCallOrchestrator.isLive
     )
       return;
-    const setupGeneration = ++this.#agentSetupGeneration;
+    const setupGeneration = this.#agentSetup.next();
     chat.agentSessionPending = true;
     const draft = await this.toolCallOrchestrator.ensureLiveDraft();
-    if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
+    if (!this.#agentSetup.isCurrent(setupGeneration) || !this.toolCallOrchestrator.isLive) return;
     chat.agentSessionPending = false;
     const kit = this.aiMapKit;
     const styleAuth = this.auth;
@@ -2163,7 +2169,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     } catch {
       /* The prompt explicitly reports unavailable styles; names never substitute for definitions. */
     }
-    if (setupGeneration !== this.#agentSetupGeneration || !this.toolCallOrchestrator.isLive) return;
+    if (!this.#agentSetup.isCurrent(setupGeneration) || !this.toolCallOrchestrator.isLive) return;
     if (this.auth !== styleAuth) return;
     const sessionRef: { current?: StudioAgentSession } = {};
     const certification = this.#agentCertification;
@@ -2217,7 +2223,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       onEvent: (event) => {
         if (event.type === "toolResult") {
           if (
-            setupGeneration !== this.#agentSetupGeneration ||
+            !this.#agentSetup.isCurrent(setupGeneration) ||
             sessionRef.current !== chat.agentSession ||
             !this.toolCallOrchestrator.isLive
           ) {
@@ -2231,7 +2237,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
               const baseUrl = new URL(runtimeServerBaseUrl(), document.baseURI).href;
               const note = projectPublicationReceipt(payload.result, baseUrl);
               if (note) {
-                this.#publicationNoteGeneration += 1;
+                this.#publicationNote.next();
                 chat.shareNote = note.text;
               }
             } catch {
@@ -2261,13 +2267,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     options?: { readonly isCurrent?: () => boolean },
   ): Promise<HonuaStudioCommandOutcome> {
     let auth = this.auth;
-    let leaseGeneration = this.#cookieLeaseGeneration;
-    const mapEpoch = this.#workspaceMapEpoch;
-    const authorityGeneration = this.#workspaceAuthGeneration;
+    let leaseGeneration = this.#cookieLease.current;
+    const mapEpoch = this.#activeMap.current;
+    const authorityGeneration = this.#workspaceAuthority.current;
     const requireOriginalTarget = () => {
       if (
-        this.#workspaceMapEpoch !== mapEpoch ||
-        this.#workspaceAuthGeneration !== authorityGeneration ||
+        !this.#activeMap.isCurrent(mapEpoch) ||
+        !this.#workspaceAuthority.isCurrent(authorityGeneration) ||
         options?.isCurrent?.() === false
       )
         throw new Error("The active map changed while resolving the published layer. Review the map and try again.");
@@ -2275,14 +2281,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     requireOriginalTarget();
     let catalog = await this.studioClient.listCatalog();
     requireOriginalTarget();
-    if (this.auth !== auth || this.#cookieLeaseGeneration !== leaseGeneration) {
+    if (this.auth !== auth || !this.#cookieLease.isCurrent(leaseGeneration)) {
       // A same-authority cookie lease may renew during discovery. Re-read with
       // its new credentials; never dispatch a catalog captured by the old lease.
       auth = this.auth;
-      leaseGeneration = this.#cookieLeaseGeneration;
+      leaseGeneration = this.#cookieLease.current;
       catalog = await this.studioClient.listCatalog();
       requireOriginalTarget();
-      if (this.auth !== auth || this.#cookieLeaseGeneration !== leaseGeneration)
+      if (this.auth !== auth || !this.#cookieLease.isCurrent(leaseGeneration))
         throw new Error("The Studio target changed while resolving the published layer.");
     }
     const suffix = `/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
@@ -2310,12 +2316,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return { ok: false, reason: "Save or discard visual style edits before changing the map." };
     if (this.#workspaceDraft) {
       const binding = this.#workspaceDraft;
-      const generation = this.#workspaceAuthGeneration;
+      const generation = this.#workspaceAuthority.current;
       const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
         if (options?.isCurrent?.() === false)
           return { ok: false, reason: "The initiating view changed before the edit began." };
         try {
-          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+          this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
           if (binding !== this.#workspaceDraft) throw new Error("The active map changed before the edit began.");
           const styleCommand = commands.length === 1 && commands[0]?.name === "setMapStyle" ? commands[0] : undefined;
           const current = this.composition.state;
@@ -2324,7 +2330,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
             const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
             if (!canvas) throw new Error("Open the map canvas before editing its style.");
             const mapSpec = await canvas.editableMapStyle();
-            if (generation !== this.#workspaceAuthGeneration || binding !== this.#workspaceDraft)
+            if (!this.#workspaceAuthority.isCurrent(generation) || binding !== this.#workspaceDraft)
               throw new Error("The workspace session changed.");
             if (current !== this.composition.state || options?.isCurrent?.() === false)
               throw new Error("The map changed while preparing its style.");
@@ -2340,7 +2346,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
                 annotations: target.annotations,
               }
             : await binding.replace(target);
-          if (generation !== this.#workspaceAuthGeneration) throw new Error("The workspace session changed.");
+          this.#workspaceAuthority.assertCurrent(generation, "The workspace session changed.");
           // The accepted style response establishes one authoritative revision;
           // replaying it against the older source anchor would reject valid additions.
           if (!styleCommand) for (const command of commands) this.composition.apply(command);
@@ -2348,7 +2354,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           this.#announceWorkspaceDraft();
           return { ok: true };
         } catch (error) {
-          if (generation === this.#workspaceAuthGeneration && binding === this.#workspaceDraft)
+          if (this.#workspaceAuthority.isCurrent(generation) && binding === this.#workspaceDraft)
             this.#workspaceDraftConflict = true;
           return { ok: false, reason: error instanceof Error ? error.message : String(error) };
         }
@@ -2370,7 +2376,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Restores a retained preview proposal into the conversation. Never publishes. */
   async #resumeSharePreview(): Promise<void> {
-    const noteGeneration = this.#publicationNoteGeneration;
+    const noteGeneration = this.#publicationNote.current;
     try {
       const handle = loadShareProposal(sessionShareStorage());
       if (!handle) return;
@@ -2383,7 +2389,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const token = await this.auth?.getAccessToken();
       if (!token) return;
       const status = await fetchShareProposalStatus(runtimeServerBaseUrl(), handle.proposalId, token);
-      if (!status || noteGeneration !== this.#publicationNoteGeneration || !this.isConnected) return;
+      if (!status || !this.#publicationNote.isCurrent(noteGeneration) || !this.isConnected) return;
       chat.shareNote = projectShareConversation(handle, status).text;
     } catch {
       // A retained handle must not block the shell when the preview server is unreachable.
@@ -2415,7 +2421,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (!this.#workspaceAgentAdapter) {
       this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
     }
-    this.#agentSetupGeneration += 1;
+    this.#agentSetup.next();
     this.#hashRouter?.stop();
     this.#hashRouter = undefined;
     this.#authUnsubscribe?.();
