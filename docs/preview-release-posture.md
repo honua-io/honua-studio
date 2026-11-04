@@ -79,7 +79,8 @@ Each release attaches:
 - `honua-studio-vX.Y.Z.receipt.json`, binding the version, source SHA and
   image digest.
 
-Both tarballs carry a GitHub build-provenance attestation. Check one with
+Each tarball has a build-provenance attestation, stored with the repository
+rather than as a release asset. Check one with
 `gh attestation verify honua-studio-console-assets-vX.Y.Z.tar.gz --repo honua-io/honua-studio`.
 The image `ghcr.io/honua-io/honua-studio:vX.Y.Z` is pushed alongside.
 

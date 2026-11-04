@@ -68,5 +68,6 @@ model-origin signature, so it cannot establish that a hosted provider produced
 any turn. A future credentialed model lane must define and verify that
 non-forgeable evidence before claiming model execution. The nightly demo lane
 is separate and does not block a tag. Nothing is published to GHCR until a
-`v*` release is cut and `release.yml` attaches the tarballs, checksums,
-attestations and source/image receipt to the GitHub release.
+`v*` release is cut and `release.yml` attaches the tarballs, checksums and
+source/image receipt to the GitHub release; the tarballs' build-provenance
+attestations are stored with the repository.

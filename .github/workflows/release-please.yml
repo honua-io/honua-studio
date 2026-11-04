@@ -51,11 +51,11 @@ jobs:
           if [ -n "$BOT_APP_ID" ] && [ -n "$BOT_APP_PRIVATE_KEY" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::BOT_APP_ID/BOT_APP_PRIVATE_KEY are not set, so GITHUB_TOKEN opens the release pull request and its required checks will not start until it is closed and reopened."
+            echo "::warning::BOT_APP_ID/BOT_APP_PRIVATE_KEY are not set, so GITHUB_TOKEN opens the release pull request; its required checks wait for a maintainer to approve the workflow runs on the pull request."
           fi
 
-      # Pull request events raised with GITHUB_TOKEN start no workflows, so the
-      # required checks only run on a release pull request the App opens.
+      # A release pull request the App opens starts its required checks at once;
+      # one opened with GITHUB_TOKEN gets approval-required runs instead.
       - name: Mint the release pull request token
         id: app-token
         if: steps.creds.outputs.available == 'true'
