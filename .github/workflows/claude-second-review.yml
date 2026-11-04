@@ -267,6 +267,9 @@ jobs:
 
             Review the diff and resolved threads for defects the first pass missed,
             regressions introduced by fixes, and refutations without evidence.
+            Also apply the "Review guidelines" in the trusted AGENTS.md at the
+            repository root (Clean Code) to lines the diff adds or changes, and
+            cite smell codes such as G5, C1 or F3.
             Do not repeat findings already adjudicated with sound evidence.
             Return the schema-constrained result with the admitted headSha.
             Every finding must select snapshot head or base and use a file and
