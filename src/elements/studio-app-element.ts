@@ -13,6 +13,7 @@ import {
 } from "@honua/sdk-js/studio-agent";
 import { ShellChrome } from "../app/shell-chrome.js";
 import { ShellRouter } from "../app/shell-router.js";
+import { type ProcessSourceChoice, SourceCatalog } from "../app/source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "../app/staleness-epoch.js";
 import { WorkspaceAuthority } from "../app/workspace-authority.js";
 import { verifiedSourcePathBase } from "../auth/host-session.js";
@@ -287,7 +288,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       canvas,
       describeSource: async (sourceId, signal) => {
         if (this.auth.getState().status !== "fresh") throw new Error("Sign in to describe authorized source fields.");
-        const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+        const source = this.#catalog.find(sourceId);
         if (!source)
           throw new Error(
             "Source is absent from the authorized catalog. Refresh source access before describing fields.",
@@ -403,7 +404,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       })),
       selectedLayerId: _options?.layerId,
       getFields: async (sourceId) => {
-        const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+        const source = this.#catalog.find(sourceId);
         if (!source) throw new Error("Refresh the authorized source catalog before selecting thematic fields.");
         const provider = new AuthoritativeStyleProvider({
           baseUrl: canvas.sourceAuthBaseUrl,
@@ -511,10 +512,25 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #orchestrator: ToolCallOrchestrator | undefined;
   #liveCompositionPackageKey: string | undefined;
   #aiMapKit: HonuaAiMapKit | undefined;
-  #sourceCatalog: readonly CatalogDataset[] | undefined;
-  #processSourceCatalogAuthority: EpochToken | undefined;
-  #catalogRequested = false;
-  #catalogFromHost = false;
+  readonly #catalog = new SourceCatalog(this.#authority, {
+    isConnected: () => this.isConnected,
+    onCatalogReplacing: () => {
+      this.closeDesignInspector();
+      if (this.#recipeSourceChoices) this.#recipePreviousChoices = this.#recipeSourceChoices;
+      this.#recipeSourcesAuthority = undefined;
+      this.#recipeSourceChoices = undefined;
+    },
+    onCatalogApplied: (catalog) => {
+      // The kit advertises the catalog, so it has to be rebuilt around a new one.
+      this.#aiMapKit = undefined;
+      const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+      if (canvas) canvas.sourceCatalog = catalog;
+      if (this.isConnected && this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
+    },
+    onRevalidate: () => {
+      this.#recipeSourcesAuthority = undefined;
+    },
+  });
   #lastAuthStatus: string | undefined;
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
   #agentCertification: StudioAgentCertificationOptions | undefined;
@@ -606,8 +622,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const leaseGeneration = this.#authority.lease.current;
     this.#recipeSourcesAuthority = undefined;
     this.#recipeSourceChoices = undefined;
-    const hostOwnsCatalog = this.#catalogFromHost;
-    const hostCatalog = this.#sourceCatalog;
+    const hostOwnsCatalog = this.#catalog.fromHost;
+    const hostCatalog = this.#catalog.catalog;
     const auth = this.auth;
     const client = new StudioClient(
       runtimeServerBaseUrl(),
@@ -627,7 +643,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       throw new Error("The workspace authority changed.");
     let choices: readonly CatalogDataset[] = catalog;
     if (hostOwnsCatalog) {
-      if (!this.#catalogFromHost || hostCatalog !== this.#sourceCatalog)
+      if (!this.#catalog.fromHost || hostCatalog !== this.#catalog.catalog)
         throw new Error("The host source choices changed. Refresh the recipe sources.");
       choices = (hostCatalog ?? []).filter((source) => {
         const observed = catalog.find((entry) => entry.id === source.id);
@@ -640,8 +656,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         return true;
       });
     } else {
-      if (this.#catalogFromHost) throw new Error("The host source choices changed. Refresh the recipe sources.");
-      this.#applySourceCatalog(catalog);
+      if (this.#catalog.fromHost) throw new Error("The host source choices changed. Refresh the recipe sources.");
+      this.#catalog.apply(catalog);
     }
     this.#recipeSourceChoices = structuredClone(choices);
     this.#recipeSourcesAuthority = generation;
@@ -652,7 +668,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const generation = this.#recipeAuthority.current;
     let choices = this.#recipeSourceChoices;
     let selectedSource = choices?.find((entry) => entry.id === sourceId);
-    let current = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+    let current = this.#catalog.find(sourceId);
     if (
       (!selectedSource || !current || this.#recipeSourcesAuthority !== generation) &&
       (selectedSource ?? this.#recipePreviousChoices?.find((entry) => entry.id === sourceId))
@@ -663,7 +679,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       await this.listRecipeSources(signal);
       choices = this.#recipeSourceChoices;
       selectedSource = choices?.find((entry) => entry.id === sourceId);
-      current = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
+      current = this.#catalog.find(sourceId);
       if (
         !selectedSource ||
         this.#recipeSourceIdentity(previous) !== this.#recipeSourceIdentity(selectedSource) ||
@@ -1289,9 +1305,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#authority.epoch.next();
       if (hadAuthority) {
         // Cached human descriptor metadata belongs to the former authority too.
-        this.#sourceCatalog = undefined;
-        this.#processSourceCatalogAuthority = undefined;
-        this.#catalogRequested = false;
+        this.#catalog.forget();
         this.#aiMapKit = undefined;
         const previousCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
         if (previousCanvas) previousCanvas.sourceCatalog = undefined;
@@ -1341,7 +1355,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.routingMode === "hash") this.#router.startHashRouting();
     else this.renderView();
     // The catalog is bearer-gated, so a new session needs a new catalog.
-    this.#refreshSourceCatalog(Boolean(samePrincipal));
+    if (samePrincipal) this.#catalog.revalidate();
+    else this.#catalog.refresh();
   }
 
   /** The resolved `AuthSession` this element and its descendants (`resolveInjectedAuth`) use; built lazily. */
@@ -1378,45 +1393,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Actual published choices for the canonical GP layer picker; no map focus is inferred. */
-  public async listProcessSources(): Promise<readonly { id: string; title: string }[]> {
-    const generation = this.#authority.epoch.current;
-    const auth = this.auth;
-    const client = this.#authority.studioClientOverridden
-      ? this.studioClient
-      : new StudioClient(runtimeServerBaseUrl(), auth, runtimeMcpBaseUrl());
-    const catalog = await client.listCatalog();
-    if (!this.#authority.epoch.isCurrent(generation) || auth !== this.auth)
-      throw new Error("The workspace authority changed.");
-    this.#applySourceCatalog(catalog);
-    this.#processSourceCatalogAuthority = generation;
-    return catalog
-      .filter(
-        (source) => typeof source.locator?.serviceId === "string" && Number.isSafeInteger(source.locator?.layerId),
-      )
-      .map((source) => ({ id: source.id, title: source.title ?? source.id }));
+  public listProcessSources(): Promise<readonly ProcessSourceChoice[]> {
+    return this.#catalog.listProcessSources();
   }
 
-  public async resolveProcessSource(
-    sourceId: string,
-  ): Promise<{ processLayerId?: number; unavailableReason?: string }> {
-    const generation = this.#authority.epoch.current;
-    const source = this.#sourceCatalog?.find((entry) => entry.id === sourceId);
-    if (!source || this.#processSourceCatalogAuthority !== generation)
-      throw new Error("Refresh the authorized source choices before selecting a process layer.");
-    const baseUrl =
-      this.#authority.session && "kind" in this.#authority.session && this.#authority.session.kind === "cookie"
-        ? verifiedSourcePathBase(this.#authority.session.sourcePathBase)
-        : runtimeMcpBaseUrl();
-    const provider = new AuthoritativeStyleProvider({
-      baseUrl,
-      ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-      documentUrl: window.document.baseURI,
-      getAuth: () => this.auth,
-      signal: AbortSignal.timeout(8000),
-    });
-    const result = await provider.resolveProcessSource(source);
-    this.#authority.epoch.assertCurrent(generation, "The workspace authority changed.");
-    return result;
+  public resolveProcessSource(sourceId: string): Promise<{ processLayerId?: number; unavailableReason?: string }> {
+    return this.#catalog.resolveProcessSource(sourceId);
   }
 
   /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
@@ -1447,80 +1429,24 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
    * connection; a host may assign its own listing instead, which skips the fetch.
    */
   public get sourceCatalog(): readonly CatalogDataset[] | undefined {
-    return this.#sourceCatalog;
+    return this.#catalog.catalog;
   }
 
   public set sourceCatalog(catalog: readonly CatalogDataset[] | undefined) {
-    // A host that assigns the catalog owns it: no fetch overwrites it.
-    // Lease renewal retains it; another authority must supply a fresh catalog.
-    this.#catalogFromHost = true;
-    this.#catalogRequested = true;
-    if (catalog !== this.#sourceCatalog) this.#disposeRecipePicker();
-    this.#applySourceCatalog(catalog);
+    const replacing = catalog !== this.#catalog.catalog;
+    this.#catalog.claimForHost();
+    if (replacing) this.#disposeRecipePicker();
+    this.#catalog.apply(catalog);
   }
 
   async #addCatalogSource(dataset: CatalogDataset): Promise<void> {
-    if (!this.#sourceCatalog?.some((entry) => entry.id === dataset.id)) {
-      this.#applySourceCatalog([...(this.#sourceCatalog ?? []), dataset]);
+    if (!this.#catalog.catalog?.some((entry) => entry.id === dataset.id)) {
+      this.#catalog.apply([...(this.#catalog.catalog ?? []), dataset]);
     }
     const result = await this.#dispatchCommands([
       { name: "addLayer", layer: { id: dataset.id, sourceId: dataset.id, title: dataset.title } },
     ]);
     if (!result.ok) throw new Error(result.reason);
-  }
-
-  #applySourceCatalog(catalog: readonly CatalogDataset[] | undefined): void {
-    if (catalog !== this.#sourceCatalog) this.closeDesignInspector();
-    if (catalog !== this.#sourceCatalog) {
-      if (this.#recipeSourceChoices) this.#recipePreviousChoices = this.#recipeSourceChoices;
-      this.#recipeSourcesAuthority = undefined;
-      this.#recipeSourceChoices = undefined;
-    }
-    this.#sourceCatalog = catalog;
-    // The kit advertises the catalog, so it has to be rebuilt around a new one.
-    this.#aiMapKit = undefined;
-    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-    if (canvas) canvas.sourceCatalog = catalog;
-    if (this.isConnected && this.#orchestrator?.isLive) this.#scheduleLiveAgentSession();
-  }
-
-  /** Fetches the catalog once. Failure is silent: the canvas reports layers as not renderable instead. */
-  async #loadSourceCatalog(revalidate = false): Promise<void> {
-    if (this.#catalogRequested || (!revalidate && this.#sourceCatalog !== undefined)) return;
-    // Never fetch while signed out: a second 401 marks the session expired, which would show a
-    // never-signed-in shell as "Session expired". The auth status listener retries once signed in.
-    const status = this.auth.getState().status;
-    if (status !== "fresh" && status !== "refreshing") return;
-    this.#catalogRequested = true;
-    try {
-      const generation = this.#authority.epoch.current;
-      const auth = this.auth;
-      const previousCatalog = this.#sourceCatalog;
-      const catalog = await this.studioClient.listCatalog();
-      if (
-        !this.isConnected ||
-        !this.#authority.epoch.isCurrent(generation) ||
-        auth !== this.auth ||
-        this.#sourceCatalog !== previousCatalog
-      )
-        return;
-      if (previousCatalog && canonicalCompositionJson(previousCatalog) === canonicalCompositionJson(catalog)) return;
-      this.#applySourceCatalog(catalog);
-    } catch {
-      // An unreachable catalog degrades the map; it must not break the shell.
-    }
-  }
-
-  /**
-   * Re-fetches the catalog after the session changed. Only call it on a session replacement or a status
-   * transition: every `getAccessToken()` dispatches a state change, so refetching per dispatch would loop.
-   */
-  #refreshSourceCatalog(preserve = false): void {
-    if (this.#catalogFromHost) return;
-    if (preserve) this.#recipeSourcesAuthority = undefined;
-    else this.#sourceCatalog = undefined;
-    this.#catalogRequested = false;
-    void this.#loadSourceCatalog(preserve);
   }
 
   #onAuthStatusChanged(): void {
@@ -1530,8 +1456,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#lastAuthStatus = status;
     if (status === "expired" || status === "signed-out") this.closeDesignInspector();
     if (status === "signed-out" || status === "expired") this.#resetRecipeAuthority();
-    if (status !== "fresh" || this.#sourceCatalog !== undefined) return;
-    this.#refreshSourceCatalog();
+    if (status !== "fresh" || this.#catalog.catalog !== undefined) return;
+    this.#catalog.refresh();
   }
 
   /** SDK AI map kit over `.composition`; rebuilt with the catalog so a model only sees published sources. */
@@ -1539,7 +1465,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (!this.#aiMapKit) {
       this.#aiMapKit = createStudioAiMapKit({
         controller: this.composition,
-        ...(this.#sourceCatalog !== undefined ? { catalog: this.#sourceCatalog } : {}),
+        ...(this.#catalog.catalog !== undefined ? { catalog: this.#catalog.catalog } : {}),
       });
     }
     return this.#aiMapKit;
@@ -1743,8 +1669,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           : runtimeMcpBaseUrl();
     if (canvas && !canvas.composition) canvas.composition = this.composition;
     if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#dispatchCommands(commands);
-    if (canvas && this.#sourceCatalog) canvas.sourceCatalog = this.#sourceCatalog;
-    else void this.#loadSourceCatalog();
+    if (canvas && this.#catalog.catalog) canvas.sourceCatalog = this.#catalog.catalog;
+    else void this.#catalog.load();
     // Construct the orchestrator while the chat child is resolvable for its activity log.
     void this.toolCallOrchestrator;
     void this.#resumeSharePreview();
@@ -1855,7 +1781,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         buildStudioSystemPrompt({
           draftId: this.toolCallOrchestrator.draftId,
           generation: this.toolCallOrchestrator.generation,
-          catalog: this.#sourceCatalog,
+          catalog: this.#catalog.catalog,
           styles: styles.map(({ styleId, title, description, styleVersion, sha256 }) => ({
             styleId,
             title,
@@ -1933,7 +1859,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
     if (matches.length !== 1) throw new Error("The published layer has no unique verified catalog source.");
     const source = matches[0]!;
-    this.#applySourceCatalog(catalog);
+    this.#catalog.apply(catalog);
     return this.#dispatchCommands(
       [{ name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } }],
       options,
