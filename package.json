@@ -1,6 +1,6 @@
 {
   "name": "@honua/studio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Honua Studio — natural language to map app. Standalone shell for the JS Studio (honua-io/honua-studio#3).",
   "type": "module",
   "private": true,
