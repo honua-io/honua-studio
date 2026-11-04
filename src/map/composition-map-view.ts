@@ -509,10 +509,7 @@ export class CompositionMapView {
       this.#map = undefined;
       return;
     }
-    this.#map.on("moveend", () => {
-      this.#authoredViewPending = false;
-    });
-    this.#bindClicks(this.#map);
+    this.#bindMapEvents(this.#map);
     this.#appliedView = this.#options.controller.state.view;
     // A bbox view cannot be expressed as construction-time center/zoom —
     // apply it (and any pitch/bearing) once the map exists.
@@ -768,7 +765,9 @@ export class CompositionMapView {
   /** Applies a {@link CompositionView}. `bbox` wins over `center`/`zoom` — it is the more specific statement of intent. */
   #applyView(map: CompositionMapLike, view: CompositionView, immediate: boolean): void {
     const duration = immediate ? 0 : (this.#options.viewTransitionMs ?? 700);
+    const camera = compositionCameraOptions(view);
     this.#authoredViewPending = false;
+    if (!view.bbox && Object.keys(camera).length === 0) return;
     try {
       if (view.bbox) {
         map.fitBounds(view.bbox, {
@@ -776,16 +775,8 @@ export class CompositionMapView {
           ...(view.pitch !== undefined ? { pitch: view.pitch } : {}),
           ...(view.bearing !== undefined ? { bearing: view.bearing } : {}),
         });
-      } else {
-        const camera: Record<string, unknown> = {};
-        if (view.center) camera.center = [...view.center];
-        if (view.zoom !== undefined) camera.zoom = view.zoom;
-        if (view.pitch !== undefined) camera.pitch = view.pitch;
-        if (view.bearing !== undefined) camera.bearing = view.bearing;
-        if (Object.keys(camera).length === 0) return;
-        if (duration === 0) map.jumpTo(camera);
-        else map.easeTo({ ...camera, duration });
-      }
+      } else if (duration === 0) map.jumpTo(camera);
+      else map.easeTo({ ...camera, duration });
       this.#authoredViewPending = duration > 0 && (map.isMoving?.() ?? true);
     } catch (error) {
       this.#statusDetail = `The map could not move to the composed view: ${
@@ -799,7 +790,10 @@ export class CompositionMapView {
    * layers appearing and disappearing mid-conversation never leaves a stale
    * per-layer handler behind.
    */
-  #bindClicks(map: CompositionMapLike): void {
+  #bindMapEvents(map: CompositionMapLike): void {
+    map.on("moveend", () => {
+      this.#authoredViewPending = false;
+    });
     map.on("click", (event) => {
       if (!isRecord(event)) return;
       const point = readLngLat(event.lngLat);
@@ -820,6 +814,15 @@ export class CompositionMapView {
   #notify(): void {
     this.#options.onChange?.(this);
   }
+}
+
+function compositionCameraOptions(view: CompositionView): Record<string, unknown> {
+  const camera: Record<string, unknown> = {};
+  if (view.center) camera.center = [...view.center];
+  if (view.zoom !== undefined) camera.zoom = view.zoom;
+  if (view.pitch !== undefined) camera.pitch = view.pitch;
+  if (view.bearing !== undefined) camera.bearing = view.bearing;
+  return camera;
 }
 
 /**
