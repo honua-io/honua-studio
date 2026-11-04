@@ -18,10 +18,11 @@ job refuses any other revision.
   exact published `@honua/sdk-js` version (`package.json`), not a range.
   The receipt records the version, source SHA, and pushed image digest.
   No `v*` tag has been cut, so nothing is pullable from GHCR yet.
-- **Security.** The tag workflow runs filesystem Trivy and OpenSSF Scorecard
-  from pinned `honua-io/.github` workflows and `needs` both before publish.
-  `security.yml` uses the same pins on pull requests; it does not run on tags,
-  which is why the release workflow repeats them. Published assets and
+- **Security.** The tag workflow runs filesystem Trivy from the pinned
+  `honua-io/.github` workflow and `needs` it before publish. OpenSSF Scorecard
+  scores the default branch, and scorecard-action refuses tag and dispatch
+  refs, so it runs in `security.yml` on `main`, pull requests and weekly, not
+  in the release workflow. Published assets and
   `deploy/config.example.json` contain no provider key, administrator
   credential, OIDC client secret, or demo credential. Operators inject
   `/config.json` at start.
@@ -60,12 +61,11 @@ Releases are semver tags `vX.Y.Z`, cut by Release Please
    release. That tag is created with `GITHUB_TOKEN`, which starts no
    workflow, so the run then dispatches
    `gh workflow run release.yml --ref vX.Y.Z -f version=vX.Y.Z`. The gates
-   above run on that tag. Scorecard analyses the tag without publishing to
-   the OpenSSF API, which accepts results only from `main`.
+   above run on that tag.
 
 Before a change to the release path merges, run it as a dry run from its
 branch: `gh workflow run release.yml --ref <branch> -f publish=false`. A dry
-run runs the smokes, Trivy, Scorecard and every build, packs both tarballs and
+run runs the smokes, Trivy and every build, packs both tarballs and
 builds and checks the image, but pushes, attests and uploads nothing.
 
 Versioning starts from the `0.0.0` that `package.json` reports, which
