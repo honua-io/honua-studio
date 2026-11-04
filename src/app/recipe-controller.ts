@@ -1,6 +1,6 @@
 import type { CatalogDataset } from "../client/studio-client.js";
 import { canonicalCompositionJson } from "../composition/model.js";
-import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioPackageDraftCreateRequest } from "../lifecycle/lifecycle-types.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import {
@@ -10,7 +10,6 @@ import {
 } from "../recipes/explore-dataset.js";
 import { RecipePanel } from "../recipes/recipe-panel.js";
 import { RecipeSubmission } from "../recipes/recipe-submission.js";
-import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { RecipeSourceChoices, type RecipeSourcesHost } from "./recipe-source-choices.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
@@ -194,7 +193,7 @@ export class RecipeController {
   async #submit(entry: RecipeSubmissionEntry, input: ExploreDatasetInput): Promise<WorkspaceDraftIdentity> {
     await this.options.host.prepareWorkspaceTurn();
     this.#epoch.assertCurrent(entry.generation, WORKSPACE_AUTHORITY_CHANGED);
-    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.options.authority.auth });
+    const client = this.options.authority.lifecycleClient();
     if (!entry.request) entry.request = await this.#buildRequest(entry, input, client);
     if (!entry.attachmentAllowed && !entry.submission.submitted) throw new Error(CANCELLED_BEFORE_SUBMISSION);
     const created = await entry.submission.createDraft(entry.request, (request, commandId) =>

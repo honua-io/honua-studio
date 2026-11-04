@@ -1,14 +1,14 @@
 import type { CompositionController } from "../composition/controller.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
-import { runtimeMcpBaseUrl } from "../runtime-config.js";
-import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import type { MapStyleDocument, MapStyleField } from "../styles/map-style-edit.js";
 import { MapStyleEditor, type MapStyleEditorOptions } from "../styles/map-style-editor.js";
 import type { CompositionEditor } from "./composition-editor.js";
+import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
+import type { StudioAppChildren } from "./studio-app-children.js";
+import { WORKSPACE_AUTHORITY_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
 import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
 
 /** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
@@ -26,7 +26,7 @@ export interface StyleEditorHostOptions {
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;
   readonly editor: CompositionEditor;
-  readonly canvas: () => HonuaStudioCanvasElement | undefined;
+  readonly children: StudioAppChildren;
 }
 
 /** The draft and authority one editor session was opened for. */
@@ -35,8 +35,6 @@ interface EditingSession {
   readonly generation: EpochToken;
   readonly identity: WorkspaceDraftIdentity;
 }
-
-const AUTHORITY_CHANGED = "The workspace authority changed.";
 
 /** The visual map-style editor docked beside the map; edits stay local until saved to the draft. */
 export class StyleEditorHost {
@@ -63,7 +61,7 @@ export class StyleEditorHost {
     const { authority, drafts } = this.options;
     await this.options.host.prepareWorkspaceTurn();
     if (!drafts.binding) throw new Error("Attach an authorized map draft before editing its style.");
-    const canvas = this.options.canvas();
+    const canvas = this.options.children.canvas();
     if (!canvas) throw new Error("Open the map canvas before its style editor.");
     if (!this.options.composition.state.mapSpec) await this.#initializeDraftStyle(canvas);
     const generation = authority.epoch.current;
@@ -104,7 +102,7 @@ export class StyleEditorHost {
     this.#panel = undefined;
     this.options.chrome.appSlots()?.removeAttribute("data-style-mode");
     this.options.chrome.paintHistory();
-    const canvas = this.options.canvas();
+    const canvas = this.options.children.canvas();
     if (canvas) canvas.stylePreview = undefined;
     this.#announceDirty(false);
   }
@@ -116,9 +114,9 @@ export class StyleEditorHost {
     const epoch = authority.epoch.current;
     await drafts.enqueue(async () => {
       const style = await canvas.editableMapStyle();
-      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(AUTHORITY_CHANGED);
+      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
       const observed = await binding.initializeStyle(style);
-      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(AUTHORITY_CHANGED);
+      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
       composition.resetBaseline({
         ...observed,
         pins: composition.state.pins,
@@ -173,27 +171,24 @@ export class StyleEditorHost {
   async #describeFields(session: EditingSession, sourceId: string): Promise<readonly MapStyleField[]> {
     const source = this.options.catalog.find(sourceId);
     if (!source) throw new Error("Refresh the authorized source catalog before selecting thematic fields.");
-    const { canvas } = session;
     const { authority } = this.options;
-    const provider = new AuthoritativeStyleProvider({
-      baseUrl: canvas.sourceAuthBaseUrl,
-      ...(canvas.sourceAuthBaseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-      documentUrl: window.document.baseURI,
+    const provider = sourceStyleProvider({
+      baseUrl: session.canvas.sourceAuthBaseUrl,
       getAuth: () => authority.auth,
       signal: AbortSignal.timeout(8000),
     });
     const fields = await provider.describeSource(source);
-    authority.epoch.assertCurrent(session.generation, AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(session.generation, WORKSPACE_AUTHORITY_CHANGED);
     return fields;
   }
 
   async #save(session: EditingSession, style: MapStyleDocument): Promise<MapStyleDocument> {
     const { authority, drafts } = this.options;
     if (!authority.epoch.isCurrent(session.generation) || session.identity.draftId !== drafts.identity?.draftId)
-      throw new Error(`${AUTHORITY_CHANGED} Reopen the visual editor.`);
+      throw new Error(`${WORKSPACE_AUTHORITY_CHANGED} Reopen the visual editor.`);
     const result = await this.options.editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
     if (!result.ok) throw new Error(result.reason);
-    authority.epoch.assertCurrent(session.generation, AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(session.generation, WORKSPACE_AUTHORITY_CHANGED);
     return session.canvas.editableMapStyle();
   }
 
@@ -202,7 +197,7 @@ export class StyleEditorHost {
     const { authority, drafts } = this.options;
     session.canvas.stylePreview = undefined;
     const id = drafts.identity?.draftId;
-    if (!id || !authority.epoch.isCurrent(session.generation)) throw new Error(AUTHORITY_CHANGED);
+    if (!id || !authority.epoch.isCurrent(session.generation)) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
     const editor = this.#editor;
     this.#editor = undefined;
     try {
@@ -211,7 +206,7 @@ export class StyleEditorHost {
       if (authority.epoch.isCurrent(session.generation)) this.#editor = editor;
       else editor?.dispose();
     }
-    authority.epoch.assertCurrent(session.generation, AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(session.generation, WORKSPACE_AUTHORITY_CHANGED);
     return session.canvas.editableMapStyle();
   }
 

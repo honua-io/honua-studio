@@ -18,14 +18,13 @@ import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
-import {
-  type AuthoritativeStyleDefinition,
-  AuthoritativeStyleProvider,
-} from "../styles/authoritative-style-provider.js";
+import type { AuthoritativeStyleDefinition } from "../styles/authoritative-style-provider.js";
 import type { WorkspaceAgentSessionAdapter } from "../workspace-agent.js";
+import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
+import type { StudioAppChildren } from "./studio-app-children.js";
 
 type AgentToolDefinitions = (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>;
 type AgentSessionOptions = Parameters<HonuaStudioChatElement["attachAgentSession"]>[0];
@@ -56,7 +55,7 @@ export interface LiveCompositionControllerOptions {
   readonly host: LiveCompositionHost;
   readonly catalog: SourceCatalog;
   readonly chrome: ShellChrome;
-  readonly chat: () => HonuaStudioChatElement | undefined;
+  readonly children: StudioAppChildren;
 }
 
 /** One attached agent session; its callbacks go quiet once a newer setup supersedes it. */
@@ -114,7 +113,7 @@ export class LiveCompositionController {
   get orchestrator(): ToolCallOrchestrator {
     this.#orchestrator ??= new ToolCallOrchestrator({
       controller: this.options.host.composition,
-      activityLog: this.options.chat()?.activityLog,
+      activityLog: this.options.children.chat()?.activityLog,
     });
     return this.#orchestrator;
   }
@@ -180,8 +179,8 @@ export class LiveCompositionController {
     if (!orchestrator.isLive) return;
     orchestrator.detachLiveSession();
     this.#agentSetup.next();
-    this.options.chat()?.detachAgentSession();
-    const chat = this.options.chat();
+    this.options.children.chat()?.detachAgentSession();
+    const chat = this.options.children.chat();
     if (chat) chat.agentSessionPending = false;
     this.#liveOptions = undefined;
     this.#announceMode({ mode: "fixture" });
@@ -198,7 +197,7 @@ export class LiveCompositionController {
     void setup.catch((error) => {
       if (!this.#agentSetup.isCurrent(generation)) return;
       this.options.host.disableLiveComposition();
-      this.options.chat()?.activityLog.append("assistant_turn_error", {
+      this.options.children.chat()?.activityLog.append("assistant_turn_error", {
         errorMessage: error instanceof Error ? error.message : String(error),
         phase: "agent-session-setup",
       });
@@ -216,7 +215,7 @@ export class LiveCompositionController {
     try {
       const handle = loadShareProposal(sessionShareStorage());
       if (!handle) return;
-      const chat = this.options.chat();
+      const chat = this.options.children.chat();
       if (!chat) return;
       chat.shareNote = projectShareConversation(handle, {
         proposalId: handle.proposalId,
@@ -234,7 +233,7 @@ export class LiveCompositionController {
 
   #replaceSession(options: ResolvedLiveOptions): void {
     this.#agentSetup.next();
-    this.options.chat()?.detachAgentSession();
+    this.options.children.chat()?.detachAgentSession();
     this.#liveAgentBaseUrl = options.baseUrl;
     this.options.host.toolCallOrchestrator.attachLiveSession({
       client: new McpClient({ baseUrl: options.baseUrl, auth: this.options.host.auth }),
@@ -247,7 +246,7 @@ export class LiveCompositionController {
 
   #announceMode(detail: HonuaStudioCompositionModeChangeDetail): void {
     this.options.chrome.paintLiveComposition();
-    this.options.chat()?.activityLog.append("composition_mode_changed", { ...detail });
+    this.options.children.chat()?.activityLog.append("composition_mode_changed", { ...detail });
     this.options.host.dispatchEvent(
       new CustomEvent<HonuaStudioCompositionModeChangeDetail>("honua-studio-composition-mode-change", {
         bubbles: true,
@@ -259,7 +258,7 @@ export class LiveCompositionController {
 
   async #attachAgentSession(baseUrl: string): Promise<void> {
     const { host } = this.options;
-    const chat = this.options.chat();
+    const chat = this.options.children.chat();
     if (chat && host.agentSessionAdapter) chat.agentSessionAdapter = host.agentSessionAdapter;
     if (!chat || chat.agentSessionAdapter || chat.hasCustomTransport || host.auth.fetchRequest) return;
     if (!host.toolCallOrchestrator.isLive) return;
@@ -279,9 +278,8 @@ export class LiveCompositionController {
 
   /** Up to ten style definitions the agent may apply; names never substitute for readable definitions. */
   async #readAdvertisedStyles(): Promise<AuthoritativeStyleDefinition[]> {
-    const styleProvider = new AuthoritativeStyleProvider({
+    const styleProvider = sourceStyleProvider({
       baseUrl: runtimeMcpBaseUrl(),
-      documentUrl: document.baseURI,
       getAuth: () => this.options.host.auth,
       signal: AbortSignal.timeout(8000),
     });

@@ -1,11 +1,10 @@
 import type { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
-import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
-import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
+import { WORKSPACE_SESSION_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
 
 export type WorkspaceDraftIdentity = { draftId: string; generation: number; packageKey: string };
 
@@ -98,8 +97,8 @@ export class WorkspaceDraftSession {
       throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
     const generation = this.authority.epoch.current;
     await this.hooks.prepareWorkspaceTurn();
-    this.authority.epoch.assertCurrent(generation, "The workspace session changed.");
-    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.authority.auth });
+    this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    const client = this.authority.lifecycleClient();
     const created = await client.createDraft({
       packageKey: key,
       envelope: {
@@ -107,7 +106,7 @@ export class WorkspaceDraftSession {
         body: toCompositionDraftBody(createEmptyCompositionState(), key),
       },
     });
-    this.authority.epoch.assertCurrent(generation, "The workspace session changed.");
+    this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     await this.hooks.attachWorkspaceDraft(created.draftId);
     const identity = this.identity;
     if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
@@ -124,14 +123,12 @@ export class WorkspaceDraftSession {
     this.#requireAcceptable(generation, mayAccept);
     const previous = this.identity;
     // Observe prospectively: a refused read must not advance the active binding's generation.
-    const binding = new WorkspaceDraftBinding(
-      new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.authority.auth }),
-    );
+    const binding = new WorkspaceDraftBinding(this.authority.lifecycleClient());
     const state = await binding.observe(draftId);
     this.#requireAcceptable(generation, mayAccept);
     // A same-principal lease can renew while the prospective GET is in flight.
     // Adopt its observed state with the current transport, not the expired lease.
-    binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.authority.auth }));
+    binding.rebind(this.authority.lifecycleClient());
     const switchesMap = previous?.draftId !== draftId;
     if (switchesMap) {
       this.hooks.beforeMapSwitch(draftId);
@@ -181,7 +178,7 @@ export class WorkspaceDraftSession {
   }
 
   #requireAcceptable(generation: EpochToken, mayAccept: (() => void) | undefined): void {
-    this.authority.epoch.assertCurrent(generation, "The workspace session changed.");
+    this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     mayAccept?.();
     if (this.hooks.hasDirtyForm()) throw new Error("Save pending Studio edits before attaching a draft.");
   }

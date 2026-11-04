@@ -18,28 +18,26 @@ import { RecipeController } from "../app/recipe-controller.js";
 import { ShellChrome } from "../app/shell-chrome.js";
 import { ShellRouter } from "../app/shell-router.js";
 import { type ProcessSourceChoice, SourceCatalog } from "../app/source-catalog.js";
+import { StudioAppChildren } from "../app/studio-app-children.js";
 import { StyleEditorHost } from "../app/style-editor-host.js";
-import { WorkspaceAuthority } from "../app/workspace-authority.js";
+import { WorkspaceAuthority, type WorkspaceStyleProviderOptions } from "../app/workspace-authority.js";
 import { type WorkspaceDraftIdentity, WorkspaceDraftSession } from "../app/workspace-draft-session.js";
 import { WorkspacePublication } from "../app/workspace-publication.js";
-import { verifiedSourcePathBase } from "../auth/host-session.js";
-import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
+import { isCookieSession, isSameCookiePrincipal, verifiedSourcePathBase } from "../auth/host-session.js";
+import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 
 import type { AuthSession, SessionAdapter } from "../auth/index.js";
 import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
-import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { ExploreDatasetInput, ExploreDatasetMetadata } from "../recipes/explore-dataset.js";
-import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import type { HonuaStudioCanvasElement } from "./studio-canvas-element.js";
-import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "./studio-chat-element.js";
+import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
   HonuaStudioCommandOutcome,
@@ -57,9 +55,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   readonly #composition = new CompositionController(createEmptyCompositionState());
+  readonly #children = new StudioAppChildren(this);
   readonly #authority: WorkspaceAuthority = new WorkspaceAuthority({
     isConnected: () => this.isConnected,
-    onAuthReplaced: (auth) => this.#drafts.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth })),
+    onAuthReplaced: () => this.#drafts.rebind(this.#authority.lifecycleClient()),
     // Never renderView() from this listener: every getAccessToken() dispatches a state change and the home
     // route fetches with a token, so re-rendering routes here loops forever. Routes subscribe themselves.
     onAuthStateChange: () => {
@@ -71,11 +70,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   #workspaceConversation: readonly WorkspaceConversationMessage[] = [];
   public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
     this.#workspaceConversation = messages.map((message) => ({ ...message }));
-    return (
-      this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.setWorkspaceConversation(
-        this.#workspaceConversation,
-      ) ?? true
-    );
+    return this.#children.chat()?.setWorkspaceConversation(this.#workspaceConversation) ?? true;
   }
 
   public get agentSessionAdapter(): WorkspaceAgentSessionAdapter | undefined {
@@ -85,7 +80,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     const previous = this.#workspaceAgentAdapter;
     this.#workspaceAgentAdapter = adapter;
     this.#syncWorkspaceChrome();
-    const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+    const chat = this.#children.chat();
     if (chat && (previous !== adapter || chat.agentSessionAdapter !== adapter)) {
       chat.detachAgentSession();
       chat.agentSessionAdapter = adapter;
@@ -94,10 +89,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   #isWorkspaceHost(): boolean {
-    return Boolean(
-      this.#workspaceAgentAdapter ||
-        (this.#authority.session && "kind" in this.#authority.session && this.#authority.session.kind === "cookie"),
-    );
+    return Boolean(this.#workspaceAgentAdapter) || this.#authority.hasCookieSession;
   }
   #syncWorkspaceChrome(): void {
     const host = this.#isWorkspaceHost();
@@ -133,7 +125,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     },
     onCatalogApplied: (catalog) => {
       this.#live.forgetMapKit();
-      const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+      const canvas = this.#children.canvas();
       if (canvas) canvas.sourceCatalog = catalog;
       if (this.isConnected && this.#live.isLive) this.#live.scheduleAgentSession();
     },
@@ -149,7 +141,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.closeDesignInspector();
       if (!this.#recipes.isAttaching(draftId)) this.#recipes.dispose();
     },
-    afterMapSwitch: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration(),
+    afterMapSwitch: () => this.#children.canvas()?.resetExploration(),
     onDraftChange: (identity) =>
       this.dispatchEvent(
         new CustomEvent("honua-workspace-draft-change", { bubbles: true, composed: true, detail: identity }),
@@ -165,8 +157,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     composition: this.#composition,
     chrome: this.#chrome,
     orchestrator: () => this.toolCallOrchestrator,
-    chat: () => this.querySelector<HonuaStudioChatElement>("honua-studio-chat") ?? undefined,
-    canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
+    children: this.#children,
     hasUnsavedStyleChanges: () => this.hasUnsavedStyleChanges,
   });
   readonly #designInspector: DesignInspectorHost = new DesignInspectorHost({
@@ -176,7 +167,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     catalog: this.#catalog,
     composition: this.#composition,
     chrome: this.#chrome,
-    canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
+    children: this.#children,
   });
   readonly #styleEditor: StyleEditorHost = new StyleEditorHost({
     host: this,
@@ -186,7 +177,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     composition: this.#composition,
     chrome: this.#chrome,
     editor: this.#editor,
-    canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
+    children: this.#children,
   });
   readonly #recipes: RecipeController = new RecipeController({
     host: this,
@@ -199,7 +190,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     host: this,
     catalog: this.#catalog,
     chrome: this.#chrome,
-    chat: () => this.querySelector<HonuaStudioChatElement>("honua-studio-chat") ?? undefined,
+    children: this.#children,
   });
 
   public get selectedDesignRelationship(): DesignRelationship | undefined {
@@ -372,20 +363,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   public set session(session: SessionAdapter | undefined) {
     if (this.#authority.session === session) return;
-    if (session && "kind" in session && session.kind === "cookie") verifiedSourcePathBase(session.sourcePathBase);
+    if (isCookieSession(session)) verifiedSourcePathBase(session.sourcePathBase);
     const previous = this.#authority.session;
     const hadAuthority = Boolean(this.#authority.holdsSession || this.#drafts.binding);
-    const samePrincipal =
-      previous &&
-      session &&
-      "kind" in previous &&
-      previous.kind === "cookie" &&
-      "kind" in session &&
-      session.kind === "cookie" &&
-      previous.principalId &&
-      previous.principalId === session.principalId &&
-      previous.environmentId === session.environmentId &&
-      verifiedSourcePathBase(previous.sourcePathBase) === verifiedSourcePathBase(session.sourcePathBase);
+    const samePrincipal = isSameCookiePrincipal(previous, session);
     if (!samePrincipal) {
       this.closeDesignInspector();
       this.#recipes.resetAuthority();
@@ -395,38 +376,29 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         // Cached human descriptor metadata belongs to the former authority too.
         this.#catalog.forget();
         this.#live.forgetMapKit();
-        const previousCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
+        const previousCanvas = this.#children.canvas();
         if (previousCanvas) previousCanvas.sourceCatalog = undefined;
       }
       this.#drafts.detach();
       this.composition.resetBaseline(createEmptyCompositionState());
       this.composition.clearSelection();
-      this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration();
+      this.#children.canvas()?.resetExploration();
       if (hadAuthority) this.#drafts.announce();
     }
     this.#authority.adoptSession(session);
     this.#syncWorkspaceChrome();
-    const sourceCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-    if (sourceCanvas)
-      sourceCanvas.sourceAuthBaseUrl =
-        session && "kind" in session && session.kind === "cookie"
-          ? verifiedSourcePathBase(session.sourcePathBase)
-          : runtimeMcpBaseUrl();
+    const sourceCanvas = this.#children.canvas();
+    if (sourceCanvas) sourceCanvas.sourceAuthBaseUrl = this.#authority.sourceBaseUrl;
     if (!this.isConnected) {
       this.#authority.disposeAuth();
       this.#authority.forgetStudioClient();
       return;
     }
-    const renewed =
-      samePrincipal &&
-      session &&
-      "kind" in session &&
-      session.kind === "cookie" &&
-      this.#authority.renewCookieLease(session);
+    const renewed = samePrincipal && isCookieSession(session) && this.#authority.renewCookieLease(session);
     if (!renewed) this.#authority.resetAuth();
     // A host-owned catalog does not reload on session replacement. Invalidate
     // its widget rows explicitly rather than leaving another session's data visible.
-    for (const canvas of this.querySelectorAll<HonuaStudioCanvasElement>("honua-studio-canvas")) {
+    for (const canvas of this.#children.canvases()) {
       canvas.widgetDeck?.refreshSession();
     }
     // A host-owned catalog never refreshes, so nothing else would rebuild the agent session.
@@ -481,26 +453,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
-  public createWorkspaceStyleProvider(
-    options: { readonly getAuthority?: () => unknown; readonly signal?: AbortSignal } = {},
-  ): AuthoritativeStyleProvider {
-    const generation = this.#authority.epoch.current;
-    const authority = options.getAuthority?.();
-    const baseUrl =
-      this.#authority.session && "kind" in this.#authority.session && this.#authority.session.kind === "cookie"
-        ? verifiedSourcePathBase(this.#authority.session.sourcePathBase)
-        : runtimeMcpBaseUrl();
-    return new AuthoritativeStyleProvider({
-      baseUrl,
-      ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-      documentUrl: window.document.baseURI,
-      signal: options.signal,
-      getAuth: () => {
-        if (!this.#authority.epoch.isCurrent(generation) || options.getAuthority?.() !== authority)
-          throw new Error("The selected style workspace authority changed.");
-        return this.auth;
-      },
-    });
+  public createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions = {}): AuthoritativeStyleProvider {
+    return this.#authority.createWorkspaceStyleProvider(options);
   }
 
   /**
@@ -630,13 +584,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.routingMode === "hash") this.#router.startHashRouting();
     else this.#router.followHostPath(this.getAttribute("current-path"));
 
-    if (!this.querySelector("honua-studio-chat")) {
+    if (!this.#children.chat()) {
       const chat = document.createElement("honua-studio-chat");
       chat.slot = "chat";
       chat.setAttribute("label", "Chat");
       this.appendChild(chat);
     }
-    if (!this.querySelector("honua-studio-canvas")) {
+    if (!this.#children.canvas()) {
       const canvas = document.createElement("honua-studio-canvas");
       canvas.slot = "canvas";
       canvas.setAttribute("label", "Canvas");
@@ -645,12 +599,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     if (this.#workspaceAgentAdapter) this.agentSessionAdapter = this.#workspaceAgentAdapter;
 
-    const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-    if (canvas)
-      canvas.sourceAuthBaseUrl =
-        this.#authority.session && "kind" in this.#authority.session && this.#authority.session.kind === "cookie"
-          ? verifiedSourcePathBase(this.#authority.session.sourcePathBase)
-          : runtimeMcpBaseUrl();
+    const canvas = this.#children.canvas();
+    if (canvas) canvas.sourceAuthBaseUrl = this.#authority.sourceBaseUrl;
     if (canvas && !canvas.composition) canvas.composition = this.composition;
     if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#editor.dispatch(commands);
     if (canvas && this.#catalog.catalog) canvas.sourceCatalog = this.#catalog.catalog;
@@ -665,7 +615,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
     this.listen(this, "honua-studio-lifecycle-activity", (event) => {
       const detail = (event as CustomEvent<HonuaStudioLifecycleActivityDetail>).detail;
-      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      const chat = this.#children.chat();
       chat?.activityLog.append("lifecycle_action", { ...detail });
     });
 
@@ -673,7 +623,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#workspaceConversation.length) this.setWorkspaceConversation(this.#workspaceConversation);
     this.listen(this, "honua-studio-gp-activity", (event) => {
       const detail = (event as CustomEvent<HonuaStudioGpActivityDetail>).detail;
-      const chat = this.querySelector<HonuaStudioChatElement>("honua-studio-chat");
+      const chat = this.#children.chat();
       chat?.activityLog.append("gp_action", { ...detail });
     });
 
@@ -703,7 +653,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#recipes.dispose();
     this.#chrome.dispose();
     if (!this.#workspaceAgentAdapter) {
-      this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.detachAgentSession();
+      this.#children.chat()?.detachAgentSession();
     }
     this.#live.cancelAgentSetup();
     this.#router.stop();

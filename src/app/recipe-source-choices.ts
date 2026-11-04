@@ -1,4 +1,3 @@
-import { verifiedSourcePathBase } from "../auth/host-session.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { ExploreDatasetMetadata } from "../recipes/explore-dataset.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
@@ -7,15 +6,16 @@ import { createCatalogWidgetDataLoader } from "../widgets/widget-data.js";
 import { recipeSourceIdentity } from "./recipe-source-identity.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import { WORKSPACE_AUTHORITY_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
+import {
+  WORKSPACE_AUTHORITY_CHANGED,
+  type WorkspaceAuthority,
+  type WorkspaceStyleProviderOptions,
+} from "./workspace-authority.js";
 
 /** The public `<honua-studio-app>` methods recipe discovery goes through; hosts and tests may wrap them. */
 export interface RecipeSourcesHost {
   listRecipeSources(signal: AbortSignal): Promise<readonly CatalogDataset[]>;
-  createWorkspaceStyleProvider(options: {
-    readonly getAuthority?: () => unknown;
-    readonly signal?: AbortSignal;
-  }): AuthoritativeStyleProvider;
+  createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions): AuthoritativeStyleProvider;
 }
 
 export interface RecipeSourceChoicesOptions {
@@ -131,13 +131,7 @@ export class RecipeSourceChoices {
   }
 
   #identity(source: CatalogDataset): string | undefined {
-    const { session } = this.options.authority;
-    return recipeSourceIdentity(
-      source,
-      session && "kind" in session && session.kind === "cookie"
-        ? verifiedSourcePathBase(session.sourcePathBase)
-        : undefined,
-    );
+    return recipeSourceIdentity(source, this.options.authority.cookieSourcePathBase);
   }
 
   #hostChoicesAgreeingWith(

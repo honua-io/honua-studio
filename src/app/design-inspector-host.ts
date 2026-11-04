@@ -4,11 +4,12 @@ import type { DesignInspectorPanel } from "../design/design-inspector-panel.js";
 import type { DesignConsumer } from "../design/design-inventory.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import { runtimeMcpBaseUrl } from "../runtime-config.js";
-import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import type { MapStyleField } from "../styles/map-style-edit.js";
+import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
+import type { StudioAppChildren } from "./studio-app-children.js";
 import type { WorkspaceAuthority } from "./workspace-authority.js";
 import type { WorkspaceDraftSession } from "./workspace-draft-session.js";
 
@@ -27,7 +28,7 @@ export interface DesignInspectorHostOptions {
   readonly catalog: SourceCatalog;
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;
-  readonly canvas: () => HonuaStudioCanvasElement | undefined;
+  readonly children: StudioAppChildren;
 }
 
 /** What the panel was opened for; a source description from another draft or authority is refused. */
@@ -91,7 +92,7 @@ export class DesignInspectorHost {
     container.id = "design-inspector-panel";
     this.options.chrome.appSlots()?.before(container);
     this.#container = container;
-    const scope: InspectorScope = { generation, draftId, canvas: this.options.canvas() };
+    const scope: InspectorScope = { generation, draftId, canvas: this.options.children.canvas() };
     this.#panel = new Panel({
       container,
       controller: this.options.composition,
@@ -130,13 +131,7 @@ export class DesignInspectorHost {
     if (!source)
       throw new Error("Source is absent from the authorized catalog. Refresh source access before describing fields.");
     const baseUrl = scope.canvas?.sourceAuthBaseUrl ?? runtimeMcpBaseUrl();
-    const provider = new AuthoritativeStyleProvider({
-      baseUrl,
-      ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-      documentUrl: document.baseURI,
-      getAuth: () => authority.auth,
-      signal,
-    });
+    const provider = sourceStyleProvider({ baseUrl, getAuth: () => authority.auth, signal });
     const fields = await provider.describeSource(source);
     signal.throwIfAborted();
     if (!authority.epoch.isCurrent(scope.generation) || scope.draftId !== drafts.identity?.draftId)

@@ -1,15 +1,24 @@
-import { HostAdapterAuthSession } from "../auth/host-session.js";
+import { HostAdapterAuthSession, isCookieSession, verifiedSourcePathBase } from "../auth/host-session.js";
 import { type AuthSession, type SessionAdapter, createAuthSession } from "../auth/index.js";
 import type { CookieSessionAdapter } from "../auth/types.js";
 import { StudioClient } from "../client/studio-client.js";
+import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
+import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
+import { runtimeLifecycleClient, sourceStyleProvider } from "./runtime-clients.js";
 import { StalenessEpoch } from "./staleness-epoch.js";
 
 export const WORKSPACE_AUTHORITY_CHANGED = "The workspace authority changed.";
+export const WORKSPACE_SESSION_CHANGED = "The workspace session changed.";
+
+export interface WorkspaceStyleProviderOptions {
+  readonly getAuthority?: () => unknown;
+  readonly signal?: AbortSignal;
+}
 
 export interface WorkspaceAuthorityHooks {
   readonly isConnected: () => boolean;
-  readonly onAuthReplaced: (auth: AuthSession) => void;
+  readonly onAuthReplaced: () => void;
   readonly onAuthStateChange: () => void;
 }
 
@@ -52,6 +61,39 @@ export class WorkspaceAuthority {
     return Boolean(this.#session || this.#auth);
   }
 
+  get hasCookieSession(): boolean {
+    return isCookieSession(this.#session);
+  }
+
+  /** The verified deployment path of a cookie session; undefined for any other session. */
+  get cookieSourcePathBase(): string | undefined {
+    return isCookieSession(this.#session) ? verifiedSourcePathBase(this.#session.sourcePathBase) : undefined;
+  }
+
+  /** Where this authority reads published sources: the verified cookie path, else the catalog root. */
+  get sourceBaseUrl(): string {
+    return this.cookieSourcePathBase ?? runtimeMcpBaseUrl();
+  }
+
+  lifecycleClient(): StudioLifecycleClient {
+    return runtimeLifecycleClient(this.auth);
+  }
+
+  /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
+  createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions = {}): AuthoritativeStyleProvider {
+    const generation = this.epoch.current;
+    const authority = options.getAuthority?.();
+    return sourceStyleProvider({
+      baseUrl: this.sourceBaseUrl,
+      signal: options.signal,
+      getAuth: () => {
+        if (!this.epoch.isCurrent(generation) || options.getAuthority?.() !== authority)
+          throw new Error("The selected style workspace authority changed.");
+        return this.auth;
+      },
+    });
+  }
+
   adoptSession(session: SessionAdapter | undefined): void {
     this.#session = session;
     this.lease.next();
@@ -70,7 +112,7 @@ export class WorkspaceAuthority {
     this.forgetStudioClient();
     const auth = createAuthSession({ hostAdapter: this.#session });
     this.#auth = auth;
-    this.hooks.onAuthReplaced(auth);
+    this.hooks.onAuthReplaced();
     this.#authUnsubscribe = auth.subscribe(() => this.hooks.onAuthStateChange());
     if (this.hooks.isConnected()) void this.#completeStandaloneRedirectCallback(auth);
     return auth;

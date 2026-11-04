@@ -3,8 +3,6 @@ import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionState } from "../composition/model.js";
 import { applyCompositionCommands } from "../composition/reducer.js";
-import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
-import type { HonuaStudioChatElement } from "../elements/studio-chat-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
@@ -12,7 +10,8 @@ import { resolveToolCall } from "../mcp/tool-bridge.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
+import type { StudioAppChildren } from "./studio-app-children.js";
+import { WORKSPACE_SESSION_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
 import type { WorkspaceDraftSession } from "./workspace-draft-session.js";
 
 type HistoryAction = "undo" | "redo";
@@ -33,8 +32,7 @@ export interface CompositionEditorOptions {
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;
   readonly orchestrator: () => ToolCallOrchestrator;
-  readonly chat: () => HonuaStudioChatElement | undefined;
-  readonly canvas: () => HonuaStudioCanvasElement | undefined;
+  readonly children: StudioAppChildren;
   readonly hasUnsavedStyleChanges: () => boolean;
 }
 
@@ -99,8 +97,7 @@ export class CompositionEditor {
       const generation = this.options.authority.epoch.current;
       return this.#dispatchToDraft({ binding, generation, commands, isCurrent: options?.isCurrent });
     }
-    const { session } = this.options.authority;
-    if (session && "kind" in session && session.kind === "cookie")
+    if (this.options.authority.hasCookieSession)
       return { ok: false, reason: "Attach the shared server draft before editing the map." };
     for (const command of commands) {
       const result = await this.options.orchestrator().handleToolCall({
@@ -123,7 +120,7 @@ export class CompositionEditor {
     const resolved = resolveToolCall({ toolName: detail.toolName, arguments: args });
     const outcome = resolved.ok ? await this.dispatch([resolved.command]) : resolved;
     if (!outcome.ok)
-      this.options.chat()?.activityLog.append("assistant_turn_error", {
+      this.options.children.chat()?.activityLog.append("assistant_turn_error", {
         phase: "workspace-command",
         errorMessage: outcome.reason,
       });
@@ -185,7 +182,7 @@ export class CompositionEditor {
     } else applied = await this.options.orchestrator().applyHistoryAction(action);
     const { draftId, generation } = this.options.orchestrator();
     if (applied && draftId && generation !== undefined) {
-      this.options.chat()?.agentSession?.attachDraft({ draftId, generation });
+      this.options.children.chat()?.agentSession?.attachDraft({ draftId, generation });
     }
     this.options.chrome.setHistoryStatus(
       applied ? (action === "undo" ? "Undone" : "Redone") : `Unable to ${action}. Review the activity log.`,
@@ -201,9 +198,9 @@ export class CompositionEditor {
     const { authority, composition, drafts } = this.options;
     const generation = authority.epoch.current;
     return drafts.enqueue(async () => {
-      authority.epoch.assertCurrent(generation, "The workspace session changed.");
+      authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
       const observed = await binding.replace(target);
-      authority.epoch.assertCurrent(generation, "The workspace session changed.");
+      authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
       const changed = action === "undo" ? composition.undo() : composition.redo();
       composition.replaceState(observed);
       drafts.announce();
@@ -229,7 +226,7 @@ export class CompositionEditor {
   async #applyToDraft(edit: DraftEdit): Promise<void> {
     const { authority, composition, drafts } = this.options;
     const { binding, generation, commands } = edit;
-    authority.epoch.assertCurrent(generation, "The workspace session changed.");
+    authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     if (binding !== drafts.binding) throw new Error("The active map changed before the edit began.");
     const styleCommand = commands.length === 1 && commands[0]?.name === "setMapStyle" ? commands[0] : undefined;
     const anchor = styleCommand ? await this.#styleAnchor(edit) : composition.state;
@@ -241,7 +238,7 @@ export class CompositionEditor {
           annotations: target.annotations,
         }
       : await binding.replace(target);
-    authority.epoch.assertCurrent(generation, "The workspace session changed.");
+    authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     // The accepted style response establishes one authoritative revision;
     // replaying it against the older source anchor would reject valid additions.
     if (!styleCommand) for (const command of commands) composition.apply(command);
@@ -256,11 +253,11 @@ export class CompositionEditor {
   async #styleAnchor(edit: DraftEdit): Promise<CompositionState> {
     const { authority, composition, drafts } = this.options;
     const current = composition.state;
-    const canvas = this.options.canvas();
+    const canvas = this.options.children.canvas();
     if (!canvas) throw new Error("Open the map canvas before editing its style.");
     const mapSpec = await canvas.editableMapStyle();
     if (!authority.epoch.isCurrent(edit.generation) || edit.binding !== drafts.binding)
-      throw new Error("The workspace session changed.");
+      throw new Error(WORKSPACE_SESSION_CHANGED);
     if (current !== composition.state || edit.isCurrent?.() === false)
       throw new Error("The map changed while preparing its style.");
     return { ...current, mapSpec };

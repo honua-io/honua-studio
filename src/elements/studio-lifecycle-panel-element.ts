@@ -1,3 +1,4 @@
+import { runtimeLifecycleClient } from "../app/runtime-clients.js";
 /**
  * `<honua-studio-lifecycle-panel>` (honua-studio#9 build item 2) — the open
  * item/draft view: draft status (generation, validation summary), save-as-
@@ -35,7 +36,7 @@
  *
  * @module
  */
-import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type {
   StudioContentVersion,
   StudioPackageDraft,
@@ -43,7 +44,6 @@ import type {
   StudioRollbackPointer,
   StudioVersionComparison,
 } from "../lifecycle/lifecycle-types.js";
-import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, lifecycleStyles } from "./styles.js";
@@ -112,7 +112,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
   }
 
   public get client(): StudioLifecycleClient {
-    if (!this.#client) this.#client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.#auth });
+    if (!this.#client) this.#client = runtimeLifecycleClient(this.#auth);
     return this.#client;
   }
 

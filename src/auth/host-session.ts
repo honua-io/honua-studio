@@ -19,6 +19,22 @@ import type {
   Unsubscribe,
 } from "./types.js";
 
+export function isCookieSession(session: SessionAdapter | undefined): session is CookieSessionAdapter {
+  return session !== undefined && "kind" in session && session.kind === "cookie";
+}
+
+/** Two cookie sessions of one principal, environment and verified deployment path: a lease renewal. */
+export function isSameCookiePrincipal(previous: SessionAdapter | undefined, next: SessionAdapter | undefined): boolean {
+  return (
+    isCookieSession(previous) &&
+    isCookieSession(next) &&
+    Boolean(previous.principalId) &&
+    previous.principalId === next.principalId &&
+    previous.environmentId === next.environmentId &&
+    verifiedSourcePathBase(previous.sourcePathBase) === verifiedSourcePathBase(next.sourcePathBase)
+  );
+}
+
 export function verifiedSourcePathBase(value: string | undefined): string {
   const path = value ?? "";
   if (path !== "" && (!/^\/(?:[A-Za-z0-9_-]+)(?:\/[A-Za-z0-9_-]+)*$/.test(path) || path.length > 512))
@@ -48,7 +64,7 @@ export class HostAdapterAuthSession implements AuthSession {
     // any UI gated on `status === "fresh"` (see src/pages/home.ts) would
     // never leave "signed-out", since nothing else calls getAccessToken()
     // until a request needs it.
-    if ("kind" in adapter && adapter.kind === "cookie") {
+    if (isCookieSession(adapter)) {
       const cookie = Object.freeze({ ...adapter });
       this.adapter = cookie;
       const sourcePathBase = verifiedSourcePathBase(cookie.sourcePathBase);
@@ -63,7 +79,7 @@ export class HostAdapterAuthSession implements AuthSession {
       }
       this.fetchRequest = async (input, init) => {
         const cookie = this.adapter;
-        if (!("kind" in cookie) || cookie.kind !== "cookie") throw new Error("The host session changed.");
+        if (!isCookieSession(cookie)) throw new Error("The host session changed.");
         if (this.disposed || this.getState().status !== "fresh") throw new Error("The host session expired.");
         if (input instanceof Request) throw new Error("Cookie transport requires an explicit URL.");
         let path = String(input);
@@ -153,7 +169,7 @@ export class HostAdapterAuthSession implements AuthSession {
             throw new Error("The session renewed during this request. Check the original outcome before retrying.");
           if (safeRead) {
             const renewed = this.adapter;
-            if (!("kind" in renewed) || renewed.kind !== "cookie" || this.getState().status !== "fresh")
+            if (!isCookieSession(renewed) || this.getState().status !== "fresh")
               throw new Error("The host session changed.");
             if (target === "/api/studio/catalog-mcp") headers.set("X-CSRF-Token", renewed.csrfToken);
             response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
@@ -216,8 +232,7 @@ export class HostAdapterAuthSession implements AuthSession {
     if (this.disposed) throw new Error("The host session is disposed.");
     const previous = this.adapter;
     if (
-      !("kind" in previous) ||
-      previous.kind !== "cookie" ||
+      !isCookieSession(previous) ||
       previous.principalId !== adapter.principalId ||
       previous.environmentId !== adapter.environmentId ||
       verifiedSourcePathBase(previous.sourcePathBase) !== verifiedSourcePathBase(adapter.sourcePathBase) ||
@@ -255,7 +270,7 @@ export class HostAdapterAuthSession implements AuthSession {
   }
 
   async getAccessToken(): Promise<string | undefined> {
-    if ("kind" in this.adapter && this.adapter.kind === "cookie") {
+    if (isCookieSession(this.adapter)) {
       const expiresAt = Date.parse(this.adapter.expiresAt);
       if (this.state.status === "expired" || expiresAt <= Date.now()) {
         this.dispatch({ type: "refresh-failed", error: "The host session expired." });

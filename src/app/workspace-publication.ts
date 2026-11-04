@@ -1,7 +1,6 @@
-import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
-import { runtimeServerBaseUrl } from "../runtime-config.js";
 import type { EpochToken } from "./staleness-epoch.js";
 import type { WorkspaceAuthority } from "./workspace-authority.js";
 import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
@@ -26,6 +25,7 @@ type LifecycleAction<T> = (
 ) => Promise<T>;
 
 const LIFECYCLE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const SESSION_OR_MAP_CHANGED = "The workspace session or map changed.";
 
 /**
  * Saved versions of the active draft and their human-gated publication. Publishing requires a review
@@ -140,10 +140,10 @@ export class WorkspacePublication {
       throw new Error("Version and publication request IDs are required.");
     const current = () => {
       if (binding !== this.drafts.binding || !this.authority.epoch.isCurrent(generation))
-        throw new Error("The workspace session or map changed.");
+        throw new Error(SESSION_OR_MAP_CHANGED);
     };
     current();
-    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.authority.auth });
+    const client = this.authority.lifecycleClient();
     const draft = await client.getDraft(identity.draftId);
     current();
     if (draft.draftId !== identity.draftId || draft.packageKey !== identity.packageKey)
@@ -195,18 +195,13 @@ export class WorkspacePublication {
     await this.prepareWorkspaceTurn();
     const current = () => {
       if (!this.authority.epoch.isCurrent(generation) || binding !== this.drafts.binding)
-        throw new Error("The workspace session or map changed.");
+        throw new Error(SESSION_OR_MAP_CHANGED);
       if (this.drafts.isEditPending())
         throw new Error("Save or explicitly reload pending Studio edits before using saved versions.");
     };
     return this.drafts.enqueue(async () => {
       current();
-      return action(
-        new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.authority.auth }),
-        identity,
-        current,
-        generation,
-      );
+      return action(this.authority.lifecycleClient(), identity, current, generation);
     });
   }
 }

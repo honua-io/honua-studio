@@ -1,11 +1,10 @@
-import { verifiedSourcePathBase } from "../auth/host-session.js";
 import type { CatalogDataset } from "../client/studio-client.js";
 import { StudioClient } from "../client/studio-client.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
-import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
+import { sourceStyleProvider } from "./runtime-clients.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
+import { WORKSPACE_AUTHORITY_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
 
 export interface SourceCatalogHooks {
   readonly isConnected: () => boolean;
@@ -98,8 +97,7 @@ export class SourceCatalog {
       ? authority.studioClient
       : new StudioClient(runtimeServerBaseUrl(), auth, runtimeMcpBaseUrl());
     const catalog = await client.listCatalog();
-    if (!authority.epoch.isCurrent(generation) || auth !== authority.auth)
-      throw new Error("The workspace authority changed.");
+    if (!authority.epoch.isCurrent(generation) || auth !== authority.auth) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
     this.apply(catalog);
     this.#processSourceAuthority = generation;
     return catalog
@@ -115,19 +113,13 @@ export class SourceCatalog {
     const source = this.find(sourceId);
     if (!source || this.#processSourceAuthority !== generation)
       throw new Error("Refresh the authorized source choices before selecting a process layer.");
-    const baseUrl =
-      authority.session && "kind" in authority.session && authority.session.kind === "cookie"
-        ? verifiedSourcePathBase(authority.session.sourcePathBase)
-        : runtimeMcpBaseUrl();
-    const provider = new AuthoritativeStyleProvider({
-      baseUrl,
-      ...(baseUrl !== runtimeMcpBaseUrl() ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() } : {}),
-      documentUrl: window.document.baseURI,
+    const provider = sourceStyleProvider({
+      baseUrl: authority.sourceBaseUrl,
       getAuth: () => authority.auth,
       signal: AbortSignal.timeout(8000),
     });
     const result = await provider.resolveProcessSource(source);
-    authority.epoch.assertCurrent(generation, "The workspace authority changed.");
+    authority.epoch.assertCurrent(generation, WORKSPACE_AUTHORITY_CHANGED);
     return result;
   }
 
