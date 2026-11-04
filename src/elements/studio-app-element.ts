@@ -11,11 +11,14 @@ import {
   type StudioAiTranscriptSigningManifest,
   StudioAiTranscriptVerifier,
 } from "@honua/sdk-js/studio-agent";
+import { CompositionEditor, historyShortcutAction } from "../app/composition-editor.js";
 import { ShellChrome } from "../app/shell-chrome.js";
 import { ShellRouter } from "../app/shell-router.js";
 import { type ProcessSourceChoice, SourceCatalog } from "../app/source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "../app/staleness-epoch.js";
 import { WorkspaceAuthority } from "../app/workspace-authority.js";
+import { type WorkspaceDraftIdentity, WorkspaceDraftSession } from "../app/workspace-draft-session.js";
+import { WorkspacePublication } from "../app/workspace-publication.js";
 import { verifiedSourcePathBase } from "../auth/host-session.js";
 import {
   type AuthoritativeStyleDefinition,
@@ -34,23 +37,19 @@ import {
 } from "../chat/share-preview.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import { type CatalogDataset, StudioClient } from "../client/studio-client.js";
-import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { type CompositionState, createEmptyCompositionState } from "../composition/model.js";
 import { canonicalCompositionJson } from "../composition/model.js";
-import { applyCompositionCommands } from "../composition/reducer.js";
 import type { DesignInspectorPanel } from "../design/design-inspector-panel.js";
 import { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { StudioPackageDraftCreateRequest } from "../lifecycle/lifecycle-types.js";
-import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
-import { resolveToolCall } from "../mcp/tool-bridge.js";
 import {
   type ExploreDatasetInput,
   type ExploreDatasetMetadata,
@@ -76,12 +75,6 @@ import type {
   HonuaStudioThemeChangeDetail,
   HonuaStudioThemeSwitcherVisibility,
 } from "./types.js";
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
 
 function recipeSourceIdentity(source: CatalogDataset, verifiedSourceBase?: string): string | undefined {
   const locator = source.locator;
@@ -170,10 +163,10 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return ["data-theme-set", "data-theme", "routing-mode", "current-path", "base-path", "theme-switcher"];
   }
 
+  readonly #composition = new CompositionController(createEmptyCompositionState());
   readonly #authority = new WorkspaceAuthority({
     isConnected: () => this.isConnected,
-    onAuthReplaced: (auth) =>
-      this.#workspaceDraft?.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth })),
+    onAuthReplaced: (auth) => this.#drafts.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth })),
     // Never renderView() from this listener: every getAccessToken() dispatches a state change and the home
     // route fetches with a token, so re-rendering routes here loops forever. Routes subscribe themselves.
     onAuthStateChange: () => {
@@ -227,7 +220,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     connectedSignal: () => this.connectedSignal,
     authStatus: () => this.#authority.resolvedAuth?.getState().status ?? "signed-out",
     isDesignInspectorOpen: () => Boolean(this.#designInspector),
-    isHistoryBusy: () => this.#historyBusy,
+    isHistoryBusy: () => this.#drafts.historyBusy,
     liveStatus: () => ({ live: this.#orchestrator?.isLive === true, packageKey: this.#liveCompositionPackageKey }),
     onNavigate: (path, event) => this.#router.requestNavigation(path, event),
   });
@@ -237,9 +230,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     viewRoot: () => this.#chrome.viewRoot(),
     onRouteRendered: () => this.#chrome.syncNav(),
     isWorkspaceHost: () => this.#isWorkspaceHost(),
-    addCatalogSource: (dataset) => this.#addCatalogSource(dataset),
+    addCatalogSource: (dataset) => this.#editor.addCatalogSource(dataset),
   });
-  #composition: CompositionController | undefined;
   #designInspector: DesignInspectorPanel | undefined;
   #designInspectorContainer: HTMLElement | undefined;
   #designInspectorOpening = new StalenessEpoch();
@@ -268,13 +260,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#designInspector) return;
     const opening = this.#designInspectorOpening.next();
     const generation = this.#authority.epoch.current;
-    const identity = this.#workspaceDraft?.identity?.draftId;
+    const identity = this.#drafts.identity?.draftId;
     const { DesignInspectorPanel: Panel } = await import("../design/design-inspector-panel.js");
     if (
       !this.isConnected ||
       !this.#designInspectorOpening.isCurrent(opening) ||
       !this.#authority.epoch.isCurrent(generation) ||
-      identity !== this.#workspaceDraft?.identity?.draftId
+      identity !== this.#drafts.identity?.draftId
     )
       return;
     const container = document.createElement("div");
@@ -303,7 +295,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         });
         const fields = await provider.describeSource(source);
         signal.throwIfAborted();
-        if (!this.#authority.epoch.isCurrent(generation) || identity !== this.#workspaceDraft?.identity?.draftId)
+        if (!this.#authority.epoch.isCurrent(generation) || identity !== this.#drafts.identity?.draftId)
           throw new Error("The workspace draft or authority changed.");
         return fields;
       },
@@ -350,34 +342,32 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   public async openStyleEditor(_options: { layerId?: string } = {}): Promise<void> {
     if (this.#styleEditor) return;
     await this.prepareWorkspaceTurn();
-    if (!this.#workspaceDraft) throw new Error("Attach an authorized map draft before editing its style.");
+    if (!this.#drafts.binding) throw new Error("Attach an authorized map draft before editing its style.");
     const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
     if (!canvas) throw new Error("Open the map canvas before its style editor.");
     if (!this.composition.state.mapSpec) {
-      const binding = this.#workspaceDraft;
+      const binding = this.#drafts.binding;
       const epoch = this.#authority.epoch.current;
-      const pending = this.#workspaceDraftQueue.then(async () => {
+      await this.#drafts.enqueue(async () => {
         const style = await canvas.editableMapStyle();
-        if (!this.#authority.epoch.isCurrent(epoch) || this.#workspaceDraft !== binding)
+        if (!this.#authority.epoch.isCurrent(epoch) || this.#drafts.binding !== binding)
           throw new Error("The workspace authority changed.");
         const observed = await binding.initializeStyle(style);
-        if (!this.#authority.epoch.isCurrent(epoch) || this.#workspaceDraft !== binding)
+        if (!this.#authority.epoch.isCurrent(epoch) || this.#drafts.binding !== binding)
           throw new Error("The workspace authority changed.");
         this.composition.resetBaseline({
           ...observed,
           pins: this.composition.state.pins,
           annotations: this.composition.state.annotations,
         });
-        this.#announceWorkspaceDraft();
+        this.#drafts.announce();
       });
-      this.#workspaceDraftQueue = pending.catch(() => undefined);
-      await pending;
     }
     const generation = this.#authority.epoch.current;
-    const identity = this.#workspaceDraft?.identity;
+    const identity = this.#drafts.identity;
     if (!identity) throw new Error("The workspace draft is unavailable.");
     const document = await canvas.editableMapStyle();
-    if (!this.#authority.epoch.isCurrent(generation) || identity.draftId !== this.#workspaceDraft?.identity?.draftId)
+    if (!this.#authority.epoch.isCurrent(generation) || identity.draftId !== this.#drafts.identity?.draftId)
       throw new Error("The workspace draft changed while opening the style editor.");
     const panel = window.document.createElement("section");
     panel.setAttribute("aria-label", "Map style editor");
@@ -427,12 +417,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         );
       },
       onSave: async (style) => {
-        if (
-          !this.#authority.epoch.isCurrent(generation) ||
-          identity.draftId !== this.#workspaceDraft?.identity?.draftId
-        )
+        if (!this.#authority.epoch.isCurrent(generation) || identity.draftId !== this.#drafts.identity?.draftId)
           throw new Error("The workspace authority changed. Reopen the visual editor.");
-        const result = await this.#dispatchCommands([{ name: "setMapStyle", mapSpec: style }]);
+        const result = await this.#editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
         if (!result.ok) throw new Error(result.reason);
         this.#authority.epoch.assertCurrent(generation, "The workspace authority changed.");
         return canvas.editableMapStyle();
@@ -440,7 +427,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       onDiscard: async () => {
         // Explicit discard permits authoritative refresh; no stale buffer is written.
         canvas.stylePreview = undefined;
-        const id = this.#workspaceDraft?.identity?.draftId;
+        const id = this.#drafts.identity?.draftId;
         if (!id || !this.#authority.epoch.isCurrent(generation)) throw new Error("The workspace authority changed.");
         const editor = this.#styleEditor;
         this.#styleEditor = undefined;
@@ -489,29 +476,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     );
   }
 
-  #workspaceDraft: WorkspaceDraftBinding | undefined;
-  #activeMap = new StalenessEpoch();
-  #workspacePublicationReviews = new WeakMap<
-    StudioContentVersion,
-    {
-      binding: WorkspaceDraftBinding;
-      generation: EpochToken;
-      itemId: string;
-      versionId: string;
-      contentHash: string;
-      submission?: {
-        commandId: string;
-        requestJson: string;
-        pending?: ReturnType<StudioLifecycleClient["requestPublish"]>;
-      };
-    }
-  >();
-  #workspaceDraftConflict = false;
-  #workspaceDraftQueue: Promise<unknown> = Promise.resolve();
-  #historyBusy = false;
-  #orchestrator: ToolCallOrchestrator | undefined;
-  #liveCompositionPackageKey: string | undefined;
-  #aiMapKit: HonuaAiMapKit | undefined;
   readonly #catalog = new SourceCatalog(this.#authority, {
     isConnected: () => this.isConnected,
     onCatalogReplacing: () => {
@@ -531,6 +495,39 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#recipeSourcesAuthority = undefined;
     },
   });
+  readonly #drafts = new WorkspaceDraftSession(this.#authority, this.#composition, {
+    prepareWorkspaceTurn: () => this.prepareWorkspaceTurn(),
+    attachWorkspaceDraft: (draftId) => this.attachWorkspaceDraft(draftId),
+    hasDirtyForm: () => this.#hasDirtyWorkspaceForm(),
+    settleStyleEdits: async () => {
+      await this.#styleEditor?.settled();
+    },
+    onDraftRequested: () => this.closeDesignInspector(),
+    beforeMapSwitch: (draftId) => {
+      this.closeDesignInspector();
+      if (this.#recipeDraftToAttach !== draftId) this.#disposeRecipePicker();
+    },
+    afterMapSwitch: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration(),
+    onDraftChange: (identity) =>
+      this.dispatchEvent(
+        new CustomEvent("honua-workspace-draft-change", { bubbles: true, composed: true, detail: identity }),
+      ),
+  });
+  readonly #publication = new WorkspacePublication(this.#authority, this.#drafts, () => this.prepareWorkspaceTurn());
+  readonly #editor = new CompositionEditor({
+    authority: this.#authority,
+    drafts: this.#drafts,
+    catalog: this.#catalog,
+    composition: this.#composition,
+    chrome: this.#chrome,
+    orchestrator: () => this.toolCallOrchestrator,
+    chat: () => this.querySelector<HonuaStudioChatElement>("honua-studio-chat") ?? undefined,
+    canvas: () => this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas") ?? undefined,
+    hasUnsavedStyleChanges: () => this.hasUnsavedStyleChanges,
+  });
+  #orchestrator: ToolCallOrchestrator | undefined;
+  #liveCompositionPackageKey: string | undefined;
+  #aiMapKit: HonuaAiMapKit | undefined;
   #lastAuthStatus: string | undefined;
   #agentToolDefinitions: ((kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentToolDefinitionLike>) | undefined;
   #agentCertification: StudioAgentCertificationOptions | undefined;
@@ -762,7 +759,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         input: json,
         generation,
         submission: new RecipeSubmission(),
-        originalDraftId: this.#workspaceDraft?.identity?.draftId,
+        originalDraftId: this.#drafts.identity?.draftId,
         attachmentAllowed: true,
       };
       this.#recipeSubmissions.set(submissionId, entry);
@@ -776,8 +773,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       this.#recipeAuthority.assertCurrent(generation, "The workspace authority changed.");
       const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
       if (!submission.request) {
-        submission.originalDraftId = this.#workspaceDraft?.identity?.draftId;
-        submission.originalDraftGeneration = this.#workspaceDraft?.identity?.generation;
+        submission.originalDraftId = this.#drafts.identity?.draftId;
+        submission.originalDraftGeneration = this.#drafts.identity?.generation;
         const capabilities = await client.getPackageFamilies();
         const map = capabilities.families.find((family) => family.family === "map");
         if (!map || map.supportLevel === "unsupported" || !map.supportedOperations.includes("draft.create"))
@@ -803,15 +800,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         generation,
         "The workspace authority changed. Reopen this draft in its original workspace.",
       );
-      const activeDraftId = this.#workspaceDraft?.identity?.draftId;
+      const activeDraftId = this.#drafts.identity?.draftId;
       if (!submission.attachmentAllowed)
         throw new Error(
           `Creation returned draft ${created.draftId} after this picker was closed. Reopen and retry this submission to attach that same draft.`,
         );
-      if (activeDraftId === created.draftId) return this.#workspaceDraft!.identity!;
+      if (activeDraftId === created.draftId) return this.#drafts.identity!;
       if (
         activeDraftId !== submission.originalDraftId ||
-        this.#workspaceDraft?.identity?.generation !== submission.originalDraftGeneration
+        this.#drafts.identity?.generation !== submission.originalDraftGeneration
       )
         throw new Error(
           `Draft ${created.draftId} was created, but the active map changed. Open that draft explicitly to recover it.`,
@@ -825,7 +822,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           throw new Error(
             `Draft ${created.draftId} was created, but attachment was cancelled. Open that draft explicitly to recover it.`,
           );
-        const current = this.#workspaceDraft?.identity;
+        const current = this.#drafts.identity;
         if (
           current?.draftId !== submission.originalDraftId ||
           current?.generation !== submission.originalDraftGeneration
@@ -836,11 +833,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       };
       this.#recipeDraftToAttach = created.draftId;
       try {
-        await this.#queueWorkspaceDraft(created.draftId, mayAttach);
+        await this.#drafts.attach(created.draftId, mayAttach);
       } finally {
         this.#recipeDraftToAttach = undefined;
       }
-      const identity = this.#workspaceDraft?.identity;
+      const identity = this.#drafts.identity;
       if (!identity || identity.draftId !== created.draftId)
         throw new Error("Retry to attach the already created draft.");
       return identity;
@@ -882,294 +879,65 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Explicit human create action; never creates a draft as a side effect of viewing or chatting. */
-  public async createWorkspaceDraft(
-    packageKey: string,
-  ): Promise<{ draftId: string; generation: number; packageKey: string }> {
-    const key = packageKey.trim();
-    if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
-      throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
-    const generation = this.#authority.epoch.current;
-    await this.prepareWorkspaceTurn();
-    this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
-    const created = await client.createDraft({
-      packageKey: key,
-      envelope: {
-        ...MAP_COMPOSITION_ENVELOPE,
-        body: toCompositionDraftBody(createEmptyCompositionState(), key),
-      },
-    });
-    this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-    await this.attachWorkspaceDraft(created.draftId);
-    const identity = this.#workspaceDraft?.identity;
-    if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
-    return identity;
+  public createWorkspaceDraft(packageKey: string): Promise<WorkspaceDraftIdentity> {
+    return this.#drafts.create(packageKey);
   }
 
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
   public attachWorkspaceDraft(draftId: string): Promise<void> {
-    return this.#queueWorkspaceDraft(draftId);
-  }
-
-  #queueWorkspaceDraft(draftId: string, mayAccept?: () => void): Promise<void> {
-    if (draftId !== this.#workspaceDraft?.identity?.draftId) this.closeDesignInspector();
-    const generation = this.#authority.epoch.current;
-    const run = this.#workspaceDraftQueue.then(() => this.#observeWorkspaceDraft(draftId, generation, mayAccept));
-    this.#workspaceDraftQueue = run.catch(() => undefined);
-    return run;
+    return this.#drafts.attach(draftId);
   }
 
   /** Save the active server draft as an immutable version; never publish it. */
   public saveWorkspaceVersion(): Promise<StudioContentVersion> {
-    return this.#withWorkspaceLifecycle(async (client, identity, current) => {
-      const version = await client.saveAsVersion(identity.draftId);
-      current();
-      return version;
-    });
+    return this.#publication.saveVersion();
   }
 
   /** List versions belonging to the active draft's server-owned content item. */
   public listWorkspaceVersions(): Promise<readonly StudioContentVersion[]> {
-    return this.#withWorkspaceLifecycle(async (client, identity, current) => {
-      const draft = await client.getDraft(identity.draftId);
-      current();
-      const result = await client.listVersions(draft.itemId);
-      current();
-      return result.versions;
-    });
+    return this.#publication.listVersions();
   }
 
   /** Read the exact saved version for the host's human publication review. Never submits. */
   public reviewWorkspacePublication(versionId: string): Promise<StudioContentVersion> {
-    return this.#withWorkspaceLifecycle(async (client, identity, current, generation) => {
-      const draft = await client.getDraft(identity.draftId);
-      current();
-      const version = await client.getVersion(draft.itemId, versionId);
-      current();
-      if (
-        version.itemId !== draft.itemId ||
-        version.versionId !== versionId ||
-        version.packageKey !== identity.packageKey ||
-        !version.contentHash
-      )
-        throw new Error("The publication version does not belong to the active map.");
-      const review = Object.freeze(structuredClone(version));
-      this.#workspacePublicationReviews.set(review, {
-        binding: this.#workspaceDraft!,
-        generation,
-        itemId: version.itemId,
-        versionId: version.versionId,
-        contentHash: version.contentHash,
-      });
-      return review;
-    });
+    return this.#publication.review(versionId);
   }
 
-  /**
-   * Human host action only. The host must persist commandId before submission and
-   * retain it and the exact input after a lost response. Replays use server policy
-   * and fresh authorization; a receipt awaiting approval is never completion.
-   */
-  public async publishWorkspaceVersion(
+  /** Human host action only; see `WorkspacePublication.publish` for the retry contract. */
+  public publishWorkspaceVersion(
     review: StudioContentVersion,
     request: StudioPublishRequestInput,
     commandId: string,
-  ): ReturnType<StudioLifecycleClient["requestPublish"]> {
-    const state = this.#workspacePublicationReviews.get(review);
-    if (!state) throw new Error("Review the saved version in the current workspace before publishing.");
-    const requireReview = () => {
-      if (state.binding !== this.#workspaceDraft || !this.#authority.epoch.isCurrent(state.generation))
-        throw new Error("Review the saved version again in the original workspace session before publishing.");
-    };
-    requireReview();
-    if (typeof commandId !== "string" || commandId.trim() !== commandId || !/^[A-Za-z0-9_-]{1,128}$/.test(commandId))
-      throw new Error("A stable publication command ID is required.");
-    // Keep only canonical publication inputs; browser callers cannot add approval fields.
-    const requestJson = JSON.stringify({
-      intent: request.intent,
-      warningAcknowledgement: request.warningAcknowledgement,
-    });
-    if (state.submission && (state.submission.commandId !== commandId || state.submission.requestJson !== requestJson))
-      throw new Error("Check the original publication before changing its command or publication settings.");
-    state.submission ??= { commandId, requestJson };
-    const submission = state.submission;
-    if (submission.pending) return submission.pending;
-    const pending = this.#withWorkspaceLifecycle(async (client, _identity, current) => {
-      requireReview();
-      const version = await client.getVersion(state.itemId, state.versionId);
-      current();
-      requireReview();
-      if (
-        version.itemId !== state.itemId ||
-        version.versionId !== state.versionId ||
-        version.contentHash !== state.contentHash
-      )
-        throw new Error("The saved version changed after publication review.");
-      const receipt = await client.requestPublish(
-        state.itemId,
-        state.versionId,
-        JSON.parse(submission.requestJson) as StudioPublishRequestInput,
-        submission.commandId,
-      );
-      current();
-      requireReview();
-      return receipt;
-    });
-    submission.pending = pending;
-    try {
-      return await pending;
-    } finally {
-      submission.pending = undefined;
-    }
+  ): ReturnType<WorkspacePublication["publish"]> {
+    return this.#publication.publish(review, request, commandId);
   }
 
   /** Read an active item's publication receipt without flushing edits or submitting a mutation. */
-  public async readWorkspacePublication(
+  public readWorkspacePublication(
     versionId: string,
     requestId: string,
-  ): ReturnType<StudioLifecycleClient["getPublicationRequest"]> {
-    const binding = this.#workspaceDraft;
-    const generation = this.#authority.epoch.current;
-    const identity = binding?.identity;
-    if (!binding || !identity) throw new Error("Open a map draft before reading its publication.");
-    if (![versionId, requestId].every((id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id)))
-      throw new Error("Version and publication request IDs are required.");
-    const current = () => {
-      if (binding !== this.#workspaceDraft || !this.#authority.epoch.isCurrent(generation))
-        throw new Error("The workspace session or map changed.");
-    };
-    current();
-    const client = new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth });
-    const draft = await client.getDraft(identity.draftId);
-    current();
-    if (draft.draftId !== identity.draftId || draft.packageKey !== identity.packageKey)
-      throw new Error("The publication draft does not belong to the active map.");
-    const receipt = await client.getPublicationRequest(draft.itemId, versionId, requestId);
-    current();
-    if (receipt.itemId !== draft.itemId || receipt.versionId !== versionId || receipt.requestId !== requestId)
-      throw new Error("The publication receipt does not belong to the selected version.");
-    return receipt;
+  ): ReturnType<WorkspacePublication["readPublication"]> {
+    return this.#publication.readPublication(versionId, requestId);
   }
 
   /** Reopen a version of the active map as a new draft, preserving the saved version. */
   public reopenWorkspaceVersion(versionId: string): Promise<void> {
-    return this.#withWorkspaceLifecycle(async (client, identity, current, generation) => {
-      const draft = await client.getDraft(identity.draftId);
-      current();
-      const reopened = await client.reopenVersion(draft.itemId, versionId);
-      current();
-      if (reopened.itemId !== draft.itemId || reopened.packageKey !== identity.packageKey)
-        throw new Error("The reopened version does not belong to the active map.");
-      await this.#observeWorkspaceDraft(reopened.draftId, generation);
-    });
-  }
-
-  async #withWorkspaceLifecycle<T>(
-    action: (
-      client: StudioLifecycleClient,
-      identity: { draftId: string; generation: number; packageKey: string },
-      current: () => void,
-      generation: EpochToken,
-    ) => Promise<T>,
-  ): Promise<T> {
-    const binding = this.#workspaceDraft;
-    const generation = this.#authority.epoch.current;
-    const identity = binding?.identity;
-    if (!binding || !identity) throw new Error("Open a map draft before using saved versions.");
-    await this.prepareWorkspaceTurn();
-    const current = () => {
-      if (!this.#authority.epoch.isCurrent(generation) || binding !== this.#workspaceDraft)
-        throw new Error("The workspace session or map changed.");
-      if (this.#historyBusy || this.#workspaceDraftConflict || this.#hasDirtyWorkspaceForm())
-        throw new Error("Save or explicitly reload pending Studio edits before using saved versions.");
-    };
-    const run = this.#workspaceDraftQueue.then(async () => {
-      current();
-      return action(
-        new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
-        identity,
-        current,
-        generation,
-      );
-    });
-    this.#workspaceDraftQueue = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-
-  async #observeWorkspaceDraft(draftId: string, generation: EpochToken, mayAccept?: () => void): Promise<void> {
-    this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-    mayAccept?.();
-    if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
-    const previous = this.#workspaceDraft?.identity;
-    // Observe prospectively: a refused read must not advance the active binding's generation.
-    const binding = new WorkspaceDraftBinding(
-      new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }),
-    );
-    const state = await binding.observe(draftId);
-    this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-    mayAccept?.();
-    if (this.#hasDirtyWorkspaceForm()) throw new Error("Save pending Studio edits before attaching a draft.");
-    // A same-principal lease can renew while the prospective GET is in flight.
-    // Adopt its observed state with the current transport, not the expired lease.
-    binding.rebind(new StudioLifecycleClient({ baseUrl: runtimeServerBaseUrl(), auth: this.auth }));
-    if (previous?.draftId !== draftId) this.closeDesignInspector();
-    if (previous?.draftId !== draftId && this.#recipeDraftToAttach !== draftId) this.#disposeRecipePicker();
-    if (previous?.draftId !== draftId) this.#activeMap.next();
-    this.#workspaceDraft = binding;
-    this.#workspaceDraftConflict = false;
-    const reset = previous?.draftId !== draftId || previous?.generation !== binding.identity?.generation;
-    const attach = reset
-      ? this.composition.resetBaseline.bind(this.composition)
-      : this.composition.replaceState.bind(this.composition);
-    attach({
-      ...state,
-      pins: previous?.draftId === draftId ? this.composition.state.pins : state.pins,
-      annotations: previous?.draftId === draftId ? this.composition.state.annotations : state.annotations,
-    });
-    if (previous?.draftId !== draftId) {
-      this.composition.clearSelection();
-      this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration();
-    }
-    this.#announceWorkspaceDraft();
+    return this.#publication.reopenVersion(versionId);
   }
 
   /** Idle observation for external draft changes; never discard an unsaved form value. */
-  public async refreshWorkspaceDraft(): Promise<boolean> {
-    const binding = this.#workspaceDraft;
-    const generation = this.#authority.epoch.current;
-    await this.#workspaceDraftQueue;
-    const identity = binding?.identity;
-    if (!identity || binding !== this.#workspaceDraft || this.#historyBusy || this.#workspaceDraftConflict)
-      return false;
-    if (this.#hasDirtyWorkspaceForm()) return false;
-    try {
-      await this.attachWorkspaceDraft(identity.draftId);
-    } catch (error) {
-      if (
-        !this.#authority.epoch.isCurrent(generation) ||
-        this.#historyBusy ||
-        this.#workspaceDraftConflict ||
-        this.#hasDirtyWorkspaceForm()
-      )
-        return false;
-      throw error;
-    }
-    return this.#authority.epoch.isCurrent(generation) && !this.#hasDirtyWorkspaceForm();
+  public refreshWorkspaceDraft(): Promise<boolean> {
+    return this.#drafts.refresh();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
-  public async prepareWorkspaceTurn(): Promise<
-    { draftId: string; generation: number; packageKey: string } | undefined
-  > {
-    await this.#styleEditor?.settled();
-    await this.#workspaceDraftQueue;
-    if (this.#historyBusy || this.#workspaceDraftConflict || this.#hasDirtyWorkspaceForm()) {
-      throw new Error("Save or explicitly reload the pending Studio edits before sending a workspace turn.");
-    }
-    return this.#workspaceDraft?.identity;
+  public prepareWorkspaceTurn(): Promise<WorkspaceDraftIdentity | undefined> {
+    return this.#drafts.prepareTurn();
+  }
+
+  /** Undo/redo in the authoritative draft before advancing the visible history. */
+  public applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
+    return this.#editor.applyHistory(action);
   }
 
   #hasDirtyWorkspaceForm(): boolean {
@@ -1206,62 +974,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return dirty(this) || Boolean(this.shadowRoot && dirty(this.shadowRoot));
   }
 
-  #announceWorkspaceDraft(): void {
-    this.dispatchEvent(
-      new CustomEvent("honua-workspace-draft-change", {
-        bubbles: true,
-        composed: true,
-        detail: this.#workspaceDraft?.identity,
-      }),
-    );
-  }
-
-  /** Undo/redo in the authoritative draft before advancing the visible history. */
-  public async applyHistoryAction(action: "undo" | "redo"): Promise<boolean> {
-    if (this.#historyBusy || this.hasUnsavedStyleChanges) return false;
-    const authGeneration = this.#authority.epoch.current;
-    this.#historyBusy = true;
-    this.#chrome.paintHistory();
-    try {
-      let applied: boolean;
-      if (this.#workspaceDraft) {
-        const target = action === "undo" ? this.composition.history.peekUndo() : this.composition.history.peekRedo();
-        if (!target) return false;
-        const binding = this.#workspaceDraft;
-        const generation = this.#authority.epoch.current;
-        const run = this.#workspaceDraftQueue.then(async () => {
-          this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-          const observed = await binding.replace(target);
-          this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-          const changed = action === "undo" ? this.composition.undo() : this.composition.redo();
-          this.composition.replaceState(observed);
-          this.#announceWorkspaceDraft();
-          return changed;
-        });
-        this.#workspaceDraftQueue = run.catch(() => undefined);
-        applied = await run;
-      } else applied = await this.toolCallOrchestrator.applyHistoryAction(action);
-      const { draftId, generation } = this.toolCallOrchestrator;
-      if (applied && draftId && generation !== undefined) {
-        this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.agentSession?.attachDraft({
-          draftId,
-          generation,
-        });
-      }
-      this.#chrome.setHistoryStatus(
-        applied ? (action === "undo" ? "Undone" : "Redone") : `Unable to ${action}. Review the activity log.`,
-      );
-      return applied;
-    } catch (error) {
-      if (this.#workspaceDraft && this.#authority.epoch.isCurrent(authGeneration)) this.#workspaceDraftConflict = true;
-      this.#chrome.setHistoryStatus(error instanceof Error ? error.message : `Unable to ${action}.`);
-      return false;
-    } finally {
-      this.#historyBusy = false;
-      this.#chrome.paintHistory();
-    }
-  }
-
   /** Configure the SDK verifier with verification keys explicitly trusted by the host. */
   public configureAgentTranscriptVerification(
     certification: StudioAiTranscriptCertification,
@@ -1286,7 +998,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.#authority.session === session) return;
     if (session && "kind" in session && session.kind === "cookie") verifiedSourcePathBase(session.sourcePathBase);
     const previous = this.#authority.session;
-    const hadAuthority = Boolean(this.#authority.holdsSession || this.#workspaceDraft);
+    const hadAuthority = Boolean(this.#authority.holdsSession || this.#drafts.binding);
     const samePrincipal =
       previous &&
       session &&
@@ -1310,12 +1022,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         const previousCanvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
         if (previousCanvas) previousCanvas.sourceCatalog = undefined;
       }
-      this.#workspaceDraft = undefined;
-      this.#workspaceDraftConflict = false;
+      this.#drafts.detach();
       this.composition.resetBaseline(createEmptyCompositionState());
       this.composition.clearSelection();
       this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")?.resetExploration();
-      if (hadAuthority) this.#announceWorkspaceDraft();
+      if (hadAuthority) this.#drafts.announce();
     }
     this.#authority.adoptSession(session);
     this.#syncWorkspaceChrome();
@@ -1376,7 +1087,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Composition state the canvas renders; it survives reconnection. */
   public get composition(): CompositionController {
-    if (!this.#composition) this.#composition = new CompositionController(createEmptyCompositionState());
     return this.#composition;
   }
 
@@ -1437,16 +1147,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#catalog.claimForHost();
     if (replacing) this.#disposeRecipePicker();
     this.#catalog.apply(catalog);
-  }
-
-  async #addCatalogSource(dataset: CatalogDataset): Promise<void> {
-    if (!this.#catalog.catalog?.some((entry) => entry.id === dataset.id)) {
-      this.#catalog.apply([...(this.#catalog.catalog ?? []), dataset]);
-    }
-    const result = await this.#dispatchCommands([
-      { name: "addLayer", layer: { id: dataset.id, sourceId: dataset.id, title: dataset.title } },
-    ]);
-    if (!result.ok) throw new Error(result.reason);
   }
 
   #onAuthStatusChanged(): void {
@@ -1612,28 +1312,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     // The hash router binds to #view, so the chrome exists before it.
     this.renderChrome();
     this.listen(this, "keydown", (event) => {
-      const key = event as KeyboardEvent;
-      if (!(key.ctrlKey || key.metaKey) || key.altKey) return;
-      if (
-        key
-          .composedPath()
-          .some(
-            (target) =>
-              target instanceof HTMLElement &&
-              (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)),
-          )
-      )
-        return;
-      const action =
-        key.key.toLowerCase() === "z"
-          ? key.shiftKey
-            ? "redo"
-            : "undo"
-          : key.key.toLowerCase() === "y"
-            ? "redo"
-            : undefined;
+      const action = historyShortcutAction(event as KeyboardEvent);
       if (!action || !(action === "undo" ? this.composition.canUndo() : this.composition.canRedo())) return;
-      key.preventDefault();
+      event.preventDefault();
       void this.applyHistoryAction(action);
     });
 
@@ -1668,7 +1349,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
           ? verifiedSourcePathBase(this.#authority.session.sourcePathBase)
           : runtimeMcpBaseUrl();
     if (canvas && !canvas.composition) canvas.composition = this.composition;
-    if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#dispatchCommands(commands);
+    if (canvas && !canvas.commandDispatch) canvas.commandDispatch = (commands) => this.#editor.dispatch(commands);
     if (canvas && this.#catalog.catalog) canvas.sourceCatalog = this.#catalog.catalog;
     else void this.#catalog.load();
     // Construct the orchestrator while the chat child is resolvable for its activity log.
@@ -1676,7 +1357,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     void this.#resumeSharePreview();
     this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
       const detail = (event as CustomEvent<HonuaStudioChatToolCallResultDetail>).detail;
-      void this.#handleChatToolCall(detail);
+      void this.#editor.handleChatToolCall(detail);
     });
 
     this.listen(this, "honua-studio-lifecycle-activity", (event) => {
@@ -1821,120 +1502,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Resolve an observed published receipt against the live catalog before adding it to the map. */
-  public async addPublishedLayer(
+  public addPublishedLayer(
     layer: { readonly layerId: number; readonly serviceName: string; readonly layerName?: string },
     options?: { readonly isCurrent?: () => boolean },
   ): Promise<HonuaStudioCommandOutcome> {
-    let auth = this.auth;
-    let leaseGeneration = this.#authority.lease.current;
-    const mapEpoch = this.#activeMap.current;
-    const authorityGeneration = this.#authority.epoch.current;
-    const requireOriginalTarget = () => {
-      if (
-        !this.#activeMap.isCurrent(mapEpoch) ||
-        !this.#authority.epoch.isCurrent(authorityGeneration) ||
-        options?.isCurrent?.() === false
-      )
-        throw new Error("The active map changed while resolving the published layer. Review the map and try again.");
-    };
-    requireOriginalTarget();
-    let catalog = await this.studioClient.listCatalog();
-    requireOriginalTarget();
-    if (this.auth !== auth || !this.#authority.lease.isCurrent(leaseGeneration)) {
-      // A same-authority cookie lease may renew during discovery. Re-read with
-      // its new credentials; never dispatch a catalog captured by the old lease.
-      auth = this.auth;
-      leaseGeneration = this.#authority.lease.current;
-      catalog = await this.studioClient.listCatalog();
-      requireOriginalTarget();
-      if (this.auth !== auth || !this.#authority.lease.isCurrent(leaseGeneration))
-        throw new Error("The Studio target changed while resolving the published layer.");
-    }
-    const suffix = `/rest/services/${layer.serviceName.split("/").map(encodeURIComponent).join("/")}/FeatureServer`;
-    const matches = catalog.filter(
-      (entry) =>
-        entry.locator?.layerId === layer.layerId &&
-        typeof entry.locator.url === "string" &&
-        entry.locator.url.endsWith(suffix),
-    );
-    if (matches.length !== 1) throw new Error("The published layer has no unique verified catalog source.");
-    const source = matches[0]!;
-    this.#catalog.apply(catalog);
-    return this.#dispatchCommands(
-      [{ name: "addLayer", layer: { id: source.id, sourceId: source.id, title: layer.layerName ?? source.title } }],
-      options,
-    );
-  }
-
-  /**
-   * The one composition write path for widgets, chat and the editor. Commands run in order and stop at the
-   * first failure: a compare switch's two toggles are one gesture, and half of it landing is worse than none.
-   */
-  async #dispatchCommands(
-    commands: readonly CompositionCommand[],
-    options?: { readonly isCurrent?: () => boolean },
-  ): Promise<HonuaStudioCommandOutcome> {
-    if (options?.isCurrent?.() === false) return { ok: false, reason: "The initiating view changed." };
-    if (this.hasUnsavedStyleChanges && commands.some((command) => command.name !== "setMapStyle"))
-      return { ok: false, reason: "Save or discard visual style edits before changing the map." };
-    if (this.#workspaceDraft) {
-      const binding = this.#workspaceDraft;
-      const generation = this.#authority.epoch.current;
-      const run = this.#workspaceDraftQueue.then(async (): Promise<HonuaStudioCommandOutcome> => {
-        if (options?.isCurrent?.() === false)
-          return { ok: false, reason: "The initiating view changed before the edit began." };
-        try {
-          this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-          if (binding !== this.#workspaceDraft) throw new Error("The active map changed before the edit began.");
-          const styleCommand = commands.length === 1 && commands[0]?.name === "setMapStyle" ? commands[0] : undefined;
-          const current = this.composition.state;
-          let anchor = current;
-          if (styleCommand) {
-            const canvas = this.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas");
-            if (!canvas) throw new Error("Open the map canvas before editing its style.");
-            const mapSpec = await canvas.editableMapStyle();
-            if (!this.#authority.epoch.isCurrent(generation) || binding !== this.#workspaceDraft)
-              throw new Error("The workspace session changed.");
-            if (current !== this.composition.state || options?.isCurrent?.() === false)
-              throw new Error("The map changed while preparing its style.");
-            // New composition sources are resolved by the authorized canvas, not
-            // supplied by the editor. Validate its candidate against that snapshot.
-            anchor = { ...current, mapSpec };
-          }
-          const target = applyCompositionCommands(anchor, commands).state;
-          const observed = styleCommand
-            ? {
-                ...(await binding.replaceStyle(styleCommand.mapSpec)),
-                pins: target.pins,
-                annotations: target.annotations,
-              }
-            : await binding.replace(target);
-          this.#authority.epoch.assertCurrent(generation, "The workspace session changed.");
-          // The accepted style response establishes one authoritative revision;
-          // replaying it against the older source anchor would reject valid additions.
-          if (!styleCommand) for (const command of commands) this.composition.apply(command);
-          this.composition.replaceState(observed);
-          this.#announceWorkspaceDraft();
-          return { ok: true };
-        } catch (error) {
-          if (this.#authority.epoch.isCurrent(generation) && binding === this.#workspaceDraft)
-            this.#workspaceDraftConflict = true;
-          return { ok: false, reason: error instanceof Error ? error.message : String(error) };
-        }
-      });
-      this.#workspaceDraftQueue = run.catch(() => undefined);
-      return run;
-    }
-    if (this.#authority.session && "kind" in this.#authority.session && this.#authority.session.kind === "cookie")
-      return { ok: false, reason: "Attach the shared server draft before editing the map." };
-    for (const command of commands) {
-      const result = await this.toolCallOrchestrator.handleToolCall({
-        toolName: command.name,
-        arguments: { ...command } as Record<string, unknown>,
-      });
-      if (!result.ok) return { ok: false, reason: result.reason };
-    }
-    return { ok: true };
+    return this.#editor.addPublishedLayer(layer, options);
   }
 
   /** Restores a retained preview proposal into the conversation. Never publishes. */
@@ -1957,23 +1529,6 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     } catch {
       // A retained handle must not block the shell when the preview server is unreachable.
     }
-  }
-
-  /** Resolves one chat tool-call intent. Never throws: every outcome lands in the activity log. */
-  async #handleChatToolCall(detail: HonuaStudioChatToolCallResultDetail): Promise<void> {
-    if (!detail.toolName) return;
-    const args = isPlainObject(detail.arguments) ? detail.arguments : {};
-    if (this.#workspaceDraft) {
-      const resolved = resolveToolCall({ toolName: detail.toolName, arguments: args });
-      const outcome = resolved.ok ? await this.#dispatchCommands([resolved.command]) : resolved;
-      if (!outcome.ok)
-        this.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.activityLog.append("assistant_turn_error", {
-          phase: "workspace-command",
-          errorMessage: outcome.reason,
-        });
-      return;
-    }
-    await this.toolCallOrchestrator.handleToolCall({ toolName: detail.toolName, arguments: args });
   }
 
   protected onDisconnect(): void {
