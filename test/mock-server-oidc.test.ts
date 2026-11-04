@@ -189,7 +189,6 @@ describe("mock-server.mjs OIDC issuer + protected Studio routes", () => {
     const replayBody = await replay.json();
     expect(replayBody.error).toBe("invalid_grant");
 
-    // The rotated token, unlike the replayed one, still works.
     const secondRefresh = await fetch(discovery.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },

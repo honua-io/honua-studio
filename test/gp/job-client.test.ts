@@ -145,7 +145,7 @@ describe("StudioGpJobClient: cancel (REQ-003)", () => {
     const draft = await seedValidatedGpDraft(lifecycle);
     const accepted = await jobs.submit({ draftId: draft.draftId });
     await jobs.status(accepted.jobId); // running
-    const successful = await jobs.status(accepted.jobId); // successful
+    const successful = await jobs.status(accepted.jobId);
     expect(successful.status).toBe("successful");
 
     const cancelled = await jobs.cancel(accepted.jobId);

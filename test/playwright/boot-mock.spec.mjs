@@ -76,7 +76,6 @@ test("app boots against the mock honua-server fixture; sign-in unlocks the authe
     await expect(page.getByTestId("about-section")).toBeVisible();
     await page.getByTestId("nav-home").click();
 
-    // Sign-out clears the session and re-locks the catalog.
     await page.getByTestId("auth-signout").click();
     await expect(page.getByTestId("auth-status")).toHaveText("Signed out");
     await expect(page.getByTestId("catalog-signed-out")).toBeVisible();
