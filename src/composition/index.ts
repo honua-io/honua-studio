@@ -1,5 +1,5 @@
 /**
- * Public entry point for the composition engine (honua-studio#8). Side
+ * Public entry point for the composition engine. Side
  * effect free on import, like `../elements/index.ts`.
  *
  * @module

@@ -2,7 +2,7 @@ import type { HonuaMapPackageSourceBinding } from "@honua/sdk-js/runtime";
 import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * Composition state — the pure-data, serializable model the composition
- * engine (honua-studio#8) reduces over.
+ * engine reduces over.
  *
  * AD-8 (`.specifica/studio-v0/spec.md`) is load-bearing here: this state is
  * the client's PROJECTION of a Studio package lifecycle draft, never the
@@ -295,7 +295,7 @@ export interface CompositionState {
   readonly layers: readonly CompositionLayer[];
   readonly view: CompositionView;
   readonly widgets: readonly CompositionWidget[];
-  /** Input affordances (honua-studio#25) — chrome, and a peer collection of `widgets`, never a widget kind. */
+  /** Input affordances — chrome, and a peer collection of `widgets`, never a widget kind. */
   readonly controls: readonly CompositionControl[];
   /** Declarative event→action bindings (ADR-0030). Data, never code — see {@link CompositionInteraction}. */
   readonly interactions: readonly CompositionInteraction[];

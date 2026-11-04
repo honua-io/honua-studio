@@ -1,13 +1,12 @@
 /**
  * Public entry point for the `honua-studio-*` embeddable element kit
- * (honua-studio#5). Side-effect-free on import — see registry.ts's doc for
+ * Side-effect-free on import — see registry.ts's doc for
  * why. A host registers what it needs explicitly:
  *
  * ```ts
  * import { registerAllStudioElements } from "@honua/studio/elements";
  * registerAllStudioElements();
  * document.body.append(document.createElement("honua-studio-app"));
- * ```
  */
 export { AUTH_STATUS_LABELS } from "./auth-status.js";
 export { HonuaStudioElementBase } from "./base-element.js";
@@ -60,7 +59,7 @@ export type {
   ThemeMode,
   ThemeSet,
 } from "./types.js";
-// The Studio package lifecycle client (honua-studio#9) — REST client,
+// The Studio package lifecycle client — REST client,
 // errors, and wire types over honua-server's Studio package lifecycle API.
 // `TokenSource` is deliberately NOT re-exported here — `../chat/index.js`
 // (re-exported above) already establishes that name in this barrel
@@ -105,11 +104,11 @@ export type {
   StudioVersionComparison,
   StudioVersionComparisonRequest,
 } from "../lifecycle/lifecycle-types.js";
-// The full chat-console typed surface (honua-studio#6): AnnotationRef,
+// The full chat-console typed surface: AnnotationRef,
 // ActivityLog(Entry), ChatTransport implementations, ChatState/ChatMessage,
 // fixture-conversation types, etc. — one barrel, see src/chat/index.ts.
 export * from "../chat/index.js";
-// Conversational GP authoring + async batch execution (honua-studio#10) —
+// Conversational GP authoring + async batch execution —
 // GP package model helpers, the async job client, the authoring session,
 // and the buffer/intersect fixture. `TokenSource` is deliberately NOT
 // re-exported here, same reason as the lifecycle client's above (this

@@ -1,5 +1,5 @@
 /**
- * Standalone OIDC Authorization Code + PKCE session (honua-studio#4 REQ-001/002).
+ * Standalone OIDC Authorization Code + PKCE session.
  *
  * Thin driver over `@honua/sdk-js/auth`'s `oauth2()` provider — the
  * established seam (examples/oauth-signin in honua-sdk-js): PKCE
@@ -12,12 +12,12 @@
  * 2. The {@link AuthState} state machine (state-machine.ts) the app shell and
  *    studio-client read, projected from the SDK provider's lifecycle events.
  *
- * Per the P2-8 review finding, there is deliberately no hidden iframe here —
+ * There is deliberately no hidden iframe here —
  * `@honua/sdk-js/auth`'s provider refreshes via `refresh_token` grants only,
  * and the mock issuer (mock-server.mjs) rotates the refresh token on every
  * use, which is what actually survives 2026-era storage partitioning.
- * REQ-002 is satisfied by simply never configuring a persistent
- * `CredentialStore` — the provider's default is in-memory only, scoped to
+ * A persistent `CredentialStore` is never configured — the provider's default
+ * is in-memory only, scoped to
  * this page load; nothing is written to localStorage/sessionStorage (the SDK
  * does use sessionStorage for the *in-flight PKCE transaction* — verifier +
  * state — which is not a credential and is cleared the moment the redirect

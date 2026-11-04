@@ -78,7 +78,7 @@ export interface CompositionMapProjectionOptions {
   /** When supplied, a missing/failed canonical style is visible instead of a preset fallback. */
   readonly authoritativeStyles?: Readonly<Record<string, BoundAuthoritativeStyle | { reason: string }>>;
   /**
-   * Runtime appearance a control produced (honua-studio#25): per composition
+   * Runtime appearance a control produced: per composition
    * layer id, a MapLibre filter expression and/or an opacity multiplier.
    *
    * These are **projection inputs, not composition state**. Applying them

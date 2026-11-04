@@ -89,10 +89,6 @@ export const CONTROL_KIND_LABELS: Readonly<Record<CompositionControlKind, string
   basemapSwitcher: "Basemap",
 };
 
-// ---------------------------------------------------------------------------
-// Per-kind normalized configs
-// ---------------------------------------------------------------------------
-
 export interface NavigationControlConfig {
   readonly showZoom: boolean;
   readonly showCompass: boolean;
@@ -219,10 +215,6 @@ export type CompositionControlConfig =
   | { readonly kind: "filterSlider"; readonly config: FilterSliderControlConfig }
   | { readonly kind: "filterDateRange"; readonly config: FilterDateRangeControlConfig }
   | { readonly kind: "opacity"; readonly config: OpacityControlConfig };
-
-// ---------------------------------------------------------------------------
-// Readers
-// ---------------------------------------------------------------------------
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -459,7 +451,7 @@ export function readControlConfig(control: CompositionControl): ControlConfigRes
        * The one kind that reports unsupported unconditionally, and the reason
        * is a real gap rather than laziness. A search box needs a *provider*:
        * either a geocoder (which is an off-origin HTTP call — forbidden by
-       * honua-studio#23's no-off-origin-request rule, enforced by a browser
+       * the no-off-origin-request rule, enforced by a browser
        * test) or a feature-search endpoint. ADR-0031's `config` is open but
        * names no provider vocabulary, so a document cannot even declare which
        * one it wants; Studio would have to invent that vocabulary privately,
@@ -562,10 +554,6 @@ function readNumberTuple(value: unknown, length: number): readonly number[] | un
   const numbers = value.map((entry) => (typeof entry === "number" ? entry : Number(entry)));
   return numbers.every((entry) => Number.isFinite(entry)) ? numbers : undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Render-time reporting
-// ---------------------------------------------------------------------------
 
 /** How a control resolved against the composition it lives in. */
 export type ControlStatus =

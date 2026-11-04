@@ -1,15 +1,15 @@
 import { type InlineStyleBody, type MapStyleDocument, validateInlineStyleBody } from "../styles/map-style-edit.js";
 /**
- * The composition engine's typed, bounded command set (honua-studio#8;
+ * The composition engine's typed, bounded command set. It
  * mirrors `@honua/sdk-js`'s `src/agent-tools/index.ts` vocabulary — flat
  * verb-first names, a small fixed union, dry-run-free because every command
  * IS previewed via the reducer's diff output rather than an in-command
- * `dryRun` flag — server#3002 mirrors this same vocabulary, see the module
- * doc on `reducer.ts` for why staying aligned matters).
+ * `dryRun` flag. The server mirrors this same vocabulary; see the module
+ * doc on `reducer.ts` for why staying aligned matters.
  *
  * Every command name below corresponds 1:1 to a bounded mutation surface
- * from honua-studio#1's REQ-002 ("layer add/remove/style, view, widgets…")
- * plus pin/unpin (REQ-003) and annotations-as-targets (REQ-012). There is no
+ * ("layer add/remove/style, view, widgets…")
+ * plus pin/unpin and annotations-as-targets. There is no
  * "run arbitrary code" escape hatch — an unrecognized `name` fails
  * {@link validateCompositionCommand} rather than being passed through.
  *
@@ -39,10 +39,6 @@ import {
   type CompositionView,
   type CompositionWidgetKind,
 } from "./model.js";
-
-// ---------------------------------------------------------------------------
-// Command payload shapes
-// ---------------------------------------------------------------------------
 
 export interface AddLayerInput {
   readonly id: string;
@@ -98,7 +94,7 @@ export type CompositionCommand =
   | { readonly name: "removeWidget"; readonly target: CompositionTarget }
   | { readonly name: "addControl"; readonly control: AddControlInput }
   /**
-   * `cascadeInteractions` mirrors honua-server#3196's `remove_control`
+   * `cascadeInteractions` mirrors the `remove_control`
    * argument exactly, including its default: `false` **rejects** the removal
    * while any binding still references the control, `true` removes the
    * dependent bindings with it. There is no third option — ADR-0031 states
@@ -136,10 +132,6 @@ export const COMPOSITION_COMMAND_NAMES = [
 ] as const;
 
 export type CompositionCommandName = (typeof COMPOSITION_COMMAND_NAMES)[number];
-
-// ---------------------------------------------------------------------------
-// Validation result
-// ---------------------------------------------------------------------------
 
 export type CompositionCommandValidation =
   | { readonly ok: true; readonly command: CompositionCommand }

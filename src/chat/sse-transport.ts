@@ -1,6 +1,6 @@
 /**
- * The real transport (honua-studio#6, AD-4/AD-8): streams
- * `POST {baseUrl}/v1/studio/ai/chat` per honua-server#3010's SSE contract,
+ * The real transport: streams
+ * `POST {baseUrl}/v1/studio/ai/chat` per the SSE contract,
  * bearer-attached via the session adapter (never the model's own
  * credentials — those stay server-side). Cancellation is a plain
  * `AbortController.abort()` on the `fetch` — the proxy's own documented
