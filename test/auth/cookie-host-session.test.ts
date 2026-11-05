@@ -82,15 +82,7 @@ describe("cookie host session", () => {
       )
       .mockResolvedValueOnce(new Response("new-authority"));
     vi.stubGlobal("fetch", fetch);
-    const cookie = {
-      kind: "cookie" as const,
-      baseUrl: "/api/studio" as const,
-      csrfToken: "old",
-      environmentId: "env",
-      principalId: "owner",
-      expiresAt: new Date(Date.now() + 60000).toISOString(),
-      onExpired: () => () => {},
-    };
+    const cookie = ownerCookie();
     const auth = new HostAdapterAuthSession(cookie);
     sessions.push(auth);
     const pending = auth.fetchRequest!("/api/v1/studio/catalog");
@@ -99,19 +91,8 @@ describe("cookie host session", () => {
     expect(await (await pending).text()).toBe("new-authority");
     expect(fetch).toHaveBeenCalledTimes(2);
   });
-  it("rejects old-lease bytes if renewal occurs while a response body is streaming", async () => {
-    let release!: () => void;
-    const body = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        controller.enqueue(new TextEncoder().encode("old-authority"));
-        controller.close();
-      },
-    });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)));
-    const cookie = {
+  function ownerCookie() {
+    return {
       kind: "cookie" as const,
       baseUrl: "/api/studio" as const,
       csrfToken: "old",
@@ -120,24 +101,68 @@ describe("cookie host session", () => {
       expiresAt: new Date(Date.now() + 60000).toISOString(),
       onExpired: () => () => {},
     };
+  }
+  function beginVersionsRead(
+    finish: (controller: ReadableStreamDefaultController<Uint8Array>, enqueue: () => void) => void,
+  ) {
+    let release!: () => void;
+    let opened!: () => void;
+    let cancelled = false;
+    const started = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const bytes = new TextEncoder().encode(JSON.stringify({ data: { versions: [] } }));
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+            opened();
+          });
+          finish(controller, () => controller.enqueue(bytes));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const fetch = vi.fn().mockResolvedValue(new Response(body, { headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = ownerCookie();
     const auth = new HostAdapterAuthSession(cookie);
     sessions.push(auth);
-    const response = await auth.fetchRequest!("/api/v1/studio/catalog");
-    const pending = response.text();
-    auth.renewCookie({ ...cookie, csrfToken: "new" });
-    release();
-    await expect(pending).rejects.toThrow(/session.*renew/i);
+    const pending = new StudioLifecycleClient({ auth }).listVersions("item");
+    return { auth, cookie, fetch, started, pending, release: () => release(), wasCancelled: () => cancelled };
+  }
+  it("finishes a versions read the same principal already started when its cookie renews", async () => {
+    const read = beginVersionsRead((controller, enqueue) => {
+      enqueue();
+      controller.close();
+    });
+    await read.started;
+    read.auth.renewCookie({
+      ...read.cookie,
+      csrfToken: "new",
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+    });
+    read.release();
+    await expect(read.pending).resolves.toEqual({ versions: [] });
+    expect(read.wasCancelled()).toBe(false);
+    expect(read.fetch).toHaveBeenCalledTimes(1);
+  });
+  it("cancels a versions read already started when that principal's session is replaced", async () => {
+    const read = beginVersionsRead((_controller, enqueue) => {
+      enqueue();
+    });
+    await read.started;
+    read.auth.dispose();
+    read.release();
+    await expect(read.pending).rejects.toThrow(/expired/);
+    expect(read.wasCancelled()).toBe(true);
   });
   describe("a draft save that crosses a lease renewal", () => {
-    const lease = {
-      kind: "cookie" as const,
-      baseUrl: "/api/studio" as const,
-      csrfToken: "old",
-      environmentId: "env",
-      principalId: "owner",
-      expiresAt: new Date(Date.now() + 60000).toISOString(),
-      onExpired: () => () => {},
-    };
+    const lease = ownerCookie();
     const saved = { draftId: "draft", generation: 2 };
     function heldWrite() {
       const held: { finish?: (response: Response) => void } = {};

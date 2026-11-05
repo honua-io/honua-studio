@@ -1,6 +1,6 @@
 import type { AddProtocolAction, RequestParameters, ResourceType } from "maplibre-gl";
 import type { AuthSession } from "../auth/types.js";
-import { isCookieLeaseRenewal, parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
+import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 import { loadPagedFeatureSource } from "./paged-feature-source.js";
 
 export interface SourceProtocolRegistry {
@@ -86,16 +86,7 @@ export async function fetchAuthenticatedFeatureCollection(
       await response.body?.cancel().catch(() => undefined);
       throw new Error(`${label} redirects are not allowed.`);
     }
-    let bytes: ArrayBuffer;
-    try {
-      bytes = await readBoundedFeatureBody(response, signal, () => auth === options.getAuth());
-    } catch (error) {
-      // The partial response has been cancelled and discarded. Restart only this
-      // bounded GET, once, under the same current authority's renewed cookie.
-      if (attempt === 0 && auth && auth === options.getAuth() && !signal.aborted && isCookieLeaseRenewal(error))
-        continue;
-      throw error;
-    }
+    const bytes = await readBoundedFeatureBody(response, signal, () => auth === options.getAuth());
     const body: unknown = response.ok ? parseFeatureResponseBody(bytes) : undefined;
     signal.throwIfAborted();
     if (auth !== options.getAuth())
