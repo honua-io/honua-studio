@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostAdapterAuthSession } from "../../src/auth/host-session.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
+import { heldByteStream } from "./held-byte-stream.js";
 
 const sessions: HostAdapterAuthSession[] = [];
 afterEach(() => {
@@ -102,42 +103,24 @@ describe("cookie host session", () => {
       onExpired: () => () => {},
     };
   }
-  function beginVersionsRead(
-    finish: (controller: ReadableStreamDefaultController<Uint8Array>, enqueue: () => void) => void,
-  ) {
-    let release!: () => void;
-    let opened!: () => void;
-    let cancelled = false;
-    const started = new Promise<void>((resolve) => {
-      opened = resolve;
-    });
+  function beginVersionsRead(finish: (controller: ReadableStreamDefaultController<Uint8Array>) => void) {
     const bytes = new TextEncoder().encode(JSON.stringify({ data: { versions: [] } }));
-    const body = new ReadableStream<Uint8Array>(
-      {
-        async pull(controller) {
-          await new Promise<void>((resolve) => {
-            release = resolve;
-            opened();
-          });
-          finish(controller, () => controller.enqueue(bytes));
-        },
-        cancel() {
-          cancelled = true;
-        },
-      },
-      { highWaterMark: 0 },
-    );
-    const fetch = vi.fn().mockResolvedValue(new Response(body, { headers: { "content-type": "application/json" } }));
+    const held = heldByteStream((controller) => {
+      controller.enqueue(bytes);
+      finish(controller);
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(held.body, { headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetch);
     const cookie = ownerCookie();
     const auth = new HostAdapterAuthSession(cookie);
     sessions.push(auth);
     const pending = new StudioLifecycleClient({ auth }).listVersions("item");
-    return { auth, cookie, fetch, started, pending, release: () => release(), wasCancelled: () => cancelled };
+    return { auth, cookie, fetch, pending, ...held };
   }
   it("finishes a versions read the same principal already started when its cookie renews", async () => {
-    const read = beginVersionsRead((controller, enqueue) => {
-      enqueue();
+    const read = beginVersionsRead((controller) => {
       controller.close();
     });
     await read.started;
@@ -152,9 +135,7 @@ describe("cookie host session", () => {
     expect(read.fetch).toHaveBeenCalledTimes(1);
   });
   it("cancels a versions read already started when that principal's session is replaced", async () => {
-    const read = beginVersionsRead((_controller, enqueue) => {
-      enqueue();
-    });
+    const read = beginVersionsRead(() => {});
     await read.started;
     read.auth.dispose();
     read.release();
