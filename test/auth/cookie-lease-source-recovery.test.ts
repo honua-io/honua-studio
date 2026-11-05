@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { HostAdapterAuthSession } from "../../src/auth/host-session.js";
 import { fetchAuthenticatedFeatureCollection } from "../../src/map/authenticated-source-protocol.js";
 import { loadPagedFeatureSource } from "../../src/map/paged-feature-source.js";
+import { heldByteStream } from "./held-byte-stream.js";
 
 const sessions: HostAdapterAuthSession[] = [];
 const cookie = () => ({
@@ -17,6 +18,36 @@ const collection = (id: number) => ({
   type: "FeatureCollection",
   features: [{ type: "Feature", geometry: null, properties: { id } }],
 });
+const pointLayer = {
+  id: 1,
+  geometryType: "esriGeometryPoint",
+  objectIdField: "id",
+  fields: [{ name: "id", type: "esriFieldTypeOID" }],
+};
+function featurePage(id: number) {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      ...pointLayer,
+      spatialReference: { wkid: 4326 },
+      features: [{ attributes: { id }, geometry: { x: 2, y: 3 } }],
+      exceededTransferLimit: false,
+    }),
+  );
+}
+function renewedPage(auth: HostAdapterAuthSession, id: number) {
+  return new Response(
+    new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          auth.renewCookie({ ...cookie(), csrfToken: "renewed" });
+          controller.enqueue(featurePage(id));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    ),
+  );
+}
 function session() {
   const auth = new HostAdapterAuthSession(cookie());
   sessions.push(auth);
@@ -35,37 +66,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("discards partial old-lease bytes and restarts the bounded feature GET under the renewed lease", async () => {
+it("finishes the feature body the same principal already started when the cookie renews", async () => {
   vi.stubGlobal("location", { origin: "https://studio.test" });
   const auth = session();
-  let release!: () => void;
-  let pulls = 0;
-  const stream = new ReadableStream<Uint8Array>(
-    {
-      async pull(controller) {
-        if (pulls++ === 0) controller.enqueue(new TextEncoder().encode('{"type":"FeatureCollection","features":['));
-        else {
-          await new Promise<void>((resolve) => {
-            release = resolve;
-          });
-          controller.enqueue(new TextEncoder().encode('{"properties":{"id":999}}]}'));
-          controller.close();
-        }
-      },
-    },
-    { highWaterMark: 0 },
-  );
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response(stream))
-    .mockResolvedValueOnce(new Response(JSON.stringify(collection(2))));
+  const held = heldByteStream((controller) => {
+    controller.enqueue(new TextEncoder().encode(JSON.stringify(collection(7))));
+    controller.close();
+  });
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(held.body));
   vi.stubGlobal("fetch", fetch);
   const pending = read(() => auth);
-  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+  await held.started;
   auth.renewCookie({ ...cookie(), csrfToken: "renewed" });
-  release();
-  expect(await pending).toEqual(collection(2));
-  expect(fetch).toHaveBeenCalledTimes(2);
+  held.release();
+  expect(await pending).toEqual(collection(7));
+  expect(held.wasCancelled()).toBe(false);
+  expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
 });
 
@@ -95,37 +111,14 @@ it.each([
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
-it("restarts an SDK feature page after body renewal without reusing the rejected page", async () => {
+it("keeps an SDK feature page the same principal already started when the cookie renews", async () => {
   vi.stubGlobal("location", { origin: "https://studio.test" });
   const auth = session();
-  const metadata = {
-    id: 1,
-    geometryType: "esriGeometryPoint",
-    objectIdField: "id",
-    fields: [{ name: "id", type: "esriFieldTypeOID" }],
-  };
   let queries = 0;
   const fetch = vi.fn().mockImplementation(async (input) => {
-    if (!String(input).includes("/query")) return Response.json(metadata);
-    if (++queries === 1)
-      return new Response(
-        new ReadableStream<Uint8Array>(
-          {
-            pull(controller) {
-              auth.renewCookie({ ...cookie(), csrfToken: "renewed" });
-              controller.enqueue(new TextEncoder().encode("rejected-old-page"));
-              controller.close();
-            },
-          },
-          { highWaterMark: 0 },
-        ),
-      );
-    return Response.json({
-      ...metadata,
-      spatialReference: { wkid: 4326 },
-      features: [{ attributes: { id: 2 }, geometry: { x: 2, y: 3 } }],
-      exceededTransferLimit: false,
-    });
+    if (!String(input).includes("/query")) return Response.json(pointLayer);
+    queries++;
+    return renewedPage(auth, 2);
   });
   vi.stubGlobal("fetch", fetch);
   const result = await loadPagedFeatureSource(
@@ -135,7 +128,7 @@ it("restarts an SDK feature page after body renewal without reusing the rejected
   );
   expect(result.features).toHaveLength(1);
   expect((result.features as { properties: { id: number } }[])[0]!.properties.id).toBe(2);
-  expect(queries).toBe(2);
+  expect(queries).toBe(1);
 });
 
 it("does not restart an aborted feature read", async () => {
@@ -156,30 +149,6 @@ it("does not restart an aborted feature read", async () => {
   vi.stubGlobal("fetch", fetch);
   await expect(read(() => auth, abort.signal)).rejects.toThrow();
   expect(fetch).toHaveBeenCalledTimes(1);
-});
-
-it("bounds renewal recovery to one restart even if the second body also renews", async () => {
-  vi.stubGlobal("location", { origin: "https://studio.test" });
-  const auth = session();
-  let revision = 0;
-  const fetch = vi.fn().mockImplementation(
-    async () =>
-      new Response(
-        new ReadableStream<Uint8Array>(
-          {
-            pull(controller) {
-              auth.renewCookie({ ...cookie(), csrfToken: `renewed-${++revision}` });
-              controller.enqueue(new TextEncoder().encode(JSON.stringify(collection(999))));
-              controller.close();
-            },
-          },
-          { highWaterMark: 0 },
-        ),
-      ),
-  );
-  vi.stubGlobal("fetch", fetch);
-  await expect(read(() => auth)).rejects.toThrow(/session.*renew/i);
-  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it("rejects a disposed cookie authority's body and refuses later requests or renewal", async () => {

@@ -1,7 +1,7 @@
 import { HonuaClient } from "@honua/sdk-js";
 import { loadHonuaFeatureServiceGeoJson } from "@honua/sdk-js/map";
 import { type AuthenticatedSourceOptions, trustedSourceUrl } from "./authenticated-source-protocol.js";
-import { isCookieLeaseRenewal, parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
+import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 
 /** Uses the SDK's canonical feature query/paging and geometry conversion. */
 export async function loadPagedFeatureSource(
@@ -53,20 +53,7 @@ export async function loadPagedFeatureSource(
           await response.body?.cancel().catch(() => undefined);
           throw new Error("The Studio source authority changed or redirected.");
         }
-        let bytes: ArrayBuffer;
-        try {
-          bytes = await readBoundedFeatureBody(response, signal, () => authority === options.getAuth());
-        } catch (error) {
-          if (
-            attempt === 0 &&
-            authority &&
-            authority === options.getAuth() &&
-            !signal.aborted &&
-            isCookieLeaseRenewal(error)
-          )
-            continue;
-          throw error;
-        }
+        const bytes = await readBoundedFeatureBody(response, signal, () => authority === options.getAuth());
         const body = response.ok
           ? (parseFeatureResponseBody(bytes) as {
               error?: { code?: unknown };

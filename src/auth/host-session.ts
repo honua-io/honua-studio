@@ -183,13 +183,9 @@ export class HostAdapterAuthSession implements AuthSession {
         if (!response.body) return response;
         const originalBody = response.body;
         let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        // A same-principal lease replacement keeps this body. Disposal is the principal boundary and rejects it.
         const requireCurrent = () => {
           if (this.disposed || this.getState().status !== "fresh") throw new Error("The host session expired.");
-          if (safeRead && this.adapter !== responseLease) {
-            const error = new Error("The session renewed while reading the response.");
-            error.name = "CookieLeaseRenewedError";
-            throw error;
-          }
         };
         const body = new ReadableStream<Uint8Array>(
           {
