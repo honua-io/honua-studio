@@ -65,11 +65,7 @@ export async function approveLivePublication(page, options) {
 }
 
 async function recordApprovalFailure(page, { configuration, stage, error }) {
-  const redact = diagnosticRedactor(".tmp/live-compose", {
-    ...process.env,
-    APPROVER_PASSWORD: configuration.password,
-    APPROVER_SECRET: configuration.username,
-  });
+  const redact = diagnosticRedactor({ extraValues: [configuration.password, configuration.username] });
   const snapshot = await page
     .locator("body")
     .ariaSnapshot()

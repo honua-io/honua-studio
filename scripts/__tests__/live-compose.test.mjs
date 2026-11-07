@@ -69,10 +69,15 @@ test("customer overlay preserves publication authorization and configures only d
   assert.deepEqual(overlay.services.keycloak.networks.default.aliases, ["host.docker.internal"]);
   assert.equal(server.extra_hosts, undefined);
   assert.deepEqual(overlay.services.console.extra_hosts, ["qualification-host:host-gateway"]);
-  assert.equal(overlay.services.console.environment.HONUA_SERVER_BASE_URL, "http://qualification-host:18081");
-  assert.equal(overlay.services.console.environment.Honua__Server__BaseUrl, "http://qualification-host:18081");
+  assert.equal(overlay.services.console.environment.HONUA_SERVER_BASE_URL, "http://qualification-host:19081");
+  assert.equal(overlay.services.console.environment.Honua__Server__BaseUrl, "http://qualification-host:19081");
   assert.equal(
     overlay.services.console.volumes.some((value) => value.includes("docker.sock")),
     false,
   );
+});
+
+test("the approval observer leaves the customer quickstart and identity ports available", async () => {
+  const { approvalObserverPort } = await import("../lib/live-diagnostics.mjs");
+  for (const reservedPort of [18080, 18081, 18082, 5174, 8443]) assert.notEqual(approvalObserverPort, reservedPort);
 });

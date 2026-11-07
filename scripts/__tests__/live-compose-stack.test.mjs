@@ -163,7 +163,7 @@ test("diagnostics retain redacted logs and Playwright contexts before any stack 
   mkdirSync(output, { recursive: true });
   writeFileSync(
     resolve(output, "error-context.md"),
-    "Approval refused code=private-code&state=private-state synthetic-provider-key",
+    "Approval refused ?code=private-code&state=private-state synthetic-provider-key",
   );
   const collected = fixture.run("diagnostics");
   assert.equal(collected.status, 0, collected.stderr);
@@ -185,4 +185,29 @@ test("diagnostics retain redacted logs and Playwright contexts before any stack 
     false,
   );
   assert.deepEqual(fixture.commands().at(-1).args.slice(-4), ["logs", "--no-color", "honua", "console"]);
+});
+
+test("diagnostics ignore an unreadable binary keyring while redacting readable text credentials", (context) => {
+  const fixture = stackFixture(context);
+  prepareFixture(fixture);
+  const keyring = resolve(fixture.directory, ".tmp/live-compose/secrets/keyring.pfx");
+  writeFileSync(keyring, Buffer.from([0, 255, 127]));
+  chmodSync(keyring, 0);
+  assert.throws(() => readFileSync(keyring), { code: "EACCES" });
+  const result = fixture.run("diagnostics");
+  assert.equal(result.status, 0, result.stderr);
+  const log = readFileSync(resolve(fixture.directory, ".tmp/live-diagnostics/compose.log"), "utf8");
+  assert.match(log, /Missing approve grant/);
+  assert.equal(log.includes("synthetic-provider-key"), false);
+});
+
+test("diagnostics retain more than one MiB of Compose logs including the final failure", (context) => {
+  const fixture = stackFixture(context, { oversizedLogs: true });
+  prepareFixture(fixture);
+  const result = fixture.run("diagnostics");
+  assert.equal(result.status, 0, result.stderr);
+  const log = readFileSync(resolve(fixture.directory, ".tmp/live-diagnostics/compose.log"), "utf8");
+  assert.ok(log.length > 1024 * 1024);
+  assert.match(log, /Missing approve grant/);
+  assert.equal(log.includes("synthetic-provider-key"), false);
 });

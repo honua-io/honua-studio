@@ -41,6 +41,7 @@ if (command === "docker" && args[0] === "image") {
 }
 
 if (command === "docker" && args[0] === "compose" && args.includes("logs")) {
+  if (fixture.oversizedLogs) process.stdout.write("x".repeat(2 * 1024 * 1024));
   process.stdout.write("honua | Missing approve grant; Bearer synthetic-token\n");
   process.stdout.write(`console | ${readFileSync("secrets/approver_password", "utf8")}\n`);
   process.stdout.write(`honua | ${readFileSync("secrets/anthropic_api_key", "utf8")}\n`);

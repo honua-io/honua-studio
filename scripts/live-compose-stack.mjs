@@ -18,27 +18,31 @@ const root = resolve(".tmp/live-compose");
 const lock = JSON.parse(readFileSync(new URL("./live-compose-images.json", import.meta.url), "utf8"));
 validateImageLock(lock);
 
-function run(command, args, cwd = root) {
+function run(command, args, { cwd = root, maxBuffer = 1024 * 1024 } = {}) {
   try {
-    return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return execFileSync(command, args, { cwd, maxBuffer, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error) {
     throw new Error(`${command} ${args[0]} failed with exit ${error.status}; private command output was withheld.`);
   }
 }
 
-function compose(args) {
-  return run("docker", [
-    "compose",
-    "-f",
-    "compose.yaml",
-    "-f",
-    "compose.executor.yaml",
-    "-f",
-    "compose.executor.image.yaml",
-    "-f",
-    "compose.studio.json",
-    ...args,
-  ]);
+function compose(args, options) {
+  return run(
+    "docker",
+    [
+      "compose",
+      "-f",
+      "compose.yaml",
+      "-f",
+      "compose.executor.yaml",
+      "-f",
+      "compose.executor.image.yaml",
+      "-f",
+      "compose.studio.json",
+      ...args,
+    ],
+    options,
+  );
 }
 
 function writePrivate(path, value) {
@@ -59,7 +63,7 @@ function check() {
 function prepare() {
   requireProviderKey();
   const source = resolve(process.env.HONUA_LIVE_SERVER_SOURCE ?? ".tmp/live-server-source");
-  const revision = run("git", ["rev-parse", "HEAD"], source).trim();
+  const revision = run("git", ["rev-parse", "HEAD"], { cwd: source }).trim();
   if (revision !== lock.server.revision) throw new Error("Quickstart source must match the locked server revision.");
   run(
     "python3",
@@ -76,7 +80,7 @@ function prepare() {
       "--output",
       root,
     ],
-    source,
+    { cwd: source },
   );
   run("python3", ["quickstart.py", "--init-only"]);
   for (const directory of ["identity/certs", "identity/realm"])
@@ -197,7 +201,7 @@ function recordRuntimeIdentity() {
     JSON.stringify(
       {
         images: observed,
-        studioRevision: process.env.GITHUB_SHA ?? run("git", ["rev-parse", "HEAD"], process.cwd()).trim(),
+        studioRevision: process.env.GITHUB_SHA ?? run("git", ["rev-parse", "HEAD"], { cwd: process.cwd() }).trim(),
       },
       null,
       2,
@@ -253,7 +257,10 @@ else if (action === "prepare") prepare();
 else if (action === "start") await start();
 else if (action === "diagnostics") {
   collectPlaywrightContexts();
-  writeDiagnostic(".tmp/live-diagnostics/compose.log", compose(["logs", "--no-color", "honua", "console"]));
+  writeDiagnostic(
+    ".tmp/live-diagnostics/compose.log",
+    compose(["logs", "--no-color", "honua", "console"], { maxBuffer: 64 * 1024 * 1024 }),
+  );
   console.log("Redacted Playwright contexts and server/Console logs collected before teardown.");
 } else if (action === "stop") compose(["down", "--volumes", "--remove-orphans"]);
 else throw new Error("Expected check, prepare, start, diagnostics or stop.");

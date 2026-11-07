@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 
@@ -95,6 +95,7 @@ test("Console approval signs in at the pinned IdP and clicks only the selected p
 });
 
 test("Console approval cannot turn a failed proposal into success", async ({ page }) => {
+  rmSync(".tmp/live-diagnostics/console-approval-error-context.md", { force: true });
   await installConsoleFixture(page, { status: "Failed" });
   await expect(approveLivePublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow(
     "Console publication approval failed during human approval.",
