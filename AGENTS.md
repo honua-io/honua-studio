@@ -22,6 +22,19 @@ Other lanes (`test:browser:blazor` needs the .NET SDK, `test:browser:live` needs
 and the auth env vars are in README "Run it" and "Development". Read README's status tables
 before claiming a capability, and update them (test counts included) when you change one.
 
+## Verified status
+Preview releases [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/v0.1.0)
+and [v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1) exist.
+At `1f02d8e`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42313827159)
+passed 1,754 Vitest tests in 144 files and
+[smokes](https://github.com/honua-io/honua-studio/actions/runs/42313827200) passed their four jobs.
+The [latest scheduled live run](https://github.com/honua-io/honua-studio/actions/runs/42299117882)
+at `36c438b` had 1 pass, 2 failures and 2 skips, so live qualification remains blocked.
+Do not turn fixture or packaging receipts into claims of live model/publication success.
+The live publish journey requires `HONUA_LIVE_HUMAN_TOKEN`; model calls must select a
+configured direct Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
+models, skipped MCP checks or a weaker assertion to work around an older demo revision.
+
 ## Invariants
 - No arbitrary code eval. Every mutation goes through the reducer (`src/composition/`) or a
   server tool, and lands in the replayable activity log.

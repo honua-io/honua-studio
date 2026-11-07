@@ -35,11 +35,18 @@ jobs:
       - name: Install Playwright Chromium
         run: npm run test:browser:install
 
+      - name: Record live provider readiness without invoking a model
+        env:
+          HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
+          HONUA_LIVE_HUMAN_TOKEN: ${{ secrets.HONUA_LIVE_HUMAN_TOKEN }}
+        run: node scripts/live-demo-readiness.mjs
+
       - name: Run Studio journeys against the live AWS demo
         env:
           HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
+          HONUA_LIVE_HUMAN_TOKEN: ${{ secrets.HONUA_LIVE_HUMAN_TOKEN }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
-        run: npm run test:browser:live -- --reporter=list,json
+        run: npm run test:browser:live -- --reporter=list,json --retries=0
 
       - name: Upload live browser evidence
         if: always()
@@ -47,6 +54,7 @@ jobs:
         with:
           name: live-aws-studio-browser-smoke
           path: |
+            .tmp/live-readiness.json
             .tmp/live-studio-report.json
             .tmp/playwright-output
           if-no-files-found: error

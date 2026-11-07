@@ -79,37 +79,23 @@ artifact journey remain unfinished.
 
 The 2026.1 browser Preview gates are packaging integrity, security, runtime
 configuration, and the in-repo browser and embed smokes. Hosted demo and
-real-model journeys are not those gates. The 2026.2 graduation checklist is
+real-model journeys are separate from those packaging gates; rc.2 requires live proof. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-The worker-asset packaging checkpoint passed 1,598 unit tests across 129 files,
-five production Console-assets browser checks, and all 31 standalone browser
-journeys, including accessibility and the TOC round trip. The production audience
-checks paint HTTP-backed maps and widgets with the same bundle mounted at `/`,
-`/_studio/`, and `/tenants/kestrel/_studio/`; each checks the actual worker request
-under its mount. Local browser checks used cached Chromium 147 with retries
-disabled because the pinned Chromium 149 download was unavailable. The ordinary
-CI browser remains pinned by Playwright. These are fixture-based package checks;
-installed authenticated workflows and real-model qualification remain separate.
+Latest default-branch evidence, at `1f02d8e`:
 
-Camera persistence is covered by eight focused unit regressions and three real-camera
-save/reopen journeys against the mock server.
-
-The Blazor packaging follow-up also passed all six browser checks against its
-built assets and real ASP.NET Core host, including a composition-bound canvas
-that loads its worker beneath `/studio/` and paints vendored land features.
-Removing the relative asset base made that new check fail with no painted
-features; restoring it passed. These local checks used the same cached Chromium
-147 with retries disabled and do not establish installed workflow qualification.
-
-Cookie-host feature reads can restart once when a same-authority lease renewal
-interrupts bounded response consumption. The partial old response is discarded;
-mutations are never replayed. Eight new regressions and the existing auth/source
-checks pass together: 80 focused tests covering partial bytes, SDK paging,
-principal/environment/source changes, abort, disposal and the retry limit. The
-original old-lease byte rejection and mutation non-replay checks remain intact.
-This does not establish the installed Console journey; its refreshed bundle and
-real-image replay remain separate qualification work.
+- [CI run 42313827159](https://github.com/honua-io/honua-studio/actions/runs/42313827159)
+  passed typecheck, style, build, and 1,754 Vitest tests across 144 files.
+- [Smoke run 42313827200](https://github.com/honua-io/honua-studio/actions/runs/42313827200)
+  passed the container, browser, production Console-assets and Blazor jobs. The standalone
+  browser job reported 39 passed and two flaky tests out of 41 selected; Console assets reported six passed.
+  These fixture and packaging checks do not prove a real model turn or live publication.
+- [Latest scheduled live run 42299117882](https://github.com/honua-io/honua-studio/actions/runs/42299117882),
+  at `36c438b`, reported **one passed, two failed, two skipped**. Boot passed; publication
+  stopped at pending approval while the test expected immediate completion; chat received
+  HTTP 400, tracked in [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092). Both MCP composition journeys were skipped by their opt-in guard.
+  Studio is **not live-qualified for rc.2**. The demo revision mismatch remains tracked in
+  [honua-release#475](https://github.com/honua-io/honua-release/issues/475).
 
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
@@ -125,7 +111,10 @@ standalone and Console tarballs, pushes the version-only image
 checksums and a receipt binding version/source SHA/image digest to the GitHub
 release, and records a build-provenance attestation for each tarball with the
 repository
-([how a release is cut](docs/preview-release-posture.md#cutting-a-release)). No such tag has been cut, so no image or tarball exists to pull yet —
+([how a release is cut](docs/preview-release-posture.md#cutting-a-release)). [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/v0.1.0)
+and [v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1) were published
+on 2026-11-04. The v0.1.1 release includes standalone and Console tarballs, checksums,
+and a source/image receipt;
 see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
 on the public demo remains a 2026.2 decision (D2), so treat every capability
 below as something you verify by running it, not by visiting a URL.
@@ -155,7 +144,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| Nightly `@live` Playwright journeys against `demo.honua.io` — green; they build Studio from the CI checkout, since no hosted Studio exists to point at | `.github/workflows/live-demo-smoke.yml` | #19, #20 |
+| Nightly `@live` journeys build Studio from the checkout; [latest scheduled run](https://github.com/honua-io/honua-studio/actions/runs/42299117882): 1 passed, 2 failed, 2 skipped | `.github/workflows/live-demo-smoke.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
@@ -233,11 +222,9 @@ native model and visual workflow qualification remains pending.
 
 ### Not started
 
-- Cutting the first release tag, and a hosted instance on the demo server.
-  The container, runtime `/config.json` contract, reproducible tarball, tag
-  workflow, and local BYOM compose/save/reopen/propose receipt are exercised
-  on every pull request. What has not happened is the tag itself, so nothing
-  is published on GHCR yet. The hosted demo remains decision D2.
+- A hosted Studio instance on the demo server. Published Preview releases exist;
+  the hosted demo remains decision D2. Passing fixture/container checks do not
+  establish hosted model or publication qualification.
 - Raster and image layers: COG, ImageServer, WMS
   ([#36](https://github.com/honua-io/honua-studio/issues/36)).
 - 3D — scene projection, 2D/3D toggle, scene agent tools
@@ -367,10 +354,10 @@ Other commands:
 | `npm test` | Unit tests (Vitest), including the composition-loop eval corpus (see [`docs/evals.md`](docs/evals.md)); current audience integration totals and installed end-to-end workflow qualification remain pending |
 | `npm run test:browser:install` | One-time: download the Playwright chromium build the `test:browser*` commands need |
 | `npm run test:browser` | Builds, then runs Playwright boot/harness/journey/accessibility tests (chromium); includes camera save/reopen from world and bbox views, plus the Explore recipe rendered/filter/save-reopen and lost-response/denied-source journeys |
-| `npm run test:console-assets` | Builds production Console assets, then runs five public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
+| `npm run test:console-assets` | Builds production Console assets, then runs six public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
 | `npm run test:self-hosted-preview` | Browser BYOM preview receipt against the built `honua-studio:ci` image; needs that image and Playwright chromium. The container smoke builds the image, then runs this. Uses no demo credential |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
-| `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
+| `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. The publication step also requires `HONUA_LIVE_HUMAN_TOKEN`, a genuine human bearer for the separate approval channel; an API key is never substituted. Live model requests require a configured direct Opus 5.5 or Sol provider; other providers are refused before a model call. All five journeys run when the base URL and API key are set, with no MCP opt-in skips. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
 
 Design tokens live in `src/theme/`: `tokens.css` holds the structural
 spacing/type/radius/elevation scale, and `theme-standalone.css` /
