@@ -8,7 +8,10 @@ export async function verifyAnonymousPublication(browser, { consoleUrl, route, i
     });
     expect(response.status()).toBe(200);
     const wire = await response.json();
+    expect(wire.success).toBe(true);
     expect(wire.data).toMatchObject({ itemId, versionId, publicationId: requestId, visibility: "public" });
+    expect(wire.data.family).toBe("map");
+    expect(Array.isArray(wire.data.envelope?.body?.layers)).toBe(true);
     const page = await context.newPage();
     const url = `${consoleUrl}/maps/published${route}`;
     expect((await page.goto(url)).status()).toBe(200);

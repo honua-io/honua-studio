@@ -42,11 +42,20 @@ jobs:
           path: .tmp/live-server-source
           persist-credentials: false
 
+      - name: Read the Console viewer at the image revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: honua-io/honua-console
+          ref: ${{ steps.images.outputs.console_revision }}
+          path: .tmp/live-console-source
+          persist-credentials: false
+
       - name: Install browser dependencies and validate harness
         run: |
           npm ci
           npm run test:browser:install
           node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs
+          node --test scripts/__tests__/live-publication.test.mjs
 
       - name: Prepare the customer quickstart and dedicated test person
         env:

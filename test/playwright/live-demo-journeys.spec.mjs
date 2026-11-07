@@ -2,6 +2,7 @@
 import { chromium, expect, test } from "@playwright/test";
 import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
 import { liveModelLimits } from "../../scripts/lib/live-model-guard.mjs";
+import { liveMapBody } from "../../scripts/lib/live-publication.mjs";
 
 import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
@@ -100,18 +101,6 @@ test.describe("live demo-server journeys @live", () => {
     expect(after.items[0]).toMatchObject({ state: "published", publishedVersionId: versionId });
   }
 
-  /** A body the REAL server's honua_map_package.v1 validator accepts (the mock's permissive `{layers,view,widgets}` shape is invalid there, and the real server refuses to publish invalid bodies). */
-  function validMapBody(packageKey, extra = {}) {
-    return {
-      mapPackageId: packageKey,
-      format: "honua_map_package.v1",
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      initialView: { bbox: [-160.6, 18.7, -154.5, 22.5], crs: "EPSG:4326" },
-      ...extra,
-    };
-  }
-
   async function injectHostSession(page) {
     // Host-adapter session injected BEFORE any Studio code runs (the
     // docs/embed-session.md `window.__HONUA_STUDIO_HOST_SESSION__` path,
@@ -179,7 +168,7 @@ test.describe("live demo-server journeys @live", () => {
           schemaVersion: "1.0",
           format: "honua_map_package.v1",
           publicationIntent: { route: `/${packageKey}`, visibility: "public" },
-          body: validMapBody(packageKey),
+          body: liveMapBody(packageKey),
         },
       });
       draftId = seeded.draftId;
@@ -215,7 +204,7 @@ test.describe("live demo-server journeys @live", () => {
         packageKey,
         envelope: {
           ...draftAfterV1.envelope,
-          body: validMapBody(packageKey, { themeId: "live-journey-dark" }),
+          body: liveMapBody(packageKey, { themeId: "live-journey-dark" }),
         },
         generation: draftAfterV1.generation,
       });
@@ -315,7 +304,13 @@ test.describe("live demo-server journeys @live", () => {
 
       const before = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation);
       await page.evaluate(() =>
-        window.__honuaStudioChat.sendMessage("Add the hi-parcels layer and set the map view to zoom 8."),
+        window.__honuaStudioChat.sendMessage("Add the hi-parcels layer. Reply briefly after adding it."),
+      );
+
+      await expect.poll(() => page.evaluate(() => window.__honuaStudioChat.streaming)).toBe(false);
+      await expect(page.locator('[data-testid="studio-chat-message"][data-role="assistant"]')).toHaveAttribute(
+        "data-status",
+        "complete",
       );
 
       await expect

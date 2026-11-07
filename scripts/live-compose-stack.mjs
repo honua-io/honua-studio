@@ -52,6 +52,7 @@ function check() {
   requireProviderKey();
   if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is required to select the quickstart source.");
   appendFileSync(process.env.GITHUB_OUTPUT, `server_revision=${lock.server.revision}\n`);
+  appendFileSync(process.env.GITHUB_OUTPUT, `console_revision=${lock.console.revision}\n`);
 }
 
 function prepare() {

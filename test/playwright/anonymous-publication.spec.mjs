@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { liveMapBody } from "../../scripts/lib/live-publication.mjs";
 import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 
 const publication = {
@@ -31,13 +32,25 @@ test("anonymous witness checks the exact approved version, rendered canvas and a
     },
   };
   const { createServer } = await import("node:http");
+  let omitLayers = false;
   const server = createServer((request, response) => {
     expect(request.headers.authorization).toBeUndefined();
     expect(request.headers["x-api-key"]).toBeUndefined();
     expect(request.headers.cookie).toBeUndefined();
     response.setHeader("content-type", "application/json");
+    const body = liveMapBody("qualification-map");
+    if (omitLayers) body.layers = undefined;
     response.end(
-      JSON.stringify({ data: { ...publication, publicationId: publication.requestId, visibility: "public" } }),
+      JSON.stringify({
+        success: true,
+        data: {
+          ...publication,
+          publicationId: publication.requestId,
+          visibility: "public",
+          family: "map",
+          envelope: { family: "map", body },
+        },
+      }),
     );
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -47,6 +60,8 @@ test("anonymous witness checks the exact approved version, rendered canvas and a
     await expect(
       verifyAnonymousPublication(witnessedBrowser, { ...options, versionId: "different-version" }),
     ).rejects.toThrow();
+    omitLayers = true;
+    await expect(verifyAnonymousPublication(witnessedBrowser, options)).rejects.toThrow();
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

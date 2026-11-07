@@ -1,42 +1,41 @@
 import { createServer, request as httpRequest } from "node:http";
 import { StringDecoder } from "node:string_decoder";
+import { SseFrameParser } from "../../src/chat/sse-parser.ts";
 
-export const liveModelLimits = { provider: "opus", model: "claude-opus-5-5", maxTokens: 1024, maxCalls: 3 };
+const turnCalls = { chat: 1, composition: 2 };
+export const liveModelLimits = {
+  provider: "opus",
+  model: "claude-opus-5-5",
+  maxTokens: 1024,
+  maxCalls: turnCalls.chat + turnCalls.composition,
+  turnCalls,
+};
+
+function recordUsageFrame(call, frame) {
+  if (frame.event === "error") call.invalidStream = true;
+  if (frame.event !== "message_stop") return;
+  try {
+    const usage = JSON.parse(frame.data);
+    if (
+      call.promptTokens !== undefined ||
+      !Number.isInteger(usage.promptTokens) ||
+      !Number.isInteger(usage.completionTokens)
+    ) {
+      call.invalidStream = true;
+      return;
+    }
+    call.promptTokens = usage.promptTokens;
+    call.completionTokens = usage.completionTokens;
+  } catch {
+    call.invalidStream = true;
+  }
+}
 
 function usageObserver(call) {
   const decoder = new StringDecoder("utf8");
-  let pending = "";
+  const parser = new SseFrameParser();
   return (chunk) => {
-    pending = (pending + decoder.write(chunk)).replaceAll("\r\n", "\n");
-    let boundary = pending.indexOf("\n\n");
-    while (boundary >= 0) {
-      const frame = pending.slice(0, boundary);
-      pending = pending.slice(boundary + 2);
-      if (/^event: message_stop$/m.test(frame)) {
-        try {
-          const usage = JSON.parse(
-            frame
-              .split("\n")
-              .find((line) => line.startsWith("data: "))
-              .slice(6),
-          );
-          if (
-            call.promptTokens !== undefined ||
-            !Number.isInteger(usage.promptTokens) ||
-            !Number.isInteger(usage.completionTokens)
-          )
-            call.invalidStream = true;
-          else {
-            call.promptTokens = usage.promptTokens;
-            call.completionTokens = usage.completionTokens;
-          }
-        } catch {
-          call.invalidStream = true;
-        }
-      }
-      if (/^event: error$/m.test(frame)) call.invalidStream = true;
-      boundary = pending.indexOf("\n\n");
-    }
+    for (const frame of parser.push(decoder.write(chunk))) recordUsageFrame(call, frame);
   };
 }
 
@@ -62,7 +61,7 @@ async function boundedChatRequest(request) {
   return body;
 }
 
-function forward(request, response, origin, body, call) {
+function forward(request, response, origin, { body, call } = {}) {
   const upstream = httpRequest(
     `${origin}${request.url}`,
     {
@@ -71,6 +70,10 @@ function forward(request, response, origin, body, call) {
       timeout: 150_000,
     },
     (reply) => {
+      reply.on("error", () => {
+        if (call) call.invalidStream = true;
+        response.end();
+      });
       if (call) {
         call.status = reply.statusCode;
         reply.on("data", usageObserver(call));
@@ -99,6 +102,7 @@ function modelGuardHandler(origin, state) {
   return async (request, response) => {
     let path;
     try {
+      if (!request.url.startsWith("/") || request.url.startsWith("//")) throw new Error("Invalid raw request path.");
       path = decodeURIComponent(new URL(request.url, origin).pathname);
     } catch {
       state.rejectedCalls++;
@@ -123,7 +127,7 @@ function modelGuardHandler(origin, state) {
     }
     const call = { call: state.calls.length + 1 };
     state.calls.push(call);
-    forward(request, response, origin, body, call);
+    forward(request, response, origin, { body, call });
   };
 }
 

@@ -112,7 +112,10 @@ test("check selects the locked source without packaging or revealing provider cr
   const checked = fixture.run("check");
   assert.equal(checked.status, 0, checked.stderr);
   assert.equal(checked.stdout.includes("synthetic-provider-key"), false);
-  assert.equal(readFileSync(fixture.environment.GITHUB_OUTPUT, "utf8"), `server_revision=${lock.server.revision}\n`);
+  assert.equal(
+    readFileSync(fixture.environment.GITHUB_OUTPUT, "utf8"),
+    `server_revision=${lock.server.revision}\nconsole_revision=${lock.console.revision}\n`,
+  );
   assert.equal(fixture.commands().length, 0);
 });
 

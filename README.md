@@ -120,6 +120,9 @@ tokens. A shared loopback guard permits at most three chat requests across all b
 the pinned server disables provider HTTP retries. The run records provider-reported prompt and
 completion tokens in `live-model-usage.json`. Publication must also render the approved public
 version anonymously in a fresh browser context. These are harness checks awaiting a live receipt.
+The three-call allowance covers one short chat response and a two-call composition turn (one
+tool action, then its closing response); extra rounds fail the qualification without another
+provider invocation.
 
 At `f48636d`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42348162528)
 passed typecheck, style, build and 1,759 Vitest tests across 144 files, plus the Node harness
