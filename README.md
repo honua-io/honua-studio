@@ -115,6 +115,12 @@ the pending publication through Console. Direct Anthropic Opus 5.5 uses the
 admission remain enforced. Setup does not invoke a model. There is **no qualification receipt for
 this Compose harness yet**. The demo remains a separate, non-gating scheduled canary.
 
+At `f48636d`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42348162528)
+passed typecheck, style, build and 1,759 Vitest tests across 144 files, plus the Node harness
+checks. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42348162529)
+passed all four jobs; the browser job reported 46 passed with no reported flaky tests.
+These fixture and packaging receipts do not establish a real model turn or live publication.
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime

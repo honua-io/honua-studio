@@ -35,6 +35,10 @@ at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. 
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
+At `f48636d`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42348162528)
+passed 1,759 Vitest tests in 144 files, typecheck, style and build; the
+[candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42348162529) passed all
+four jobs, with 46 browser tests passed and no reported flaky tests. This is not live qualification.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
 revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
 and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
