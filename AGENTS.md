@@ -35,8 +35,16 @@ at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. 
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
-The live publish journey requires `HONUA_LIVE_HUMAN_TOKEN`; model calls must select a
-configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
+The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
+revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
+and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
+`HONUA_LIVE_ANTHROPIC_API_KEY`; per-run API/bootstrap credentials and the test person's password
+are generated privately. Playwright signs into Console in a fresh browser context and clicks the
+selected proposal; no supplied bearer or API key approves publication. This harness has no live
+qualification receipt yet. `live-demo-canary.yml` retains the demo as a separate non-gating canary;
+its external Console uses `HONUA_LIVE_APPROVER_USERNAME`/`HONUA_LIVE_APPROVER_PASSWORD` secrets
+and `HONUA_LIVE_CONSOLE_URL`/`HONUA_LIVE_CONSOLE_PROFILE_ID`/`HONUA_LIVE_APPROVER_IDP_ORIGIN` variables.
+Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 
 ## Invariants

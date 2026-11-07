@@ -17,7 +17,7 @@ export function selectLiveModel(capabilities, requiredCapabilities = ["streaming
   return selected;
 }
 
-export function liveReadinessEvidence(capabilities, { humanApprovalCredentialPresent = false } = {}) {
+export function liveReadinessEvidence(capabilities, { consoleApprovalConfigured = false } = {}) {
   return {
     enabled: capabilities.enabled,
     approvedProviderAvailable: Boolean(
@@ -33,17 +33,6 @@ export function liveReadinessEvidence(capabilities, { humanApprovalCredentialPre
       toolSupport,
       isDefault,
     })),
-    humanApprovalCredentialPresent,
+    consoleApprovalConfigured,
   };
-}
-
-export async function approveLivePublication(baseUrl, proposalId, humanToken, fetchRequest = fetch) {
-  if (!humanToken) throw new Error("HONUA_LIVE_HUMAN_TOKEN is required for the human approval step.");
-  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v1/admin/proposals/${encodeURIComponent(proposalId)}/approve`);
-  const response = await fetchRequest(url, {
-    method: "POST",
-    headers: { authorization: `Bearer ${humanToken}`, accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Human publication approval returned HTTP ${response.status}.`);
-  return response.json();
 }

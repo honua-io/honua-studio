@@ -104,7 +104,16 @@ approval and an unchanged published pointer, then stopped because the human appr
 credential was absent. Both real-model journeys refused invocation: readiness advertised
 only a configured Bedrock adapter, with no allowed Opus 5.5 or Sol provider. This proves
 neither a real model turn nor completed human-approved publication. Deployment/provider
-and human-session prerequisites must be repaired before another qualification attempt.
+and human-session prerequisites blocked that demo attempt.
+
+The candidate qualification workflow now prepares the **customer quickstart Compose stack on the
+CI runner**, using the server, Console and executor digests in `scripts/live-compose-images.json`.
+It packages the quickstart from the matching server source, retains its management/executor
+services, records running image identities, creates a dedicated OIDC test person and approves
+the pending publication through Console. Direct Anthropic Opus 5.5 uses the
+`HONUA_LIVE_ANTHROPIC_API_KEY` Actions secret; provider disclosure approval and bounded invocation
+admission remain enforced. Setup does not invoke a model. There is **no qualification receipt for
+this Compose harness yet**. The demo remains a separate, non-gating scheduled canary.
 
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
@@ -153,7 +162,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| `@live` journeys build Studio from the checkout; [candidate run](https://github.com/honua-io/honua-studio/actions/runs/42340355731): 2 passed, 3 failed, 0 skipped; no model or completed publication receipt | `.github/workflows/live-demo-smoke.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack; qualification pending. [Earlier demo candidate](https://github.com/honua-io/honua-studio/actions/runs/42340355731): 2 passed, 3 failed, 0 skipped | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
@@ -366,7 +375,7 @@ Other commands:
 | `npm run test:console-assets` | Builds production Console assets, then runs six public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
 | `npm run test:self-hosted-preview` | Browser BYOM preview receipt against the built `honua-studio:ci` image; needs that image and Playwright chromium. The container smoke builds the image, then runs this. Uses no demo credential |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
-| `npm run test:browser:live` | Builds, then runs the `@live` journeys against a REAL deployed honua-server. Gated: skips unless `HONUA_LIVE_BASE_URL` (e.g. `https://demo.honua.io/api`) and `HONUA_LIVE_API_KEY` (admin key; injected server-side by the vite proxy as `X-API-Key`, never baked into the bundle) are set. The publication step also requires `HONUA_LIVE_HUMAN_TOKEN`, a genuine human bearer for the separate approval channel; an API key is never substituted. Live model requests require a configured Opus 5.5 or Sol provider; other providers are refused before a model call. All five journeys run when the base URL and API key are set, with no MCP opt-in skips. See `test/playwright/live-demo-journeys.spec.mjs`. CI runs this nightly against `demo.honua.io` (`.github/workflows/live-demo-smoke.yml`) |
+| `npm run test:browser:live` | Builds and runs all five `@live` journeys when `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set. The qualification workflow starts the locked customer Compose stack, creates a dedicated OIDC test person and supplies private per-run credentials. Publication asserts pending and an unchanged pointer, clicks Approve through Console in a fresh browser context, then independently verifies the accepted request and exact published version. Direct Anthropic Opus 5.5 uses `HONUA_LIVE_ANTHROPIC_API_KEY`; automatic retries are disabled. The separate demo canary uses the external Console URL/profile/IdP variables and approver username/password secrets described in AGENTS.md. |
 
 Design tokens live in `src/theme/`: `tokens.css` holds the structural
 spacing/type/radius/elevation scale, and `theme-standalone.css` /
