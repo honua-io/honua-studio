@@ -36,17 +36,23 @@ at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. 
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
-At `641fa8e`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42413322294)
-passed 1,759 Vitest tests in 144 files, typecheck, style and build; the
-[candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42413322274) passed all
+At `e5fa221`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42416699448)
+passed 1,759 Vitest tests in 144 files, 35 live harness contracts, typecheck, style and build;
+the [candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42416699560) passed all
 four jobs, with 47 browser tests passed and no reported flaky tests.
-The [bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
-at the same Studio revision had 3 passes, 2 failures, no skips and no retries. Boot, real chat and
-scripted MCP passed. Console approval failed at the human-approval stage; anonymous rendering was
-not reached. Model-driven composition ended in an error. Two guarded chat requests were forwarded:
-the successful chat reported 33 input and 5 output tokens; no valid usage was recorded for the failed request.
-Its usage is unknown, not zero. Neither remaining failure has a conclusive root-cause classification;
-the artifacts omit the approval/problem details and stream error code. Do not rerun without diagnosis.
+The [latest bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
+at that revision recorded 3 passes, 2 failures, no skips, no retries and no flaky tests in 197.4 seconds.
+Boot, real chat and scripted MCP passed. Publication timed out after 180 seconds at the Console
+session callback; anonymous rendering was not reached. Model composition expected a completed
+assistant and received an error. The process then stayed alive until the 25-minute job cancellation.
+Artifact upload succeeded, but cancellation skipped failure-only diagnostics. Approval response,
+SSE error codes, server/Console logs and model usage are absent. Current-run usage is unknown,
+not zero. Usage is written only after proxy shutdown; an idle client connection can block that
+shutdown, but retained CI logs do not identify the outstanding connection or exact stall point.
+The journey failures remain unclassified as product versus harness/environment. No further run
+is authorized. The [earlier qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
+at `641fa8e` recorded 33 input / 5 output tokens for its successful chat only; do not reuse that
+receipt as latest-run usage. Live qualification and merge remain blocked.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
 revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
 and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
@@ -60,7 +66,7 @@ Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most three model calls
 per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
-the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`.
+the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`; the canceled run did not retain it.
 Publication also verifies the exact approved public version and rendered map in an empty browser
 context. The failed qualification does not establish completed publication or anonymous rendering.
 
