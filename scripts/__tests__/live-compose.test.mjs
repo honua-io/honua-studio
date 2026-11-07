@@ -68,7 +68,9 @@ test("customer overlay preserves publication authorization and configures only d
   assert.equal(overlay.services.keycloak.environment.KC_HTTP_ENABLED, "false");
   assert.deepEqual(overlay.services.keycloak.networks.default.aliases, ["host.docker.internal"]);
   assert.equal(server.extra_hosts, undefined);
-  assert.equal(overlay.services.console.extra_hosts, undefined);
+  assert.deepEqual(overlay.services.console.extra_hosts, ["qualification-host:host-gateway"]);
+  assert.equal(overlay.services.console.environment.HONUA_SERVER_BASE_URL, "http://qualification-host:18081");
+  assert.equal(overlay.services.console.environment.Honua__Server__BaseUrl, "http://qualification-host:18081");
   assert.equal(
     overlay.services.console.volumes.some((value) => value.includes("docker.sock")),
     false,

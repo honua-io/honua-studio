@@ -1,3 +1,4 @@
+import { approvalObserverOrigin } from "./live-diagnostics.mjs";
 import { liveModelLimits } from "./live-model-guard.mjs";
 
 export const consoleOrigin = "http://127.0.0.1:5174";
@@ -40,13 +41,14 @@ export function studioComposeOverlay(lock) {
         depends_on: { keycloak: { condition: "service_started" } },
       },
       console: {
+        extra_hosts: ["qualification-host:host-gateway"],
         image: lock.console.image,
         ports: [`127.0.0.1:${new URL(consoleOrigin).port}:8080`],
         environment: {
           ASPNETCORE_ENVIRONMENT: "Development",
           ASPNETCORE_URLS: "http://+:8080",
-          HONUA_SERVER_BASE_URL: "http://honua:8080",
-          Honua__Server__BaseUrl: "http://honua:8080",
+          HONUA_SERVER_BASE_URL: approvalObserverOrigin,
+          Honua__Server__BaseUrl: approvalObserverOrigin,
           HONUA_ADMIN_API_KEY: "",
           Honua__Server__AdminApiKey: "",
           Studio__EmbedJsStudio: "true",

@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { serverOrigin } from "./lib/live-compose.mjs";
+import { approvalObserverPort } from "./lib/live-diagnostics.mjs";
 import { startLiveModelGuard } from "./lib/live-model-guard.mjs";
 
-const guard = await startLiveModelGuard(serverOrigin);
+const guard = await startLiveModelGuard(serverOrigin, { host: "0.0.0.0", port: approvalObserverPort });
 try {
   const child = spawn("npm", ["run", "test:browser:live", "--", "--reporter=list,json", "--retries=0"], {
     stdio: "inherit",

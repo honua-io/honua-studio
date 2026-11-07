@@ -155,3 +155,34 @@ test("stop targets only the generated project with its saved Compose files", (co
   assert.deepEqual(cleanup.args.slice(-3), ["down", "--volumes", "--remove-orphans"]);
   assert.equal(cleanup.args.includes("prune"), false);
 });
+
+test("diagnostics retain redacted logs and Playwright contexts before any stack teardown", (context) => {
+  const fixture = stackFixture(context);
+  prepareFixture(fixture);
+  const output = resolve(fixture.directory, ".tmp/playwright-output/publish");
+  mkdirSync(output, { recursive: true });
+  writeFileSync(
+    resolve(output, "error-context.md"),
+    "Approval refused code=private-code&state=private-state synthetic-provider-key",
+  );
+  const collected = fixture.run("diagnostics");
+  assert.equal(collected.status, 0, collected.stderr);
+  const diagnostics = resolve(fixture.directory, ".tmp/live-diagnostics");
+  const log = readFileSync(resolve(diagnostics, "compose.log"), "utf8");
+  assert.match(log, /Missing approve grant/);
+  assert.equal(log.includes("synthetic-token"), false);
+  assert.equal(log.includes("synthetic-provider-key"), false);
+  assert.equal(
+    log.includes(readFileSync(resolve(fixture.directory, ".tmp/live-compose/secrets/approver_password"), "utf8")),
+    false,
+  );
+  const snapshot = readFileSync(resolve(diagnostics, "playwright/publish/error-context.md"), "utf8");
+  assert.match(snapshot, /Approval refused/);
+  for (const secret of ["private-code", "private-state", "synthetic-provider-key"])
+    assert.equal(snapshot.includes(secret), false);
+  assert.equal(
+    fixture.commands().some((call) => call.args.includes("down")),
+    false,
+  );
+  assert.deepEqual(fixture.commands().at(-1).args.slice(-4), ["logs", "--no-color", "honua", "console"]);
+});

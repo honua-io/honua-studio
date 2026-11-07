@@ -67,7 +67,7 @@ test("oversized or unapproved requests never reach the upstream", async (context
 test("missing usage and failed provider responses cannot qualify", async (context) => {
   const { guard, chat } = await fixture(context, (response) => {
     response.writeHead(200, { "content-type": "text/event-stream" });
-    response.end('event: error\ndata: {"message":"private diagnostic"}\n\n');
+    response.end('event: error\ndata: {"message":"Token refused","token":"private diagnostic"}\n\n');
   });
   await (await chat()).text();
   assert.throws(() => guard.assertQualified(), /usage/);
@@ -126,4 +126,50 @@ test("a completed turn qualifies with usage while ordinary API traffic consumes 
   await (await chat()).text();
   assert.equal(guard.evidence().calls.length, 1);
   assert.doesNotThrow(() => guard.assertQualified());
+});
+
+test("approval responses retain status and redacted problem details without request credentials", async (context) => {
+  const { guard } = await fixture(context, (response) => {
+    response.writeHead(403, { "content-type": "application/problem+json" });
+    response.end(
+      JSON.stringify({ title: "Approval refused", detail: "Missing approve grant", token: "private-token" }),
+    );
+  });
+  const response = await fetch(`${guard.origin}/api/v1/admin/proposals/test-proposal/approve`, {
+    method: "POST",
+    headers: { authorization: "Bearer private-bearer" },
+  });
+  await response.text();
+  assert.deepEqual(guard.evidence().approvals, [
+    {
+      method: "POST",
+      path: "/api/v1/admin/proposals/test-proposal/approve",
+      status: 403,
+      body: { title: "Approval refused", detail: "Missing approve grant", token: "[REDACTED]" },
+    },
+  ]);
+  assert.equal(JSON.stringify(guard.evidence()).includes("private-bearer"), false);
+  assert.equal(guard.evidence().calls.length, 0);
+});
+
+test("SSE error frames keep the error code and redact credentials across split chunks", async (context) => {
+  const { guard, chat } = await fixture(context, (response) => {
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write("event: error\nda");
+    response.end(
+      'ta: {"code":"tool_schema_rejected","message":"Authorization: Bearer private-bearer","apiKey":"private-key"}\n\n',
+    );
+  });
+  await (await chat()).text();
+  assert.deepEqual(guard.evidence().calls[0].errors, [
+    {
+      event: "error",
+      data: {
+        code: "tool_schema_rejected",
+        message: "Authorization: Bearer [REDACTED]",
+        apiKey: "[REDACTED]",
+      },
+    },
+  ]);
+  assert.throws(() => guard.assertQualified(), /usage/);
 });

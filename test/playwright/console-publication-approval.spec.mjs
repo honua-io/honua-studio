@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 
@@ -98,6 +99,11 @@ test("Console approval cannot turn a failed proposal into success", async ({ pag
   await expect(approveLivePublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow(
     "Console publication approval failed during human approval.",
   );
+  const snapshot = readFileSync(".tmp/live-diagnostics/console-approval-error-context.md", "utf8");
+  expect(snapshot).toContain("Stage: human approval");
+  expect(snapshot).toContain("Failed");
+  expect(snapshot).not.toContain(credentials.password);
+  expect(snapshot).not.toContain(credentials.username);
 });
 
 test("Console approval never fills credentials after a redirect to a different identity origin", async ({ page }) => {

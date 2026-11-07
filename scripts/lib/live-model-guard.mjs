@@ -1,6 +1,7 @@
 import { createServer, request as httpRequest } from "node:http";
 import { StringDecoder } from "node:string_decoder";
 import { SseFrameParser } from "../../src/chat/sse-parser.ts";
+import { diagnosticRedactor } from "./live-diagnostics.mjs";
 
 const turnCalls = { chat: 1, composition: 2 };
 export const liveModelLimits = {
@@ -11,8 +12,16 @@ export const liveModelLimits = {
   turnCalls,
 };
 
-function recordUsageFrame(call, frame) {
-  if (frame.event === "error") call.invalidStream = true;
+function recordUsageFrame(call, frame, redact) {
+  if (frame.event === "error") {
+    call.invalidStream = true;
+    call.errors ??= [];
+    try {
+      call.errors.push({ event: frame.event, data: JSON.parse(redact(frame.data)) });
+    } catch {
+      call.errors.push({ event: frame.event, data: redact(frame.data) });
+    }
+  }
   if (frame.event !== "message_stop") return;
   try {
     const usage = JSON.parse(frame.data);
@@ -31,11 +40,11 @@ function recordUsageFrame(call, frame) {
   }
 }
 
-function usageObserver(call) {
+function usageObserver(call, redact) {
   const decoder = new StringDecoder("utf8");
   const parser = new SseFrameParser();
   return (chunk) => {
-    for (const frame of parser.push(decoder.write(chunk))) recordUsageFrame(call, frame);
+    for (const frame of parser.push(decoder.write(chunk))) recordUsageFrame(call, frame, redact);
   };
 }
 
@@ -61,12 +70,12 @@ async function boundedChatRequest(request) {
   return body;
 }
 
-function forward(request, response, origin, { body, call } = {}) {
+function forward(request, response, origin, { body, call, approval, redact } = {}) {
   const upstream = httpRequest(
     `${origin}${request.url}`,
     {
       method: request.method,
-      headers: { ...request.headers, host: new URL(origin).host },
+      headers: { ...request.headers, host: new URL(origin).host, "accept-encoding": "identity" },
       timeout: 150_000,
     },
     (reply) => {
@@ -76,11 +85,12 @@ function forward(request, response, origin, { body, call } = {}) {
       });
       if (call) {
         call.status = reply.statusCode;
-        reply.on("data", usageObserver(call));
+        reply.on("data", usageObserver(call, redact));
         reply.on("aborted", () => {
           call.invalidStream = true;
         });
       }
+      if (approval) observeApproval(reply, approval, redact);
       response.writeHead(reply.statusCode, reply.headers);
       reply.pipe(response);
     },
@@ -98,7 +108,24 @@ function forward(request, response, origin, { body, call } = {}) {
   else request.pipe(upstream);
 }
 
-function modelGuardHandler(origin, state) {
+function observeApproval(reply, approval, redact) {
+  approval.status = reply.statusCode;
+  const chunks = [];
+  reply.on("data", (chunk) => chunks.push(chunk));
+  reply.on("end", () => {
+    const body = redact(Buffer.concat(chunks).toString("utf8"));
+    try {
+      approval.body = JSON.parse(body);
+    } catch {
+      approval.body = body;
+    }
+  });
+  reply.on("aborted", () => {
+    approval.interrupted = true;
+  });
+}
+
+function modelGuardHandler(origin, state, redact) {
   return async (request, response) => {
     let path;
     try {
@@ -109,7 +136,14 @@ function modelGuardHandler(origin, state) {
       response.writeHead(400).end("Invalid qualification request path.");
       return;
     }
-    if (!/^\/api\/v[\d.]+\/studio\/ai\/chat\/*$/i.test(path)) return forward(request, response, origin);
+    if (!/^\/api\/v[\d.]+\/studio\/ai\/chat\/*$/i.test(path)) {
+      let approval;
+      if (/^\/api\/v1\/admin\/proposals\/[^/]+(?:\/approve)?$/.test(path)) {
+        approval = { method: request.method, path };
+        state.approvals.push(approval);
+      }
+      return forward(request, response, origin, { approval, redact });
+    }
     let body;
     try {
       if (request.method !== "POST" || request.url !== "/api/v1/studio/ai/chat")
@@ -127,20 +161,20 @@ function modelGuardHandler(origin, state) {
     }
     const call = { call: state.calls.length + 1 };
     state.calls.push(call);
-    forward(request, response, origin, { body, call });
+    forward(request, response, origin, { body, call, redact });
   };
 }
 
-export async function startLiveModelGuard(origin) {
+export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0 } = {}) {
   const target = new URL(origin);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/")
     throw new Error("The Compose guard requires a loopback server origin.");
-  const state = { calls: [], rejectedCalls: 0 };
+  const state = { calls: [], approvals: [], rejectedCalls: 0 };
   const { calls } = state;
-  const server = createServer(modelGuardHandler(target.origin, state));
+  const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor()));
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(port, host, resolve);
   });
   return {
     origin: `http://127.0.0.1:${server.address().port}`,
@@ -148,6 +182,7 @@ export async function startLiveModelGuard(origin) {
     evidence: () => ({
       limits: liveModelLimits,
       calls,
+      approvals: state.approvals,
       rejectedCalls: state.rejectedCalls,
       promptTokens: calls.reduce((total, call) => total + (call.promptTokens ?? 0), 0),
       completionTokens: calls.reduce((total, call) => total + (call.completionTokens ?? 0), 0),

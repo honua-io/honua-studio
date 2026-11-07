@@ -12,6 +12,7 @@ import {
   studioSecretNames,
   validateImageLock,
 } from "./lib/live-compose.mjs";
+import { collectPlaywrightContexts, writeDiagnostic } from "./lib/live-diagnostics.mjs";
 
 const root = resolve(".tmp/live-compose");
 const lock = JSON.parse(readFileSync(new URL("./live-compose-images.json", import.meta.url), "utf8"));
@@ -250,5 +251,9 @@ const action = process.argv[2];
 if (action === "check") check();
 else if (action === "prepare") prepare();
 else if (action === "start") await start();
-else if (action === "stop") compose(["down", "--volumes", "--remove-orphans"]);
-else throw new Error("Expected check, prepare, start or stop.");
+else if (action === "diagnostics") {
+  collectPlaywrightContexts();
+  writeDiagnostic(".tmp/live-diagnostics/compose.log", compose(["logs", "--no-color", "honua", "console"]));
+  console.log("Redacted Playwright contexts and server/Console logs collected before teardown.");
+} else if (action === "stop") compose(["down", "--volumes", "--remove-orphans"]);
+else throw new Error("Expected check, prepare, start, diagnostics or stop.");

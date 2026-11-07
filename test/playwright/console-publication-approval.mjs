@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test";
 
 import { liveApprovalConfiguration } from "../../scripts/lib/live-approval-config.mjs";
+import { diagnosticRedactor, writeDiagnostic } from "../../scripts/lib/live-diagnostics.mjs";
 
 export { liveApprovalConfiguration };
 
@@ -57,8 +58,25 @@ export async function approveLivePublication(page, options) {
       { timeout: 60_000 },
     );
     await expect(panel.locator("[data-proposal-status]")).toHaveAttribute("data-proposal-status", "Succeeded");
-  } catch {
-    // Playwright diagnostics can contain filled credentials and one-time callback codes.
+  } catch (error) {
+    await recordApprovalFailure(page, { configuration, stage, error });
     throw new Error(`Console publication approval failed during ${stage}.`);
   }
+}
+
+async function recordApprovalFailure(page, { configuration, stage, error }) {
+  const redact = diagnosticRedactor(".tmp/live-compose", {
+    ...process.env,
+    APPROVER_PASSWORD: configuration.password,
+    APPROVER_SECRET: configuration.username,
+  });
+  const snapshot = await page
+    .locator("body")
+    .ariaSnapshot()
+    .catch(() => "Console page unavailable.");
+  writeDiagnostic(
+    ".tmp/live-diagnostics/console-approval-error-context.md",
+    `Stage: ${stage}\n${error.message}\n\n${snapshot}`,
+    redact,
+  );
 }

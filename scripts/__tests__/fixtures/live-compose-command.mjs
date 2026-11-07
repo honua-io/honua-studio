@@ -39,3 +39,9 @@ if (command === "docker" && args[0] === "image") {
     JSON.stringify([{ Id: service, Config: { Labels: { "org.opencontainers.image.revision": revision } } }]),
   );
 }
+
+if (command === "docker" && args[0] === "compose" && args.includes("logs")) {
+  process.stdout.write("honua | Missing approve grant; Bearer synthetic-token\n");
+  process.stdout.write(`console | ${readFileSync("secrets/approver_password", "utf8")}\n`);
+  process.stdout.write(`honua | ${readFileSync("secrets/anthropic_api_key", "utf8")}\n`);
+}
