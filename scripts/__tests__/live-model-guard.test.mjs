@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { startLiveModelGuard } from "../lib/live-model-guard.mjs";
 
 async function fixture(context, respond) {
@@ -31,6 +37,101 @@ function completedStream(response) {
   response.write('event: message_start\ndata: {"model":"claude-opus-5-5"}\n\nevent: message_stop\nda');
   response.end('ta: {"promptTokens":37,"completionTokens":2}\n\n');
 }
+
+test("shutdown closes idle clients and active upstream streams within a bounded time", async (context) => {
+  let upstreamResponse;
+  const { guard, chat } = await fixture(context, (response) => {
+    upstreamResponse = response;
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write('event: message_start\ndata: {"model":"claude-opus-5-5"}\n\n');
+  });
+  const idle = connect(new URL(guard.origin).port, "127.0.0.1");
+  await new Promise((resolve) => idle.once("connect", resolve));
+  const reply = await chat();
+  const consumed = reply.text().catch(() => {});
+  const upstreamClosed = new Promise((resolve) => upstreamResponse.once("close", resolve));
+  let timeout;
+  const deadline = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error("Guard shutdown hung with open sockets.")), 2000);
+  });
+  try {
+    await Promise.race([guard.close(), deadline]);
+    await Promise.race([upstreamClosed, deadline]);
+    assert.equal(guard.evidence().calls.length, 1);
+    assert.equal(guard.evidence().calls[0].invalidStream, true);
+  } finally {
+    clearTimeout(timeout);
+    idle.destroy();
+    upstreamResponse.end();
+    await consumed;
+  }
+});
+
+test("the qualification CLI persists evidence and redacted contexts on browser failure and cancellation", async (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "studio-qualification-shutdown-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const commands = join(directory, "commands");
+  mkdirSync(commands);
+  const npm = join(commands, "npm");
+  writeFileSync(
+    npm,
+    `#!/usr/bin/env node
+const { connect } = require("node:net");
+const socket = connect(new URL(process.env.HONUA_LIVE_BASE_URL).port, "127.0.0.1");
+socket.once("connect", () => {
+  console.log("SYNTHETIC_BROWSER_READY");
+  if (process.env.SYNTHETIC_BROWSER_MODE === "failure") process.exit(7);
+  if (process.env.SYNTHETIC_BROWSER_MODE === "unqualified") process.exit(0);
+});
+`,
+  );
+  chmodSync(npm, 0o700);
+  for (const mode of ["failure", "unqualified", "SIGINT", "SIGTERM"]) {
+    await context.test(mode, { timeout: 5000 }, async () => {
+      const cwd = join(directory, mode);
+      mkdirSync(join(cwd, ".tmp/playwright-output/publish"), { recursive: true });
+      writeFileSync(
+        join(cwd, ".tmp/playwright-output/publish/error-context.md"),
+        "Console callback timed out ?code=synthetic-private-code&state=synthetic-private-state",
+      );
+      const child = spawn(process.execPath, [fileURLToPath(new URL("../qualify-live-compose.mjs", import.meta.url))], {
+        cwd,
+        env: { ...process.env, PATH: `${commands}${delimiter}${process.env.PATH}`, SYNTHETIC_BROWSER_MODE: mode },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let errors = "";
+      let signaled = false;
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        if (mode.startsWith("SIG") && !signaled && output.includes("SYNTHETIC_BROWSER_READY")) {
+          signaled = true;
+          child.kill(mode);
+        }
+      });
+      child.stderr.on("data", (chunk) => {
+        errors += chunk;
+      });
+      try {
+        const code = await new Promise((resolve, reject) => {
+          child.once("error", reject);
+          child.once("close", resolve);
+        });
+        assert.equal(code, { failure: 7, unqualified: 1, SIGINT: 130, SIGTERM: 143 }[mode], errors);
+        const usage = JSON.parse(readFileSync(join(cwd, ".tmp/live-model-usage.json"), "utf8"));
+        assert.equal(usage.calls.length, 0);
+        assert.equal(usage.limits.maxCalls, 3);
+        assert.equal(usage.limits.maxTokens, 1024);
+        assert.match(output, /Live model usage:/);
+        const snapshot = readFileSync(join(cwd, ".tmp/live-diagnostics/playwright/publish/error-context.md"), "utf8");
+        assert.match(snapshot, /Console callback timed out/);
+        assert.equal(snapshot.includes("synthetic-private"), false);
+      } finally {
+        child.kill("SIGKILL");
+      }
+    });
+  }
+});
 
 test("a single guard caps concurrent calls across clients and records only provider token receipts", async (context) => {
   const { guard, requests, chat } = await fixture(context, completedStream);

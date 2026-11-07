@@ -70,13 +70,14 @@ async function boundedChatRequest(request) {
   return body;
 }
 
-function forward(request, response, origin, { body, call, approval, redact } = {}) {
+function forward(request, response, origin, { body, call, approval, redact, sockets } = {}) {
   const upstream = httpRequest(
     `${origin}${request.url}`,
     {
       method: request.method,
       headers: { ...request.headers, host: new URL(origin).host, "accept-encoding": "identity" },
       timeout: 150_000,
+      agent: false,
     },
     (reply) => {
       reply.on("error", () => {
@@ -95,6 +96,7 @@ function forward(request, response, origin, { body, call, approval, redact } = {
       reply.pipe(response);
     },
   );
+  upstream.on("socket", (socket) => trackSocket(sockets, socket));
   upstream.on("timeout", () => upstream.destroy(new Error("Live upstream timed out.")));
   upstream.on("error", () => {
     if (call) call.invalidStream = true;
@@ -125,7 +127,12 @@ function observeApproval(reply, approval, redact) {
   });
 }
 
-function modelGuardHandler(origin, state, redact) {
+function trackSocket(sockets, socket) {
+  sockets.add(socket);
+  socket.once("close", () => sockets.delete(socket));
+}
+
+function modelGuardHandler(origin, state, redact, sockets) {
   return async (request, response) => {
     let path;
     try {
@@ -142,7 +149,7 @@ function modelGuardHandler(origin, state, redact) {
         approval = { method: request.method, path };
         state.approvals.push(approval);
       }
-      return forward(request, response, origin, { approval, redact });
+      return forward(request, response, origin, { approval, redact, sockets });
     }
     let body;
     try {
@@ -161,7 +168,7 @@ function modelGuardHandler(origin, state, redact) {
     }
     const call = { call: state.calls.length + 1 };
     state.calls.push(call);
-    forward(request, response, origin, { body, call, redact });
+    forward(request, response, origin, { body, call, redact, sockets });
   };
 }
 
@@ -171,14 +178,27 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
     throw new Error("The Compose guard requires a loopback server origin.");
   const state = { calls: [], approvals: [], rejectedCalls: 0 };
   const { calls } = state;
-  const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor()));
+  const sockets = new Set();
+  const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor(), sockets));
+  server.on("connection", (socket) => trackSocket(sockets, socket));
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);
   });
+  let closing;
   return {
     origin: `http://127.0.0.1:${server.address().port}`,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () => {
+      closing ??= new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Live guard shutdown exceeded one second.")), 1000);
+        server.close(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        for (const socket of sockets) socket.destroy();
+      });
+      return closing;
+    },
     evidence: () => ({
       limits: liveModelLimits,
       calls,

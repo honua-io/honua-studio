@@ -73,16 +73,19 @@ jobs:
         run: node scripts/live-demo-readiness.mjs
 
       - name: Qualify Studio against the customer stack without retries
+        timeout-minutes: 10
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
         run: node scripts/qualify-live-compose.mjs
 
       - name: Collect redacted failure diagnostics before teardown
-        if: ${{ failure() && steps.images.outcome == 'success' }}
+        if: ${{ always() && steps.images.outcome == 'success' }}
+        timeout-minutes: 2
         run: node scripts/live-compose-stack.mjs diagnostics
 
       - name: Upload qualification evidence
         if: always()
+        timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: live-customer-compose-studio
@@ -96,6 +99,7 @@ jobs:
 
       - name: Stop only this run's customer stack
         if: ${{ always() && steps.images.outcome == 'success' }}
+        timeout-minutes: 2
         run: |
           if test -f .tmp/live-compose/compose.studio.json; then
             node scripts/live-compose-stack.mjs stop
