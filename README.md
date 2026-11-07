@@ -115,6 +115,12 @@ the pending publication through Console. Direct Anthropic Opus 5.5 uses the
 admission remain enforced. Setup does not invoke a model. There is **no qualification receipt for
 this Compose harness yet**. The demo remains a separate, non-gating scheduled canary.
 
+The Compose qualification limits each model request and the provider default to 1,024 output
+tokens. A shared loopback guard permits at most three chat requests across all browser workers;
+the pinned server disables provider HTTP retries. The run records provider-reported prompt and
+completion tokens in `live-model-usage.json`. Publication must also render the approved public
+version anonymously in a fresh browser context. These are harness checks awaiting a live receipt.
+
 At `f48636d`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42348162528)
 passed typecheck, style, build and 1,759 Vitest tests across 144 files, plus the Node harness
 checks. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42348162529)

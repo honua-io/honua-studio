@@ -1,3 +1,5 @@
+import { liveModelLimits } from "./live-model-guard.mjs";
+
 export const consoleOrigin = "http://127.0.0.1:5174";
 export const identityOrigin = "https://host.docker.internal:8443";
 export const serverOrigin = "http://127.0.0.1:18080";
@@ -76,6 +78,7 @@ function studioServerEnvironment() {
     StudioAiProxy__Providers__opus__Kind: "anthropic",
     StudioAiProxy__Providers__opus__Endpoint: "https://api.anthropic.com",
     StudioAiProxy__Providers__opus__Model: "claude-opus-5-5",
+    StudioAiProxy__Providers__opus__MaxTokens: String(liveModelLimits.maxTokens),
     StudioAiProxy__Providers__opus__SupportsTools: "true",
     HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY: `/run/secrets/${studioSecretNames.provider}`,
     StudioAiProxy__Disclosure__WorkloadDataClassification: "unclassified",

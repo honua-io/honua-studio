@@ -1,7 +1,9 @@
 /** Live deployment checks leave timestamped content items; drafts are deleted after each test. */
 import { chromium, expect, test } from "@playwright/test";
 import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
+import { liveModelLimits } from "../../scripts/lib/live-model-guard.mjs";
 
+import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
@@ -45,6 +47,7 @@ test.describe("live demo-server journeys @live", () => {
           ...route.request().postDataJSON(),
           provider: provider.provider,
           model: provider.model,
+          maxTokens: liveModelLimits.maxTokens,
         }),
       }),
     );
@@ -68,9 +71,18 @@ test.describe("live demo-server journeys @live", () => {
     const approvalConfiguration = liveApprovalConfiguration();
     const approvalBrowser = await chromium.launch({ args: liveApprovalBrowserArguments() });
     try {
+      const unpublished = await fetch(`${approvalConfiguration.consoleUrl}/api/studio/viewer/published/${packageKey}`);
+      expect(unpublished.status).toBe(404);
       const approvalContext = await approvalBrowser.newContext();
       const approvalPage = await approvalContext.newPage();
       await approveLivePublication(approvalPage, { ...approvalConfiguration, proposalId: pending.proposalId });
+      await verifyAnonymousPublication(approvalBrowser, {
+        consoleUrl: approvalConfiguration.consoleUrl,
+        route: `/${packageKey}`,
+        itemId: pending.resourceIds.itemId,
+        versionId,
+        requestId: pending.resourceIds.requestId,
+      });
     } finally {
       await approvalBrowser.close();
     }
@@ -166,6 +178,7 @@ test.describe("live demo-server journeys @live", () => {
           family: "map",
           schemaVersion: "1.0",
           format: "honua_map_package.v1",
+          publicationIntent: { route: `/${packageKey}`, visibility: "public" },
           body: validMapBody(packageKey),
         },
       });

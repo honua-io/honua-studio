@@ -46,7 +46,7 @@ jobs:
         run: |
           npm ci
           npm run test:browser:install
-          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs
+          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs
 
       - name: Prepare the customer quickstart and dedicated test person
         env:
@@ -66,7 +66,7 @@ jobs:
       - name: Qualify Studio against the customer stack without retries
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
-        run: npm run test:browser:live -- --reporter=list,json --retries=0
+        run: node scripts/qualify-live-compose.mjs
 
       - name: Upload qualification evidence
         if: always()
@@ -77,6 +77,7 @@ jobs:
             .tmp/live-compose-identity.json
             .tmp/live-readiness.json
             .tmp/live-studio-report.json
+            .tmp/live-model-usage.json
           if-no-files-found: error
 
       - name: Stop only this run's customer stack

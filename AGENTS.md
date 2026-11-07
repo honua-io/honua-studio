@@ -50,6 +50,11 @@ its external Console uses `HONUA_LIVE_APPROVER_USERNAME`/`HONUA_LIVE_APPROVER_PA
 and `HONUA_LIVE_CONSOLE_URL`/`HONUA_LIVE_CONSOLE_PROFILE_ID`/`HONUA_LIVE_APPROVER_IDP_ORIGIN` variables.
 Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
+Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most three model calls
+per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
+the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`.
+Publication also verifies the exact approved public version and rendered map in an empty browser
+context. These harness assertions do not establish live success without a qualification run.
 
 ## Invariants
 - No arbitrary code eval. Every mutation goes through the reducer (`src/composition/`) or a

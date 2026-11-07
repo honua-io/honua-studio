@@ -57,6 +57,7 @@ test("customer overlay preserves publication authorization and configures only d
   assert.equal(server.environment.Studio__EndUserAuthorization__Enabled, "true");
   assert.equal(server.environment.StudioAiProxy__Providers__opus__Kind, "anthropic");
   assert.equal(server.environment.StudioAiProxy__Providers__opus__Model, "claude-opus-5-5");
+  assert.equal(server.environment.StudioAiProxy__Providers__opus__MaxTokens, "1024");
   assert.equal(server.environment.StudioAiProxy__Providers__opus__Endpoint, "https://api.anthropic.com");
   assert.equal(server.environment.StudioAiProxy__Disclosure__Approvals__0__Model, "claude-opus-5-5");
   assert.equal(server.environment.AiExecutionAdmission__Backend, "postgres");
