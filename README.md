@@ -90,8 +90,8 @@ Latest default-branch evidence, at `1f02d8e`:
   passed the container, browser, production Console-assets and Blazor jobs. The standalone
   browser job reported 39 passed and two flaky tests out of 41 selected; Console assets reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Latest scheduled live run 42299117882](https://github.com/honua-io/honua-studio/actions/runs/42299117882),
-  at `36c438b`, reported **one passed, two failed, two skipped**. Boot passed; publication
+- [Latest scheduled demo run 42411124363](https://github.com/honua-io/honua-studio/actions/runs/42411124363),
+  at `1f02d8e`, reported **one passed, two failed, two skipped**. Boot passed; publication
   stopped at pending approval while the test expected immediate completion; chat received
   HTTP 400, tracked in [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092). Both MCP composition journeys were skipped by their opt-in guard.
   Studio is **not live-qualified for rc.2**. The demo revision mismatch remains tracked in
@@ -109,26 +109,45 @@ and human-session prerequisites blocked that demo attempt.
 The candidate qualification workflow now prepares the **customer quickstart Compose stack on the
 CI runner**, using the server, Console and executor digests in `scripts/live-compose-images.json`.
 It packages the quickstart from the matching server source, retains its management/executor
-services, records running image identities, creates a dedicated OIDC test person and approves
-the pending publication through Console. Direct Anthropic Opus 5.5 uses the
+services, records running image identities, creates a dedicated OIDC test person and attempts
+approval of the pending publication through Console. Direct Anthropic Opus 5.5 uses the
 `HONUA_LIVE_ANTHROPIC_API_KEY` Actions secret; provider disclosure approval and bounded invocation
-admission remain enforced. Setup does not invoke a model. There is **no qualification receipt for
-this Compose harness yet**. The demo remains a separate, non-gating scheduled canary.
+admission remain enforced. Setup does not invoke a model. The demo remains a separate, non-gating
+scheduled canary.
+
+The [Compose qualification at `641fa8e`](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
+reported **three passed, two failed, zero skipped, zero retries**:
+
+| Journey | Observed result |
+| --- | --- |
+| Stack identity/readiness and Studio boot | Passed |
+| One real Opus 5.5 chat turn | Passed; streamed `aloha` and completed |
+| Pending publication, then Console test-person approval | Failed during human approval after pending state and an unchanged published pointer were verified |
+| Anonymous published view | Not reached after the approval assertion failed |
+| Model-selected authoritative composition | Failed; assistant ended in an error |
+| Scripted MCP composition against the real server | Passed |
+
+Two guarded chat requests were forwarded, below the three-call cap, with no rejected requests.
+The completed chat reported **33 input / 5 output tokens**. No valid usage was recorded for the
+failed request; its consumption is unknown. Its HTTP response was 200, but the guard marked the stream invalid.
+The stored report omits the approval/problem details and stream error code, so the remaining
+failures do not yet have a conclusive product-versus-harness/environment classification.
+Studio remains **not live-qualified for rc.2**; no second qualification was dispatched.
 
 The Compose qualification limits each model request and the provider default to 1,024 output
 tokens. A shared loopback guard permits at most three chat requests across all browser workers;
 the pinned server disables provider HTTP retries. The run records provider-reported prompt and
 completion tokens in `live-model-usage.json`. Publication must also render the approved public
-version anonymously in a fresh browser context. These are harness checks awaiting a live receipt.
+version anonymously in a fresh browser context. Those publication assertions did not pass in this run.
 The three-call allowance covers one short chat response and a two-call composition turn (one
 tool action, then its closing response); extra rounds fail the qualification without another
 provider invocation.
 
-At `f48636d`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42348162528)
+At `641fa8e`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42413322294)
 passed typecheck, style, build and 1,759 Vitest tests across 144 files, plus the Node harness
-checks. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42348162529)
-passed all four jobs; the browser job reported 46 passed with no reported flaky tests.
-These fixture and packaging receipts do not establish a real model turn or live publication.
+checks. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42413322274)
+passed all four jobs; the browser job reported 47 passed with no reported flaky tests.
+These fixture and packaging receipts do not establish completed live publication.
 
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
@@ -177,7 +196,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack; qualification pending. [Earlier demo candidate](https://github.com/honua-io/honua-studio/actions/runs/42340355731): 2 passed, 3 failed, 0 skipped | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Bounded qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558): 3 passed, 2 failed, 0 skipped; publication/anonymous rendering and model composition remain unqualified | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible

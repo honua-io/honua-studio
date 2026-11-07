@@ -28,24 +28,32 @@ and [v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1) exist
 At `1f02d8e`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42313827159)
 passed 1,754 Vitest tests in 144 files and
 [smokes](https://github.com/honua-io/honua-studio/actions/runs/42313827200) passed their four jobs.
-The [latest scheduled live run](https://github.com/honua-io/honua-studio/actions/runs/42299117882)
-at `36c438b` had 1 pass, 2 failures and 2 skips, so live qualification remains blocked.
+The [latest scheduled demo run](https://github.com/honua-io/honua-studio/actions/runs/42411124363)
+at `1f02d8e` had 1 pass, 2 failures and 2 skips: publication expected immediate completion
+despite pending approval; chat received HTTP 400. Live qualification remains blocked.
 The [candidate live run](https://github.com/honua-io/honua-studio/actions/runs/42340355731)
 at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. Boot and
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
-At `f48636d`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42348162528)
+At `641fa8e`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42413322294)
 passed 1,759 Vitest tests in 144 files, typecheck, style and build; the
-[candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42348162529) passed all
-four jobs, with 46 browser tests passed and no reported flaky tests. This is not live qualification.
+[candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42413322274) passed all
+four jobs, with 47 browser tests passed and no reported flaky tests.
+The [bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
+at the same Studio revision had 3 passes, 2 failures, no skips and no retries. Boot, real chat and
+scripted MCP passed. Console approval failed at the human-approval stage; anonymous rendering was
+not reached. Model-driven composition ended in an error. Two guarded chat requests were forwarded:
+the successful chat reported 33 input and 5 output tokens; no valid usage was recorded for the failed request.
+Its usage is unknown, not zero. Neither remaining failure has a conclusive root-cause classification;
+the artifacts omit the approval/problem details and stream error code. Do not rerun without diagnosis.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
 revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
 and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
 `HONUA_LIVE_ANTHROPIC_API_KEY`; per-run API/bootstrap credentials and the test person's password
-are generated privately. Playwright signs into Console in a fresh browser context and clicks the
-selected proposal; no supplied bearer or API key approves publication. This harness has no live
-qualification receipt yet. `live-demo-canary.yml` retains the demo as a separate non-gating canary;
+are generated privately. Playwright signs into Console in a fresh browser context and attempts to
+approve the selected proposal; no supplied bearer or API key approves publication.
+`live-demo-canary.yml` retains the demo as a separate non-gating canary;
 its external Console uses `HONUA_LIVE_APPROVER_USERNAME`/`HONUA_LIVE_APPROVER_PASSWORD` secrets
 and `HONUA_LIVE_CONSOLE_URL`/`HONUA_LIVE_CONSOLE_PROFILE_ID`/`HONUA_LIVE_APPROVER_IDP_ORIGIN` variables.
 Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
@@ -54,7 +62,7 @@ Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most t
 per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
 the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`.
 Publication also verifies the exact approved public version and rendered map in an empty browser
-context. These harness assertions do not establish live success without a qualification run.
+context. The failed qualification does not establish completed publication or anonymous rendering.
 
 ## Invariants
 - No arbitrary code eval. Every mutation goes through the reducer (`src/composition/`) or a
