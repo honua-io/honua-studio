@@ -32,15 +32,7 @@ jobs:
         id: images
         env:
           HONUA_LIVE_ANTHROPIC_API_KEY: ${{ secrets.HONUA_LIVE_ANTHROPIC_API_KEY }}
-        run: |
-          node --input-type=module <<'JS'
-          import { appendFileSync, readFileSync } from 'node:fs';
-          import { validateImageLock } from './scripts/lib/live-compose.mjs';
-          if (!process.env.HONUA_LIVE_ANTHROPIC_API_KEY) throw new Error('HONUA_LIVE_ANTHROPIC_API_KEY is required.');
-          const lock = JSON.parse(readFileSync('scripts/live-compose-images.json', 'utf8'));
-          validateImageLock(lock);
-          appendFileSync(process.env.GITHUB_OUTPUT, `server_revision=${lock.server.revision}\n`);
-          JS
+        run: node scripts/live-compose-stack.mjs check
 
       - name: Read the customer quickstart at the image revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -54,7 +46,7 @@ jobs:
         run: |
           npm ci
           npm run test:browser:install
-          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-journey-contract.test.mjs
+          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs
 
       - name: Prepare the customer quickstart and dedicated test person
         env:

@@ -1,8 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { X509Certificate, createHash, randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { approverRealm, studioComposeOverlay, validateImageLock } from "./lib/live-compose.mjs";
+import {
+  approverRealm,
+  consoleOrigin,
+  identityOrigin,
+  realmName,
+  serverOrigin,
+  studioComposeOverlay,
+  studioSecretNames,
+  validateImageLock,
+} from "./lib/live-compose.mjs";
 
 const root = resolve(".tmp/live-compose");
 const lock = JSON.parse(readFileSync(new URL("./live-compose-images.json", import.meta.url), "utf8"));
@@ -35,8 +44,18 @@ function writePrivate(path, value) {
   writeFileSync(resolve(root, path), value, { mode: 0o640 });
 }
 
-function prepare() {
+function requireProviderKey() {
   if (!process.env.HONUA_LIVE_ANTHROPIC_API_KEY) throw new Error("HONUA_LIVE_ANTHROPIC_API_KEY is required.");
+}
+
+function check() {
+  requireProviderKey();
+  if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is required to select the quickstart source.");
+  appendFileSync(process.env.GITHUB_OUTPUT, `server_revision=${lock.server.revision}\n`);
+}
+
+function prepare() {
+  requireProviderKey();
   const source = resolve(process.env.HONUA_LIVE_SERVER_SOURCE ?? ".tmp/live-server-source");
   const revision = run("git", ["rev-parse", "HEAD"], source).trim();
   if (revision !== lock.server.revision) throw new Error("Quickstart source must match the locked server revision.");
@@ -62,11 +81,14 @@ function prepare() {
     mkdirSync(resolve(root, directory), { recursive: true });
   const password = randomBytes(32).toString("hex");
   const clientSecret = randomBytes(32).toString("hex");
-  writePrivate("secrets/anthropic_api_key", process.env.HONUA_LIVE_ANTHROPIC_API_KEY);
-  writePrivate("secrets/oidc_client_secret", clientSecret);
-  writePrivate("secrets/operator_signing_key", randomBytes(32).toString("base64"));
+  const secrets = {
+    [studioSecretNames.provider]: process.env.HONUA_LIVE_ANTHROPIC_API_KEY,
+    [studioSecretNames.oidcClient]: clientSecret,
+    [studioSecretNames.operatorSigning]: randomBytes(32).toString("base64"),
+  };
+  for (const [name, value] of Object.entries(secrets)) writePrivate(`secrets/${name}`, value);
   writePrivate("secrets/approver_password", password);
-  writePrivate("identity/realm/studio-live.json", JSON.stringify(approverRealm({ password, clientSecret })));
+  writePrivate(`identity/realm/${realmName}.json`, JSON.stringify(approverRealm({ password, clientSecret })));
   writeFileSync(resolve(root, "compose.studio.json"), JSON.stringify(studioComposeOverlay(lock), null, 2));
   createIdentityCertificate();
   compose(["config", "--quiet"]);
@@ -83,9 +105,9 @@ function createIdentityCertificate() {
     "-days",
     "1",
     "-subj",
-    "/CN=host.docker.internal",
+    `/CN=${new URL(identityOrigin).hostname}`,
     "-addext",
-    "subjectAltName=DNS:host.docker.internal,DNS:localhost,IP:127.0.0.1",
+    `subjectAltName=DNS:${new URL(identityOrigin).hostname},DNS:localhost,IP:127.0.0.1`,
     "-keyout",
     "identity/certs/kc.key",
     "-out",
@@ -107,7 +129,7 @@ function createIdentityCertificate() {
     "sh",
     "redis:7.4-alpine",
     "-c",
-    "chgrp -R 1001 /identity && chmod 640 /identity/certs/kc.key /identity/realm/studio-live.json",
+    `chgrp -R 1001 /identity && chmod 640 /identity/certs/kc.key /identity/realm/${realmName}.json`,
   ]);
 }
 
@@ -137,7 +159,7 @@ async function initializeAdmission(apiKey) {
     workflowConcurrency: 1,
   };
   for (const action of ["initialize", "resume"]) {
-    const response = await fetch(`http://127.0.0.1:18080/api/v1/operations/admin.ai.admission.${action}/submit`, {
+    const response = await fetch(`${serverOrigin}/api/v1/operations/admin.ai.admission.${action}/submit`, {
       method: "POST",
       headers: { "x-api-key": apiKey, "content-type": "application/json" },
       body: JSON.stringify({ parameters: action === "initialize" ? { policy: JSON.stringify(policy) } : {} }),
@@ -183,11 +205,19 @@ function recordRuntimeIdentity() {
 
 function exportBrowserEnvironment(apiKey) {
   const settings = {
-    HONUA_LIVE_BASE_URL: "http://127.0.0.1:18080/api",
+    HONUA_LIVE_BASE_URL: `${serverOrigin}/api`,
     HONUA_LIVE_API_KEY: apiKey,
-    HONUA_LIVE_CONSOLE_URL: "http://127.0.0.1:5174",
+    HONUA_LIVE_CONSOLE_URL: consoleOrigin,
     HONUA_LIVE_CONSOLE_PROFILE_ID: "local-dev",
-    HONUA_LIVE_APPROVER_IDP_ORIGIN: "https://host.docker.internal:8443",
+    HONUA_LIVE_APPROVER_IDP_ORIGIN: identityOrigin,
+    HONUA_LIVE_APPROVER_IDP_SPKI: createHash("sha256")
+      .update(
+        new X509Certificate(readFileSync(resolve(root, "identity/certs/kc.crt"))).publicKey.export({
+          type: "spki",
+          format: "der",
+        }),
+      )
+      .digest("base64"),
     HONUA_LIVE_APPROVER_USERNAME: "studio-approver",
     HONUA_LIVE_APPROVER_PASSWORD: readFileSync(resolve(root, "secrets/approver_password"), "utf8"),
   };
@@ -205,18 +235,19 @@ function exportBrowserEnvironment(apiKey) {
 
 async function start() {
   compose(["up", "-d", "--wait", "--wait-timeout", "240"]);
-  await waitForReady("http://127.0.0.1:18080/healthz/ready");
-  await waitForReady("http://127.0.0.1:5174/version.json");
-  await waitForReady("https://host.docker.internal:8443/realms/studio-live/.well-known/openid-configuration");
+  await waitForReady(`${serverOrigin}/healthz/ready`);
+  await waitForReady(`${consoleOrigin}/version.json`);
+  await waitForReady(`${identityOrigin}/realms/${realmName}/.well-known/openid-configuration`);
   const apiKey = readFileSync(resolve(root, "secrets/honua_admin_password"), "utf8").trim();
-  await initializeAdmission(apiKey);
   recordRuntimeIdentity();
+  await initializeAdmission(apiKey);
   exportBrowserEnvironment(apiKey);
   console.log("Customer stack is ready; admission is bounded and no model has been invoked.");
 }
 
 const action = process.argv[2];
-if (action === "prepare") prepare();
+if (action === "check") check();
+else if (action === "prepare") prepare();
 else if (action === "start") await start();
 else if (action === "stop") compose(["down", "--volumes", "--remove-orphans"]);
-else throw new Error("Expected prepare, start or stop.");
+else throw new Error("Expected check, prepare, start or stop.");

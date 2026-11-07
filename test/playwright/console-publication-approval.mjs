@@ -1,33 +1,8 @@
 import { expect } from "@playwright/test";
 
-export function liveApprovalConfiguration(environment = process.env) {
-  const names = {
-    consoleUrl: "HONUA_LIVE_CONSOLE_URL",
-    profileId: "HONUA_LIVE_CONSOLE_PROFILE_ID",
-    idpOrigin: "HONUA_LIVE_APPROVER_IDP_ORIGIN",
-    username: "HONUA_LIVE_APPROVER_USERNAME",
-    password: "HONUA_LIVE_APPROVER_PASSWORD",
-  };
-  const configuration = {};
-  for (const [key, name] of Object.entries(names)) {
-    if (!environment[name]) throw new Error(`${name} is required for Console publication approval.`);
-    configuration[key] = environment[name];
-  }
-  for (const key of ["consoleUrl", "idpOrigin"]) {
-    const url = new URL(configuration[key]);
-    const localConsole =
-      key === "consoleUrl" && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    if ((!localConsole && url.protocol !== "https:") || url.username || url.password || url.search || url.hash) {
-      throw new Error(
-        `${names[key]} requires HTTPS or a loopback Console URL, without credentials, query or fragment.`,
-      );
-    }
-    if (key === "idpOrigin" && url.pathname !== "/") {
-      throw new Error("HONUA_LIVE_APPROVER_IDP_ORIGIN must contain only an HTTPS origin.");
-    }
-  }
-  return configuration;
-}
+import { liveApprovalConfiguration } from "../../scripts/lib/live-approval-config.mjs";
+
+export { liveApprovalConfiguration };
 
 export async function approveLivePublication(page, options) {
   const configuration = liveApprovalConfiguration({

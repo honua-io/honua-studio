@@ -9,6 +9,13 @@ const credentials = {
   password: "fixture-password",
 };
 
+function navigateSyntheticOrigin(route, destination) {
+  return route.fulfill({
+    contentType: "text/html",
+    body: `<script>location.replace(${JSON.stringify(destination)})</script>`,
+  });
+}
+
 test("only a loopback Console may use HTTP; identity providers require HTTPS", () => {
   const environment = {
     HONUA_LIVE_CONSOLE_URL: "http://127.0.0.1:5174",
@@ -31,13 +38,13 @@ async function installConsoleFixture(page, { status = "Succeeded", idpOrigin = c
     const url = new URL(route.request().url());
     if (url.pathname === "/auth/login") {
       consoleSessionOpened = true;
-      return route.fulfill({ status: 302, headers: { location: "https://console.test/version.json" } });
+      return navigateSyntheticOrigin(route, "https://console.test/version.json");
     }
     if (url.pathname === "/auth/server/login") {
       expect(consoleSessionOpened, "Console partition must exist before server sign-in").toBe(true);
       expect(url.searchParams.get("profileId")).toBe("demo");
       expect(url.searchParams.get("returnTo")).toBe("/inbox?proposalId=target-proposal");
-      return route.fulfill({ status: 302, headers: { location: `${idpOrigin}/login` } });
+      return navigateSyntheticOrigin(route, `${idpOrigin}/login`);
     }
     if (url.pathname === "/approve") {
       decisions.push({ proposal: url.searchParams.get("proposal"), headers: route.request().headers() });
@@ -65,10 +72,7 @@ async function installConsoleFixture(page, { status = "Succeeded", idpOrigin = c
     if (url.pathname === "/complete") {
       expect(url.searchParams.get("username")).toBe(credentials.username);
       expect(url.searchParams.get("password")).toBe(credentials.password);
-      return route.fulfill({
-        status: 302,
-        headers: { location: "https://console.test/inbox?proposalId=target-proposal" },
-      });
+      return navigateSyntheticOrigin(route, "https://console.test/inbox?proposalId=target-proposal");
     }
     return route.fulfill({
       contentType: "text/html",
@@ -92,14 +96,14 @@ test("Console approval signs in at the pinned IdP and clicks only the selected p
 test("Console approval cannot turn a failed proposal into success", async ({ page }) => {
   await installConsoleFixture(page, { status: "Failed" });
   await expect(approveLivePublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow(
-    /publication approval failed/i,
+    "Console publication approval failed during human approval.",
   );
 });
 
 test("Console approval never fills credentials after a redirect to a different identity origin", async ({ page }) => {
   await installConsoleFixture(page, { idpOrigin: "https://unexpected.test" });
   await expect(approveLivePublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow(
-    /publication approval failed/i,
+    "Console publication approval failed during sign-in redirect.",
   );
   await expect(page.locator('input[name="username"]')).toHaveValue("");
   await expect(page.locator('input[name="password"]')).toHaveValue("");

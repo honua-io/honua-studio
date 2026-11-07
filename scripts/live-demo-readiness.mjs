@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { liveReadinessEvidence } from "../test/playwright/live-journey-contract.mjs";
+import { liveApprovalConfigured } from "./lib/live-approval-config.mjs";
 
 const baseUrl = process.env.HONUA_LIVE_BASE_URL;
 const apiKey = process.env.HONUA_LIVE_API_KEY;
@@ -10,13 +11,7 @@ const response = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/studio/ai/capabil
 if (!response.ok) throw new Error(`Live capabilities returned HTTP ${response.status}.`);
 const { data } = await response.json();
 const readiness = liveReadinessEvidence(data, {
-  consoleApprovalConfigured: [
-    "HONUA_LIVE_CONSOLE_URL",
-    "HONUA_LIVE_CONSOLE_PROFILE_ID",
-    "HONUA_LIVE_APPROVER_IDP_ORIGIN",
-    "HONUA_LIVE_APPROVER_USERNAME",
-    "HONUA_LIVE_APPROVER_PASSWORD",
-  ].every((name) => Boolean(process.env[name])),
+  consoleApprovalConfigured: liveApprovalConfigured(),
 });
 await mkdir(".tmp", { recursive: true });
 await writeFile(".tmp/live-readiness.json", `${JSON.stringify(readiness, null, 2)}\n`);

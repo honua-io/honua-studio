@@ -1,5 +1,6 @@
 /** Live deployment checks leave timestamped content items; drafts are deleted after each test. */
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
+import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
 
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
@@ -65,17 +66,13 @@ test.describe("live demo-server journeys @live", () => {
     expect(before.items[0].state).not.toBe("published");
     expect(before.items[0].publishedVersionId).toBeFalsy();
     const approvalConfiguration = liveApprovalConfiguration();
-    const approvalContext = await page
-      .context()
-      .browser()
-      .newContext({
-        ignoreHTTPSErrors: new URL(approvalConfiguration.consoleUrl).protocol === "http:",
-      });
+    const approvalBrowser = await chromium.launch({ args: liveApprovalBrowserArguments() });
     try {
+      const approvalContext = await approvalBrowser.newContext();
       const approvalPage = await approvalContext.newPage();
       await approveLivePublication(approvalPage, { ...approvalConfiguration, proposalId: pending.proposalId });
     } finally {
-      await approvalContext.close();
+      await approvalBrowser.close();
     }
     const { itemId, requestId } = pending.resourceIds;
     expect(itemId).toBe(before.items[0].itemId);
@@ -110,9 +107,8 @@ test.describe("live demo-server journeys @live", () => {
     // `app.session = …` assignment would be too late for the chat console,
     // which resolves its auth at connect time and would otherwise fall back
     // to the standalone OIDC flow no real deployment serves at /oidc. The
-    // bearer this yields is a placeholder — the deployed server
-    // authenticates off the proxy-injected X-API-Key (vite.config.ts) and
-    // ignores the bearer.
+    // bearer this yields is a placeholder; Vite's API-key mode removes it
+    // before forwarding so OIDC and MCP use the injected X-API-Key.
     await page.addInitScript(() => {
       window.__HONUA_STUDIO_HOST_SESSION__ = {
         async getToken() {
@@ -157,6 +153,7 @@ test.describe("live demo-server journeys @live", () => {
   test("package lifecycle: browse -> open -> version -> compare -> publish-confirm against the REAL lifecycle store", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
     const packageKey = `studio-e2e-live-${Date.now()}`;
     const preview = await startLivePreview();
     let draftId;

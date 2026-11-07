@@ -1,3 +1,19 @@
+export const consoleOrigin = "http://127.0.0.1:5174";
+export const identityOrigin = "https://host.docker.internal:8443";
+export const serverOrigin = "http://127.0.0.1:18080";
+export const realmName = "studio-live";
+export const studioSecretNames = {
+  provider: "anthropic_api_key",
+  oidcClient: "oidc_client_secret",
+  operatorSigning: "operator_signing_key",
+};
+const tokenClaims = {
+  "jsonType.label": "String",
+  "id.token.claim": "true",
+  "access.token.claim": "true",
+  "userinfo.token.claim": "true",
+};
+
 export function validateImageLock(lock) {
   for (const component of ["server", "executor", "console"]) {
     const repository = component === "console" ? "honua-console" : "honua-server";
@@ -17,14 +33,13 @@ export function studioComposeOverlay(lock) {
       honua: {
         image: lock.server.image,
         environment: studioServerEnvironment(),
-        secrets: ["anthropic_api_key", "oidc_client_secret", "operator_signing_key"],
+        secrets: Object.values(studioSecretNames),
         volumes: ["./identity/certs:/certs:ro"],
-        extra_hosts: ["host.docker.internal:host-gateway"],
         depends_on: { keycloak: { condition: "service_started" } },
       },
       console: {
         image: lock.console.image,
-        ports: ["127.0.0.1:5174:8080"],
+        ports: [`127.0.0.1:${new URL(consoleOrigin).port}:8080`],
         environment: {
           ASPNETCORE_ENVIRONMENT: "Development",
           ASPNETCORE_URLS: "http://+:8080",
@@ -36,31 +51,25 @@ export function studioComposeOverlay(lock) {
           SSL_CERT_FILE: "/certs/ca-bundle.crt",
         },
         volumes: ["./identity/certs:/certs:ro"],
-        extra_hosts: ["host.docker.internal:host-gateway"],
         depends_on: { honua: { condition: "service_started" } },
       },
       keycloak: keycloakService(),
     },
-    secrets: Object.fromEntries(
-      ["anthropic_api_key", "oidc_client_secret", "operator_signing_key"].map((name) => [
-        name,
-        { file: `./secrets/${name}` },
-      ]),
-    ),
+    secrets: Object.fromEntries(Object.values(studioSecretNames).map((name) => [name, { file: `./secrets/${name}` }])),
   };
 }
 
 function studioServerEnvironment() {
   return {
-    PUBLIC_BASE_URL: "http://127.0.0.1:5174",
+    PUBLIC_BASE_URL: consoleOrigin,
     Studio__EndUserAuthorization__Enabled: "true",
     Oidc__Enabled: "true",
     Oidc__Generic__Enabled: "true",
-    Oidc__Generic__Authority: "https://host.docker.internal:8443/realms/studio-live",
+    Oidc__Generic__Authority: `${identityOrigin}/realms/${realmName}`,
     Oidc__Generic__ClientId: "studio-console",
-    HONUA_SECRET_FILE__Oidc__Generic__ClientSecret: "/run/secrets/oidc_client_secret",
+    HONUA_SECRET_FILE__Oidc__Generic__ClientSecret: `/run/secrets/${studioSecretNames.oidcClient}`,
     Authentication__OperatorBearer__Enabled: "true",
-    HONUA_SECRET_FILE__Authentication__OperatorBearer__SigningKey: "/run/secrets/operator_signing_key",
+    HONUA_SECRET_FILE__Authentication__OperatorBearer__SigningKey: `/run/secrets/${studioSecretNames.operatorSigning}`,
     SSL_CERT_FILE: "/certs/ca-bundle.crt",
     StudioAiProxy__Enabled: "true",
     StudioAiProxy__DefaultProvider: "opus",
@@ -68,7 +77,7 @@ function studioServerEnvironment() {
     StudioAiProxy__Providers__opus__Endpoint: "https://api.anthropic.com",
     StudioAiProxy__Providers__opus__Model: "claude-opus-5-5",
     StudioAiProxy__Providers__opus__SupportsTools: "true",
-    HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY: "/run/secrets/anthropic_api_key",
+    HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY: `/run/secrets/${studioSecretNames.provider}`,
     StudioAiProxy__Disclosure__WorkloadDataClassification: "unclassified",
     StudioAiProxy__Disclosure__Approvals__0__Provider: "opus",
     StudioAiProxy__Disclosure__Approvals__0__Kind: "anthropic",
@@ -87,19 +96,20 @@ function keycloakService() {
     command: ["start", "--import-realm"],
     user: "1000:1001",
     environment: {
-      KC_HOSTNAME: "https://host.docker.internal:8443",
+      KC_HOSTNAME: identityOrigin,
       KC_HTTP_ENABLED: "false",
       KC_HTTPS_CERTIFICATE_FILE: "/certs/kc.crt",
       KC_HTTPS_CERTIFICATE_KEY_FILE: "/certs/kc.key",
     },
     volumes: ["./identity/certs:/certs:ro", "./identity/realm:/opt/keycloak/data/import:ro"],
-    ports: ["127.0.0.1:8443:8443"],
+    ports: [`127.0.0.1:${new URL(identityOrigin).port}:8443`],
+    networks: { default: { aliases: ["host.docker.internal"] } },
   };
 }
 
 export function approverRealm({ password, clientSecret }) {
   return {
-    realm: "studio-live",
+    realm: realmName,
     enabled: true,
     sslRequired: "all",
     registrationAllowed: false,
@@ -126,8 +136,8 @@ export function approverRealm({ password, clientSecret }) {
         standardFlowEnabled: true,
         directAccessGrantsEnabled: false,
         serviceAccountsEnabled: false,
-        redirectUris: ["http://127.0.0.1:5174/admin/auth/callback"],
-        webOrigins: ["http://127.0.0.1:5174"],
+        redirectUris: [`${consoleOrigin}/admin/auth/callback`],
+        webOrigins: [consoleOrigin],
         attributes: { "pkce.code.challenge.method": "S256" },
         protocolMappers: [
           {
@@ -136,11 +146,8 @@ export function approverRealm({ password, clientSecret }) {
             protocolMapper: "oidc-usermodel-realm-role-mapper",
             config: {
               "claim.name": "roles",
-              "jsonType.label": "String",
+              ...tokenClaims,
               multivalued: "true",
-              "id.token.claim": "true",
-              "access.token.claim": "true",
-              "userinfo.token.claim": "true",
             },
           },
           {
@@ -150,10 +157,7 @@ export function approverRealm({ password, clientSecret }) {
             config: {
               "claim.name": "tenant_id",
               "claim.value": "public",
-              "jsonType.label": "String",
-              "id.token.claim": "true",
-              "access.token.claim": "true",
-              "userinfo.token.claim": "true",
+              ...tokenClaims,
             },
           },
         ],
