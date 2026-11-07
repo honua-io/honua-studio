@@ -77,6 +77,7 @@ test("missing usage and failed provider responses cannot qualify", async (contex
 test("route aliases cannot evade model admission", async (context) => {
   const { guard, requests } = await fixture(context, completedStream);
   for (const path of [
+    "//api/v1/studio/ai/chat",
     "/api/v1/studio/ai/chat?extra=1",
     "/api/v1/studio/ai/chat/",
     "/API/v1/STUDIO/ai/chat",
@@ -94,6 +95,29 @@ test("provider HTTP errors consume a call and are never retried or accepted", as
   assert.equal(requests.length, 1);
   assert.equal(guard.evidence().calls[0].status, 503);
   assert.throws(() => guard.assertQualified(), /usage/);
+});
+
+test("an interrupted upstream reply leaves evidence and the guard can serve the next request", async (context) => {
+  let interrupted;
+  const { guard, chat } = await fixture(context, (response) => {
+    if (interrupted) {
+      response.writeHead(200).end("ready");
+      return;
+    }
+    interrupted = response;
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write('event: message_start\ndata: {"model":');
+  });
+  const reply = await chat();
+  assert.equal(reply.status, 200);
+  interrupted.socket.destroy();
+  await reply.text();
+  assert.equal(guard.evidence().calls.length, 1);
+  assert.equal(guard.evidence().calls[0].invalidStream, true);
+  assert.throws(() => guard.assertQualified(), /usage/);
+  const later = await fetch(`${guard.origin}/api/v1/studio/ai/capabilities`);
+  assert.equal(later.status, 200);
+  assert.equal(await later.text(), "ready");
 });
 
 test("a completed turn qualifies with usage while ordinary API traffic consumes no model budget", async (context) => {
