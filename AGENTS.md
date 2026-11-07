@@ -30,6 +30,10 @@ passed 1,754 Vitest tests in 144 files and
 [smokes](https://github.com/honua-io/honua-studio/actions/runs/42313827200) passed their four jobs.
 The [latest scheduled live run](https://github.com/honua-io/honua-studio/actions/runs/42299117882)
 at `36c438b` had 1 pass, 2 failures and 2 skips, so live qualification remains blocked.
+The [candidate live run](https://github.com/honua-io/honua-studio/actions/runs/42340355731)
+at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. Boot and
+scripted MCP passed; publication stopped at the absent human credential after verifying
+pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
 The live publish journey requires `HONUA_LIVE_HUMAN_TOKEN`; model calls must select a
 configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed

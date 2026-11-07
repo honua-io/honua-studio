@@ -97,6 +97,15 @@ Latest default-branch evidence, at `1f02d8e`:
   Studio is **not live-qualified for rc.2**. The demo revision mismatch remains tracked in
   [honua-release#475](https://github.com/honua-io/honua-release/issues/475).
 
+The [candidate live run 42340355731](https://github.com/honua-io/honua-studio/actions/runs/42340355731)
+at `0fa9258` ran all five journeys with retries disabled: **two passed, three failed,
+zero skipped**. Boot and scripted MCP composition passed. Publication verified pending
+approval and an unchanged published pointer, then stopped because the human approval
+credential was absent. Both real-model journeys refused invocation: readiness advertised
+only a configured Bedrock adapter, with no allowed Opus 5.5 or Sol provider. This proves
+neither a real model turn nor completed human-approved publication. Deployment/provider
+and human-session prerequisites must be repaired before another qualification attempt.
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
@@ -144,7 +153,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| Nightly `@live` journeys build Studio from the checkout; [latest scheduled run](https://github.com/honua-io/honua-studio/actions/runs/42299117882): 1 passed, 2 failed, 2 skipped | `.github/workflows/live-demo-smoke.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout; [candidate run](https://github.com/honua-io/honua-studio/actions/runs/42340355731): 2 passed, 3 failed, 0 skipped; no model or completed publication receipt | `.github/workflows/live-demo-smoke.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
