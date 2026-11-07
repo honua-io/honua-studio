@@ -1,21 +1,45 @@
-export function selectLiveModel(capabilities) {
-  const allowed = capabilities.providers.filter(
+function approvedLiveProvider(provider) {
+  return (
+    (provider.kind.toLowerCase() === "anthropic" && /^claude-opus-5-5(?:-\d{8})?$/.test(provider.model)) ||
+    (provider.kind.toLowerCase() === "openai" && provider.model === "gpt-6.1-sol")
+  );
+}
+
+export function selectLiveModel(capabilities, requiredCapabilities = ["streaming"]) {
+  const allowed = (capabilities.providers ?? []).filter(
     (provider) =>
-      provider.configured &&
-      provider.streaming &&
-      ((provider.kind.toLowerCase() === "anthropic" && /^claude-opus-5-5(?:-\d{8})?$/.test(provider.model)) ||
-        (provider.kind.toLowerCase() === "openai" && provider.model === "gpt-6.1-sol")),
+      provider.configured && requiredCapabilities.every((name) => provider[name]) && approvedLiveProvider(provider),
   );
   const selected = allowed.find((provider) => provider.isDefault) ?? allowed[0];
   if (!capabilities.enabled || !selected) {
-    throw new Error("Live demo needs a configured streaming Opus 5.5 or Sol provider over a direct provider adapter.");
+    throw new Error("Live demo needs a configured streaming Opus 5.5 or Sol provider outside the Bedrock adapter.");
   }
   return selected;
 }
 
+export function liveReadinessEvidence(capabilities, { humanApprovalCredentialPresent = false } = {}) {
+  return {
+    enabled: capabilities.enabled,
+    approvedProviderAvailable: Boolean(
+      capabilities.enabled &&
+        capabilities.providers?.some(
+          (provider) => provider.configured && provider.streaming && approvedLiveProvider(provider),
+        ),
+    ),
+    providers: (capabilities.providers ?? []).map(({ kind, configured, streaming, toolSupport, isDefault }) => ({
+      kind,
+      configured,
+      streaming,
+      toolSupport,
+      isDefault,
+    })),
+    humanApprovalCredentialPresent,
+  };
+}
+
 export async function approveLivePublication(baseUrl, proposalId, humanToken, fetchRequest = fetch) {
   if (!humanToken) throw new Error("HONUA_LIVE_HUMAN_TOKEN is required for the human approval step.");
-  const url = new URL(`/api/v1/admin/proposals/${encodeURIComponent(proposalId)}/approve`, baseUrl);
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v1/admin/proposals/${encodeURIComponent(proposalId)}/approve`);
   const response = await fetchRequest(url, {
     method: "POST",
     headers: { authorization: `Bearer ${humanToken}`, accept: "application/json" },

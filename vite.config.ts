@@ -77,11 +77,7 @@ export default defineConfig(({ mode }) => {
     : undefined;
 
   return {
-    // Exposes HONUA_* env vars to client code (import.meta.env.HONUA_*) on
-    // top of Vite's default VITE_* prefix — unused today (the client only
-    // ever fetches relative /api paths) but kept available for REQ-003's
-    // future needs (e.g. surfacing which server is connected in the UI).
-    envPrefix: ["VITE_", "HONUA_"],
+    envPrefix: ["VITE_", "HONUA_OIDC_ISSUER", "HONUA_OIDC_CLIENT_ID", "HONUA_OIDC_REDIRECT_URI", "HONUA_OIDC_SCOPES"],
     server: { proxy },
     preview: { proxy },
     // MapLibre 6's worker uses dynamic import(), which only an ES-format

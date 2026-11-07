@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approveLivePublication, selectLiveModel } from "../../test/playwright/live-journey-contract.mjs";
+import {
+  approveLivePublication,
+  liveReadinessEvidence,
+  selectLiveModel,
+} from "../../test/playwright/live-journey-contract.mjs";
 
 const opus = {
   provider: "opus",
@@ -39,19 +43,62 @@ test("publication approval requires a human credential before making any request
 });
 
 test("publication approval uses only the human bearer and preserves the server outcome", async () => {
-  const receipt = { proposalId: "proposal-1", status: "Active" };
-  const result = await approveLivePublication("https://example.test/api", "proposal-1", "fixture-human", (url, init) => {
-    assert.equal(url.href, "https://example.test/api/v1/admin/proposals/proposal-1/approve");
-    assert.equal(init.method, "POST");
-    assert.deepEqual(init.headers, { authorization: "Bearer fixture-human", accept: "application/json" });
-    return Response.json(receipt);
-  });
+  const receipt = { proposalId: "proposal-1", status: "Succeeded" };
+  const result = await approveLivePublication(
+    "https://example.test/tenant/api/",
+    "proposal-1",
+    "fixture-human",
+    (url, init) => {
+      assert.equal(url.href, "https://example.test/tenant/api/v1/admin/proposals/proposal-1/approve");
+      assert.equal(init.method, "POST");
+      assert.deepEqual(init.headers, { authorization: "Bearer fixture-human", accept: "application/json" });
+      return Response.json(receipt);
+    },
+  );
   assert.deepEqual(result, receipt);
 });
 
 test("a refused human approval cannot become publication success", async () => {
   await assert.rejects(
-    approveLivePublication("https://example.test/api", "proposal-1", "fixture-human", () => new Response(null, { status: 403 })),
+    approveLivePublication(
+      "https://example.test/api",
+      "proposal-1",
+      "fixture-human",
+      () => new Response(null, { status: 403 }),
+    ),
     /HTTP 403/,
+  );
+});
+
+test("tool model selection prefers a capable approved provider over an incompatible default", () => {
+  const toolProvider = { ...opus, provider: "tools", toolSupport: true, isDefault: false };
+  assert.equal(
+    selectLiveModel({ enabled: true, providers: [{ ...opus, toolSupport: false }, toolProvider] }, [
+      "streaming",
+      "toolSupport",
+    ]),
+    toolProvider,
+  );
+  assert.throws(() => selectLiveModel({ enabled: false }));
+});
+
+test("readiness evidence excludes provider identities, model identifiers, signing material and credentials", () => {
+  const capabilities = {
+    enabled: true,
+    defaultProvider: "private-provider-name",
+    transcriptSigning: { keys: ["private-signing-metadata"] },
+    providers: [{ ...opus, credential: "private-provider-credential", toolSupport: true }],
+  };
+  const evidence = liveReadinessEvidence(capabilities, { humanApprovalCredentialPresent: true });
+  assert.deepEqual(evidence, {
+    enabled: true,
+    approvedProviderAvailable: true,
+    providers: [{ kind: "anthropic", configured: true, streaming: true, toolSupport: true, isDefault: true }],
+    humanApprovalCredentialPresent: true,
+  });
+  assert.equal(liveReadinessEvidence({ enabled: false }, {}).approvedProviderAvailable, false);
+  assert.equal(
+    liveReadinessEvidence({ enabled: true, providers: [{ ...opus, kind: "bedrock" }] }, {}).approvedProviderAvailable,
+    false,
   );
 });

@@ -42,6 +42,7 @@ jobs:
         run: node scripts/live-demo-readiness.mjs
 
       - name: Run Studio journeys against the live AWS demo
+        if: ${{ !cancelled() }}
         env:
           HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
           HONUA_LIVE_HUMAN_TOKEN: ${{ secrets.HONUA_LIVE_HUMAN_TOKEN }}

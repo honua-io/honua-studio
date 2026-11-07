@@ -32,7 +32,7 @@ The [latest scheduled live run](https://github.com/honua-io/honua-studio/actions
 at `36c438b` had 1 pass, 2 failures and 2 skips, so live qualification remains blocked.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
 The live publish journey requires `HONUA_LIVE_HUMAN_TOKEN`; model calls must select a
-configured direct Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
+configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 
 ## Invariants

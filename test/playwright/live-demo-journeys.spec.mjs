@@ -34,38 +34,54 @@ test.describe("live demo-server journeys @live", () => {
     return startPreviewServer({ HONUA_BASE_URL: LIVE_BASE_URL, HONUA_API_KEY: LIVE_API_KEY }, ["--mode", "live"]);
   }
 
-  async function routeApprovedModel(page) {
+  async function routeApprovedModel(page, requiredCapabilities) {
     const capabilities = await restCall("GET", "/v1/studio/ai/capabilities");
-    const provider = selectLiveModel(capabilities);
-    await page.route("**/api/v1/studio/ai/chat", (route) =>
+    const provider = selectLiveModel(capabilities, requiredCapabilities);
+    await page.route("**/v1/studio/ai/chat", (route) =>
       route.continue({
-        postData: JSON.stringify({ ...route.request().postDataJSON(), provider: provider.provider, model: provider.model }),
+        postData: JSON.stringify({
+          ...route.request().postDataJSON(),
+          provider: provider.provider,
+          model: provider.model,
+        }),
       }),
     );
     return provider;
   }
 
-  async function verifyHumanPublication(page, publishResponse, packageKey) {
+  async function verifyHumanPublication(page, publishResponse, { packageKey, versionId }) {
     const response = await publishResponse;
     expect(response.status()).toBe(202);
     const payload = await response.json();
-    const pending = payload.data ?? payload;
-    expect([4, "RequiresApproval", "requiresApproval"]).toContain(pending.status);
+    expect(payload.success).toBe(true);
+    const pending = payload.data;
+    expect(pending.status).toBe(4);
     expect(pending.proposalId).toBeTruthy();
+    expect(pending.resourceIds.versionId).toBe(versionId);
     await expect(page.getByTestId("lifecycle-panel-message")).toContainText("awaiting separate human approval");
     const before = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
     expect(before.items).toHaveLength(1);
     expect(before.items[0].state).not.toBe("published");
     expect(before.items[0].publishedVersionId).toBeFalsy();
-    const approved = await approveLivePublication(LIVE_BASE_URL, pending.proposalId, process.env.HONUA_LIVE_HUMAN_TOKEN);
+    const approved = await approveLivePublication(
+      LIVE_BASE_URL,
+      pending.proposalId,
+      process.env.HONUA_LIVE_HUMAN_TOKEN,
+    );
     expect(approved.proposalId).toBe(pending.proposalId);
-    expect(approved.status).toBe("Active");
-    await expect.poll(async () => {
-      const items = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
-      expect(items.items).toHaveLength(1);
-      expect(items.items[0].publishedVersionId).toBe(pending.resourceIds.versionId);
-      return items.items[0].state;
-    }).toBe("published");
+    expect(approved.status).toBe("Succeeded");
+    const { itemId, requestId } = pending.resourceIds;
+    expect(itemId).toBe(before.items[0].itemId);
+    expect(requestId).toBeTruthy();
+    const receipt = await restCall(
+      "GET",
+      `/v1/studio/content-items/${itemId}/versions/${versionId}/publish-requests/${requestId}`,
+    );
+    expect(receipt.status).toBe("accepted");
+    expect(receipt.versionId).toBe(versionId);
+    const after = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
+    expect(after.items).toHaveLength(1);
+    expect(after.items[0]).toMatchObject({ state: "published", publishedVersionId: versionId });
   }
 
   /** A body the REAL server's honua_map_package.v1 validator accepts (the mock's permissive `{layers,view,widgets}` shape is invalid there, and the real server refuses to publish invalid bodies). */
@@ -199,7 +215,10 @@ test.describe("live demo-server journeys @live", () => {
       await expect(page.getByTestId("lifecycle-comparison-changes")).toContainText("content");
 
       // Publish-confirm: the human gate, then a REAL publish.
-      await page.getByTestId("lifecycle-version-row").nth(1).getByTestId("lifecycle-version-publish").click();
+      const version = page.getByTestId("lifecycle-version-row").nth(1);
+      const versionId = await version.getAttribute("data-version-id");
+      expect(versionId).toBeTruthy();
+      await version.getByTestId("lifecycle-version-publish").click();
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeVisible();
       const submit = page.getByTestId("lifecycle-confirm-submit");
       await expect(submit).toBeDisabled();
@@ -213,11 +232,10 @@ test.describe("live demo-server journeys @live", () => {
       await submit.click();
 
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeHidden();
-      await verifyHumanPublication(page, publishResponse, packageKey);
+      await verifyHumanPublication(page, publishResponse, { packageKey, versionId });
     } finally {
       if (draftId) {
-        // Drafts are deletable; the published item/versions are not (see the
-        // module doc's residue note).
+        // The live store has no content-item or immutable-version delete route.
         await restCall("DELETE", `/v1/studio/package-drafts/${draftId}`).catch(() => {});
       }
       await preview.close();
@@ -257,8 +275,7 @@ test.describe("live demo-server journeys @live", () => {
     const preview = await startLivePreview();
     let draftId;
     try {
-      const provider = await routeApprovedModel(page);
-      expect(provider.toolSupport).toBe(true);
+      await routeApprovedModel(page, ["streaming", "toolSupport"]);
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();

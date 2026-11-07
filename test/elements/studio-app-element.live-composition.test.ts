@@ -21,6 +21,8 @@ import type { HonuaStudioAppElement } from "../../src/elements/studio-app-elemen
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
 import type { HonuaStudioCompositionModeChangeDetail } from "../../src/elements/types.js";
 
+import { installRuntimeConfig, runtimeConfig } from "../../src/runtime-config.js";
+
 registerAllStudioElements();
 
 /**
@@ -100,9 +102,24 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  installRuntimeConfig(undefined);
 });
 
 describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-004)", () => {
+  it.each([
+    { serverBaseUrl: "/api", mcpBaseUrl: "" },
+    { serverBaseUrl: "https://example.test/tenant/api", mcpBaseUrl: "https://example.test/tenant" },
+  ])("keeps the agent REST base separate from MCP at $mcpBaseUrl", async ({ serverBaseUrl, mcpBaseUrl }) => {
+    installRuntimeConfig({ ...runtimeConfig(), serverBaseUrl, mcpBaseUrl });
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveComposition({ baseUrl: mcpBaseUrl, packageKey: "pkg-live-routes" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    expect(attachedAgentOptions[0]?.baseUrl).toBe(serverBaseUrl);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === `${mcpBaseUrl}/mcp`)).toBe(true);
+  });
+
   it("boots in fixture mode with the control collapsed — fixture is the default (REQ-005)", () => {
     const element = mount();
     expect(control(element, "live-composition-status").textContent).toBe("Fixture mode");
