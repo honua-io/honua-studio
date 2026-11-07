@@ -1,52 +1,10 @@
-/**
- * LIVE-server journeys (@live): the same shell + element kit every mock
- * journey drives, pointed at a REAL deployed honua-server (e.g.
- * https://demo.honua.io) instead of `mock-server.mjs`. Gated behind env
- * vars so CI without credentials skips the whole file — the same
- * "explicitly enabled, otherwise a no-op" posture honua-sdk-js uses for its
- * network-gated suites:
- *
- *   HONUA_LIVE_BASE_URL   the server's REST /api root, e.g. https://demo.honua.io/api
- *   HONUA_LIVE_API_KEY    admin API key; injected server-side by the vite
- *                         preview proxy as `X-API-Key` (see vite.config.ts —
- *                         the key never reaches client code or the bundle)
- *
- * Run:
- *   HONUA_LIVE_BASE_URL=https://demo.honua.io/api \
- *   HONUA_LIVE_API_KEY=<admin key> \
- *   npm run test:browser:live
- *
- * What runs live here (and why the rest doesn't):
- *  - boot: `--mode live` against the real server, plus an in-browser probe
- *    of the AI proxy's capabilities route through the /api proxy path.
- *  - package lifecycle: the full browse -> open -> version -> compare ->
- *    publish-confirm journey of lifecycle-journey.spec.mjs against the real
- *    lifecycle store (real validator — the seeded body is a schema-valid
- *    honua_map_package.v1, since the real server REJECTS publishing invalid
- *    bodies, unlike the permissive mock fixture).
- *  - chat: one REAL model turn through `<honua-studio-chat>`'s default
- *    SseChatTransport against POST /v1/studio/ai/chat (Bedrock behind the
- *    deployed proxy) — asserts streamed text renders, not what the model says
- *    beyond the pinned one-word instruction.
- *  - MCP compose: the compose-districts-map fixture conversation (chat side
- *    deliberately stays scripted, exactly as mcp-compose-journey.spec.mjs
- *    documents) flowing through the REAL /mcp endpoint's honua_studio_*
- *    tools at the server origin. Additionally gated behind
- *    HONUA_LIVE_MCP_ENABLED=true — see the in-test note on the demo
- *    deployment's MCP session-affinity bug.
- *  - NOT live: catalog/packages boot assertions (GET /v1/studio/catalog and
- *    /v1/studio/packages are not part of the deployed server surface — the
- *    mock fixture models a future enumeration shape) and the GP job routes
- *    (/v1/studio/gp-jobs is fixture-only today).
- *
- * Residue note: the deployed lifecycle store has no content-item delete
- * route, so each run leaves one `studio-e2e-live-*` content item + versions
- * behind on the target environment (drafts ARE deleted). Keys are
- * timestamped and greppable.
- */
-import { expect, test } from "@playwright/test";
+/** Live deployment checks leave timestamped content items; drafts are deleted after each test. */
+import { chromium, expect, test } from "@playwright/test";
+import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
 
+import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
+import { selectLiveModel } from "./live-journey-contract.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const LIVE_API_KEY = process.env.HONUA_LIVE_API_KEY;
@@ -78,6 +36,58 @@ test.describe("live demo-server journeys @live", () => {
     return startPreviewServer({ HONUA_BASE_URL: LIVE_BASE_URL, HONUA_API_KEY: LIVE_API_KEY }, ["--mode", "live"]);
   }
 
+  async function routeApprovedModel(page, requiredCapabilities) {
+    const capabilities = await restCall("GET", "/v1/studio/ai/capabilities");
+    const provider = selectLiveModel(capabilities, requiredCapabilities);
+    await page.route("**/v1/studio/ai/chat", (route) =>
+      route.continue({
+        postData: JSON.stringify({
+          ...route.request().postDataJSON(),
+          provider: provider.provider,
+          model: provider.model,
+        }),
+      }),
+    );
+    return provider;
+  }
+
+  async function verifyHumanPublication(page, publishResponse, { packageKey, versionId }) {
+    const response = await publishResponse;
+    expect(response.status()).toBe(202);
+    const payload = await response.json();
+    expect(payload.success).toBe(true);
+    const pending = payload.data;
+    expect(pending.status).toBe(4);
+    expect(pending.proposalId).toBeTruthy();
+    expect(pending.resourceIds.versionId).toBe(versionId);
+    await expect(page.getByTestId("lifecycle-panel-message")).toContainText("awaiting separate human approval");
+    const before = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
+    expect(before.items).toHaveLength(1);
+    expect(before.items[0].state).not.toBe("published");
+    expect(before.items[0].publishedVersionId).toBeFalsy();
+    const approvalConfiguration = liveApprovalConfiguration();
+    const approvalBrowser = await chromium.launch({ args: liveApprovalBrowserArguments() });
+    try {
+      const approvalContext = await approvalBrowser.newContext();
+      const approvalPage = await approvalContext.newPage();
+      await approveLivePublication(approvalPage, { ...approvalConfiguration, proposalId: pending.proposalId });
+    } finally {
+      await approvalBrowser.close();
+    }
+    const { itemId, requestId } = pending.resourceIds;
+    expect(itemId).toBe(before.items[0].itemId);
+    expect(requestId).toBeTruthy();
+    const receipt = await restCall(
+      "GET",
+      `/v1/studio/content-items/${itemId}/versions/${versionId}/publish-requests/${requestId}`,
+    );
+    expect(receipt.status).toBe("accepted");
+    expect(receipt.versionId).toBe(versionId);
+    const after = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
+    expect(after.items).toHaveLength(1);
+    expect(after.items[0]).toMatchObject({ state: "published", publishedVersionId: versionId });
+  }
+
   /** A body the REAL server's honua_map_package.v1 validator accepts (the mock's permissive `{layers,view,widgets}` shape is invalid there, and the real server refuses to publish invalid bodies). */
   function validMapBody(packageKey, extra = {}) {
     return {
@@ -97,9 +107,8 @@ test.describe("live demo-server journeys @live", () => {
     // `app.session = …` assignment would be too late for the chat console,
     // which resolves its auth at connect time and would otherwise fall back
     // to the standalone OIDC flow no real deployment serves at /oidc. The
-    // bearer this yields is a placeholder — the deployed server
-    // authenticates off the proxy-injected X-API-Key (vite.config.ts) and
-    // ignores the bearer.
+    // bearer this yields is a placeholder; Vite's API-key mode removes it
+    // before forwarding so OIDC and MCP use the injected X-API-Key.
     await page.addInitScript(() => {
       window.__HONUA_STUDIO_HOST_SESSION__ = {
         async getToken() {
@@ -144,6 +153,7 @@ test.describe("live demo-server journeys @live", () => {
   test("package lifecycle: browse -> open -> version -> compare -> publish-confirm against the REAL lifecycle store", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
     const packageKey = `studio-e2e-live-${Date.now()}`;
     const preview = await startLivePreview();
     let draftId;
@@ -209,7 +219,10 @@ test.describe("live demo-server journeys @live", () => {
       await expect(page.getByTestId("lifecycle-comparison-changes")).toContainText("content");
 
       // Publish-confirm: the human gate, then a REAL publish.
-      await page.getByTestId("lifecycle-version-row").nth(1).getByTestId("lifecycle-version-publish").click();
+      const version = page.getByTestId("lifecycle-version-row").nth(1);
+      const versionId = await version.getAttribute("data-version-id");
+      expect(versionId).toBeTruthy();
+      await version.getByTestId("lifecycle-version-publish").click();
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeVisible();
       const submit = page.getByTestId("lifecycle-confirm-submit");
       await expect(submit).toBeDisabled();
@@ -217,19 +230,16 @@ test.describe("live demo-server journeys @live", () => {
       await expect(submit).toBeDisabled();
       await page.getByTestId("lifecycle-confirm-input").fill(packageKey);
       await expect(submit).toBeEnabled();
+      const publishResponse = page.waitForResponse(
+        (response) => response.request().method() === "POST" && response.url().endsWith("/publish-requests"),
+      );
       await submit.click();
 
       await expect(page.getByTestId("lifecycle-confirm-dialog")).toBeHidden();
-      await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Published");
-
-      // Independent of the UI: the REAL store now shows the item published.
-      const items = await restCall("GET", `/v1/studio/content-items?q=${encodeURIComponent(packageKey)}`);
-      expect(items.items).toHaveLength(1);
-      expect(items.items[0].state).toBe("published");
+      await verifyHumanPublication(page, publishResponse, { packageKey, versionId });
     } finally {
       if (draftId) {
-        // Drafts are deletable; the published item/versions are not (see the
-        // module doc's residue note).
+        // The live store has no content-item or immutable-version delete route.
         await restCall("DELETE", `/v1/studio/package-drafts/${draftId}`).catch(() => {});
       }
       await preview.close();
@@ -237,11 +247,10 @@ test.describe("live demo-server journeys @live", () => {
   });
 
   test("chat: one real model turn streams through the shell's default SSE transport and renders", async ({ page }) => {
-    // A real LLM round trip — bound it well above the proxy's observed
-    // latency but below anything pathological.
     test.setTimeout(180_000);
     const preview = await startLivePreview();
     try {
+      await routeApprovedModel(page);
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
@@ -265,15 +274,12 @@ test.describe("live demo-server journeys @live", () => {
   });
 
   test("real model turn: declared server tools mutate the authoritative draft and canvas", async ({ page }) => {
-    test.skip(
-      process.env.HONUA_LIVE_MCP_ENABLED !== "true",
-      "Requires the live deployment's MCP session affinity; set HONUA_LIVE_MCP_ENABLED=true once available.",
-    );
     test.setTimeout(180_000);
     const packageKey = `studio-e2e-live-agent-${Date.now()}`;
     const preview = await startLivePreview();
     let draftId;
     try {
+      await routeApprovedModel(page, ["streaming", "toolSupport"]);
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
@@ -326,22 +332,6 @@ test.describe("live demo-server journeys @live", () => {
   test("MCP compose: fixture-scripted tool-call intents mutate a REAL server-side draft via the deployed honua_studio_* tools", async ({
     page,
   }) => {
-    // KNOWN SERVER BUG (demo deployment, 2026-07-25): honua-server's MCP
-    // Streamable HTTP session store is in-memory per instance, and the demo
-    // environment runs multiple Lambda containers with no sticky routing or
-    // shared store — a session minted by `initialize` on one container 404s
-    // on `tools/call` when the follow-up request lands on another.
-    // Reproduced outside the browser entirely: initialize -> capture
-    // Mcp-Session-Id -> serial reuse works (200), but after a burst of 4
-    // concurrent requests (spinning up more containers) the SAME session id
-    // 404s on the next call. Session-LESS tools/call works fine (that's how
-    // the deployed honua_studio_* tools were verified). The journey itself
-    // is correct — opt in explicitly once the deployment gets sticky
-    // sessions or a shared session store.
-    test.skip(
-      process.env.HONUA_LIVE_MCP_ENABLED !== "true",
-      "Blocked on a demo-server bug: MCP sessions are per-container in-memory and 404 across Lambda instances. Set HONUA_LIVE_MCP_ENABLED=true to run anyway.",
-    );
     const packageKey = `studio-e2e-live-mcp-${Date.now()}`;
     const preview = await startLivePreview();
     let draftId;

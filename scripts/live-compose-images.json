@@ -1,0 +1,18 @@
+{
+  "server": {
+    "image": "ghcr.io/honua-io/honua-server@sha256:1320e634c1f3b304043f4423780ab76202136c07c5d4bde26c178c457f3796b5",
+    "revision": "1c7d0d1101809f2288566fb20d1ce1cb0a853869",
+    "runUrl": "https://github.com/honua-io/honua-server/actions/runs/42338240879"
+  },
+  "executor": {
+    "image": "ghcr.io/honua-io/honua-server@sha256:817b740e87333eb4cfe9919defd8a814d3ec433716327a3ed91f1cd8b718aacb",
+    "revision": "1c7d0d1101809f2288566fb20d1ce1cb0a853869",
+    "runUrl": "https://github.com/honua-io/honua-server/actions/runs/42338240879"
+  },
+  "console": {
+    "image": "ghcr.io/honua-io/honua-console@sha256:3ebee4b813aa64093dec4d62500cf83aa78440b61a92edf11d2edc2328c82b68",
+    "revision": "bc0e0a3e8b6185e1d0ea15fe50334a04fd7d2d23",
+    "runUrl": "https://github.com/honua-io/honua-console/actions/runs/42331538116"
+  },
+  "version": "nightly-1c7d0d1"
+}

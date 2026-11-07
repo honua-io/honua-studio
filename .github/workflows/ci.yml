@@ -78,6 +78,9 @@ jobs:
       - name: Test CodeQL workflow pin
         run: node --test scripts/__tests__/codeql-workflow.test.mjs
 
+      - name: Test live journey harness contracts
+        run: node --test scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs
+
       - name: Unit tests
         run: npm test
 
