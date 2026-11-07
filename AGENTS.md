@@ -47,10 +47,13 @@ session callback; anonymous rendering was not reached. Model composition expecte
 assistant and received an error. The process then stayed alive until the 25-minute job cancellation.
 Artifact upload succeeded, but cancellation skipped failure-only diagnostics. Approval response,
 SSE error codes, server/Console logs and model usage are absent. Current-run usage is unknown,
-not zero. Usage is written only after proxy shutdown; an idle client connection can block that
-shutdown, but retained CI logs do not identify the outstanding connection or exact stall point.
-The journey failures remain unclassified as product versus harness/environment. No further run
-is authorized. The [earlier qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
+not zero. At `e5fa221`, usage was written only after proxy shutdown; a synthetic idle client
+reproduced a shutdown that did not complete. Retained CI logs do not identify the outstanding
+connection or exact stall point. The revised harness saves usage before and after a shutdown
+capped at one second and collects diagnostics on cancellation. Local synthetic tests cover the
+change; it has no live receipt yet. The journey failures remain unclassified as product versus
+harness/environment. A further bounded run requires exact-head review and passing required CI.
+The [earlier qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
 at `641fa8e` recorded 33 input / 5 output tokens for its successful chat only; do not reuse that
 receipt as latest-run usage. Live qualification and merge remain blocked.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server

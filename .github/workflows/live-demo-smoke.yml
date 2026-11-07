@@ -76,9 +76,9 @@ jobs:
         timeout-minutes: 10
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
-        run: node scripts/qualify-live-compose.mjs
+        run: exec node scripts/qualify-live-compose.mjs
 
-      - name: Collect redacted failure diagnostics before teardown
+      - name: Collect redacted diagnostics before teardown
         if: ${{ always() && steps.images.outcome == 'success' }}
         timeout-minutes: 2
         run: node scripts/live-compose-stack.mjs diagnostics

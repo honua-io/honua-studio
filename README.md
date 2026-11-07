@@ -132,11 +132,13 @@ Playwright finished in 197.4 seconds, but the qualification process remained ali
 The artifact upload succeeded, but cancellation skipped the failure-only diagnostics step.
 The retained artifact has identity, readiness, the Playwright report and a Console callback
 context. It lacks the approval response, composition SSE error codes, server/Console logs and
-model usage. **Token usage for this run is unknown**, not zero. The harness writes usage only
-after awaiting proxy shutdown; an idle client connection can prevent that shutdown completing.
+model usage. **Token usage for this run is unknown**, not zero. At `e5fa221`, the harness wrote usage only
+after awaiting proxy shutdown; a synthetic idle client reproduced a shutdown that did not complete.
 The retained CI logs do not identify the outstanding connection or prove the exact stall point.
 The two journey failures still lack a conclusive product-versus-harness/environment classification.
-Studio remains **not live-qualified for rc.2**. No additional run is authorized.
+The revised harness saves usage before and after a shutdown capped at one second and collects
+diagnostics on cancellation. Local synthetic tests cover this change; it has no live receipt yet.
+Studio remains **not live-qualified for rc.2**. A further bounded run requires exact-head review and passing required CI.
 
 The [earlier qualification at `641fa8e`](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
 also had three passes and two failures. Only that earlier run recorded **33 input / 5 output tokens**

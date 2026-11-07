@@ -43,12 +43,18 @@ try {
   const exitCode = await Promise.race([exited, interrupted]);
   process.exitCode = exitCode;
   if (exitCode === 0) guard.assertQualified();
+} catch (error) {
+  process.exitCode ||= 1;
+  console.error(error.message);
 } finally {
   persistEvidence();
   stopBrowser("SIGTERM");
   setTimeout(() => stopBrowser("SIGKILL"), 1000);
   try {
     await guard.close();
+  } catch (error) {
+    process.exitCode ||= 1;
+    console.error(error.message);
   } finally {
     persistEvidence();
     collectPlaywrightContexts();

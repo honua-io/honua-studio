@@ -87,7 +87,7 @@ socket.once("connect", () => {
   );
   chmodSync(npm, 0o700);
   for (const mode of ["failure", "unqualified", "SIGINT", "SIGTERM"]) {
-    await context.test(mode, { timeout: 5000 }, async () => {
+    await context.test(mode, { timeout: 5000 }, async (scenario) => {
       const cwd = join(directory, mode);
       mkdirSync(join(cwd, ".tmp/playwright-output/publish"), { recursive: true });
       writeFileSync(
@@ -99,6 +99,7 @@ socket.once("connect", () => {
         env: { ...process.env, PATH: `${commands}${delimiter}${process.env.PATH}`, SYNTHETIC_BROWSER_MODE: mode },
         stdio: ["ignore", "pipe", "pipe"],
       });
+      scenario.after(() => child.kill("SIGKILL"));
       let output = "";
       let errors = "";
       let signaled = false;
@@ -112,23 +113,22 @@ socket.once("connect", () => {
       child.stderr.on("data", (chunk) => {
         errors += chunk;
       });
-      try {
-        const code = await new Promise((resolve, reject) => {
-          child.once("error", reject);
-          child.once("close", resolve);
-        });
-        assert.equal(code, { failure: 7, unqualified: 1, SIGINT: 130, SIGTERM: 143 }[mode], errors);
-        const usage = JSON.parse(readFileSync(join(cwd, ".tmp/live-model-usage.json"), "utf8"));
-        assert.equal(usage.calls.length, 0);
-        assert.equal(usage.limits.maxCalls, 3);
-        assert.equal(usage.limits.maxTokens, 1024);
-        assert.match(output, /Live model usage:/);
-        const snapshot = readFileSync(join(cwd, ".tmp/live-diagnostics/playwright/publish/error-context.md"), "utf8");
-        assert.match(snapshot, /Console callback timed out/);
-        assert.equal(snapshot.includes("synthetic-private"), false);
-      } finally {
-        child.kill("SIGKILL");
+      const code = await new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", resolve);
+      });
+      assert.equal(code, { failure: 7, unqualified: 1, SIGINT: 130, SIGTERM: 143 }[mode], errors);
+      if (mode === "unqualified") {
+        assert.match(errors, /Every live model call must complete with valid provider token usage/);
       }
+      const usage = JSON.parse(readFileSync(join(cwd, ".tmp/live-model-usage.json"), "utf8"));
+      assert.equal(usage.calls.length, 0);
+      assert.equal(usage.limits.maxCalls, 3);
+      assert.equal(usage.limits.maxTokens, 1024);
+      assert.match(output, /Live model usage:/);
+      const snapshot = readFileSync(join(cwd, ".tmp/live-diagnostics/playwright/publish/error-context.md"), "utf8");
+      assert.match(snapshot, /Console callback timed out/);
+      assert.equal(snapshot.includes("synthetic-private"), false);
     });
   }
 });
