@@ -38,7 +38,10 @@ function exchange(origin, path, expected) {
       reject(new Error("Realtime upgrade did not complete within one second."));
     }, 1000);
     socket.once("error", reject);
-    socket.once("close", () => clearTimeout(deadline));
+    socket.once("close", () => {
+      clearTimeout(deadline);
+      reject(new Error("Realtime connection closed before the expected response."));
+    });
     socket.once("connect", () => {
       socket.write(
         `GET ${path} HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nAuthorization: Bearer synthetic-person\r\n\r\nclient-head`,
