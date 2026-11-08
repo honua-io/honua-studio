@@ -16,8 +16,6 @@ export function attachRealtimeProxy(server, { origin, state, trackSocket }) {
   server.on("upgrade", (request, client, head) => {
     if (
       request.method !== "GET" ||
-      !request.url.startsWith("/") ||
-      request.url.startsWith("//") ||
       request.url.split("?")[0] !== "/hubs/admin" ||
       request.headers.upgrade?.toLowerCase() !== "websocket"
     ) {
