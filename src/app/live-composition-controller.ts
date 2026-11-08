@@ -304,7 +304,7 @@ export class LiveCompositionController {
     return {
       ...(certification?.certification ? { certification: certification.certification } : {}),
       ...(certification?.transcriptVerifier ? { transcriptVerifier: certification.transcriptVerifier } : {}),
-      baseUrl,
+      baseUrl: runtimeServerBaseUrl(),
       auth: host.auth,
       mcpClient: new StudioAuthoringMcpClient({ baseUrl, auth: host.auth, workflowView: "setup" }),
       workflowKnowledge: true,
