@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { test } from "node:test";
@@ -61,6 +62,9 @@ test("the observer relays the realtime upgrade, credentials and buffered bytes i
   assert.equal(upgrades.length, 1);
   assert.equal(upgrades[0].path, "/hubs/admin?id=synthetic");
   assert.equal(upgrades[0].headers.authorization, "Bearer synthetic-person");
+  const relayed = once(socket, "data", { signal: AbortSignal.timeout(1000) });
+  socket.write("after-upgrade");
+  assert.equal((await relayed)[0].toString(), "echo:after-upgrade");
   assert.equal(guard.evidence().calls.length, 0);
   const closed = new Promise((resolve) => socket.once("close", resolve));
   await guard.close();
