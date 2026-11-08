@@ -36,26 +36,30 @@ at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. 
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
-At `e5fa221`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42416699448)
-passed 1,759 Vitest tests in 144 files, 35 live harness contracts, typecheck, style and build;
-the [candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42416699560) passed all
+At `812c2e5`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42420800946)
+passed 1,759 Vitest tests in 144 files, 42 live harness contracts, typecheck, style and build;
+the [candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42420800999) passed all
 four jobs, with 47 browser tests passed and no reported flaky tests.
-The [latest bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
-at that revision recorded 3 passes, 2 failures, no skips, no retries and no flaky tests in 197.4 seconds.
-Boot, real chat and scripted MCP passed. Publication timed out after 180 seconds at the Console
-session callback; anonymous rendering was not reached. Model composition expected a completed
-assistant and received an error. The process then stayed alive until the 25-minute job cancellation.
-Artifact upload succeeded, but cancellation skipped failure-only diagnostics. Approval response,
-SSE error codes, server/Console logs and model usage are absent. Current-run usage is unknown,
-not zero. At `e5fa221`, usage was written only after proxy shutdown; a synthetic idle client
-reproduced a shutdown that did not complete. Retained CI logs do not identify the outstanding
-connection or exact stall point. The revised harness saves usage before and after a shutdown
-capped at one second and collects diagnostics on cancellation. Local synthetic tests cover the
-change; it has no live receipt yet. The journey failures remain unclassified as product versus
-harness/environment. A further bounded run requires exact-head review and passing required CI.
-The [earlier qualification](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
-at `641fa8e` recorded 33 input / 5 output tokens for its successful chat only; do not reuse that
-receipt as latest-run usage. Live qualification and merge remain blocked.
+The [latest bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42442407413)
+at that revision recorded 3 passes, 2 failures, no skips, no retries and no flaky tests in 197.9 seconds.
+Boot, real chat and scripted MCP passed. Chat recorded 33 input / 5 output tokens. Publication
+timed out after 180 seconds at the Console callback/inbox-load stage; anonymous rendering was
+not reached. Server logs show successful code exchange, bearer issuance and proposal reads.
+No approval request was sent, so no approval response body exists.
+The observer did not forward WebSocket upgrades: a local synthetic probe reproduces direct
+HTTP101 versus no proxied handshake. The repair has local regression coverage, no live receipt.
+Console's unbounded realtime startup during inbox initialization is
+[Console#598](https://github.com/honua-io/honua-console/issues/598).
+Model composition returned HTTP200 then `studio_ai/invalid_provider_stream` with
+`Provider returned an unknown or invalid stream event.` The rejected upstream event type remains
+unknown, tracked in [server#7122](https://github.com/honua-io/honua-server/issues/7122).
+The artifact retains model usage, error contexts, SSE error codes and redacted server/Console
+logs; bounded shutdown completed and the job was not canceled. Two provider calls were forwarded,
+none rejected. Only chat has a usage receipt: composition usage and total billed usage remain
+unknown. The [earlier run](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
+at `e5fa221` was canceled after the same 3/2 outcomes and lost diagnostics/usage.
+Live qualification and merge remain blocked. Any further paid run requires main authorization,
+exact-head review and passing required CI; never rerun to green.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
 revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
 and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
@@ -69,7 +73,7 @@ Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most three model calls
 per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
-the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`; the canceled run did not retain it.
+the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`; the latest run retained chat usage but none for failed composition.
 Publication also verifies the exact approved public version and rendered map in an empty browser
 context. The failed qualification does not establish completed publication or anonymous rendering.
 

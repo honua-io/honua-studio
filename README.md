@@ -115,47 +115,53 @@ approval of the pending publication through Console. Direct Anthropic Opus 5.5 u
 admission remain enforced. Setup does not invoke a model. The demo remains a separate, non-gating
 scheduled canary.
 
-The [latest Compose qualification at `e5fa221`](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
-recorded **three passed, two failed, zero skipped, zero retries and zero flaky tests**.
-Playwright finished in 197.4 seconds, but the qualification process remained alive until the
-25-minute job limit canceled it.
+The [latest Compose qualification at `812c2e5`](https://github.com/honua-io/honua-studio/actions/runs/42442407413)
+recorded **three passed, two failed, zero skipped, zero retries and zero flaky tests** in
+197.9 seconds. Diagnostics and token evidence were retained, and the job completed without cancellation.
 
 | Journey | Observed result |
 | --- | --- |
 | Stack identity/readiness and Studio boot | Passed |
-| One real Opus 5.5 chat turn | Passed; streamed `aloha` and completed |
-| Pending publication, then Console test-person approval | Timed out after 180 seconds; retained context identifies the Console session callback stage |
+| One real Opus 5.5 chat turn | Passed; 33 input / 5 output tokens |
+| Pending publication, then Console test-person approval | Timed out after 180 seconds at the Console callback/inbox-load stage; no approval request was made |
 | Anonymous published view | Not reached |
-| Model-selected authoritative composition | Failed; expected assistant `complete`, received `error` |
+| Model-selected authoritative composition | Failed; HTTP200 followed by `studio_ai/invalid_provider_stream`, assistant status `error` |
 | Scripted MCP composition against the real server | Passed |
 
-The artifact upload succeeded, but cancellation skipped the failure-only diagnostics step.
-The retained artifact has identity, readiness, the Playwright report and a Console callback
-context. It lacks the approval response, composition SSE error codes, server/Console logs and
-model usage. **Token usage for this run is unknown**, not zero. At `e5fa221`, the harness wrote usage only
-after awaiting proxy shutdown; a synthetic idle client reproduced a shutdown that did not complete.
-The retained CI logs do not identify the outstanding connection or prove the exact stall point.
-The two journey failures still lack a conclusive product-versus-harness/environment classification.
-The revised harness saves usage before and after a shutdown capped at one second and collects
-diagnostics on cancellation. Local synthetic tests cover this change; it has no live receipt yet.
-Studio remains **not live-qualified for rc.2**. A further bounded run requires exact-head review and passing required CI.
+The artifact contains runtime identity, readiness, browser report/error contexts, redacted
+server/Console logs and `live-model-usage.json`. Two model requests were forwarded and none
+rejected. Only the chat has a usage receipt; failed composition usage and total billed usage are
+unknown. The adapter emitted `Provider returned an unknown or invalid stream event.`; the
+upstream event type remains unknown, tracked in
+[server#7122](https://github.com/honua-io/honua-server/issues/7122).
 
-The [earlier qualification at `641fa8e`](https://github.com/honua-io/honua-studio/actions/runs/42413652558)
-also had three passes and two failures. Only that earlier run recorded **33 input / 5 output tokens**
-for its successful chat; failed-call usage was unknown. That receipt is not usage evidence for the latest run.
+Server logs show successful OIDC exchange, bearer issuance and proposal reads before the inbox
+stalled. A local synthetic handshake reproduces the observer's missing WebSocket forwarding:
+direct HTTP101 succeeds while the proxied handshake does not complete. The harness repair has
+local regression coverage but no live receipt. Console also awaits realtime startup during inbox
+initialization without its own deadline, tracked in
+[Console#598](https://github.com/honua-io/honua-console/issues/598). This does not establish failed
+authentication or a failed approval API response; approval was never reached.
+Studio remains **not live-qualified for rc.2**. Any further paid run requires main authorization,
+exact-head review and passing required CI. All publication and anonymous-view assertions remain.
+
+The [earlier qualification at `e5fa221`](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
+also had three passes and two failures, then reached the 25-minute cancellation without retaining
+usage or complete diagnostics. The latest run demonstrates the bounded shutdown/evidence repair;
+it does not demonstrate completed publication or model composition.
 
 The Compose qualification limits each model request and the provider default to 1,024 output
 tokens. A shared loopback guard permits at most three chat requests across all browser workers;
 the pinned server disables provider HTTP retries. A completed harness must retain provider-reported prompt and
-completion tokens in `live-model-usage.json`; the latest canceled run did not. Publication must also render the approved public
+completion tokens in `live-model-usage.json`; the latest run retains only the successful chat receipt. Publication must also render the approved public
 version anonymously in a fresh browser context. Those publication assertions did not pass in this run.
 The three-call allowance covers one short chat response and a two-call composition turn (one
 tool action, then its closing response); extra rounds fail the qualification without another
 provider invocation.
 
-At `e5fa221`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42416699448)
+At `812c2e5`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42420800946)
 passed typecheck, style, build and 1,759 Vitest tests across 144 files, plus the Node harness
-checks, including 35 live harness contracts. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42416699560)
+checks, including 42 live harness contracts. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42420800999)
 passed all four jobs; the browser job reported 47 passed with no reported flaky tests.
 These fixture and packaging receipts do not establish completed live publication.
 
@@ -206,7 +212,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest qualification](https://github.com/honua-io/honua-studio/actions/runs/42417380265): 3 passed, 2 failed, 0 skipped before job cancellation; publication/anonymous rendering and model composition remain unqualified | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest qualification](https://github.com/honua-io/honua-studio/actions/runs/42442407413): 3 passed, 2 failed, 0 skipped; diagnostics retained; publication/anonymous rendering and model composition remain unqualified | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible

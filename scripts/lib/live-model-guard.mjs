@@ -2,6 +2,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { StringDecoder } from "node:string_decoder";
 import { SseFrameParser } from "../../src/chat/sse-parser.ts";
 import { diagnosticRedactor } from "./live-diagnostics.mjs";
+import { attachRealtimeProxy } from "./live-realtime-proxy.mjs";
 
 const turnCalls = { chat: 1, composition: 2 };
 export const liveModelLimits = {
@@ -181,6 +182,7 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
   const sockets = new Set();
   const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor(), sockets));
   server.on("connection", (socket) => trackSocket(sockets, socket));
+  attachRealtimeProxy(server, { origin: target.origin, state, trackSocket: (socket) => trackSocket(sockets, socket) });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);

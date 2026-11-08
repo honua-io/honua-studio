@@ -54,7 +54,7 @@ jobs:
         run: |
           npm ci
           npm run test:browser:install
-          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-diagnostics.test.mjs
+          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
           node --test scripts/__tests__/live-publication.test.mjs
 
       - name: Prepare the customer quickstart and dedicated test person
