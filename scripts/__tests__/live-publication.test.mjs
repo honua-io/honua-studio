@@ -7,6 +7,10 @@ import { liveMapBody } from "../lib/live-publication.mjs";
 const source = resolve(".tmp/live-console-source/src/Honua.Console.Web/wwwroot/js/published-map-viewer.mjs");
 const { createPublishedMapViewer } = await import(pathToFileURL(source));
 
+test("the live map fixture uses the server's case-sensitive draft status", () => {
+  assert.equal(liveMapBody("qualification-map").status, "Draft");
+});
+
 test("both lifecycle versions reach the pinned Console viewer's renderer without changing their body", async () => {
   for (const extra of [{}, { themeId: "live-journey-dark" }]) {
     const body = liveMapBody("qualification-map", extra);

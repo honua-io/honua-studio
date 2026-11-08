@@ -28,7 +28,7 @@ and [v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1) exist
 At `1f02d8e`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42313827159)
 passed 1,754 Vitest tests in 144 files and
 [smokes](https://github.com/honua-io/honua-studio/actions/runs/42313827200) passed their four jobs.
-The [latest scheduled demo run](https://github.com/honua-io/honua-studio/actions/runs/42411124363)
+The [latest scheduled demo run](https://github.com/honua-io/honua-studio/actions/runs/42521574023)
 at `1f02d8e` had 1 pass, 2 failures and 2 skips: publication expected immediate completion
 despite pending approval; chat received HTTP 400. Live qualification remains blocked.
 The [candidate live run](https://github.com/honua-io/honua-studio/actions/runs/42340355731)
@@ -36,28 +36,26 @@ at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. 
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
-At `812c2e5`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42420800946)
-passed 1,759 Vitest tests in 144 files, 42 live harness contracts, typecheck, style and build;
-the [candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42420800999) passed all
-four jobs, with 47 browser tests passed and no reported flaky tests.
-The [latest bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42442407413)
-at that revision recorded 3 passes, 2 failures, no skips, no retries and no flaky tests in 197.9 seconds.
-Boot, real chat and scripted MCP passed. Chat recorded 33 input / 5 output tokens. Publication
-timed out after 180 seconds at the Console callback/inbox-load stage; anonymous rendering was
-not reached. Server logs show successful code exchange, bearer issuance and proposal reads.
-No approval request was sent, so no approval response body exists.
-The observer did not forward WebSocket upgrades: a local synthetic probe reproduces direct
-HTTP101 versus no proxied handshake. The repair has local regression coverage, no live receipt.
-Console's unbounded realtime startup during inbox initialization is
-[Console#598](https://github.com/honua-io/honua-console/issues/598).
-Model composition returned HTTP200 then `studio_ai/invalid_provider_stream` with
-`Provider returned an unknown or invalid stream event.` The rejected upstream event type remains
-unknown, tracked in [server#7122](https://github.com/honua-io/honua-server/issues/7122).
-The artifact retains model usage, error contexts, SSE error codes and redacted server/Console
-logs; bounded shutdown completed and the job was not canceled. Two provider calls were forwarded,
-none rejected. Only chat has a usage receipt: composition usage and total billed usage remain
-unknown. The [earlier run](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
-at `e5fa221` was canceled after the same 3/2 outcomes and lost diagnostics/usage.
+At `0168a31`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42532226191)
+and [smokes](https://github.com/honua-io/honua-studio/actions/runs/42532226196) passed; all nine
+required checks passed. The [latest bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42532829398)
+at that revision used server/executor `dabe402c` and Console `97631d3` and recorded 3 passes,
+2 failures, no skips, no retries and no flaky tests in 31.8 seconds. Boot, real chat and scripted MCP
+passed. Chat recorded 33 input / 5 output tokens.
+Console signed in, loaded the proposal and sent the test person's Approve request. HTTP200
+returned proposal status `Failed`: `The saved Studio version failed publication validation.`
+The retained browser context identifies the harness error: lowercase `status: "draft"` is invalid;
+the server's map contract requires `"Draft"`. Both saved versions were invalid. The fixture is now
+corrected with a regression test, without a new live receipt. Anonymous rendering was not reached.
+The earlier callback/inbox timeout in [run 42442407413](https://github.com/honua-io/honua-studio/actions/runs/42442407413)
+did not recur before the approval API call.
+Composition returned HTTP200 then `studio_ai/unsupported_content_block` with
+`Provider returned unsupported content block type 'thinking'.` Safe server metadata confirms
+`content_block_start`/`thinking`, tracked in [server#7122](https://github.com/honua-io/honua-server/issues/7122).
+Diagnostics, artifact upload and teardown passed. The artifact retains approval status/body,
+error contexts, SSE errors and redacted server/Console logs. Two provider calls were forwarded,
+none rejected. Completed chat usage is 33/5. The composition error records 32,889 input / 4 output
+tokens, but lacks a completed stream receipt; final billed composition and run totals remain unknown.
 Live qualification and merge remain blocked. Any further paid run requires main authorization,
 exact-head review and passing required CI; never rerun to green.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
@@ -73,7 +71,7 @@ Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most three model calls
 per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
-the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`; the latest run retained chat usage but none for failed composition.
+the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`; the latest run retained completed chat usage and an incomplete composition error snapshot.
 Publication also verifies the exact approved public version and rendered map in an empty browser
 context. The failed qualification does not establish completed publication or anonymous rendering.
 

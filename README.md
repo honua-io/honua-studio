@@ -90,7 +90,7 @@ Latest default-branch evidence, at `1f02d8e`:
   passed the container, browser, production Console-assets and Blazor jobs. The standalone
   browser job reported 39 passed and two flaky tests out of 41 selected; Console assets reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Latest scheduled demo run 42411124363](https://github.com/honua-io/honua-studio/actions/runs/42411124363),
+- [Latest scheduled demo run 42521574023](https://github.com/honua-io/honua-studio/actions/runs/42521574023),
   at `1f02d8e`, reported **one passed, two failed, two skipped**. Boot passed; publication
   stopped at pending approval while the test expected immediate completion; chat received
   HTTP 400, tracked in [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092). Both MCP composition journeys were skipped by their opt-in guard.
@@ -115,45 +115,43 @@ approval of the pending publication through Console. Direct Anthropic Opus 5.5 u
 admission remain enforced. Setup does not invoke a model. The demo remains a separate, non-gating
 scheduled canary.
 
-The [latest Compose qualification at `812c2e5`](https://github.com/honua-io/honua-studio/actions/runs/42442407413)
-recorded **three passed, two failed, zero skipped, zero retries and zero flaky tests** in
-197.9 seconds. Diagnostics and token evidence were retained, and the job completed without cancellation.
+The [latest Compose qualification at `0168a31`](https://github.com/honua-io/honua-studio/actions/runs/42532829398)
+used server/executor `dabe402c` from [candidate build 42525142122](https://github.com/honua-io/honua-server/actions/runs/42525142122)
+and Console `97631d3`. It recorded **three passed, two failed, zero skipped, zero retries and zero
+flaky tests** in 31.8 seconds. [CI](https://github.com/honua-io/honua-studio/actions/runs/42532226191)
+and [smokes](https://github.com/honua-io/honua-studio/actions/runs/42532226196) passed at that head.
 
 | Journey | Observed result |
 | --- | --- |
 | Stack identity/readiness and Studio boot | Passed |
 | One real Opus 5.5 chat turn | Passed; 33 input / 5 output tokens |
-| Pending publication, then Console test-person approval | Timed out after 180 seconds at the Console callback/inbox-load stage; no approval request was made |
+| Pending publication, then Console test-person approval | Console signed in, loaded the proposal and sent Approve; HTTP200 returned proposal status `Failed` with publication-validation rejection |
 | Anonymous published view | Not reached |
-| Model-selected authoritative composition | Failed; HTTP200 followed by `studio_ai/invalid_provider_stream`, assistant status `error` |
+| Model-selected authoritative composition | Failed; `studio_ai/unsupported_content_block` for Anthropic `content_block_start` with block type `thinking` |
 | Scripted MCP composition against the real server | Passed |
 
-The artifact contains runtime identity, readiness, browser report/error contexts, redacted
-server/Console logs and `live-model-usage.json`. Two model requests were forwarded and none
-rejected. Only the chat has a usage receipt; failed composition usage and total billed usage are
-unknown. The adapter emitted `Provider returned an unknown or invalid stream event.`; the
-upstream event type remains unknown, tracked in
+The publication error context identifies a harness fixture error: `status: "draft"` fails the
+server's case-sensitive map status contract, which requires `"Draft"`. Both saved versions were
+invalid, and the server correctly rejected publication. The fixture now uses the canonical value
+with a regression test; that correction has no live qualification receipt. The Console callback
+and inbox now reach the approval API, superseding the earlier timeout in
+[run 42442407413](https://github.com/honua-io/honua-studio/actions/runs/42442407413).
+
+The artifact retains runtime identity, readiness, browser error contexts, redacted server/Console
+logs, approval response status/body and `live-model-usage.json`; diagnostics/upload/teardown all
+passed. Two model calls were forwarded and none rejected. Completed chat usage is 33 input / 5
+output tokens. The composition SSE error records 32,889 input / 4 output tokens, but no completed
+stream usage receipt exists, so final billed composition and run totals remain unknown. Safe server
+metadata identifies the rejected `thinking` block; the product defect remains
 [server#7122](https://github.com/honua-io/honua-server/issues/7122).
 
-Server logs show successful OIDC exchange, bearer issuance and proposal reads before the inbox
-stalled. A local synthetic handshake reproduces the observer's missing WebSocket forwarding:
-direct HTTP101 succeeds while the proxied handshake does not complete. The harness repair has
-local regression coverage but no live receipt. Console also awaits realtime startup during inbox
-initialization without its own deadline, tracked in
-[Console#598](https://github.com/honua-io/honua-console/issues/598). This does not establish failed
-authentication or a failed approval API response; approval was never reached.
 Studio remains **not live-qualified for rc.2**. Any further paid run requires main authorization,
 exact-head review and passing required CI. All publication and anonymous-view assertions remain.
-
-The [earlier qualification at `e5fa221`](https://github.com/honua-io/honua-studio/actions/runs/42417380265)
-also had three passes and two failures, then reached the 25-minute cancellation without retaining
-usage or complete diagnostics. The latest run demonstrates the bounded shutdown/evidence repair;
-it does not demonstrate completed publication or model composition.
 
 The Compose qualification limits each model request and the provider default to 1,024 output
 tokens. A shared loopback guard permits at most three chat requests across all browser workers;
 the pinned server disables provider HTTP retries. A completed harness must retain provider-reported prompt and
-completion tokens in `live-model-usage.json`; the latest run retains only the successful chat receipt. Publication must also render the approved public
+completion tokens in `live-model-usage.json`; the latest run retains completed chat usage and an incomplete composition error snapshot. Publication must also render the approved public
 version anonymously in a fresh browser context. Those publication assertions did not pass in this run.
 The three-call allowance covers one short chat response and a two-call composition turn (one
 tool action, then its closing response); extra rounds fail the qualification without another
@@ -212,7 +210,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest qualification](https://github.com/honua-io/honua-studio/actions/runs/42442407413): 3 passed, 2 failed, 0 skipped; diagnostics retained; publication/anonymous rendering and model composition remain unqualified | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest qualification](https://github.com/honua-io/honua-studio/actions/runs/42532829398): 3 passed, 2 failed, 0 skipped; Console approval reaches server validation; publication/anonymous rendering and model composition remain unqualified | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
