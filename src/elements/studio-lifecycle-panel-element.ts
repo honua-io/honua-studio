@@ -317,6 +317,11 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     return this.#draft?.packageKey ?? this.#versions.find((v) => v.itemId === this.#itemId)?.packageKey;
   }
 
+  #confirmTextMatchesKey(): boolean {
+    const expectedKey = this.#confirmPackageKey();
+    return Boolean(expectedKey) && this.#confirmText === expectedKey;
+  }
+
   /**
    * THE ONLY call site for `requestPublish`/`requestRollback` in this
    * package (spec REQ-009). Reachable ONLY via `#confirmSubmit`'s `click`
@@ -325,8 +330,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
    */
   async #submitConfirm(): Promise<void> {
     const pending = this.#pendingConfirm;
-    const expectedKey = this.#confirmPackageKey();
-    if (!pending || !this.#itemId || !expectedKey || this.#confirmText !== expectedKey) return;
+    if (!pending || !this.#itemId || !this.#confirmTextMatchesKey()) return;
     this.#confirmSubmitting = true;
     this.render();
     try {
@@ -541,7 +545,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     const pending = this.#pendingConfirm;
     if (!pending) return "";
     const expectedKey = this.#confirmPackageKey() ?? "";
-    const matches = this.#confirmText === expectedKey && expectedKey !== "";
+    const matches = this.#confirmTextMatchesKey();
     const title =
       pending.kind === "publish"
         ? `Confirm publish of version ${pending.versionId}`
@@ -556,6 +560,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
         <input
           type="text"
           data-testid="lifecycle-confirm-input"
+          aria-label="Confirm package key"
           autocomplete="off"
           value="${escapeHtml(this.#confirmText)}"
           placeholder="${escapeHtml(expectedKey)}"
@@ -635,17 +640,18 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
 
     // -- THE HUMAN GATE: the only listeners that can reach #submitConfirm --
     const confirmInput = root.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]');
+    const confirmSubmit = root.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]');
     confirmInput?.addEventListener(
       "input",
       () => {
         this.#confirmText = confirmInput.value;
-        this.render();
+        if (confirmSubmit) {
+          confirmSubmit.disabled = !this.#confirmTextMatchesKey() || this.#confirmSubmitting;
+        }
       },
       { signal },
     );
-    root
-      .querySelector('[data-testid="lifecycle-confirm-submit"]')
-      ?.addEventListener("click", () => void this.#submitConfirm(), { signal });
+    confirmSubmit?.addEventListener("click", () => void this.#submitConfirm(), { signal });
     root
       .querySelector('[data-testid="lifecycle-confirm-cancel"]')
       ?.addEventListener("click", () => this.#cancelConfirm(), { signal });

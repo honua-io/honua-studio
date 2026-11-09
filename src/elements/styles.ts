@@ -293,10 +293,12 @@ export function lifecycleStyles(): string {
     .lifecycle-confirm {
       border: 2px solid var(--hn-critical-border, #d97676);
       background: var(--hn-critical-tint, #fbe4e4);
+      color: var(--hn-critical-text, #9c2828);
       border-radius: var(--hn-radius-lg, 10px);
       padding: var(--hn-space-4, 16px);
       display: flex; flex-direction: column; gap: var(--hn-space-3, 12px);
     }
+    .lifecycle-confirm .hn-muted { color: inherit; }
     .lifecycle-confirm input[type="text"] {
       font: inherit; color: inherit;
       background: var(--hn-surface-raised, #fff);
