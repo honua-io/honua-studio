@@ -82,15 +82,15 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are separate from those packaging gates; rc.2 requires live proof. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-Latest default-branch evidence, at `1f02d8e`:
+Latest verified candidate CI evidence, at `1521734`:
 
-- [CI run 42313827159](https://github.com/honua-io/honua-studio/actions/runs/42313827159)
-  passed typecheck, style, build, and 1,754 Vitest tests across 144 files.
-- [Smoke run 42313827200](https://github.com/honua-io/honua-studio/actions/runs/42313827200)
+- [CI run 42708188819](https://github.com/honua-io/honua-studio/actions/runs/42708188819)
+  passed typecheck, style, build, and 1,764 Vitest tests across 145 files.
+- [Smoke run 42708188841](https://github.com/honua-io/honua-studio/actions/runs/42708188841)
   passed the container, browser, production Console-assets and Blazor jobs. The standalone
-  browser job reported 39 passed and two flaky tests out of 41 selected; Console assets reported six passed.
+  browser job reported 50 passed and one flaky saved-view test; Console assets reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Latest scheduled demo run 42521574023](https://github.com/honua-io/honua-studio/actions/runs/42521574023),
+- [Most recent recorded scheduled demo run 42521574023](https://github.com/honua-io/honua-studio/actions/runs/42521574023),
   at `1f02d8e`, reported **one passed, two failed, two skipped**. Boot passed; publication
   stopped at pending approval while the test expected immediate completion; chat received
   HTTP 400, tracked in [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092). Both MCP composition journeys were skipped by their opt-in guard.
@@ -212,7 +212,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest qualification](https://github.com/honua-io/honua-studio/actions/runs/42532829398): 3 passed, 2 failed, 0 skipped; Console approval reaches server validation; publication/anonymous rendering and model composition remain unqualified | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393): 4 passed, 1 failed, 0 skipped; Console approval, publication and anonymous rendering passed; model-selected composition remains unqualified after the three-call guard rejected a fourth request | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
