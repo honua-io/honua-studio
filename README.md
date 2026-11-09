@@ -115,53 +115,46 @@ approval of the pending publication through Console. Direct Anthropic Opus 5.5 u
 admission remain enforced. Setup does not invoke a model. The demo remains a separate, non-gating
 scheduled canary.
 
-The [latest Compose qualification at `0168a31`](https://github.com/honua-io/honua-studio/actions/runs/42532829398)
-used server/executor `dabe402c` from [candidate build 42525142122](https://github.com/honua-io/honua-server/actions/runs/42525142122)
-and Console `97631d3`. It recorded **three passed, two failed, zero skipped, zero retries and zero
-flaky tests** in 31.8 seconds. [CI](https://github.com/honua-io/honua-studio/actions/runs/42532226191)
-and [smokes](https://github.com/honua-io/honua-studio/actions/runs/42532226196) passed at that head.
+The [latest Compose qualification at `1521734`](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
+used certified server/executor `9d2169cc` from
+[candidate build 42665713376](https://github.com/honua-io/honua-server/actions/runs/42665713376)
+and Console `97631d3`. It recorded **four passed, one failed, zero skipped, zero retries and zero
+flaky tests** in 29.3 seconds.
 
 | Journey | Observed result |
 | --- | --- |
 | Stack identity/readiness and Studio boot | Passed |
 | One real Opus 5.5 chat turn | Passed; 33 input / 5 output tokens |
-| Pending publication, then Console test-person approval | Console signed in, loaded the proposal and sent Approve; HTTP200 returned proposal status `Failed` with publication-validation rejection |
-| Anonymous published view | Not reached |
-| Model-selected authoritative composition | Failed; `studio_ai/unsupported_content_block` for Anthropic `content_block_start` with block type `thinking` |
+| Pending publication, then Console test-person approval | Passed; proposal succeeded and saved version became published |
+| Anonymous published view | Passed; exact approved version rendered in a fresh browser context |
+| Model-selected authoritative composition | Failed; fourth chat request rejected with HTTP429 by the three-call guard |
 | Scripted MCP composition against the real server | Passed |
 
-The publication error context identifies a harness fixture error: `status: "draft"` fails the
-server's case-sensitive map status contract, which requires `"Draft"`. Both saved versions were
-invalid, and the server correctly rejected publication. The fixture now uses the canonical value
-with a regression test; that correction has no live qualification receipt. The Console callback
-and inbox now reach the approval API, superseding the earlier timeout in
-[run 42442407413](https://github.com/honua-io/honua-studio/actions/runs/42442407413).
+The artifact retains runtime identity, readiness, browser error context, redacted server/Console
+logs and `live-model-usage.json`; diagnostics, artifact upload and teardown passed.
+All three forwarded model calls returned HTTP200 and retained completed input/output usage:
+33/5, 32,890/119 and 33,063/263 tokens, totaling **65,986 input / 387 output tokens**.
+One additional request was rejected before forwarding. No thinking-block rejection was recorded
+in this run. The call-budget failure alone does not establish a product defect.
 
-The artifact retains runtime identity, readiness, browser error contexts, redacted server/Console
-logs, approval response status/body and `live-model-usage.json`; diagnostics/upload/teardown all
-passed. Two model calls were forwarded and none rejected. Completed chat usage is 33 input / 5
-output tokens. The composition SSE error records 32,889 input / 4 output tokens, but no completed
-stream usage receipt exists, so final billed composition and run totals remain unknown. Safe server
-metadata identifies the rejected `thinking` block; the product defect remains
-[server#7122](https://github.com/honua-io/honua-server/issues/7122).
-
-Studio remains **not live-qualified for rc.2**. Any further paid run requires main authorization,
-exact-head review and passing required CI. All publication and anonymous-view assertions remain.
+Studio remains **not live-qualified for rc.2** because model-selected composition did not complete.
+Any further paid run requires main authorization, exact-head review and passing required CI.
+All publication and anonymous-view assertions remain.
 
 The Compose qualification limits each model request and the provider default to 1,024 output
 tokens. A shared loopback guard permits at most three chat requests across all browser workers;
-the pinned server disables provider HTTP retries. A completed harness must retain provider-reported prompt and
-completion tokens in `live-model-usage.json`; the latest run retains completed chat usage and an incomplete composition error snapshot. Publication must also render the approved public
-version anonymously in a fresh browser context. Those publication assertions did not pass in this run.
+the pinned server disables provider HTTP retries. Every completed call must retain provider-reported
+prompt and completion tokens in `live-model-usage.json`. Publication must also render the approved
+public version anonymously in a fresh browser context; those publication assertions passed.
 The three-call allowance covers one short chat response and a two-call composition turn (one
-tool action, then its closing response); extra rounds fail the qualification without another
-provider invocation.
+tool action, then its closing response); extra rounds fail qualification without another
+provider invocation. The latest composition attempted an extra round, so the overall live gate failed.
 
-At `812c2e5`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42420800946)
-passed typecheck, style, build and 1,759 Vitest tests across 144 files, plus the Node harness
-checks, including 42 live harness contracts. [Candidate smokes](https://github.com/honua-io/honua-studio/actions/runs/42420800999)
-passed all four jobs; the browser job reported 47 passed with no reported flaky tests.
-These fixture and packaging receipts do not establish completed live publication.
+At `1521734`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42708188819)
+passed typecheck, style, build and 1,764 Vitest tests across 145 files, plus 44 Node live-harness
+contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42708188841)
+passed all four jobs; the browser job reported 50 passed and one flaky saved-view test.
+These fixture and packaging receipts do not establish full live qualification.
 
 The keyboard lifecycle fixture (`test/playwright/keyboard-map-journey.spec.mjs`) creates
 a recipe map, saves a version and explicitly confirms publication against the mock
@@ -187,8 +180,9 @@ release, and records a build-provenance attestation for each tarball with the
 repository
 ([how a release is cut](docs/preview-release-posture.md#cutting-a-release)). [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/v0.1.0)
 and [v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1) were published
-on 2026-11-04. The v0.1.1 release includes standalone and Console tarballs, checksums,
-and a source/image receipt;
+on 2026-11-04. [v0.1.2](https://github.com/honua-io/honua-studio/releases/tag/v0.1.2)
+was published from `1333c66` by [release run 42668320471](https://github.com/honua-io/honua-studio/actions/runs/42668320471),
+including standalone and Console tarballs, checksums and a source/image receipt;
 see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
 on the public demo remains a 2026.2 decision (D2), so treat every capability
 below as something you verify by running it, not by visiting a URL.
