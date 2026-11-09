@@ -527,7 +527,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
         body: { layers: [] },
       },
     } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
-    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft").mockResolvedValue(draft);
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval").mockResolvedValue(draft);
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
     try {
       const app = mount();
@@ -538,6 +538,21 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect(create.mock.calls[0]?.[0].envelope.body).toMatchObject({ mapPackageId: "new-map", layers: [] });
       expect(get).toHaveBeenCalledWith("created");
       expect(app.composition.canUndo()).toBe(false);
+    } finally {
+      create.mockRestore();
+      get.mockRestore();
+    }
+  });
+
+  it("returns a pending draft approval without attaching it as a map", async () => {
+    const receipt = { status: "awaiting-approval" as const, operationInstanceId: "operation", proposalId: "proposal" };
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval").mockResolvedValue(receipt);
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft");
+    try {
+      const app = mount();
+      expect(await app.createWorkspaceDraft("approval-map", "original-command")).toEqual(receipt);
+      expect(create.mock.calls[0]?.[1]).toBe("original-command");
+      expect(get).not.toHaveBeenCalled();
     } finally {
       create.mockRestore();
       get.mockRestore();
@@ -775,7 +790,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
           release = () => resolve(undefined);
         }),
     );
-    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft");
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval");
     try {
       const pending = app.createWorkspaceDraft("new-map");
       app.session = fixtureSession();

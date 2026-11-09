@@ -162,6 +162,13 @@ export class StudioLifecycleClient {
     return this.#request("POST", "/package-drafts", request, commandId);
   }
 
+  public createDraftWithApproval(
+    request: StudioPackageDraftCreateRequest,
+    commandId?: string,
+  ): Promise<StudioPackageDraft | StudioApprovalPending> {
+    return this.#request("POST", "/package-drafts", request, commandId, true);
+  }
+
   public getDraft(draftId: string): Promise<StudioPackageDraft> {
     return this.#request("GET", `/package-drafts/${encodeURIComponent(draftId)}`);
   }

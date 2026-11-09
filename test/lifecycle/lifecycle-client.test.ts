@@ -569,6 +569,27 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
     await expect(c.requestPublish("item-1", "version-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
   });
 
+  it("preserves draft approval receipts and the caller command identity", async () => {
+    const keys: (string | null)[] = [];
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      keys.push(new Headers(init?.headers).get("Idempotency-Key"));
+      return jsonResponse(202, {
+        data: { status: 4, operationInstanceId: "create-operation", proposalId: "create-proposal" },
+      });
+    };
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    const input = { packageKey: "approved-map", envelope: { family: "map" as const, schemaVersion: "1.0" } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(c.createDraftWithApproval(input, "create-command")).resolves.toMatchObject({
+        status: "awaiting-approval",
+        operationInstanceId: "create-operation",
+        proposalId: "create-proposal",
+      });
+    }
+    expect(keys).toEqual(["create-command", "create-command"]);
+    await expect(c.createDraft(input)).rejects.toMatchObject({ status: 202 });
+  });
+
   it("does not cast a pending operation into a saved version", async () => {
     const fetchImpl: typeof fetch = async () =>
       jsonResponse(202, {

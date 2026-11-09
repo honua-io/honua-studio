@@ -22,6 +22,7 @@ import type { WorkspacePublication } from "../app/workspace-publication.js";
 import type { AuthSession, SessionAdapter } from "../auth/index.js";
 import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { ExploreDatasetInput, ExploreDatasetMetadata } from "../recipes/explore-dataset.js";
@@ -237,8 +238,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Explicit human create action; never creates a draft as a side effect of viewing or chatting. */
-  public createWorkspaceDraft(packageKey: string): Promise<WorkspaceDraftIdentity> {
-    return this.#drafts.create(packageKey);
+  public createWorkspaceDraft(
+    packageKey: string,
+    commandId?: string,
+  ): Promise<WorkspaceDraftIdentity | StudioApprovalPending> {
+    return this.#drafts.create(packageKey, commandId);
   }
 
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
