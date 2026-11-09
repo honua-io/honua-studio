@@ -287,6 +287,27 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       expect(submit()?.disabled).toBe(false);
     });
 
+    it("keeps the confirmation input and caret while each character is entered", async () => {
+      const { el } = mount(new FakeLifecycleClient());
+      el.draftId = "draft-1";
+      await flush();
+      el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-publish"]')?.click();
+      await flush();
+
+      const input = el.shadowRoot!.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]')!;
+      input.focus();
+      for (const character of "parcels-overview") {
+        input.value += character;
+        input.setSelectionRange(input.value.length, input.value.length);
+        input.dispatchEvent(new Event("input"));
+        expect(el.shadowRoot!.activeElement).toBe(input);
+        expect(input.selectionStart).toBe(input.value.length);
+      }
+      expect(
+        el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')!.disabled,
+      ).toBe(false);
+    });
+
     it("clicking Confirm publish (only once enabled) calls client.requestPublish exactly once with the selected version and intent", async () => {
       const { el, client } = mount(new FakeLifecycleClient());
       el.draftId = "draft-1";

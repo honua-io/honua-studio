@@ -556,6 +556,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
         <input
           type="text"
           data-testid="lifecycle-confirm-input"
+          aria-label="Confirm package key"
           autocomplete="off"
           value="${escapeHtml(this.#confirmText)}"
           placeholder="${escapeHtml(expectedKey)}"
@@ -635,17 +636,19 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
 
     // -- THE HUMAN GATE: the only listeners that can reach #submitConfirm --
     const confirmInput = root.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]');
+    const confirmSubmit = root.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]');
     confirmInput?.addEventListener(
       "input",
       () => {
         this.#confirmText = confirmInput.value;
-        this.render();
+        if (confirmSubmit) {
+          const expectedKey = this.#confirmPackageKey();
+          confirmSubmit.disabled = !expectedKey || this.#confirmText !== expectedKey || this.#confirmSubmitting;
+        }
       },
       { signal },
     );
-    root
-      .querySelector('[data-testid="lifecycle-confirm-submit"]')
-      ?.addEventListener("click", () => void this.#submitConfirm(), { signal });
+    confirmSubmit?.addEventListener("click", () => void this.#submitConfirm(), { signal });
     root
       .querySelector('[data-testid="lifecycle-confirm-cancel"]')
       ?.addEventListener("click", () => this.#cancelConfirm(), { signal });

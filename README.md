@@ -163,6 +163,14 @@ checks, including 42 live harness contracts. [Candidate smokes](https://github.c
 passed all four jobs; the browser job reported 47 passed with no reported flaky tests.
 These fixture and packaging receipts do not establish completed live publication.
 
+The keyboard lifecycle fixture (`test/playwright/keyboard-map-journey.spec.mjs`) creates
+a recipe map, saves a version and explicitly confirms publication against the mock
+REST store. It allows at most 100 keyboard actions, counting each traversal key,
+activation key or text entry, and checks axe at the recipe, rendered map and
+confirmation in both themes and color modes. This covers lifecycle controls; the
+complete Console-hosted styling and labeling journey still requires live proof.
+
+
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no
 hosted instance you can click into. CI builds the image and runs a browser
 BYOM preview against it: the page loads from the container, runtime
