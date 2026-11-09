@@ -408,7 +408,9 @@ export class StudioLifecycleClient {
       throw new StudioLifecycleSessionExpiredError(url);
     }
     if (!response.ok) {
-      throw await this.#buildError(response);
+      const createDraftRejected =
+        allowApproval && method === "POST" && path === "/package-drafts" && [400, 403, 422].includes(response.status);
+      throw await this.#buildError(response, createDraftRejected);
     }
     if (response.status === 204) return undefined as T;
     const text = await response.text();
@@ -426,7 +428,7 @@ export class StudioLifecycleClient {
     return (envelope as StudioApiResponse<T>).data as T;
   }
 
-  async #buildError(response: Response): Promise<StudioLifecycleError> {
+  async #buildError(response: Response, createDraftRejected = false): Promise<StudioLifecycleError> {
     let parsed: unknown;
     try {
       parsed = await response.json();
@@ -439,6 +441,6 @@ export class StudioLifecycleClient {
       return new StudioLifecycleConflictError(message, { status: response.status, problem });
     }
     const code = response.status === 404 ? "not-found" : response.status === 400 ? "validation" : "internal";
-    return new StudioLifecycleError(code, message, { status: response.status, problem });
+    return new StudioLifecycleError(code, message, { status: response.status, problem, createDraftRejected });
   }
 }

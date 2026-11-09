@@ -38,6 +38,8 @@ export type StudioLifecycleErrorCode =
 
 /** Base error for every {@link StudioLifecycleClient} failure. `.problem` carries the parsed RFC 7807 body when the server returned one. */
 export class StudioLifecycleError extends Error {
+  /** True only for a definitive rejection of an approval-aware draft-create POST. */
+  public readonly createDraftRejected: boolean;
   public readonly code: StudioLifecycleErrorCode;
   public readonly status: number | undefined;
   public readonly problem: StudioProblemDetails | undefined;
@@ -45,10 +47,16 @@ export class StudioLifecycleError extends Error {
   public constructor(
     code: StudioLifecycleErrorCode,
     message: string,
-    options: { readonly status?: number; readonly problem?: StudioProblemDetails; readonly cause?: unknown } = {},
+    options: {
+      readonly status?: number;
+      readonly problem?: StudioProblemDetails;
+      readonly cause?: unknown;
+      readonly createDraftRejected?: boolean;
+    } = {},
   ) {
     super(message, "cause" in options ? { cause: options.cause } : undefined);
     this.name = "StudioLifecycleError";
+    this.createDraftRejected = options.createDraftRejected === true;
     this.code = code;
     this.status = options.status;
     this.problem = options.problem;
