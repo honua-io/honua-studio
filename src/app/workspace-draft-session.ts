@@ -102,8 +102,7 @@ export class WorkspaceDraftSession {
       commandId,
     );
     this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
-    if ("status" in created && created.status === "awaiting-approval") return created;
-    if (!("draftId" in created)) throw new Error("The draft response has no identity.");
+    if ("status" in created) return created;
     await this.hooks.attachWorkspaceDraft(created.draftId);
     const identity = this.identity;
     if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
