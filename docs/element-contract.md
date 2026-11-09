@@ -70,8 +70,13 @@ default). Both are also reachable from the header's own control
 (honua-studio#23 REQ-004) — the "Fixture mode" / "Live · &lt;key&gt;" badge
 plus a "Go live…" form; there is no test-hook-only path.
 
-For the Console-owned workspace, `createWorkspaceDraft(packageKey)` and
+For the Console-owned workspace, `createWorkspaceDraft(packageKey, commandId?)` and
 `attachWorkspaceDraft(draftId)` bind the canvas to a server draft.
+With a caller-owned command ID (required for retryable approval handoffs), draft creation returns either the attached draft identity or an `awaiting-approval`
+receipt with `operationInstanceId` and `proposalId`. Hosts retain the command ID
+across retries, show the approval handoff, and attach the canonical draft only
+after the operation completes. Omitting the ID preserves legacy strict, single-shot creation; HTTP 202 throws instead of returning a receipt.
+`attachWorkspaceDraft(draftId, mayAccept?)` runs the optional throwing host guard before a queued read and before adopting its result.
 
 `openRecipePicker()` / `closeRecipePicker()` open and close the shared-header
 Explore a dataset picker in either host or standalone mode. Opening only discovers

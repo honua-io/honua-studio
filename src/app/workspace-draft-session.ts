@@ -1,5 +1,6 @@
 import type { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
+import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
@@ -82,7 +83,7 @@ export class WorkspaceDraftSession {
     this.hooks.onDraftChange(this.identity);
   }
 
-  async create(packageKey: string): Promise<WorkspaceDraftIdentity> {
+  async create(packageKey: string, commandId?: string): Promise<WorkspaceDraftIdentity | StudioApprovalPending> {
     const key = packageKey.trim();
     if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
       throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
@@ -90,14 +91,18 @@ export class WorkspaceDraftSession {
     await this.hooks.prepareWorkspaceTurn();
     this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     const client = this.authority.lifecycleClient();
-    const created = await client.createDraft({
+    const request = {
       packageKey: key,
       envelope: {
         ...MAP_COMPOSITION_ENVELOPE,
         body: toCompositionDraftBody(createEmptyCompositionState(), key),
       },
-    });
+    };
+    const created = await (commandId === undefined
+      ? client.createDraft(request)
+      : client.createDraftWithApproval(request, commandId));
     this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    if ("status" in created) return created;
     await this.hooks.attachWorkspaceDraft(created.draftId);
     const identity = this.identity;
     if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
