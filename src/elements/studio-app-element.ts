@@ -246,8 +246,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
-  public attachWorkspaceDraft(draftId: string): Promise<void> {
-    return this.#drafts.attach(draftId);
+  public attachWorkspaceDraft(draftId: string, mayAccept?: () => void): Promise<void> {
+    return this.#drafts.attach(draftId, mayAccept);
   }
 
   /** Idle observation for external draft changes; never discard an unsaved form value. */

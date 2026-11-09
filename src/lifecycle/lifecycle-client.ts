@@ -164,8 +164,10 @@ export class StudioLifecycleClient {
 
   public createDraftWithApproval(
     request: StudioPackageDraftCreateRequest,
-    commandId?: string,
+    commandId: string,
   ): Promise<StudioPackageDraft | StudioApprovalPending> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(commandId ?? ""))
+      return Promise.reject(new Error("A caller-owned command ID is required for approval-aware creation."));
     return this.#request("POST", "/package-drafts", request, commandId, true);
   }
 

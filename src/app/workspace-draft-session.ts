@@ -91,16 +91,16 @@ export class WorkspaceDraftSession {
     await this.hooks.prepareWorkspaceTurn();
     this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     const client = this.authority.lifecycleClient();
-    const created = await client.createDraftWithApproval(
-      {
-        packageKey: key,
-        envelope: {
-          ...MAP_COMPOSITION_ENVELOPE,
-          body: toCompositionDraftBody(createEmptyCompositionState(), key),
-        },
+    const request = {
+      packageKey: key,
+      envelope: {
+        ...MAP_COMPOSITION_ENVELOPE,
+        body: toCompositionDraftBody(createEmptyCompositionState(), key),
       },
-      commandId,
-    );
+    };
+    const created = await (commandId === undefined
+      ? client.createDraft(request)
+      : client.createDraftWithApproval(request, commandId));
     this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     if ("status" in created) return created;
     await this.hooks.attachWorkspaceDraft(created.draftId);

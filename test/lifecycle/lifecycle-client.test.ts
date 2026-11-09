@@ -9,7 +9,7 @@
  * fetch-mocked unit tests cover the 409/401/problem-detail mapping paths a
  * real server round trip can't easily force on demand.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
@@ -588,6 +588,16 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
     }
     expect(keys).toEqual(["create-command", "create-command"]);
     await expect(c.createDraft(input)).rejects.toMatchObject({ status: 202 });
+  });
+
+  it("rejects approval-aware creation without a caller-owned command ID before dispatch", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
+    const input = { packageKey: "approved-map", envelope: { family: "map" as const, schemaVersion: "1.0" } };
+    for (const commandId of [undefined, "", "   "]) {
+      await expect(c.createDraftWithApproval(input, commandId as string)).rejects.toThrow("command ID");
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("does not cast a pending operation into a saved version", async () => {

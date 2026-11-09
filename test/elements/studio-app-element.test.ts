@@ -515,6 +515,46 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     }
   });
 
+  it("checks the host attachment guard before queued reads and before adopting their results", async () => {
+    const app = mount();
+    const draft = {
+      draftId: "first",
+      generation: 0,
+      packageKey: "map",
+      envelope: {
+        family: "map",
+        schemaVersion: "1.0",
+        format: "honua_map_package.v1",
+        body: { layers: [] },
+      },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    let finish!: () => void;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(draft);
+        }),
+    );
+    let current = true;
+    const guard = () => {
+      if (!current) throw new Error("Host navigated");
+    };
+    try {
+      const first = app.attachWorkspaceDraft("first", guard);
+      await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+      const queued = app.attachWorkspaceDraft("second", guard);
+      const firstRefused = expect(first).rejects.toThrow("Host navigated");
+      const queuedRefused = expect(queued).rejects.toThrow("Host navigated");
+      current = false;
+      finish();
+      await Promise.all([firstRefused, queuedRefused]);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(app.workspaceDraftIdentity).toBeUndefined();
+    } finally {
+      get.mockRestore();
+    }
+  });
+
   it("creates a server map only through the explicit human action and observes its actual identity", async () => {
     const draft = {
       draftId: "created",
@@ -527,7 +567,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
         body: { layers: [] },
       },
     } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
-    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval").mockResolvedValue(draft);
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft").mockResolvedValue(draft);
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
     try {
       const app = mount();
@@ -790,7 +830,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
           release = () => resolve(undefined);
         }),
     );
-    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval");
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft");
     try {
       const pending = app.createWorkspaceDraft("new-map");
       app.session = fixtureSession();
