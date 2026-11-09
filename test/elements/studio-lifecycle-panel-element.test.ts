@@ -287,7 +287,7 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       expect(submit()?.disabled).toBe(false);
     });
 
-    it("keeps the confirmation input and caret while each character is entered", async () => {
+    it("keeps the focused confirmation input while the exact key is typed and edited", async () => {
       const { el } = mount(new FakeLifecycleClient());
       el.draftId = "draft-1";
       await flush();
@@ -296,16 +296,19 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
 
       const input = el.shadowRoot!.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]')!;
       input.focus();
+      const submit = el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')!;
       for (const character of "parcels-overview") {
         input.value += character;
-        input.setSelectionRange(input.value.length, input.value.length);
+
         input.dispatchEvent(new Event("input"));
         expect(el.shadowRoot!.activeElement).toBe(input);
-        expect(input.selectionStart).toBe(input.value.length);
+        expect(el.shadowRoot!.querySelector('[data-testid="lifecycle-confirm-input"]')).toBe(input);
+        expect(submit.disabled).toBe(input.value !== "parcels-overview");
       }
-      expect(
-        el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')!.disabled,
-      ).toBe(false);
+      input.value = input.value.slice(0, -1);
+      input.dispatchEvent(new Event("input"));
+      expect(submit.disabled).toBe(true);
+      expect(el.shadowRoot!.activeElement).toBe(input);
     });
 
     it("clicking Confirm publish (only once enabled) calls client.requestPublish exactly once with the selected version and intent", async () => {

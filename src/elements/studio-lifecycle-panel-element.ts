@@ -317,6 +317,11 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     return this.#draft?.packageKey ?? this.#versions.find((v) => v.itemId === this.#itemId)?.packageKey;
   }
 
+  #confirmTextMatchesKey(): boolean {
+    const expectedKey = this.#confirmPackageKey();
+    return Boolean(expectedKey) && this.#confirmText === expectedKey;
+  }
+
   /**
    * THE ONLY call site for `requestPublish`/`requestRollback` in this
    * package (spec REQ-009). Reachable ONLY via `#confirmSubmit`'s `click`
@@ -325,8 +330,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
    */
   async #submitConfirm(): Promise<void> {
     const pending = this.#pendingConfirm;
-    const expectedKey = this.#confirmPackageKey();
-    if (!pending || !this.#itemId || !expectedKey || this.#confirmText !== expectedKey) return;
+    if (!pending || !this.#itemId || !this.#confirmTextMatchesKey()) return;
     this.#confirmSubmitting = true;
     this.render();
     try {
@@ -541,7 +545,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     const pending = this.#pendingConfirm;
     if (!pending) return "";
     const expectedKey = this.#confirmPackageKey() ?? "";
-    const matches = this.#confirmText === expectedKey && expectedKey !== "";
+    const matches = this.#confirmTextMatchesKey();
     const title =
       pending.kind === "publish"
         ? `Confirm publish of version ${pending.versionId}`
@@ -642,8 +646,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
       () => {
         this.#confirmText = confirmInput.value;
         if (confirmSubmit) {
-          const expectedKey = this.#confirmPackageKey();
-          confirmSubmit.disabled = !expectedKey || this.#confirmText !== expectedKey || this.#confirmSubmitting;
+          confirmSubmit.disabled = !this.#confirmTextMatchesKey() || this.#confirmSubmitting;
         }
       },
       { signal },
