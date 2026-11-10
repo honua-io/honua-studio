@@ -23,41 +23,34 @@ and the auth env vars are in README "Run it" and "Development". Read README's st
 before claiming a capability, and update them (test counts included) when you change one.
 
 ## Verified status
-Preview releases [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/v0.1.0)
-and [v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1) exist.
-At `1f02d8e`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42313827159)
-passed 1,754 Vitest tests in 144 files and
-[smokes](https://github.com/honua-io/honua-studio/actions/runs/42313827200) passed their four jobs.
-The [latest scheduled demo run](https://github.com/honua-io/honua-studio/actions/runs/42521574023)
-at `1f02d8e` had 1 pass, 2 failures and 2 skips: publication expected immediate completion
-despite pending approval; chat received HTTP 400. Live qualification remains blocked.
-The [candidate live run](https://github.com/honua-io/honua-studio/actions/runs/42340355731)
-at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. Boot and
-scripted MCP passed; publication stopped at the absent human credential after verifying
-pending state; model journeys refused the demo's Bedrock-only provider configuration.
-Do not turn fixture or packaging receipts into claims of live model/publication success.
-At `0168a31`, [candidate CI](https://github.com/honua-io/honua-studio/actions/runs/42532226191)
-and [smokes](https://github.com/honua-io/honua-studio/actions/runs/42532226196) passed; all nine
-required checks passed. The [latest bounded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42532829398)
-at that revision used server/executor `dabe402c` and Console `97631d3` and recorded 3 passes,
-2 failures, no skips, no retries and no flaky tests in 31.8 seconds. Boot, real chat and scripted MCP
-passed. Chat recorded 33 input / 5 output tokens.
-Console signed in, loaded the proposal and sent the test person's Approve request. HTTP200
-returned proposal status `Failed`: `The saved Studio version failed publication validation.`
-The retained browser context identifies the harness error: lowercase `status: "draft"` is invalid;
-the server's map contract requires `"Draft"`. Both saved versions were invalid. The fixture is now
-corrected with a regression test, without a new live receipt. Anonymous rendering was not reached.
-The earlier callback/inbox timeout in [run 42442407413](https://github.com/honua-io/honua-studio/actions/runs/42442407413)
-did not recur before the approval API call.
-Composition returned HTTP200 then `studio_ai/unsupported_content_block` with
-`Provider returned unsupported content block type 'thinking'.` Safe server metadata confirms
-`content_block_start`/`thinking`, tracked in [server#7122](https://github.com/honua-io/honua-server/issues/7122).
-Diagnostics, artifact upload and teardown passed. The artifact retains approval status/body,
-error contexts, SSE errors and redacted server/Console logs. Two provider calls were forwarded,
-none rejected. Completed chat usage is 33/5. The composition error records 32,889 input / 4 output
-tokens, but lacks a completed stream receipt; final billed composition and run totals remain unknown.
-Live qualification and merge remain blocked. Any further paid run requires main authorization,
-exact-head review and passing required CI; never rerun to green.
+Preview releases [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/v0.1.0),
+[v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1),
+[v0.1.2](https://github.com/honua-io/honua-studio/releases/tag/v0.1.2) (`1333c66`) and
+[v0.1.3](https://github.com/honua-io/honua-studio/releases/tag/v0.1.3) (`f099681`) exist.
+v0.1.2 and v0.1.3 each attach standalone and Console tarballs, checksums and a source/image receipt.
+At `d1eb637`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42755300180)
+passed typecheck, style, build, 1,778 Vitest tests in 145 files and 44 Node live-harness
+contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42755300061) passed
+all four jobs; the browser job reported 51 passed and Console assets reported six passed.
+These are fixture and packaging receipts.
+The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/42727969352)
+at `f099681` had 2 passes and 3 failures, retries disabled. Boot and scripted MCP passed.
+Publication stopped because `HONUA_LIVE_CONSOLE_URL` was absent. Both model journeys refused
+the demo's Bedrock-only provider before a call. This run did not reach the HTTP 400 chat
+tracked in [server#7092](https://github.com/honua-io/honua-server/issues/7092).
+The [latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
+is branch head `1521734`, not current main. It used server/executor `9d2169cc` and Console
+`97631d3`: 4 passed, 1 failed, no skips, retries or flaky tests in 29.3 seconds. Boot, real
+chat (33 input / 5 output tokens), pending publication through Console test-person approval,
+anonymous rendering of the exact approved version, and scripted MCP passed. Model-selected
+composition requested a fourth chat call; the three-call guard rejected it with HTTP 429
+before forwarding. The three forwarded calls returned HTTP 200 with completed usage totaling
+65,986 input and 387 output tokens. This run recorded no thinking-block rejection. The earlier
+thinking-block failure remains [server#7122](https://github.com/honua-io/honua-server/issues/7122).
+The call-budget failure alone does not establish a product defect. That receipt does not
+qualify `d1eb637`. Studio is not live-qualified for rc.2. Any further paid run requires main
+authorization, exact-head review and passing required CI. Do not raise the budget, weaken
+assertions or rerun to green.
 The qualification workflow (`live-demo-smoke.yml`) prepares the customer quickstart at the server
 revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
 and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
@@ -71,9 +64,11 @@ Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most three model calls
 per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
-the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`; the latest run retained completed chat usage and an incomplete composition error snapshot.
+the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`;
+the latest run retained completed usage for all three forwarded calls.
 Publication also verifies the exact approved public version and rendered map in an empty browser
-context. The failed qualification does not establish completed publication or anonymous rendering.
+context. Those publication assertions passed at `1521734`; model-selected composition did not,
+and that head is not current main.
 
 ## Invariants
 - No arbitrary code eval. Every mutation goes through the reducer (`src/composition/`) or a
