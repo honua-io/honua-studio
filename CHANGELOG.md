@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/honua-io/honua-studio/compare/v0.1.2...v0.1.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **lifecycle:** identify definitive draft creation rejections ([#222](https://github.com/honua-io/honua-studio/issues/222)) ([f099681](https://github.com/honua-io/honua-studio/commit/f099681917bf2ba9e37ab0db9e5fb25622e68699))
+
 ## [0.1.2](https://github.com/honua-io/honua-studio/compare/v0.1.1...v0.1.2) (2026-11-09)
 
 
