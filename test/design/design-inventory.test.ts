@@ -148,7 +148,24 @@ describe("design inventory", () => {
           "widget:compare",
         ]),
       );
-      controller.apply({ name: "removeLayer", target: { kind: "layer", id: "places" } });
+      const before = controller.state;
+      expect(() => controller.apply({ name: "removeLayer", target: { kind: "layer", id: "places" } })).toThrow(
+        expect.objectContaining({ code: "source-in-use" }),
+      );
+      expect(controller.state).toBe(before);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("reports interactions on a layer a loaded body no longer has as unresolved", () => {
+    const fixture = designFixture();
+    const controller = new CompositionController({
+      ...fixture,
+      layers: fixture.layers.filter((layer) => layer.id !== "places"),
+    });
+    const runtime = new StudioInteractionRuntime({ controller });
+    try {
       expect(designConnections(controller.state, runtime.compiled).find((entry) => entry.id === "hide")).toMatchObject({
         status: "unresolved",
         reason: expect.stringContaining("No bindings installed"),

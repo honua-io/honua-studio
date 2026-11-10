@@ -1,8 +1,8 @@
 /**
- * `GET /api/v1/studio/ai/capabilities` (honua-server#3010) — lets a Studio
+ * `GET /api/v1/studio/ai/capabilities` — lets a Studio
  * client discover configured providers' context length / tool support
  * without any provider-specific code. Not wired into `<honua-studio-chat>`'s
- * render path yet (out of scope for honua-studio#6's minimal chat console);
+ * render path yet (out of scope for the minimal chat console);
  * exposed as a standalone client function so a future revision (or the
  * composition engine, honua-studio#8) can call it without inventing a
  * second bearer-attach/response-envelope implementation.
@@ -26,7 +26,7 @@ function isEnvelope<T>(value: unknown): value is ApiResponseEnvelope<T> {
   return typeof value === "object" && value !== null && "success" in value && "data" in value;
 }
 
-/** Fetches and unwraps the `ApiResponse<StudioAiCapabilitiesResponse>` envelope honua-server#3010's endpoint returns. */
+/** Fetches and unwraps the `ApiResponse<StudioAiCapabilitiesResponse>` envelope the endpoint returns. */
 export async function fetchStudioAiCapabilities(
   options: FetchStudioAiCapabilitiesOptions = {},
 ): Promise<StudioAiCapabilitiesResponse> {

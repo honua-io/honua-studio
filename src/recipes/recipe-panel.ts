@@ -54,7 +54,7 @@ export class RecipePanel {
           <p>Uses the existing widget grid. Category options and displayed rows are bounded samples; they are not a complete dataset summary.</p>
         </details>
         <form data-testid="recipe-form">
-          <label>Package key <input name="packageKey" required maxlength="200" pattern="[A-Za-z0-9._-]+" data-testid="recipe-package-key"></label>
+          <label>Package key <input name="packageKey" required maxlength="200" pattern="(?:[A-Za-z0-9._]|-)+" data-testid="recipe-package-key"></label>
           <label>Authorized dataset <select name="sourceId" required data-testid="recipe-source"><option value="">Loading authorized sources…</option></select></label>
           <label>Category field <select name="categoryField" required data-testid="recipe-category" disabled><option value="">Choose a dataset first</option></select></label>
           <fieldset data-testid="recipe-columns" disabled><legend>Table columns (choose 1–8)</legend><div data-columns></div></fieldset>

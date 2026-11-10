@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostAdapterAuthSession } from "../../src/auth/host-session.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
+import { heldByteStream } from "./held-byte-stream.js";
 
 const sessions: HostAdapterAuthSession[] = [];
 afterEach(() => {
@@ -22,6 +23,194 @@ function session(expiresAt = new Date(Date.now() + 60000).toISOString(), sourceP
   return result;
 }
 describe("cookie host session", () => {
+  it("keeps renewed credentials current and ignores stale expiry or 401 from the old lease", async () => {
+    let oldExpired = () => {};
+    let newExpired = () => {};
+    let finish!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: (listener: () => void) => {
+        oldExpired = listener;
+        return () => {};
+      },
+    };
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    auth.renewCookie({
+      ...cookie,
+      csrfToken: "new",
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+      onExpired: (listener: () => void) => {
+        newExpired = listener;
+        return () => {};
+      },
+    });
+    oldExpired();
+    finish(new Response(null, { status: 401 }));
+    await pending;
+    expect(auth.getState().status).toBe("fresh");
+    await auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+    expect(fetch.mock.calls[1][1].headers.get("X-CSRF-Token")).toBe("new");
+    expect(() => auth.renewCookie({ ...cookie, principalId: "other" })).toThrow(/authority/);
+    newExpired();
+    expect(auth.getState().status).toBe("expired");
+  });
+  it("rechecks a read under the renewed lease before returning its data", async () => {
+    let finish!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(new Response("new-authority"));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = ownerCookie();
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = auth.fetchRequest!("/api/v1/studio/catalog");
+    auth.renewCookie({ ...cookie, csrfToken: "new" });
+    finish(new Response("old-authority"));
+    expect(await (await pending).text()).toBe("new-authority");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  function ownerCookie() {
+    return {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio" as const,
+      csrfToken: "old",
+      environmentId: "env",
+      principalId: "owner",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+  }
+  function beginVersionsRead(finish: (controller: ReadableStreamDefaultController<Uint8Array>) => void) {
+    const bytes = new TextEncoder().encode(JSON.stringify({ data: { versions: [] } }));
+    const held = heldByteStream((controller) => {
+      controller.enqueue(bytes);
+      finish(controller);
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(held.body, { headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetch);
+    const cookie = ownerCookie();
+    const auth = new HostAdapterAuthSession(cookie);
+    sessions.push(auth);
+    const pending = new StudioLifecycleClient({ auth }).listVersions("item");
+    return { auth, cookie, fetch, pending, ...held };
+  }
+  it("finishes a versions read the same principal already started when its cookie renews", async () => {
+    const read = beginVersionsRead((controller) => {
+      controller.close();
+    });
+    await read.started;
+    read.auth.renewCookie({
+      ...read.cookie,
+      csrfToken: "new",
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+    });
+    read.release();
+    await expect(read.pending).resolves.toEqual({ versions: [] });
+    expect(read.wasCancelled()).toBe(false);
+    expect(read.fetch).toHaveBeenCalledTimes(1);
+  });
+  it("cancels a versions read already started when that principal's session is replaced", async () => {
+    const read = beginVersionsRead(() => {});
+    await read.started;
+    read.auth.dispose();
+    read.release();
+    await expect(read.pending).rejects.toThrow(/expired/);
+    expect(read.wasCancelled()).toBe(true);
+  });
+  describe("a draft save that crosses a lease renewal", () => {
+    const lease = ownerCookie();
+    const saved = { draftId: "draft", generation: 2 };
+    function heldWrite() {
+      const held: { finish?: (response: Response) => void } = {};
+      const fetch = vi.fn().mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            held.finish = resolve;
+          }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const auth = new HostAdapterAuthSession(lease);
+      sessions.push(auth);
+      const save = new StudioLifecycleClient({ auth }).replaceDraft("draft", {} as never);
+      return { auth, fetch, save, finish: (response: Response) => held.finish?.(response) };
+    }
+
+    it("reports the saved draft when the renewal keeps the same authority, with exactly one write", async () => {
+      const { auth, fetch, save, finish } = heldWrite();
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      auth.renewCookie({ ...lease, csrfToken: "new", expiresAt: new Date(Date.now() + 120000).toISOString() });
+      finish(new Response(JSON.stringify({ data: saved }), { headers: { "content-type": "application/json" } }));
+      await expect(save).resolves.toMatchObject(saved);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][1].method).toBe("PUT");
+    });
+
+    it("keeps the write's response body readable across a renewal during streaming", async () => {
+      let release!: () => void;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          controller.enqueue(new TextEncoder().encode("saved"));
+          controller.close();
+        },
+      });
+      const fetch = vi.fn().mockResolvedValue(new Response(body));
+      vi.stubGlobal("fetch", fetch);
+      const auth = new HostAdapterAuthSession(lease);
+      sessions.push(auth);
+      const response = await auth.fetchRequest!("/api/v1/studio/package-drafts/draft", { method: "PUT" });
+      const text = response.text();
+      auth.renewCookie({ ...lease, csrfToken: "new" });
+      release();
+      await expect(text).resolves.toBe("saved");
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a renewal that changes the authority, so the save cannot complete under another principal", () => {
+      const auth = new HostAdapterAuthSession(lease);
+      sessions.push(auth);
+      for (const changed of [{ principalId: "other" }, { environmentId: "env-b" }, { sourcePathBase: "/tenant-b" }])
+        expect(() => auth.renewCookie({ ...lease, ...changed })).toThrow(/authority/);
+    });
+
+    it("throws without retrying when the session is replaced by another authority mid-save", async () => {
+      const { auth, fetch, save, finish } = heldWrite();
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      auth.dispose();
+      finish(new Response(JSON.stringify({ data: saved })));
+      await expect(save).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringMatching(/original outcome/) }),
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
   it("bounds OGC reads to the actual features collection route", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetch);

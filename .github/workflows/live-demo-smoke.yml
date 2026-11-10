@@ -1,52 +1,106 @@
-name: Live AWS Studio browser smoke
+name: Live customer Compose Studio journeys
 
 on:
-  schedule:
-    - cron: "41 16 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: live-aws-studio-browser-smoke
+  group: live-customer-compose-studio
   cancel-in-progress: false
 
 env:
   NODE_VERSION: "22.23.3"
-  HONUA_LIVE_BASE_URL: "https://demo.honua.io/api"
 
 jobs:
-  live-browser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  live-compose:
+    name: Live customer Compose Studio journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright Chromium
-        run: npm run test:browser:install
-
-      - name: Run Studio journeys against the live AWS demo
+      - name: Check qualification inputs
+        id: images
         env:
-          HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
-          PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
-        run: npm run test:browser:live -- --reporter=list,json
+          HONUA_LIVE_ANTHROPIC_API_KEY: ${{ secrets.HONUA_LIVE_ANTHROPIC_API_KEY }}
+        run: node scripts/live-compose-stack.mjs check
 
-      - name: Upload live browser evidence
+      - name: Read the customer quickstart at the image revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: honua-io/honua-server
+          ref: ${{ steps.images.outputs.server_revision }}
+          path: .tmp/live-server-source
+          persist-credentials: false
+
+      - name: Read the Console viewer at the image revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: honua-io/honua-console
+          ref: ${{ steps.images.outputs.console_revision }}
+          path: .tmp/live-console-source
+          persist-credentials: false
+
+      - name: Install browser dependencies and validate harness
+        run: |
+          npm ci
+          npm run test:browser:install
+          node --test scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
+          node --test scripts/__tests__/live-publication.test.mjs
+
+      - name: Prepare the customer quickstart and dedicated test person
+        env:
+          HONUA_LIVE_ANTHROPIC_API_KEY: ${{ secrets.HONUA_LIVE_ANTHROPIC_API_KEY }}
+        run: |
+          echo '127.0.0.1 host.docker.internal' | sudo tee -a /etc/hosts >/dev/null
+          node scripts/live-compose-stack.mjs prepare
+
+      - name: Start the customer stack and record runtime identity
+        env:
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/.tmp/live-compose/identity/certs/kc.crt
+        run: node scripts/live-compose-stack.mjs start
+
+      - name: Record configured provider readiness
+        run: node scripts/live-demo-readiness.mjs
+
+      - name: Qualify Studio against the customer stack without retries
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
+        run: exec node scripts/qualify-live-compose.mjs
+
+      - name: Collect redacted diagnostics before teardown
+        if: ${{ always() && steps.images.outcome == 'success' }}
+        timeout-minutes: 2
+        run: node scripts/live-compose-stack.mjs diagnostics
+
+      - name: Upload qualification evidence
         if: always()
+        timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: live-aws-studio-browser-smoke
+          name: live-customer-compose-studio
           path: |
+            .tmp/live-compose-identity.json
+            .tmp/live-readiness.json
             .tmp/live-studio-report.json
-            .tmp/playwright-output
+            .tmp/live-model-usage.json
+            .tmp/live-diagnostics/
           if-no-files-found: error
+
+      - name: Stop only this run's customer stack
+        if: ${{ always() && steps.images.outcome == 'success' }}
+        timeout-minutes: 2
+        run: |
+          if test -f .tmp/live-compose/compose.studio.json; then
+            node scripts/live-compose-stack.mjs stop
+          fi

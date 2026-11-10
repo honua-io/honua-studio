@@ -36,11 +36,14 @@ export class WorkspaceDraftBinding {
     return state;
   }
 
-  public async initializeStyle(): Promise<CompositionState> {
+  public async initializeStyle(mapSpec: MapStyleDocument): Promise<CompositionState> {
     const current = this.#draft;
     if (!current || !this.client.initializeDraftStyle)
       throw new Error("The canonical style initializer is unavailable.");
-    return this.#acceptStyle(await this.client.initializeDraftStyle(current.draftId, current.generation), current);
+    return this.#acceptStyle(
+      await this.client.initializeDraftStyle(current.draftId, current.generation, mapSpec),
+      current,
+    );
   }
 
   public async replaceStyle(mapSpec: MapStyleDocument): Promise<CompositionState> {

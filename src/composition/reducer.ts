@@ -1,6 +1,6 @@
-import { validateMapStyleEdit } from "../styles/map-style-edit.js";
+import { COMPOSITION_STYLE_LAYER_IDS, validateMapStyleEdit } from "../styles/map-style-edit.js";
 /**
- * The composition engine's pure reducer (honua-studio#8): `state, command`
+ * The composition engine's pure reducer: `state, command`
  * in, `{ state, diff }` out, or a thrown {@link CompositionCommandError}.
  * Never touches the DOM (honua-studio#8 REQ-004) and never calls out to a
  * server itself — persistence is `history.ts`'s job (AD-8: this reducer is
@@ -56,10 +56,7 @@ import {
   compositionTargetsEqual,
   interactionsReferencingControl,
 } from "./model.js";
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
+import { layerRemovalBlocker } from "./source-use.mjs";
 
 export type CompositionCommandErrorCode =
   | "invalid-command"
@@ -74,7 +71,8 @@ export type CompositionCommandErrorCode =
    * the offending binding ids and the way forward, because "the removal
    * failed" without them is a dead end for both a human and an agent.
    */
-  | "interaction-conflict";
+  | "interaction-conflict"
+  | "source-in-use";
 
 /** Thrown by {@link applyCompositionCommand} for any rejected command. Never thrown mid-mutation — state is untouched on failure. */
 export class CompositionCommandError extends Error {
@@ -104,9 +102,7 @@ export function isPinViolation(error: unknown): error is CompositionCommandError
   return isCompositionCommandError(error) && error.code === "pin-violation";
 }
 
-// ---------------------------------------------------------------------------
 // Diff (the preview payload)
-// ---------------------------------------------------------------------------
 
 export type CompositionChangeKind = "add" | "remove" | "replace";
 
@@ -134,10 +130,6 @@ export interface CompositionApplyBatchResult {
   readonly diffs: readonly CompositionDiff[];
 }
 
-// ---------------------------------------------------------------------------
-// Target resolution
-// ---------------------------------------------------------------------------
-
 export interface CompositionTargetResolution {
   readonly target: CompositionTarget;
   readonly exists: boolean;
@@ -157,7 +149,7 @@ export function isPinned(state: CompositionState, target: CompositionTarget): bo
  * report `exists: true` — composition state does not itself track feature
  * selection (that lives in the SDK's exploration context), so a `feature`
  * target resolves structurally only. Exposed publicly so the chat console
- * (honua-studio#6) can validate an annotation-derived target before
+ * can validate an annotation-derived target before
  * dispatching a command built from it.
  */
 export function resolveCompositionTarget(
@@ -182,10 +174,6 @@ export function resolveCompositionTarget(
   }
   return { target, exists: true, pinned: isPinned(state, target) };
 }
-
-// ---------------------------------------------------------------------------
-// Apply
-// ---------------------------------------------------------------------------
 
 /**
  * Applies one command to `state`, returning the new state plus a structured
@@ -235,6 +223,9 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
       const resolution = requireResolved(state, command.target, "layer", command);
       guardPin(resolution, command);
       const id = nonFeatureTargetId(command.target);
+      guardSourceStillUsed(state, id, command);
+      const metadata = state.mapSpec?.metadata as Record<string, unknown> | undefined;
+      const captured = metadata?.[COMPOSITION_STYLE_LAYER_IDS];
       return {
         ...state,
         layers: state.layers.filter((layer) => layer.id !== id),
@@ -252,6 +243,14 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
           ? {
               mapSpec: {
                 ...state.mapSpec,
+                ...(Array.isArray(captured)
+                  ? {
+                      metadata: {
+                        ...metadata,
+                        [COMPOSITION_STYLE_LAYER_IDS]: captured.filter((owner) => owner !== id),
+                      },
+                    }
+                  : {}),
                 ...(state.mapSpec.sources && typeof state.mapSpec.sources === "object"
                   ? {
                       sources: Object.fromEntries(
@@ -368,6 +367,11 @@ function applyValidatedCommand(state: CompositionState, command: CompositionComm
   }
 }
 
+function guardSourceStillUsed(state: CompositionState, layerId: string, command: CompositionCommand): void {
+  const blocker = layerRemovalBlocker(state, layerId);
+  if (blocker) throw new CompositionCommandError("source-in-use", blocker.message, { command });
+}
+
 function applyAddLayer(
   state: CompositionState,
   layer: AddLayerInput,
@@ -465,7 +469,7 @@ function applyRemoveControl(
   };
 }
 
-/** `bindInteraction` is add-or-**replace** by id, matching honua-server#3175's editor: re-binding the same id is an edit, not a duplicate-id error. */
+/** `bindInteraction` is add-or-**replace** by id, matching the editor: re-binding the same id is an edit, not a duplicate-id error. */
 function applyBindInteraction(state: CompositionState, interaction: CompositionInteraction): CompositionState {
   const index = state.interactions.findIndex((existing) => existing.id === interaction.id);
   if (index === -1) return { ...state, interactions: [...state.interactions, interaction] };
@@ -515,7 +519,12 @@ function applySetView(
       command,
     });
   }
-  return { ...view, ...patch };
+  const next = { ...view, ...patch };
+  if (patch.center && patch.bbox === undefined) {
+    const { bbox: _bbox, ...cameraView } = next;
+    return cameraView;
+  }
+  return next;
 }
 
 function applyPin(state: CompositionState, target: CompositionTarget): CompositionState {
@@ -583,10 +592,6 @@ function nonFeatureTargetId(target: CompositionTarget): string {
   if (target.kind === "feature") throw new Error("unreachable: feature target has no scalar id");
   return target.id;
 }
-
-// ---------------------------------------------------------------------------
-// Diff
-// ---------------------------------------------------------------------------
 
 function diffCompositionState(before: CompositionState, after: CompositionState): readonly CompositionChange[] {
   return [

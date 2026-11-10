@@ -2,7 +2,7 @@ import type { BearerSessionAdapter } from "../../src/auth/types.js";
 /**
  * A minimal fixture implementation of `SessionAdapter`
  * (src/auth/types.ts, docs/embed-session.md) — exactly what a third-party
- * host wires up in place of a real OIDC session (honua-studio#4) to prove
+ * host wires up in place of a real OIDC session to prove
  * session injection end to end without a live honua-server. No network; the
  * bearer token itself is supplied by the caller (a real, signed
  * `mintFixtureAccessToken()` JWT in the Playwright specs — see

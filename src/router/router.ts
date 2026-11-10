@@ -1,5 +1,5 @@
 /**
- * Router stub (honua-studio#3).
+ * Router stub.
  *
  * A minimal hash router: enough wiring for the app shell to mount route
  * views and for honua-studio#5's embed contract to build on ("routing

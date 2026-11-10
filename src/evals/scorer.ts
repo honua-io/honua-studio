@@ -108,9 +108,7 @@ export function failingPaths(score: EvalScore): readonly string[] {
   return score.failures.map((check) => check.path);
 }
 
-// ---------------------------------------------------------------------------
 // Turn completion — always scored
-// ---------------------------------------------------------------------------
 
 /**
  * Every instruction turn must reach a successful terminal event: a
@@ -152,10 +150,6 @@ function scoreTurnCompletion(run: EvalRunResult, checks: EvalCheck[]): void {
     });
   }
 }
-
-// ---------------------------------------------------------------------------
-// Composition state
-// ---------------------------------------------------------------------------
 
 function scoreCompositionState(state: CompositionState, expected: ExpectedCompositionState, checks: EvalCheck[]): void {
   scoreCollection<CompositionLayer, ExpectedLayer>("state.layers", state.layers, expected.layers, compareLayer, checks);
@@ -378,10 +372,6 @@ function scoreView(view: CompositionView, expected: ExpectedView, checks: EvalCh
   }
 }
 
-// ---------------------------------------------------------------------------
-// Activity log
-// ---------------------------------------------------------------------------
-
 function scoreActivityLog(
   entries: readonly ActivityLogEntry[],
   expected: ExpectedActivityLog,
@@ -475,10 +465,6 @@ function matchesSubset(expected: Readonly<Record<string, unknown>> | undefined, 
   });
 }
 
-// ---------------------------------------------------------------------------
-// Check constructors
-// ---------------------------------------------------------------------------
-
 function equality(id: string, path: string, expected: unknown, actual: unknown): EvalCheck {
   const ok = deepEquals(expected, actual);
   return {
@@ -547,10 +533,6 @@ function closeToTuple(
     message: ok ? `= ${json(actual)} (±${tolerance})` : `expected ${json(expected)} ±${tolerance}, got ${json(actual)}`,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Value helpers
-// ---------------------------------------------------------------------------
 
 /** Structural equality via the composition model's own canonical (sorted-key) serialization. */
 function deepEquals(a: unknown, b: unknown): boolean {

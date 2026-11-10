@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { type ProxyOptions, defineConfig } from "vite";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
@@ -25,10 +25,8 @@ const honuaServerRoot = honuaBaseUrl?.replace(/\/api\/?$/, "").replace(/\/$/, ""
 // Optional admin API key for LIVE runs against a real honua-server (e.g. the
 // demo environment): when set, the dev/preview PROXY attaches it server-side
 // as `X-API-Key` on every forwarded request. The key never reaches client
-// code or the built bundle — it lives only in this Node process, exactly the
-// posture README.md documents for live-mode credentials. The client keeps
-// sending its own bearer header (or none); honua-server authenticates the
-// request off the injected API key. Used by
+// code or the built bundle — it lives only in this Node process. API-key mode
+// removes the browser bearer so OIDC cannot select it ahead of the proxy key. Used by
 // test/playwright/live-demo-journeys.spec.mjs (HONUA_LIVE_API_KEY is passed
 // through as HONUA_API_KEY when it spawns `vite preview`).
 const honuaApiKey = process.env.HONUA_API_KEY;
@@ -41,7 +39,12 @@ export default defineConfig(({ mode }) => {
     );
   }
 
-  const apiKeyHeaders = honuaApiKey ? { "x-api-key": honuaApiKey } : undefined;
+  const apiKeyProxy: Pick<ProxyOptions, "headers" | "configure"> = honuaApiKey
+    ? {
+        headers: { "x-api-key": honuaApiKey },
+        configure: (proxy) => proxy.on("proxyReq", (request) => request.removeHeader("authorization")),
+      }
+    : {};
   const proxy = honuaBaseUrl
     ? {
         "/api": {
@@ -49,18 +52,18 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (requestPath: string) =>
             requestPath.startsWith("/api/v1/studio") ? requestPath : requestPath.replace(/^\/api/, ""),
-          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
+          ...apiKeyProxy,
         },
         // Feature locators come from MCP discovery at the server origin.
         "/rest": {
           target: honuaServerRoot,
           changeOrigin: true,
-          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
+          ...apiKeyProxy,
         },
         "/ogc": {
           target: honuaServerRoot,
           changeOrigin: true,
-          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
+          ...apiKeyProxy,
         },
         "/oidc": {
           target: honuaBaseUrl,
@@ -71,17 +74,13 @@ export default defineConfig(({ mode }) => {
         "/mcp": {
           target: honuaServerRoot,
           changeOrigin: true,
-          ...(apiKeyHeaders ? { headers: apiKeyHeaders } : {}),
+          ...apiKeyProxy,
         },
       }
     : undefined;
 
   return {
-    // Exposes HONUA_* env vars to client code (import.meta.env.HONUA_*) on
-    // top of Vite's default VITE_* prefix — unused today (the client only
-    // ever fetches relative /api paths) but kept available for REQ-003's
-    // future needs (e.g. surfacing which server is connected in the UI).
-    envPrefix: ["VITE_", "HONUA_"],
+    envPrefix: ["VITE_", "HONUA_OIDC_ISSUER", "HONUA_OIDC_CLIENT_ID", "HONUA_OIDC_REDIRECT_URI", "HONUA_OIDC_SCOPES"],
     server: { proxy },
     preview: { proxy },
     // MapLibre 6's worker uses dynamic import(), which only an ES-format

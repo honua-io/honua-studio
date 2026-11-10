@@ -39,7 +39,8 @@ open inspector and relationship focus. An accepted revision change invalidates
 that relationship focus; attempting to open a different draft closes the panel
 and cancels its metadata while the prospective read runs.
 
-Implementation: `src/elements/studio-app-element.ts`. Composes a header
+Implementation: `src/elements/studio-app-element.ts` is the public facade over the
+controllers in `src/app/` that `StudioWorkspace` assembles. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
 routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
 + `<honua-studio-canvas>` (created automatically unless the host already
@@ -69,8 +70,19 @@ default). Both are also reachable from the header's own control
 (honua-studio#23 REQ-004) — the "Fixture mode" / "Live · &lt;key&gt;" badge
 plus a "Go live…" form; there is no test-hook-only path.
 
-For the Console-owned workspace, `createWorkspaceDraft(packageKey)` and
+For the Console-owned workspace, `createWorkspaceDraft(packageKey, commandId?)` and
 `attachWorkspaceDraft(draftId)` bind the canvas to a server draft.
+With a caller-owned command ID (required for retryable approval handoffs), draft creation returns either the attached draft identity or an `awaiting-approval`
+receipt with `operationInstanceId` and `proposalId`. Hosts retain the command ID
+across retries, show the approval handoff, and attach the canonical draft only
+after the operation completes. Omitting the ID preserves legacy strict, single-shot creation; HTTP 202 throws instead of returning a receipt.
+An approval-aware create error has `createDraftRejected === true` only when the
+create POST returns HTTP 400, 403, or 422. The host may acknowledge that rejected
+action and start a corrected command. All other errors retain the original command
+ID: transport failures, uncertain responses, and errors preparing or attaching the
+map do not establish that creation was refused. In particular, a failed attachment
+can follow a successful creation.
+`attachWorkspaceDraft(draftId, mayAccept?)` runs the optional throwing host guard before a queued read and before adopting its result.
 
 `openRecipePicker()` / `closeRecipePicker()` open and close the shared-header
 Explore a dataset picker in either host or standalone mode. Opening only discovers
@@ -659,6 +671,14 @@ server envelope, preserves existing identity and unrelated metadata, and uses
 its generation to protect against concurrent writes. Optional controls and
 interactions absent from the replacement are removed. Rendering-only bodies
 without a composition layers array still fail explicitly.
+
+Map-local style initialization snapshots the current authorized canvas projection.
+Initialization and style saves use the published draft GET/PUT lifecycle with
+the observed generation, preserving the complete envelope and unrelated body
+metadata. Snapshot metadata records the existing composition owners so later
+layer additions remain renderable while intentional visual removals stay removed.
+They never change ownership or retry generation conflicts. Shared
+catalog styles retain the separate canonical style API.
 
 These are draft-admission requirements, not proof of portable rendering or
 publication. Actual validation remains a server operation, and publication

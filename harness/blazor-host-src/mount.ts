@@ -1,5 +1,5 @@
 /**
- * Blazor Web App test host glue (honua-studio#5; see
+ * Blazor Web App test host glue (see
  * harness/blazor-host/README.md § Findings for the full story). Built by
  * ../../vite.blazor-assets.config.ts into
  * harness/blazor-host/StudioHost/wwwroot/studio/{mount.js,style.css},
@@ -50,19 +50,10 @@ const BASE_PATH = "/studio";
 const CONTAINER_ID = "studio-host";
 
 function ensureContainer(): HTMLElement {
-  // honua-studio#5 finding (harness/blazor-host/README.md § Findings,
-  // hazard 1): this container is created here, in JS, and NEVER declared in
-  // any .razor file. A version of this that instead targeted a
-  // server-rendered `<div id="studio-host">` — whether inside <Routes/>,
-  // inside MainLayout outside @Body, or a sibling of <Routes/> in
-  // App.razor's own body — got its children silently cleared on every
-  // client-side navigation (both enhanced navigation AND, unexpectedly,
-  // navigation inside an interactive-server circuit, which isn't gated
-  // behind the "enhancedload" event at all). Blazor's client-side patcher
-  // reconciles an element's children against what ITS OWN rendered output
-  // says that element should contain — an element with no corresponding
-  // server-rendered counterpart anywhere has nothing to reconcile against,
-  // so a genuinely foreign node (and everything under it) is left alone.
+  // Created in JS and never declared in a .razor file. Blazor reconciles a
+  // server-rendered element's children against its own output and clears
+  // foreign children. A node with no server-rendered counterpart is left
+  // alone. See harness/blazor-host/README.md.
   let container = document.getElementById(CONTAINER_ID);
   if (!container) {
     container = document.createElement("div");
@@ -102,26 +93,10 @@ function syncCurrentPath(): void {
 }
 
 /**
- * honua-studio#5 finding (harness/blazor-host/README.md § Findings, hazard
- * 1): `mount()` alone is not enough. Empirically (three placements tried:
- * inside `<Routes/>`, in the shared layout outside `@Body`, and a plain JS
- * container prepended straight to `<body>`, even to `<html>` itself), a
- * Blazor Web App page navigated to from inside an interactive-server
- * circuit replaces essentially the ENTIRE live document — not a scoped
- * region — with freshly rendered content, wiping any node with no
- * corresponding server-rendered counterpart REGARDLESS of where it lives in
- * the tree. `document`/`window` and this module's own JS state survive
- * (it's a client-side navigation, not a real page load — confirmed via
- * Playwright: no `load`/`domcontentloaded` fires, only `framenavigated`),
- * but the DOM itself is not a safe place to persist anything across this
- * kind of navigation without actively re-asserting your content afterward.
- *
- * `resync()` is that active re-assertion: `mount()` is fully idempotent
- * (recreates the container + element only if genuinely missing, no-ops
- * otherwise), so calling it defensively after every observed navigation
- * signal is cheap and correct for both outcomes — the common case where a
- * navigation DIDN'T wipe anything (nothing to do) and this host's actual
- * case where it did (rebuilds within the same tick, before the next paint).
+ * Navigation can replace foreign DOM nodes, so `mount()` alone does not
+ * survive it. `resync()` re-asserts the element after every navigation
+ * signal. `mount()` is idempotent: it recreates the container only when the
+ * element is missing. See harness/blazor-host/README.md.
  */
 function resync(): void {
   mount();
@@ -130,30 +105,18 @@ function resync(): void {
 
 resync();
 
-// document's "enhancedload" fires after a plain (non-interactive-circuit)
-// enhanced navigation. "honua-studio-host-navigation" is this test host's
-// OWN event (dispatched by a blocking inline script in Components/App.razor's
-// <head>, ahead of _framework/blazor.web.js) covering interactive-circuit
-// navigation too: this module, being a deferred `type="module"` script,
-// necessarily runs AFTER blazor.web.js — wrapping history.pushState from
-// here was tried first and silently never fired, because blazor.web.js had
-// already captured its own reference to the ORIGINAL history.pushState
-// before this module ever ran. The inline script installs the same wrap,
-// early enough to actually observe it.
+// `enhancedload` covers a plain enhanced navigation.
+// `honua-studio-host-navigation` covers an interactive circuit. Blazor
+// captures `pushState` before this deferred module runs, so the wrap has to
+// be installed by the inline script in Components/App.razor, ahead of
+// blazor.web.js.
 document.addEventListener("enhancedload", resync);
 document.addEventListener("honua-studio-host-navigation", resync);
 
-// Neither of the above is sufficient BY ITSELF: both fire at the moment
-// navigation STARTS (the URL update), but empirically Blazor's actual DOM
-// rewrite for interactive-circuit navigation lands asynchronously — one or
-// more ticks LATER. resync()ing immediately on the nav event recreates the
-// element just in time for Blazor's delayed rewrite to wipe it right back
-// out. A MutationObserver watching for the element's actual disappearance,
-// rather than guessing at a delay, is what closes that race: it reacts to
-// the wipe itself, whenever it really happens, on every pathway uniformly.
-// This is the mechanism that actually keeps honua-studio-app is mounted —
-// the event listeners above are a same-tick fast path for the common case,
-// this is what makes it correct.
+// `honua-studio-host-navigation` fires when navigation starts. The
+// interactive-circuit DOM rewrite lands later, so an immediate resync is
+// wiped again. The observer reacts when the element disappears instead of
+// guessing a delay.
 const watchdog = new MutationObserver(() => {
   if (!document.getElementById(CONTAINER_ID)?.querySelector("honua-studio-app")) resync();
 });

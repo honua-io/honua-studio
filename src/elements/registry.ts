@@ -56,7 +56,7 @@ export const STUDIO_ELEMENT_TAGS: readonly string[] = Array.from(STUDIO_ELEMENTS
 /**
  * Tags an element composes into its own shadow DOM, and therefore needs
  * defined even when a host registers only the outer tag
- * (honua-studio#24). `<honua-studio-canvas>` builds a
+ * `<honua-studio-canvas>` builds a
  * `<honua-studio-widget-deck>` for the composed widgets; an undefined tag
  * would upgrade to nothing and the widgets would silently not render, which
  * is precisely the class of failure this registry's define-once discipline

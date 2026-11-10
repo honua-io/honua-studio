@@ -18,10 +18,11 @@ job refuses any other revision.
   exact published `@honua/sdk-js` version (`package.json`), not a range.
   The receipt records the version, source SHA, and pushed image digest.
   No `v*` tag has been cut, so nothing is pullable from GHCR yet.
-- **Security.** The tag workflow runs filesystem Trivy and OpenSSF Scorecard
-  from pinned `honua-io/.github` workflows and `needs` both before publish.
-  `security.yml` uses the same pins on pull requests; it does not run on tags,
-  which is why the release workflow repeats them. Published assets and
+- **Security.** The tag workflow runs filesystem Trivy from the pinned
+  `honua-io/.github` workflow and `needs` it before publish. OpenSSF Scorecard
+  scores the default branch, and scorecard-action refuses tag and dispatch
+  refs, so it runs in `security.yml` on `main`, pull requests and weekly, not
+  in the release workflow. Published assets and
   `deploy/config.example.json` contain no provider key, administrator
   credential, OIDC client secret, or demo credential. Operators inject
   `/config.json` at start.
@@ -42,6 +43,52 @@ The nightly live lane (`.github/workflows/live-demo-smoke.yml`) is not a
 Preview publish gate. It keeps concurrency group `live-aws-studio-browser-smoke`
 so a release does not run a second writer against that shared demo. Hosted
 proof stays behind 2026.1 decision D2.
+
+## Cutting a release
+
+Releases are semver tags `vX.Y.Z`, cut by Release Please
+(`.github/workflows/release-please.yml`, `release-please-config.json`,
+`.release-please-manifest.json`).
+
+1. Every push to `main` updates one release pull request,
+   `chore(main): release X.Y.Z` on branch
+   `release-please--branches--main--components--studio`. It bumps
+   `package.json`, `package-lock.json`, the manifest and `CHANGELOG.md` from the
+   conventional commits since the last tag. The honua-io-bot App opens it so
+   the required checks run, and the `PR Issue Disposition` check exempts
+   exactly that author, branch and title.
+2. Merging it starts a run that tags the merge commit and creates the GitHub
+   release. That tag is created with `GITHUB_TOKEN`, which starts no
+   workflow, so the run then dispatches
+   `gh workflow run release.yml --ref vX.Y.Z -f version=vX.Y.Z`. The gates
+   above run on that tag.
+
+Before a change to the release path merges, run it as a dry run from its
+branch: `gh workflow run release.yml --ref <branch> -f publish=false`. A dry
+run runs the smokes, Trivy and every build, packs both tarballs and
+builds and checks the image, but pushes, attests and uploads nothing.
+
+Versioning starts from the `0.0.0` that `package.json` reports, which
+release-please treats as "never released". `initial-version` makes the first
+release `v0.1.0`, not release-please's default `v1.0.0`. While the major is
+`0`, `bump-minor-pre-major` turns a breaking change into a minor bump, so it
+never jumps to `1.0.0`. `bump-patch-for-minor-pre-major: false` keeps a
+`feat` as a minor bump; a `fix` is a patch. Leaving `0.x` is a deliberate
+`Release-As: 1.0.0` commit.
+
+Each release attaches:
+
+- `honua-studio-vX.Y.Z.tar.gz`, the standalone static bundle (`dist`), and
+  its `.sha256`;
+- `honua-studio-console-assets-vX.Y.Z.tar.gz`, the Console bundle
+  (`dist-console`, with the pinned embedded Maputnik), and its `.sha256`;
+- `honua-studio-vX.Y.Z.receipt.json`, binding the version, source SHA and
+  image digest.
+
+Each tarball has a build-provenance attestation, stored with the repository
+rather than as a release asset. Check one with
+`gh attestation verify honua-studio-console-assets-vX.Y.Z.tar.gz --repo honua-io/honua-studio`.
+The image `ghcr.io/honua-io/honua-studio:vX.Y.Z` is pushed alongside.
 
 ## 2026.2 graduation checklist
 

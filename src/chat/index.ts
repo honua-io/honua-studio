@@ -1,4 +1,3 @@
-/** Public barrel for the chat console feature (honua-studio#6). */
 export * from "./ai-contract.js";
 export * from "./annotation.js";
 export * from "./activity-log.js";

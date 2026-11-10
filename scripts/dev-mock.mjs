@@ -1,8 +1,7 @@
 /**
  * `npm run dev` — starts the mock honua-server + mock OIDC issuer fixture
  * (no network), then runs `vite` with HONUA_BASE_URL pointed at it so
- * vite.config.ts's dev proxy forwards /api/* and /oidc/* to the fixture
- * (honua-studio#3 REQ-003, honua-studio#4 REQ-001).
+ * vite.config.ts's dev proxy forwards /api/* and /oidc/* to the fixture.
  */
 import { spawn } from "node:child_process";
 import path from "node:path";

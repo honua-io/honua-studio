@@ -30,7 +30,7 @@
  * inputs**, applied where every other visual property is.
  *
  * They are deliberately *not* composition state: `StudioCompositionBody` has
- * no filter or opacity member (honua-server#3002/#3196), and inventing local
+ * no filter or opacity member, and inventing local
  * fields the server cannot persist would put the client's projection out of
  * step with the draft it is a projection of (AD-8). Exploration state is the
  * correct home — it is session state, and the SDK already owns it.
@@ -228,10 +228,6 @@ export class StudioInteractionRuntime {
     this.#context.dispose();
   }
 
-  // -------------------------------------------------------------------------
-  // Compilation
-  // -------------------------------------------------------------------------
-
   #onCompositionChanged(): void {
     const key = this.#documentIdentity();
     if (key !== this.#documentKey) this.#recompile();
@@ -272,7 +268,7 @@ export class StudioInteractionRuntime {
    * come back as `unsupported` with the SDK's own reason rather than binding
    * to a MapLibre handle this runtime does not own — Studio's map click path
    * is `CompositionMapView`'s, and routing it through the compiler is
-   * honua-studio#43's scope, not this module's.
+   * the scope, not this module's.
    */
   #components(): HonuaInteractionComponents {
     const state = this.#controller.state;
@@ -341,10 +337,6 @@ export class StudioInteractionRuntime {
     else this.#verbFilters.set(layerId, existing);
     this.#recomputeAppearance();
   }
-
-  // -------------------------------------------------------------------------
-  // Appearance
-  // -------------------------------------------------------------------------
 
   /**
    * Recomputes per-layer filters and opacity from the shared filter slice.

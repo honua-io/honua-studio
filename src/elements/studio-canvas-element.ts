@@ -37,10 +37,11 @@
  * this wrong and the map silently re-mounts (losing camera, sources, and the
  * whole point) on every single tool call.
  *
- * Still honors honua-studio#5's original scope: the `ResizeObserver`
+ * Still honors the original scope: the `ResizeObserver`
  * leak-detection probe (`instanceCount`) and cleanup discipline are
  * unchanged.
  */
+import { sourceStyleProvider } from "../app/runtime-clients.js";
 import type { CompositionController } from "../composition/controller.js";
 import type {
   CompositionAnnotation,
@@ -68,7 +69,6 @@ import type { CompositionMapFactory, CompositionMapView } from "../map/compositi
 import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
-import { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import type { MapStyleDocument } from "../styles/map-style-edit.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
@@ -140,7 +140,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** Last-rendered set of unrenderable layer ids — see `#onMapChanged`. */
   #unresolvedKey = "";
   #shellKind: "placeholder" | "composition" | undefined;
-  /** The ADR-0030 interaction runtime (honua-studio#25), imported lazily — see `#ensureInteractionRuntime`. */
+  /** The interaction runtime, imported lazily — see `#ensureInteractionRuntime`. */
   #interactions: StudioInteractionRuntime | undefined;
   #interactionsPending = false;
   #interactionGeneration = 0;
@@ -181,7 +181,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
    * points this at its one `ToolCallOrchestrator`, so a toggle takes the same
    * route an agent's `setVisibility` takes and, in live mode, round-trips
    * through `honua_studio_set_layer_visibility` instead of mutating state the
-   * next draft sync overwrites (honua-studio#31).
+   * next draft sync overwrites.
    *
    * Unset, each widget applies through `.composition` directly — which is
    * what fixture/offline mode does regardless, one hop earlier.
@@ -246,7 +246,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Replaces the widget deck's feature loader (honua-studio#24). The
+   * Replaces the widget deck's feature loader. The
    * injection seam `../widgets/widget-data.ts` documents — the grid/chart
    * analogue of `mapFactory`; production never sets it.
    */
@@ -264,7 +264,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     return this.shadowRoot?.querySelector<HonuaStudioWidgetDeckElement>("honua-studio-widget-deck") ?? undefined;
   }
 
-  /** The composed control surface (honua-studio#25), once the shell has built it. */
+  /** The composed control surface, once the shell has built it. */
   public get controlBar(): HonuaStudioControlBarElement | undefined {
     return this.shadowRoot?.querySelector<HonuaStudioControlBarElement>("honua-studio-control-bar") ?? undefined;
   }
@@ -280,6 +280,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
 
   /** An authorized baseline changed documents/callers; exploration belongs to the former draft. */
   public resetExploration(): void {
+    this.#mapView?.restoreComposedView();
     this.#teardownInteractions();
     this.#mapView?.setAppearance({ filters: {}, opacity: {} });
     this.#syncControlBar();
@@ -459,7 +460,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Hands the composed widget deck (honua-studio#24) everything it needs and
+   * Hands the composed widget deck everything it needs and
    * points its selections back at this element's single dispatcher.
    *
    * `customElements.upgrade` is called first for a real reason: the deck is
@@ -498,7 +499,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   }
 
   /**
-   * Hands the control bar (honua-studio#25) its composition, the interaction
+   * Hands the control bar its composition, the interaction
    * runtime a `change` publishes through, and the narrow map seam its
    * intrinsic affordances act on.
    *
@@ -561,7 +562,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
    * Lazy for the same reason the chart pipeline and MapLibre are: the SDK's
    * exploration context and interaction bindings are dead weight for a
    * composition that is only a map and a legend. The import names the two
-   * concrete modules rather than `../interactions/index.js` — honua-studio#23's
+   * concrete modules rather than `../interactions/index.js` — the
    * lazy-chunk rule (see this file's import block).
    */
   async #ensureInteractionRuntime(): Promise<void> {
@@ -725,12 +726,8 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         controller,
         ...(this.#sourceCatalog?.some((source) => source.locator?.serviceId)
           ? {
-              styleProvider: new AuthoritativeStyleProvider({
+              styleProvider: sourceStyleProvider({
                 baseUrl: this.#sourceAuthBaseUrl,
-                ...(this.#sourceAuthBaseUrl !== runtimeMcpBaseUrl()
-                  ? { catalogAliasBaseUrl: runtimeMcpBaseUrl() }
-                  : {}),
-                documentUrl: document.baseURI,
                 getAuth: () => resolveInjectedAuth(this),
               }),
             }
@@ -977,7 +974,7 @@ function renderWidgetRow(widget: CompositionWidget, selectionKeys: Set<string>, 
  * A control in the readout. It carries the same "not on map" style flag a
  * layer does, for the same reason: a control the canvas could not render is
  * still a control the composition holds, and a readout that lists it as if it
- * were working would be the silent lie honua-studio#23's class doc rules out.
+ * were working would be the silent lie the class doc rules out.
  */
 function renderControlRow(
   control: CompositionControl,

@@ -23,7 +23,10 @@ export declare function mintFixtureAccessToken(options?: {
   roles?: string[];
 }): string;
 
-/** honua-studio#23: the generated fixture geometry served at `/ogc/collections/{id}/items`. `undefined` for a collection this fixture has no features for (e.g. the raster `hi-imagery`). */
+/**
+ * Generated fixture geometry at `/ogc/collections/{id}/items`. `undefined`
+ * when this fixture has no features for the collection (the raster `hi-imagery`).
+ */
 export declare function fixtureFeatureCollection(
   collectionId: string,
   limit?: number,

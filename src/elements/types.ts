@@ -1,6 +1,6 @@
 /**
- * The embeddable web-component contract (honua-studio#5, REQ-001; see
- * docs/element-contract.md for the prose version of everything below).
+ * The embeddable web-component contract. See
+ * docs/element-contract.md for the prose version of everything below.
  *
  * Every Studio surface — the full shell `<honua-studio-app>` and each
  * placeholder surface element (`<honua-studio-chat>`, `<honua-studio-canvas>`)
@@ -9,15 +9,11 @@
  *  - typed attributes/properties (this module + each element module),
  *  - typed `CustomEvent` detail shapes (this module),
  *  - session injection via {@link SessionAdapter} (re-exported here from
- *    `../auth/types.js`, honua-studio#4's session module — that issue merged
- *    ahead of this one, so the interface lives there now; this module used
- *    to define its own near-identical `HonuaStudioSessionAdapter` as a
- *    coordination placeholder, since deleted in favor of this re-export, so
- *    there's exactly one adapter type, not two that could drift apart). See
- *    docs/embed-session.md for the full contract.
+ *    `../auth/types.js`, so there is exactly one adapter type, not two that
+ *    could drift apart). See docs/embed-session.md for the full contract.
  *  - theming via the existing `data-theme-set` / `data-theme` token
  *    attributes (src/theme/tokens.css, theme-standalone.css,
- *    theme-console.css — unchanged by this issue) applied to the element
+ *    theme-console.css) applied to the element
  *    itself, not the host document's `<html>`, so embedding never mutates
  *    global host state,
  *  - routing integration: host-owned ("host") or self-owned ("hash") URL
@@ -38,9 +34,9 @@ import type { CompositionTarget } from "../composition/model.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 
 export type { ThemeMode, ThemeSet };
-/** Re-exported from `../auth/types.js` (honua-studio#4) — the one session contract every Studio element uses. See docs/embed-session.md. */
+/** Re-exported from `../auth/types.js` — the one session contract every Studio element uses. See docs/embed-session.md. */
 export type { AuthSession, AuthState, AuthStatus, SessionAdapter };
-/** Re-exported from `../chat/*.js` (honua-studio#6) — the chat console's typed public surface. */
+/** Re-exported from `../chat/*.js` — the chat console's typed public surface. */
 export type { ActivityLogEntry, AnnotationRef, StudioAiStopReason };
 
 /**
@@ -132,7 +128,7 @@ export interface HonuaStudioChatToolCallStartDetail {
  * console emits once a tool call's arguments are fully assembled. Per the
  * issue's framing, the chat console emits tool-call intents and renders
  * results; it does not own composition state — a future composition engine
- * (honua-studio#8) is the intended consumer of this event.
+ * is the intended consumer of this event.
  */
 export interface HonuaStudioChatToolCallResultDetail {
   readonly messageId: string;
@@ -192,9 +188,9 @@ export interface HonuaStudioCanvasResizeDetail {
 /**
  * `honua-studio-selection-change` — dispatched by `<honua-studio-canvas>`
  * when the user picks something on the canvas: a row in the composition
- * readout, or (honua-studio#23) a feature on the MapLibre map itself.
+ * readout, or a feature on the MapLibre map itself.
  * `targets` is a list of {@link CompositionTarget}s — deictic references the
- * chat console (honua-studio#6) can attach to the next prompt as a "THIS"
+ * chat console can attach to the next prompt as a "THIS"
  * chip (honua-studio#8 REQ-012). A map click yields the most specific target
  * available first: `{ kind: "feature", … }` when the hit feature carries an
  * id, followed by its `{ kind: "layer", … }`.
@@ -241,7 +237,7 @@ export type HonuaStudioCommandDispatch = (
 
 /**
  * `honua-studio-control-change` — dispatched by
- * `<honua-studio-control-bar>` (honua-studio#25) after a control gesture.
+ * `<honua-studio-control-bar>` after a control gesture.
  *
  * **This is a notification, not the transport.** ADR-0030 bindings are driven
  * by the SDK's exploration context (a `FilterClause` published under the
@@ -283,7 +279,7 @@ export interface HonuaStudioCompositionModeChangeDetail {
 
 /**
  * `honua-studio-open-item` — dispatched by `<honua-studio-content-browser>`
- * (honua-studio#9) when a user picks "Open" on a content-item or draft row.
+ * when a user picks "Open" on a content-item or draft row.
  * At least one of `itemId`/`draftId` is always present; a draft row without
  * an immutable version yet has `draftId` only, a content item with no open
  * draft has `itemId` only, and reopening a version (from the lifecycle
@@ -298,7 +294,7 @@ export interface HonuaStudioOpenItemDetail {
 
 /**
  * `honua-studio-lifecycle-activity` — dispatched by
- * `<honua-studio-lifecycle-panel>` (honua-studio#9) after every lifecycle
+ * `<honua-studio-lifecycle-panel>` after every lifecycle
  * action so a host can log it to a shared `<honua-studio-activity-log>`
  * (`studio-app-element.ts` wires this into the same log the chat console
  * and MCP orchestrator already append to — spec REQ-012's "recorded in the
@@ -327,7 +323,7 @@ export interface HonuaStudioLifecycleActivityDetail extends StudioPublicationIde
 
 /**
  * `honua-studio-gp-activity` — dispatched by `<honua-studio-gp-panel>`
- * (honua-studio#10) after every GP authoring/validation/preview/execution
+ * after every GP authoring/validation/preview/execution
  * action, mirroring `HonuaStudioLifecycleActivityDetail`'s "recorded in the
  * activity log like any other context" pattern (spec REQ-012).
  * `kind: "job-submitted"` only ever follows the panel's own human-confirmed

@@ -44,10 +44,6 @@ import type {
 } from "../composition/model.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
 
-// ---------------------------------------------------------------------------
-// Task shape
-// ---------------------------------------------------------------------------
-
 /**
  * What a task exercises. Purely descriptive — used to report coverage of the
  * composition surface in a scorecard, and to `--grep` a subset of the corpus.
@@ -136,10 +132,6 @@ export interface EvalTask {
   readonly expected: EvalExpectation;
   readonly knownBad: readonly EvalKnownBadVariant[];
 }
-
-// ---------------------------------------------------------------------------
-// Typed expectations
-// ---------------------------------------------------------------------------
 
 /**
  * The uniform shape every composition collection is asserted with.
@@ -248,7 +240,7 @@ export interface ExpectedActivityLogEntry {
 
 /**
  * Activity-log expectations — the *replayable audit trail* half of the
- * contract (honua-studio#6). Scoring the log, not only the end state, is how
+ * contract. Scoring the log, not only the end state, is how
  * the corpus can tell "composed the right map" from "composed the right map
  * by way of four rejected commands".
  */
@@ -269,10 +261,6 @@ export interface EvalExpectation {
 
 /** Default numeric slack for view comparisons — see {@link ExpectedView}. */
 export const DEFAULT_VIEW_TOLERANCE = 1e-6;
-
-// ---------------------------------------------------------------------------
-// Scoring output
-// ---------------------------------------------------------------------------
 
 export type EvalCheckStatus = "pass" | "fail";
 

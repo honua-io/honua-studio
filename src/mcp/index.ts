@@ -1,4 +1,4 @@
-/** Public barrel for the MCP tool plane (honua-studio#7). Side effect free on import, like `../composition/index.ts`. */
+/** Public barrel for the MCP tool plane. Side effect free on import, like `../composition/index.ts`. */
 export { MCP_PROTOCOL_VERSION } from "./protocol.js";
 export type {
   JsonRpcErrorObject,

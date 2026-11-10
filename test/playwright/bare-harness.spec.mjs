@@ -1,12 +1,12 @@
 /**
- * Bare embed harness smoke (honua-studio#5 REQ-003): proves
+ * Bare embed harness smoke: proves
  * `<honua-studio-app>` mounts, composes, and navigates identically when a
  * third party (no console, no standalone shell chrome) hosts it with only a
  * fixture session and the public element contract. Compare against
  * boot-mock.spec.mjs, which drives the same composition journey
  * (catalog/packages render, theme switch, nav) in the standalone shell — the
  * epic's "same composition journey passes in both hosts" acceptance
- * criterion (honua-studio#2).
+ * criterion.
  */
 import { expect, test } from "@playwright/test";
 
@@ -21,12 +21,12 @@ test.describe("bare embed harness (harness/bare)", () => {
     const preview = await startPreviewServer({ HONUA_BASE_URL: mock.url });
     try {
       // A real, signed mock-issuer token — the mock honua-server's
-      // catalog/packages endpoints validate it (honua-studio#4). Set before
+      // catalog/packages endpoints validate it. Set before
       // navigation so harness/bare/mount.ts's module script (which runs as
       // soon as the page parses) sees it when constructing the fixture
       // session assigned to <honua-studio-app>.session — the PRIMARY embed
       // injection path (docs/embed-session.md), not the window-global
-      // fallback #4's own host-adapter-boot.spec.mjs exercises.
+      // fallback that host-adapter-boot.spec.mjs exercises.
       await page.addInitScript((token) => {
         window.__honuaStudioFixtureToken = token;
       }, mintFixtureAccessToken());
@@ -43,7 +43,6 @@ test.describe("bare embed harness (harness/bare)", () => {
       await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
       await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
 
-      // Default composition: chat + canvas placeholders are present and session-aware.
       await expect(page.getByTestId("studio-chat")).toBeVisible();
       await expect(page.getByTestId("studio-chat-session-status")).toHaveText("Signed in");
       await expect(page.getByTestId("studio-canvas")).toBeVisible();

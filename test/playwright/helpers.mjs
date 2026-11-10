@@ -2,10 +2,29 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import AxeBuilder from "@axe-core/playwright";
+import { expect } from "@playwright/test";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 20_000;
 const BLAZOR_START_TIMEOUT_MS = 30_000;
+
+/** `main.ts` assigns `window.__honuaStudioApp` after its top-level config load, which can finish after `load`. */
+export async function waitForStudioApp(page) {
+  await page.waitForFunction(() => Boolean(window.__honuaStudioApp));
+}
+
+/** Signing in loads the catalog, and a new catalog restarts the map view: wait for the view that renders it. */
+export async function waitForSignedInMap(page) {
+  await page.waitForFunction(
+    () => {
+      const canvas = document.querySelector("honua-studio-canvas");
+      return canvas?.sourceCatalog !== undefined && canvas?.mapView?.status === "ready";
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+}
 
 /**
  * @param {Record<string,string>} extraEnv
@@ -144,4 +163,23 @@ export function startBlazorHost() {
       reject(new Error(`dotnet run exited early with code ${code}. Output:\n${output}`));
     });
   });
+}
+
+export async function applyTheme(page, themeSet, mode) {
+  await page.addInitScript(
+    ({ themeSet, mode }) => {
+      localStorage.setItem("honua-studio:theme-set", themeSet);
+      localStorage.setItem("honua-studio:theme-mode", mode);
+    },
+    { themeSet, mode },
+  );
+}
+
+export async function expectNoSeriousAxeViolations(page, testInfo, stage) {
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  await testInfo.attach(`axe-${stage}.json`, {
+    body: JSON.stringify(results, null, 2),
+    contentType: "application/json",
+  });
+  expect(results.violations.filter(({ impact }) => impact === "serious" || impact === "critical")).toEqual([]);
 }

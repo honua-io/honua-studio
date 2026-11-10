@@ -1,6 +1,6 @@
 {
   "name": "@honua/studio",
-  "version": "0.0.0",
+  "version": "0.1.2",
   "description": "Honua Studio — natural language to map app. Standalone shell for the JS Studio (honua-io/honua-studio#3).",
   "type": "module",
   "private": true,
@@ -41,9 +41,9 @@
     "@biomejs/biome": "1.9.4",
     "@playwright/test": "^1.58.0",
     "@types/node": "^24.3.1",
-    "happy-dom": "^20.11.1",
+    "happy-dom": "^21.0.4",
     "typescript": "^5.9.2",
-    "vite": "^8.0.16",
-    "vitest": "^4.1.11"
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
   }
 }

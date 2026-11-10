@@ -1,5 +1,5 @@
 /**
- * Public entry point for the composed chrome (honua-studio#24). Side effect
+ * Public entry point for the composed chrome. Side effect
  * free on import, like `../composition/index.ts` and `../elements/index.ts`.
  *
  * Everything reachable from here is pure and DOM-free: config normalization,

@@ -1,5 +1,5 @@
 /**
- * Public entry point for the model-quality eval corpus (honua-studio#46).
+ * Public entry point for the model-quality eval corpus.
  * Side effect free on import, like the other feature barrels.
  *
  * See `docs/evals.md` for the corpus format, how to add a task, and the

@@ -71,6 +71,7 @@ import { resolveVisualLayerOwner } from "./visual-layer-owner.js";
 export interface CompositionMapLike {
   setStyle(style: unknown, options?: { diff?: boolean }): unknown;
   getStyle?(): { layers?: readonly Readonly<Record<string, unknown>>[] };
+  getLayer?(id: string): unknown;
   jumpTo(options: Record<string, unknown>): unknown;
   easeTo(options: Record<string, unknown>): unknown;
   fitBounds(bounds: readonly [number, number, number, number], options?: Record<string, unknown>): unknown;
@@ -79,7 +80,7 @@ export interface CompositionMapLike {
   queryRenderedFeatures?(point: unknown, options?: { layers?: readonly string[] }): readonly unknown[];
   resize(): unknown;
   remove(): void;
-  // honua-studio#25's map-affordance controls. Every one is OPTIONAL, and
+  // the map-affordance controls. Every one is OPTIONAL, and
   // that is the contract, not laziness: a real `maplibre-gl.Map` has all of
   // them, a test double has whichever the test needs, and a control whose
   // method is missing renders disabled with a stated reason rather than
@@ -87,6 +88,8 @@ export interface CompositionMapLike {
   getZoom?(): number;
   getCenter?(): { lng: number; lat: number } | readonly [number, number];
   getBearing?(): number;
+  getPitch?(): number;
+  isMoving?(): boolean;
   getContainer?(): HTMLElement;
 }
 
@@ -95,6 +98,7 @@ export interface CompositionMapCamera {
   readonly zoom: number;
   readonly center: readonly [number, number];
   readonly bearing: number;
+  readonly pitch?: number;
 }
 
 export interface CompositionMapFactoryOptions {
@@ -134,7 +138,7 @@ export interface CompositionMapViewOptions {
   readonly onSelection?: (targets: readonly CompositionTarget[]) => void;
   /**
    * Called with the geographic point of EVERY map click, hit or miss — what a
-   * `measure` control (honua-studio#25) collects vertices from. Kept separate
+   * `measure` control collects vertices from. Kept separate
    * from `onSelection` because measuring cares about empty water as much as
    * about a parcel, and a measurement click must not also select.
    */
@@ -302,6 +306,8 @@ export class CompositionMapView {
     // The editor baseline/readback is the canonical document, never its own
     // ephemeral preview (including while a normalized save is being adopted).
     const projection = this.#project(false);
+    if (projection.unresolved.length)
+      throw new Error("Some map layers are unavailable. Restore them before editing the map style.");
     return structuredClone(
       await composeStyle(projection.mapPackage, projection.mapPackage.mapSpec, {}),
     ) as unknown as MapStyleDocument;
@@ -309,6 +315,7 @@ export class CompositionMapView {
   #queue: Promise<void> = Promise.resolve();
   #generation = 0;
   #appliedView: CompositionView | undefined;
+  #authoredViewPending = false;
   #appearance: CompositionLayerAppearance | undefined;
   #basemap: BasemapStyle | undefined;
   #disposed = false;
@@ -325,7 +332,7 @@ export class CompositionMapView {
 
   /**
    * Applies runtime control appearance — per-layer filters and opacity
-   * (honua-studio#25). Goes through the normal projection + style-diff path,
+   * Goes through the normal projection + style-diff path,
    * which is the only path that survives the next composition change; see
    * `./map-package-projection.ts`'s `appearance` doc for why an imperative
    * `map.setFilter` would not.
@@ -341,6 +348,15 @@ export class CompositionMapView {
     this.#scheduleUpdate();
   }
 
+  public async settleAuthoredView(): Promise<void> {
+    await this.settled();
+    if (this.#authoredViewPending) this.restoreComposedView();
+  }
+
+  public restoreComposedView(): void {
+    if (this.#map) this.#applyView(this.#map, this.#options.controller.state.view, true);
+  }
+
   /** The live camera, normalized. `undefined` when the map cannot report one — a `scale` control then says so instead of drawing a bar from a guess. */
   public camera(): CompositionMapCamera | undefined {
     const map = this.#map;
@@ -353,7 +369,13 @@ export class CompositionMapView {
         : [Number((rawCenter as { lng: number }).lng), Number((rawCenter as { lat: number }).lat)];
       if (!Number.isFinite(zoom) || !Number.isFinite(center[0]) || !Number.isFinite(center[1])) return undefined;
       const bearing = typeof map.getBearing === "function" ? map.getBearing() : 0;
-      return { zoom, center, bearing: Number.isFinite(bearing) ? bearing : 0 };
+      const pitch = typeof map.getPitch === "function" ? map.getPitch() : 0;
+      return {
+        zoom,
+        center,
+        bearing: Number.isFinite(bearing) ? ((bearing % 360) + 360) % 360 : 0,
+        pitch: Number.isFinite(pitch) ? pitch : 0,
+      };
     } catch {
       return undefined;
     }
@@ -487,7 +509,7 @@ export class CompositionMapView {
       this.#map = undefined;
       return;
     }
-    this.#bindClicks(this.#map);
+    this.#bindMapEvents(this.#map);
     this.#appliedView = this.#options.controller.state.view;
     // A bbox view cannot be expressed as construction-time center/zoom —
     // apply it (and any pitch/bearing) once the map exists.
@@ -626,7 +648,16 @@ export class CompositionMapView {
   }
 
   #project(includePreview = true): CompositionMapProjection {
-    const projection = compositionToMapPackage(this.#options.controller.state, {
+    const state = this.#options.controller.state;
+    // Composition visibility belongs to the layer-list toggle, not the editable
+    // stylesheet. Authored render-layer visibility in mapSpec remains intact.
+    const editable = includePreview
+      ? state
+      : {
+          ...state,
+          layers: state.layers.map((layer) => ({ ...layer, visible: true })),
+        };
+    const projection = compositionToMapPackage(editable, {
       ...(this.#options.projection ?? {}),
       ...(this.#authoritativeStyles !== undefined ? { authoritativeStyles: this.#authoritativeStyles } : {}),
       ...(this.#basemap !== undefined ? { basemap: this.#basemap } : {}),
@@ -734,6 +765,9 @@ export class CompositionMapView {
   /** Applies a {@link CompositionView}. `bbox` wins over `center`/`zoom` — it is the more specific statement of intent. */
   #applyView(map: CompositionMapLike, view: CompositionView, immediate: boolean): void {
     const duration = immediate ? 0 : (this.#options.viewTransitionMs ?? 700);
+    const camera = compositionCameraOptions(view);
+    this.#authoredViewPending = false;
+    if (!view.bbox && Object.keys(camera).length === 0) return;
     try {
       if (view.bbox) {
         map.fitBounds(view.bbox, {
@@ -741,16 +775,9 @@ export class CompositionMapView {
           ...(view.pitch !== undefined ? { pitch: view.pitch } : {}),
           ...(view.bearing !== undefined ? { bearing: view.bearing } : {}),
         });
-        return;
-      }
-      const camera: Record<string, unknown> = {};
-      if (view.center) camera.center = [...view.center];
-      if (view.zoom !== undefined) camera.zoom = view.zoom;
-      if (view.pitch !== undefined) camera.pitch = view.pitch;
-      if (view.bearing !== undefined) camera.bearing = view.bearing;
-      if (Object.keys(camera).length === 0) return;
-      if (duration === 0) map.jumpTo(camera);
+      } else if (duration === 0) map.jumpTo(camera);
       else map.easeTo({ ...camera, duration });
+      this.#authoredViewPending = duration > 0 && (map.isMoving?.() ?? true);
     } catch (error) {
       this.#statusDetail = `The map could not move to the composed view: ${
         error instanceof Error ? error.message : String(error)
@@ -763,7 +790,10 @@ export class CompositionMapView {
    * layers appearing and disappearing mid-conversation never leaves a stale
    * per-layer handler behind.
    */
-  #bindClicks(map: CompositionMapLike): void {
+  #bindMapEvents(map: CompositionMapLike): void {
+    map.on("moveend", () => {
+      this.#authoredViewPending = false;
+    });
     map.on("click", (event) => {
       if (!isRecord(event)) return;
       const point = readLngLat(event.lngLat);
@@ -784,6 +814,15 @@ export class CompositionMapView {
   #notify(): void {
     this.#options.onChange?.(this);
   }
+}
+
+function compositionCameraOptions(view: CompositionView): Record<string, unknown> {
+  const camera: Record<string, unknown> = {};
+  if (view.center) camera.center = [...view.center];
+  if (view.zoom !== undefined) camera.zoom = view.zoom;
+  if (view.pitch !== undefined) camera.pitch = view.pitch;
+  if (view.bearing !== undefined) camera.bearing = view.bearing;
+  return camera;
 }
 
 /**

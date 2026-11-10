@@ -15,7 +15,7 @@ import { type CompositionState, canonicalCompositionJson, createEmptyComposition
 import { type CompositionCommandError, type CompositionDiff, isCompositionCommandError } from "./reducer.js";
 import type { CompositionToolCall, CompositionToolCallScript } from "./tool-call.js";
 
-/** Converts a `{ toolName, arguments }` entry into a {@link CompositionCommand}-shaped value by treating `toolName` as the command `name`. Structural only — the reducer re-validates via `commands.ts`. Assumes `toolName` already names a {@link CompositionCommandName} — translating a live/#6-fixture model vocabulary (e.g. `add_layer`) into this engine's names is honua-studio#7's job (see `tool-call.ts`'s module doc). */
+/** Converts a `{ toolName, arguments }` entry into a {@link CompositionCommand}-shaped value by treating `toolName` as the command `name`. Structural only — the reducer re-validates via `commands.ts`. Assumes `toolName` already names a {@link CompositionCommandName} — translating a chat-fixture vocabulary (e.g. `add_layer`) into this engine's names is the tool bridge's job (see `tool-call.ts`). */
 export function toolCallToCommand(call: CompositionToolCall): Record<string, unknown> {
   return { name: call.toolName, ...call.arguments };
 }

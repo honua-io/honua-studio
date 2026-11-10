@@ -1,4 +1,4 @@
-import type { MapStyleDocument } from "../styles/map-style-edit.js";
+import { COMPOSITION_STYLE_LAYER_IDS, type MapStyleDocument } from "../styles/map-style-edit.js";
 import { type StudioApprovalPending, readStudioApprovalPending } from "./approval-pending.js";
 /**
  * REST client for honua-server's Studio package lifecycle API
@@ -162,6 +162,15 @@ export class StudioLifecycleClient {
     return this.#request("POST", "/package-drafts", request, commandId);
   }
 
+  public createDraftWithApproval(
+    request: StudioPackageDraftCreateRequest,
+    commandId: string,
+  ): Promise<StudioPackageDraft | StudioApprovalPending> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(commandId ?? ""))
+      return Promise.reject(new Error("A caller-owned command ID is required for approval-aware creation."));
+    return this.#request("POST", "/package-drafts", request, commandId, true);
+  }
+
   public getDraft(draftId: string): Promise<StudioPackageDraft> {
     return this.#request("GET", `/package-drafts/${encodeURIComponent(draftId)}`);
   }
@@ -170,31 +179,74 @@ export class StudioLifecycleClient {
     return this.#request("PUT", `/package-drafts/${encodeURIComponent(draftId)}`, request);
   }
 
+  /** Persist the authorized canvas projection through the published draft API. */
   public initializeDraftStyle(
     draftId: string,
     generation: number,
-    commandId = crypto.randomUUID(),
+    mapSpec: MapStyleDocument,
   ): Promise<StudioPackageDraft> {
-    return this.#request(
-      "POST",
-      `/package-drafts/${encodeURIComponent(draftId)}/style/initialize`,
-      { generation },
-      commandId,
-    );
+    return this.#writeDraftStyle(draftId, generation, mapSpec, true);
   }
 
-  public setMapStyle(
+  public setMapStyle(draftId: string, generation: number, mapSpec: MapStyleDocument): Promise<StudioPackageDraft> {
+    return this.#writeDraftStyle(draftId, generation, mapSpec, false);
+  }
+
+  async #writeDraftStyle(
     draftId: string,
     generation: number,
     mapSpec: MapStyleDocument,
-    commandId = crypto.randomUUID(),
+    initialize: boolean,
   ): Promise<StudioPackageDraft> {
-    return this.#request(
-      "PUT",
-      `/package-drafts/${encodeURIComponent(draftId)}/style`,
-      { generation, mapSpec },
-      commandId,
-    );
+    const current = await this.getDraft(draftId);
+    if (current.generation !== generation)
+      throw new StudioLifecycleConflictError("Stale draft generation; refresh and retry.", { status: 409 });
+    const body = current.envelope.body;
+    if (current.envelope.family !== "map" || !body || typeof body !== "object" || Array.isArray(body))
+      throw new StudioLifecycleError("validation", "Map style editing requires a map composition draft.");
+    const record = body as Record<string, unknown>;
+    const metadata = mapSpec.metadata;
+    const snapshot =
+      initialize && record.mapSpec != null
+        ? record.mapSpec
+        : {
+            ...mapSpec,
+            metadata: {
+              ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}),
+              [COMPOSITION_STYLE_LAYER_IDS]: Array.isArray(record.layers)
+                ? record.layers
+                    .map((layer: { id?: unknown }) => layer?.id)
+                    .filter((id: unknown) => typeof id === "string")
+                : [],
+            },
+          };
+    // Map-local snapshots detach shared/inline overrides, just like the reducer's
+    // setMapStyle command, so those references cannot repaint the saved document.
+    const detached = initialize
+      ? {}
+      : {
+          styleRefs: [],
+          ...(Array.isArray(record.layers)
+            ? {
+                layers: record.layers.map((layer: unknown) =>
+                  layer && typeof layer === "object" && !Array.isArray(layer)
+                    ? Object.fromEntries(Object.entries(layer).filter(([key]) => key !== "styleRef"))
+                    : layer,
+                ),
+              }
+            : {}),
+        };
+    // The full envelope remains authoritative. Never reassign ownerId: end users
+    // may update their draft but only administrators may assign ownership.
+    return this.replaceDraft(draftId, {
+      packageKey: current.packageKey,
+      generation,
+      ...(current.workspaceId !== undefined ? { workspaceId: current.workspaceId } : {}),
+      envelope: {
+        ...current.envelope,
+        body: { ...record, ...detached, mapSpec: snapshot },
+      },
+    });
   }
 
   public async deleteDraft(draftId: string): Promise<void> {
@@ -356,7 +408,9 @@ export class StudioLifecycleClient {
       throw new StudioLifecycleSessionExpiredError(url);
     }
     if (!response.ok) {
-      throw await this.#buildError(response);
+      const createDraftRejected =
+        allowApproval && method === "POST" && path === "/package-drafts" && [400, 403, 422].includes(response.status);
+      throw await this.#buildError(response, { createDraftRejected });
     }
     if (response.status === 204) return undefined as T;
     const text = await response.text();
@@ -374,7 +428,10 @@ export class StudioLifecycleClient {
     return (envelope as StudioApiResponse<T>).data as T;
   }
 
-  async #buildError(response: Response): Promise<StudioLifecycleError> {
+  async #buildError(
+    response: Response,
+    provenance: { createDraftRejected?: boolean } = {},
+  ): Promise<StudioLifecycleError> {
     let parsed: unknown;
     try {
       parsed = await response.json();
@@ -387,6 +444,6 @@ export class StudioLifecycleClient {
       return new StudioLifecycleConflictError(message, { status: response.status, problem });
     }
     const code = response.status === 404 ? "not-found" : response.status === 400 ? "validation" : "internal";
-    return new StudioLifecycleError(code, message, { status: response.status, problem });
+    return new StudioLifecycleError(code, message, { status: response.status, problem, ...provenance });
   }
 }

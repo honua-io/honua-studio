@@ -159,7 +159,13 @@ export function appShellStyles(): string {
     .app-slots[data-style-mode] > section, .app-slots[data-style-mode] > slot { min-width: 0; }
     @media (max-width: 1000px) { .app-slots[data-style-mode] { display: flex; } }
     /* honua-studio#23 REQ-004 — the live-composition control group. */
-    .app-composition-mode { display: flex; align-items: center; gap: var(--hn-space-2, 8px); position: relative; }
+    .app-composition-mode {
+      display: flex; flex-wrap: wrap; align-items: center; gap: var(--hn-space-2, 8px);
+      /* A zero minimum lets the row shrink so whole controls wrap, instead of their labels. */
+      position: relative; min-width: 0; max-width: 100%;
+    }
+    .app-composition-mode > .hn-btn,
+    .app-composition-mode > .hn-badge { flex: 0 0 auto; white-space: nowrap; }
     .app-composition-mode .hn-badge[data-mode="live"] {
       background: var(--hn-accent-tint, #e3f1ea); color: var(--hn-accent, #0b6b4d);
     }
@@ -287,10 +293,12 @@ export function lifecycleStyles(): string {
     .lifecycle-confirm {
       border: 2px solid var(--hn-critical-border, #d97676);
       background: var(--hn-critical-tint, #fbe4e4);
+      color: var(--hn-critical-text, #9c2828);
       border-radius: var(--hn-radius-lg, 10px);
       padding: var(--hn-space-4, 16px);
       display: flex; flex-direction: column; gap: var(--hn-space-3, 12px);
     }
+    .lifecycle-confirm .hn-muted { color: inherit; }
     .lifecycle-confirm input[type="text"] {
       font: inherit; color: inherit;
       background: var(--hn-surface-raised, #fff);

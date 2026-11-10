@@ -20,6 +20,26 @@ const MAX_DISPOSITIONS = 20;
 const MAX_EXPLANATION_LENGTH = 160;
 
 export const DEPENDABOT_EXEMPTION = "Dependabot dependency update";
+export const RELEASE_PLEASE_EXEMPTION = "Release Please release pull request";
+
+// release-please names a single-package branch after the npm package with its
+// scope dropped (`@honua/studio` becomes `studio`), and titles it for main.
+const RELEASE_PLEASE_HEAD = "release-please--branches--main--components--studio";
+const RELEASE_PLEASE_TITLE_PATTERN = /^chore\(main\): release [0-9]+\.[0-9]+\.[0-9]+$/u;
+
+/**
+ * GitHub reports an App actor's login as `slug`, `slug[bot]` or `app/slug`
+ * depending on the API surface, so each slug is accepted in all three forms.
+ */
+function appLoginForms(slugs) {
+  return new Set(slugs.flatMap((slug) => [slug, `${slug}[bot]`, `app/${slug}`]));
+}
+
+const DEPENDABOT_LOGINS = appLoginForms(["dependabot"]);
+// release-please.yml opens the release pull request as the honua-io-bot App so
+// its required checks start, and falls back to GITHUB_TOKEN (github-actions)
+// when the App secrets are missing.
+const RELEASE_PLEASE_LOGINS = appLoginForms(["honua-io-bot", "github-actions"]);
 
 export class PullRequestDispositionError extends Error {
   constructor(code, message) {
@@ -33,33 +53,43 @@ function fail(code, message) {
   throw new PullRequestDispositionError(code, message);
 }
 
-function normalizeLogin(value) {
+function normalizedIdentity(value) {
   return String(value ?? "").toLowerCase();
+}
+
+function isDependabotUpdate(input) {
+  return (
+    DEPENDABOT_LOGINS.has(normalizedIdentity(input.authorLogin)) &&
+    String(input.headRefName ?? "").startsWith("dependabot/")
+  );
+}
+
+function isReleasePleaseReleasePullRequest(input) {
+  const repository = normalizedIdentity(input.repository);
+  return (
+    RELEASE_PLEASE_LOGINS.has(normalizedIdentity(input.authorLogin)) &&
+    repository !== "" &&
+    normalizedIdentity(input.headRepository) === repository &&
+    normalizedIdentity(input.baseRepository) === repository &&
+    input.baseRefName === "main" &&
+    input.headRefName === RELEASE_PLEASE_HEAD &&
+    RELEASE_PLEASE_TITLE_PATTERN.test(String(input.title ?? ""))
+  );
 }
 
 /**
  * Return the only automation exemptions allowed by repository policy.
  *
- * honua-studio runs no release-train, evidence-regeneration or scheduled
- * publication lane, so the sdk-js exemptions for those (`Release Please`,
- * `automation/derived-artifacts-*`, `automation/mcp-certification-*`,
- * `automation/kepler-audit-renewal-*`) are deliberately not ported: an
- * exemption no lane can ever satisfy is only bypass surface. Dependabot is the
- * one bot that opens pull requests here, and its updates answer to no issue.
- * Add a lane here only when this repository actually grows one.
+ * Dependabot updates and Release Please release pull requests answer to no
+ * issue. Each exemption is bound to its bot identity and the exact branch and
+ * title its lane produces, so a lookalike pull request still needs a footer.
+ * The sdk-js evidence-regeneration and scheduled-publication lanes have no
+ * counterpart here: an exemption no lane can satisfy is only bypass surface.
  */
 export function automationExemption(input) {
-  const login = normalizeLogin(input.authorLogin);
-  const head = String(input.headRefName ?? "");
-  const botActor = String(input.authorType ?? "") === "Bot";
-
-  if (
-    botActor &&
-    (login === "dependabot" || login === "dependabot[bot]" || login === "app/dependabot") &&
-    head.startsWith("dependabot/")
-  ) {
-    return DEPENDABOT_EXEMPTION;
-  }
+  if (String(input.authorType ?? "") !== "Bot") return null;
+  if (isDependabotUpdate(input)) return DEPENDABOT_EXEMPTION;
+  if (isReleasePleaseReleasePullRequest(input)) return RELEASE_PLEASE_EXEMPTION;
   return null;
 }
 

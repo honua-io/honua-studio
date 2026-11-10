@@ -1,7 +1,6 @@
 /**
- * Boot smoke: `npm run dev`'s mode (honua-studio#3 REQ-003, fixture path) —
- * now also the full mock-issuer login journey (honua-studio#4 REQ-001):
- * login -> authenticated catalog call -> logout. Builds are produced by
+ * Boot smoke: `npm run dev`'s fixture path, including the mock-issuer login
+ * journey: login -> authenticated catalog call -> logout. Builds are produced by
  * `npm run test:browser` before Playwright runs (package.json). This spec
  * proxies the built preview server at the mock fixture, exactly as
  * scripts/dev-mock.mjs wires `npm run dev`.
@@ -76,7 +75,6 @@ test("app boots against the mock honua-server fixture; sign-in unlocks the authe
     await expect(page.getByTestId("about-section")).toBeVisible();
     await page.getByTestId("nav-home").click();
 
-    // Sign-out clears the session and re-locks the catalog.
     await page.getByTestId("auth-signout").click();
     await expect(page.getByTestId("auth-status")).toHaveText("Signed out");
     await expect(page.getByTestId("catalog-signed-out")).toBeVisible();

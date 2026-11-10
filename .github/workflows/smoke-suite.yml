@@ -30,7 +30,7 @@ env:
 jobs:
   container-smoke:
     name: Clean-machine container + runtime config
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -65,7 +65,7 @@ jobs:
 
   browser-smoke:
     name: Browser smoke (mock + live dev modes)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -95,7 +95,7 @@ jobs:
 
   console-assets-smoke:
     name: Production Console assets + audience browser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -145,7 +145,7 @@ jobs:
 
   blazor-host-smoke:
     name: Blazor Web App test host smoke (honua-io/honua-studio#5)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 

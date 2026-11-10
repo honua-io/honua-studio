@@ -45,10 +45,6 @@ import type { CompositionCommand } from "./commands.js";
 import { type CompositionState, canonicalCompositionJson } from "./model.js";
 import { type CompositionApplyResult, type CompositionDiff, applyCompositionCommand } from "./reducer.js";
 
-// ---------------------------------------------------------------------------
-// Undo/redo revision stack
-// ---------------------------------------------------------------------------
-
 export interface CompositionRevision {
   readonly state: CompositionState;
   /** The command that produced this revision from the previous one; `undefined` for the initial revision. */
@@ -246,9 +242,7 @@ export class CompositionHistory {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Draft store — the structural seam onto the SDK's Studio lifecycle client
-// ---------------------------------------------------------------------------
 
 /** The envelope body a composition draft carries — mirrors `StudioPackageEnvelope.body` on the real lifecycle client. */
 export interface CompositionDraftEnvelope {
@@ -322,9 +316,7 @@ export function isCompositionDraftConflict(error: unknown): error is Composition
   return error instanceof CompositionDraftError && error.code === "generation-conflict";
 }
 
-// ---------------------------------------------------------------------------
 // DraftSync — apply(state) with single-flight batching + reload/rebase
-// ---------------------------------------------------------------------------
 
 export interface DraftSyncConflict {
   readonly draftId: string;
@@ -520,9 +512,7 @@ export class DraftSync {
   }
 }
 
-// ---------------------------------------------------------------------------
 // FixtureDraftStore — in-memory CompositionDraftStore for tests + fixture mode
-// ---------------------------------------------------------------------------
 
 export interface FixtureDraftStoreOptions {
   readonly now?: () => string;

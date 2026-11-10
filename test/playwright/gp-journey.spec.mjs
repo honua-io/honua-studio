@@ -1,5 +1,5 @@
 /**
- * The full conversational-GP-authoring journey (honua-studio#10) in a real
+ * The full conversational-GP-authoring journey in a real
  * browser against the real `mock-server.mjs`: an agent-authored `gp`
  * package (seeded via REST here, the same way `lifecycle-journey.spec.mjs`
  * seeds its draft — draft AUTHORING itself is proven end to end by
@@ -91,7 +91,6 @@ test.describe("GP journey: validate -> preview -> confirm -> execute -> monitor 
       // The honest caveat is always visible, not gated behind any action.
       await expect(page.getByTestId("gp-validation-caveat")).toContainText(/envelope-only/i);
 
-      // Validate.
       await page.getByTestId("gp-panel-validate").click();
       await expect(page.getByTestId("gp-panel-validation-status")).toContainText("valid");
 

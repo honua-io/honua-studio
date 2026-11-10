@@ -20,9 +20,7 @@ import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map
 import type { McpClient } from "./client.js";
 import type { McpToolsCallResult } from "./protocol.js";
 
-// ---------------------------------------------------------------------------
 // Wire shapes (mirror StudioMcpModels.cs / StudioCompositionBody)
-// ---------------------------------------------------------------------------
 
 export type StudioPackageFamilyWire =
   | "query"
@@ -260,7 +258,7 @@ export type ProposeStudioPublicationOutput = StudioPublicationReceipt &
       }
   );
 
-/** The tool name published in `tools/list` for every `honua_studio_*` tool (honua-server#3002). */
+/** The tool name published in `tools/list` for every `honua_studio_*` tool. */
 export const STUDIO_MCP_TOOL_NAMES = [
   "honua_studio_create_draft",
   "honua_studio_get_draft",
@@ -362,7 +360,7 @@ export class StudioMcpToolClient {
     return structured<StudioMcpDraft>(result);
   }
 
-  /** `honua_studio_set_layer_visibility` — the durable half of a TOC toggle (honua-studio#31). `visible` is part of the server's `StudioCompositionLayer`, so this is what makes a toggle survive a draft sync. */
+  /** `honua_studio_set_layer_visibility` — the durable half of a TOC toggle. `visible` is part of the server's `StudioCompositionLayer`, so this is what makes a toggle survive a draft sync. */
   public async setLayerVisibility(input: SetStudioLayerVisibilityInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_layer_visibility", { ...input });
     return structured<StudioMcpDraft>(result);

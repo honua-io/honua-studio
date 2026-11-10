@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { StudioClient } from "../../src/client/studio-client.js";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
@@ -53,6 +54,313 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     window.location.hash = "";
     window.localStorage.clear(); // theme choices persist across mounts by design — isolate tests from each other
     vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])("keeps the inspector only when a renewed catalog is unchanged (%s)", async (unchanged) => {
+    const app = mount();
+    const session = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      sourcePathBase: "",
+      environmentId: "environment",
+      principalId: "principal",
+      csrfToken: "csrf",
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      onExpired: () => () => {},
+    };
+    app.session = session;
+    const source = {
+      id: "roads/1",
+      title: "Roads",
+      protocol: "geoservices-feature-service",
+      geometryType: "LineString",
+      locator: { url: "/rest/services/roads/FeatureServer", serviceId: "roads", layerId: 1 },
+    };
+    const catalog = vi.spyOn(StudioClient.prototype, "listCatalog").mockResolvedValue([source]);
+    await app.listRecipeSources(new AbortController().signal);
+    await app.openDesignInspector();
+    expect(app.shadowRoot?.querySelector("#design-inspector-panel")).not.toBeNull();
+    const calls = catalog.mock.calls.length;
+    catalog.mockResolvedValue(unchanged ? [{ ...source }] : []);
+    app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
+    await vi.waitFor(() => expect(catalog.mock.calls.length).toBeGreaterThan(calls));
+    await vi.waitFor(() => expect(app.sourceCatalog).toEqual(unchanged ? [source] : []));
+    expect(app.shadowRoot?.querySelector("#design-inspector-panel") !== null).toBe(unchanged);
+    catalog.mockRestore();
+  });
+
+  it.each([false, true])("does not add a published layer after a map switch (switch back: %s)", async (switchBack) => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi
+      .spyOn(StudioLifecycleClient.prototype, "getDraft")
+      .mockImplementation(async (id) => ({ ...draft, draftId: id }));
+    const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft").mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
+      vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1, layerName: "Roads" });
+      await app.attachWorkspaceDraft("replacement");
+      if (switchBack) await app.attachWorkspaceDraft("original");
+      finish([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      await expect(pending).rejects.toThrow(/active map changed/i);
+      expect(replace).not.toHaveBeenCalled();
+      expect((await app.prepareWorkspaceTurn())?.draftId).toBe(switchBack ? "original" : "replacement");
+      expect(app.composition.state.layers).toEqual([]);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it("adds a layer when idle refresh observes the same draft during catalog discovery", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
+      vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 });
+      expect(await app.refreshWorkspaceDraft()).toBe(true);
+      finish([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      expect(await pending).toEqual({ ok: true });
+      expect(replace).toHaveBeenCalledOnce();
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it("adds the verified published layer to the original current draft", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      vi.spyOn(app.studioClient, "listCatalog").mockResolvedValue([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      expect(await app.addPublishedLayer({ serviceName: "roads", layerId: 1, layerName: "Roads" })).toEqual({
+        ok: true,
+      });
+      expect(replace).toHaveBeenCalledOnce();
+      expect(replace.mock.calls[0]![0]).toBe("original");
+      expect(app.composition.state.layers.map((layer) => layer.id)).toEqual(["roads/1"]);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it("does not add a published layer after its initiating host view closes", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft").mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
+      vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      let current = true;
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 }, { isCurrent: () => current });
+      current = false;
+      finish([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      await expect(pending).rejects.toThrow(/active map changed/i);
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it("rechecks the host view after waiting for an earlier draft edit", async () => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    let finish!: () => void;
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementationOnce(
+        (_id, request) =>
+          new Promise((resolve) => {
+            finish = () => resolve({ ...draft, generation: 2, envelope: request.envelope });
+          }),
+      )
+      .mockResolvedValue(draft);
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft("original");
+      vi.spyOn(app.studioClient, "listCatalog").mockResolvedValue([
+        {
+          id: "roads/1",
+          title: "Roads",
+          protocol: "geoservices-feature-service",
+          geometryType: "LineString",
+          locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+        },
+      ]);
+      const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+      const earlier = canvas.commandDispatch!([{ name: "addLayer", layer: { id: "first", sourceId: "first" } }]);
+      await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
+      let current = true;
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 }, { isCurrent: () => current });
+      await vi.waitFor(() => expect(app.sourceCatalog?.[0]?.id).toBe("roads/1"));
+      current = false;
+      finish();
+      expect((await earlier).ok).toBe(true);
+      expect(await pending).toMatchObject({ ok: false, reason: expect.stringMatching(/view changed/i) });
+      expect(replace).toHaveBeenCalledOnce();
+      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("original");
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
+  });
+
+  it.each([true, false])("rechecks the renewed publisher catalog when source availability is %s", async (available) => {
+    const draft = {
+      draftId: "original",
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const source = {
+      id: "roads/1",
+      title: "Roads",
+      protocol: "geoservices-feature-service",
+      geometryType: "LineString",
+      locator: { url: "/rest/services/roads/FeatureServer", layerId: 1 },
+    };
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const replace = vi
+      .spyOn(StudioLifecycleClient.prototype, "replaceDraft")
+      .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
+    try {
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      const cookie = {
+        kind: "cookie" as const,
+        baseUrl: "/api/studio",
+        environmentId: "server",
+        principalId: "human",
+        csrfToken: "old",
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        onExpired: () => () => {},
+      };
+      app.session = cookie;
+      document.body.appendChild(app);
+      await app.attachWorkspaceDraft("original");
+      app.sourceCatalog = [source];
+      const client = app.studioClient;
+      app.studioClient = client;
+      let finish!: (value: (typeof source)[]) => void;
+      const catalog = vi
+        .spyOn(client, "listCatalog")
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        )
+        .mockResolvedValue(available ? [source] : []);
+      const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 });
+      app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+      finish([source]);
+      if (available) {
+        expect(await pending).toEqual({ ok: true });
+        expect(replace).toHaveBeenCalledOnce();
+        expect(replace.mock.calls[0]![0]).toBe("original");
+      } else {
+        await expect(pending).rejects.toThrow(/no unique verified catalog source/i);
+        expect(replace).not.toHaveBeenCalled();
+      }
+      expect(catalog).toHaveBeenCalledTimes(2);
+    } finally {
+      get.mockRestore();
+      replace.mockRestore();
+    }
   });
 
   it("attaches an authorized draft as a fresh undo baseline and clears it on principal change", async () => {
@@ -368,6 +676,93 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect(await app.prepareWorkspaceTurn()).toBeUndefined();
     } finally {
       get.mockRestore();
+    }
+  });
+
+  it.each(["authorized", "injected", "changed-session"])(
+    "validates style saves against authorized added sources (%s)",
+    async (mode) => {
+      const original = { version: 8, sources: {}, layers: [] };
+      const anchor = {
+        version: 8,
+        sources: { roads: { type: "geojson", data: { type: "FeatureCollection", features: [] } } },
+        layers: [{ id: "roads", source: "roads", type: "line", paint: { "line-color": "#112233" } }],
+      };
+      const candidate = {
+        ...anchor,
+        sources: {
+          ...anchor.sources,
+          ...(mode === "injected" ? { foreign: { type: "geojson", data: "https://foreign.example/data" } } : {}),
+        },
+        layers: [{ ...anchor.layers[0], paint: { "line-color": "#abcdef" } }],
+      };
+      const draft = {
+        draftId: "map-style",
+        generation: 1,
+        packageKey: "map",
+        envelope: {
+          family: "map",
+          schemaVersion: "1.0",
+          body: { layers: [{ id: "roads", sourceId: "roads", title: "Roads", visible: true }], mapSpec: original },
+        },
+      } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+      const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+      const write = vi
+        .spyOn(StudioLifecycleClient.prototype, "setMapStyle")
+        .mockImplementation(async (_id, _generation, style) => ({
+          ...draft,
+          generation: 2,
+          envelope: { ...draft.envelope, body: { ...(draft.envelope.body as object), mapSpec: style } },
+        }));
+      try {
+        const app = mount();
+        await app.attachWorkspaceDraft(draft.draftId);
+        const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
+        vi.spyOn(canvas, "editableMapStyle").mockImplementation(async () => {
+          if (mode === "changed-session") app.session = fixtureSession();
+          return anchor;
+        });
+        const outcome = await canvas.commandDispatch!([{ name: "setMapStyle", mapSpec: candidate }]);
+        expect(outcome.ok).toBe(mode === "authorized");
+        expect(write).toHaveBeenCalledTimes(mode === "authorized" ? 1 : 0);
+        if (mode !== "changed-session")
+          expect(app.composition.state.mapSpec).toEqual(mode === "injected" ? original : candidate);
+      } finally {
+        get.mockRestore();
+        write.mockRestore();
+      }
+    },
+  );
+
+  it("refuses style initialization when authority changes while reading the canvas", async () => {
+    const draft = {
+      draftId: "style-map",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", body: { layers: [] } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
+    const initialize = vi.spyOn(StudioLifecycleClient.prototype, "initializeDraftStyle");
+    let finish!: (style: { version: number; sources: Record<string, never>; layers: [] }) => void;
+    try {
+      const app = mount();
+      await app.attachWorkspaceDraft(draft.draftId);
+      const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
+      const read = vi.spyOn(canvas, "editableMapStyle").mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = app.openStyleEditor();
+      await vi.waitFor(() => expect(read).toHaveBeenCalled());
+      app.session = fixtureSession();
+      finish({ version: 8, sources: {}, layers: [] });
+      await expect(pending).rejects.toThrow("authority changed");
+      expect(initialize).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+      initialize.mockRestore();
     }
   });
 
@@ -891,6 +1286,30 @@ it("rejects a stale source picker catalog after a disconnected authority change"
     await expect(app.resolveProcessSource("published-source")).rejects.toThrow("Refresh the authorized source choices");
   } finally {
     app.session = undefined;
+  }
+});
+
+it("keeps the same source authority through a same-principal cookie lease renewal", async () => {
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  const cookie = {
+    kind: "cookie" as const,
+    baseUrl: "/api/studio",
+    csrfToken: "first",
+    environmentId: "env",
+    principalId: "owner",
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    onExpired: () => () => {},
+  };
+  app.session = cookie;
+  document.body.appendChild(app);
+  try {
+    const original = app.auth;
+    app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+    expect(app.auth).toBe(original);
+    app.session = { ...cookie, principalId: "other" };
+    expect(app.auth).not.toBe(original);
+  } finally {
+    app.remove();
   }
 });
 

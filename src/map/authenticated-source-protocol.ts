@@ -140,7 +140,10 @@ export function installAuthenticatedSourceProtocol(
       if (disposed) throw new Error("Map source transport is disposed.");
       return { data };
     } catch (error) {
-      const failure = error instanceof Error ? error : new Error(String(error));
+      // MapLibre serializes errors across its worker boundary. SDK errors may carry
+      // metadata with null prototypes, which its serializer cannot traverse; never
+      // pass those details across the boundary or mask the original failure.
+      const failure = new Error(error instanceof Error ? error.message : String(error));
       if (!controller.signal.aborted && !disposed) options.onError?.(failure);
       throw failure;
     } finally {

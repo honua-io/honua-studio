@@ -1,5 +1,5 @@
 /**
- * The ADR-0030 compiler (honua-studio#25 REQ-002) as Studio now consumes it:
+ * The ADR-0030 compiler as Studio now consumes it:
  * `compileHonuaInteractions` from `@honua/sdk-js/interactions/declarative`,
  * driven through the component registry shape
  * `../../src/interactions/studio-interactions.ts` hands it.
@@ -258,7 +258,7 @@ describe("interactions/declarative (@honua/sdk-js)", () => {
       // Each reason names the missing capability, not just "unsupported".
       expect(compiled.unsupported.find((entry) => entry.interactionId === "q")?.reason).toContain("runQuery");
       // Studio declares no `map` on a layer component, so the map-gesture half
-      // of ADR-0030 is reported, not bound (honua-studio#43).
+      // of ADR-0030 is reported, not bound.
       expect(compiled.unsupported.find((entry) => entry.interactionId === "s")?.reason).toContain("map");
       compiled.dispose();
     });
