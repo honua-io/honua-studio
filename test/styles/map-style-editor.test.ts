@@ -559,6 +559,34 @@ it("shared style permission and incomplete impact prevent the save callback", as
   expect(onSave).not.toHaveBeenCalled();
   expect(editor.dirty).toBe(true);
 });
+it("saves host-authored feature labels when the visual frame never becomes ready", async () => {
+  const { container, editor, frame, onSave, onPreview } = setup(
+    { kind: "map-local", detachesSharedStyles: false },
+    {
+      layers: [{ id: "roads", sourceId: "roads" }],
+      getFields: async () => [{ name: "name", type: "string" }],
+    },
+  );
+  vi.mocked(frame.contentWindow!.postMessage).mockImplementation(() => {});
+  await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "name";
+  field.dispatchEvent(new Event("change"));
+  const labels = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview feature labels",
+  )!;
+  expect(labels.disabled).toBe(false);
+  labels.click();
+  expect(onPreview).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      layers: expect.arrayContaining([expect.objectContaining({ id: "roads__labels", type: "symbol" })]),
+    }),
+  );
+  await editor.save();
+  expect(onSave).toHaveBeenCalledOnce();
+  expect(editor.dirty).toBe(false);
+  expect(container.textContent).toContain("Map style saved to the authorized draft.");
+});
 it("missing canonical save readback retains dirty buffer", async () => {
   const { editor, onSave, send } = setup();
   onSave.mockResolvedValueOnce(undefined as unknown as MapStyleDocument);

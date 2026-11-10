@@ -83,6 +83,21 @@ for (const themeSet of ["standalone", "console"]) {
         const draft = page.getByTestId("draft-row").filter({ hasText: key });
         await expect(draft).toHaveCount(1);
         await keyboard.activate(draft.getByRole("button", { name: "Open", exact: true }));
+        await keyboard.activate(page.getByRole("button", { name: "Edit map style", exact: true }));
+        const labelField = page.getByRole("combobox", { name: "Actual source field", exact: true });
+        await expect(labelField.locator("option")).not.toHaveCount(0);
+        await keyboard.focusByKeyboard(labelField);
+        await keyboard.press("z");
+        await keyboard.press("Tab");
+        await expect(labelField).toHaveValue("zoning_code");
+        await keyboard.activate(page.getByRole("button", { name: "Preview feature labels", exact: true }));
+        await keyboard.activate(page.getByRole("button", { name: "Save map style", exact: true }));
+        await expect(
+          page.getByRole("status").filter({ hasText: "Map style saved to the authorized draft." }),
+        ).toBeVisible();
+        await expectNoSeriousAxeViolations(page, info, "style");
+        await keyboard.activate(page.getByRole("button", { name: "Close style editor", exact: true }));
+        await expect(page.getByRole("region", { name: "Map style editor", exact: true })).toHaveCount(0);
         await keyboard.activate(page.getByRole("button", { name: "Save as version", exact: true }));
         await expect(page.getByTestId("lifecycle-version-row")).toHaveCount(1);
         await keyboard.activate(page.getByRole("button", { name: "Publish…", exact: true }));

@@ -69,12 +69,15 @@ export interface ShellRouterOptions {
   readonly onRouteRendered: () => void;
   readonly isWorkspaceHost: () => boolean;
   readonly addCatalogSource: (dataset: CatalogDataset) => Promise<void>;
+  /** Returns false when the current view holds work that navigation must not discard. */
+  readonly releaseView?: () => boolean;
 }
 
 /** Renders the routed `#view` outlet: self-owned hash routing, or a host-owned path in `host` mode. */
 export class ShellRouter {
   #hashRouter: Router | undefined;
   #currentPath = "/";
+  #ignoreNextHash = false;
 
   constructor(private readonly options: ShellRouterOptions) {}
 
@@ -99,13 +102,17 @@ export class ShellRouter {
     this.#hashRouter = undefined;
   }
 
-  /** Adopts a host-owned path, removing the `base-path` prefix. */
-  followHostPath(path: string | null): void {
-    this.#currentPath = stripBasePath(normalizePath(path ?? "/"), this.options.host.getAttribute("base-path"));
+  /** Adopts a host-owned path, removing the `base-path` prefix. False leaves the accepted path in place. */
+  followHostPath(path: string | null): boolean {
+    const next = stripBasePath(normalizePath(path ?? "/"), this.options.host.getAttribute("base-path"));
+    if (next !== this.#currentPath && !this.#releaseView()) return false;
+    this.#currentPath = next;
+    return true;
   }
 
   render(): void {
     if (!this.options.hasView()) return;
+    if (!this.#releaseView()) return;
     if (this.options.isWorkspaceHost()) {
       this.options.viewRoot().replaceChildren();
       return;
@@ -129,8 +136,30 @@ export class ShellRouter {
   }
 
   #showRoute(route: StudioRoute, root: HTMLElement): void {
-    this.#currentPath = route.path;
+    if (this.#ignoreNextHash) {
+      this.#ignoreNextHash = false;
+      return;
+    }
+    if (route.path !== this.#currentPath) {
+      if (!this.#releaseView()) {
+        this.#restoreHash();
+        return;
+      }
+      this.#currentPath = route.path;
+    } else if (!this.#releaseView()) return;
     this.#renderRoute(route, root);
+  }
+
+  #releaseView(): boolean {
+    return this.options.releaseView?.() ?? true;
+  }
+
+  #restoreHash(): void {
+    const desired = this.#currentPath;
+    const shown = window.location.hash.replace(/^#/, "") || "/";
+    if (shown === desired) return;
+    this.#ignoreNextHash = true;
+    window.location.hash = desired;
   }
 
   #renderRoute(route: StudioRoute, root: HTMLElement): void {

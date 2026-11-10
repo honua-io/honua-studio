@@ -172,6 +172,15 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
     expect(el.shadowRoot?.querySelectorAll('[data-testid="lifecycle-version-row"]')).toHaveLength(1);
   });
 
+  it("Edit map style asks the shell to open the editor", async () => {
+    const { el } = mount(new FakeLifecycleClient());
+    el.draftId = "draft-1";
+    await flush();
+    const heard = new Promise((resolve) => el.addEventListener("honua-studio-edit-style", () => resolve(true)));
+    el.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-panel-edit-style"]')?.click();
+    await expect(heard).resolves.toBe(true);
+  });
+
   it("Save as version calls client.saveAsVersion and refreshes the version list", async () => {
     const { el, client } = mount(new FakeLifecycleClient());
     el.draftId = "draft-1";

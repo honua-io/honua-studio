@@ -89,6 +89,18 @@ export class StyleEditorHost {
     this.dispose();
   }
 
+  /** Route replacement removes the mounted editor. A clean session can close; a dirty one stays put. */
+  releaseForNavigation(): boolean {
+    if (!this.#editor) return true;
+    if (!this.hasUnsavedChanges) {
+      this.dispose();
+      return true;
+    }
+    const status = this.#panel?.querySelector<HTMLElement>("[role='status']");
+    if (status) status.textContent = "Save or discard visual style edits before leaving.";
+    return false;
+  }
+
   async discard(): Promise<void> {
     await this.#editor?.discard();
   }
@@ -129,9 +141,15 @@ export class StyleEditorHost {
   #mountPanel(): HTMLElement {
     const panel = window.document.createElement("section");
     panel.setAttribute("aria-label", "Map style editor");
-    this.options.chrome.appSlots()?.prepend(panel);
+    const lifecycle = this.options.chrome.lifecyclePanel();
+    if (lifecycle) {
+      panel.slot = "style-editor";
+      lifecycle.append(panel);
+    } else {
+      this.options.chrome.appSlots()?.prepend(panel);
+      this.options.chrome.appSlots()?.setAttribute("data-style-mode", "");
+    }
     this.#panel = panel;
-    this.options.chrome.appSlots()?.setAttribute("data-style-mode", "");
     return panel;
   }
 
@@ -165,6 +183,10 @@ export class StyleEditorHost {
       },
       onSave: (style) => this.#save(session, style),
       onDiscard: () => this.#reloadDraft(session),
+      onClose: async () => {
+        await this.close();
+        this.options.chrome.focusStyleEditorReturn();
+      },
     };
   }
 

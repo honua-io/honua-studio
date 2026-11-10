@@ -239,6 +239,7 @@ export class StudioWorkspace {
       onRouteRendered: () => this.chrome.syncNav(),
       isWorkspaceHost: () => this.isWorkspaceHost(),
       addCatalogSource: (dataset) => this.editor.addCatalogSource(dataset),
+      releaseView: () => this.styleEditor.releaseForNavigation(),
     });
   }
 

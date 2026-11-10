@@ -1111,6 +1111,50 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     expect(app.getAttribute("current-path")).toBe("/about");
   });
 
+  it("removes a refused host path when current-path was absent, then accepts the retry", async () => {
+    const style = {
+      version: 8,
+      sources: {},
+      layers: [{ id: "background", type: "background", paint: { "background-color": "#ffffff" } }],
+    };
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+      draftId: "shared",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", body: { layers: [], mapSpec: style } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>);
+    const app = mount({ "routing-mode": "host" });
+    try {
+      expect(app.hasAttribute("current-path")).toBe(false);
+      await app.attachWorkspaceDraft("shared");
+      const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+      vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
+      await app.openStyleEditor();
+      const frame = app.shadowRoot!.querySelector("iframe")!;
+      const channel = new URLSearchParams(new URL(frame.src).hash.slice(1)).get("channel");
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: frame.contentWindow,
+          origin: "null",
+          data: { type: "honua:style-input", channel },
+        }),
+      );
+      expect(app.hasUnsavedStyleChanges).toBe(true);
+      app.setAttribute("current-path", "/about");
+      expect(app.hasAttribute("current-path")).toBe(false);
+      expect(app.currentPath).toBe("/");
+      expect(app.shadowRoot?.querySelector('[data-testid="about-section"]')).toBeFalsy();
+      await app.discardStyleChanges();
+      expect(app.hasUnsavedStyleChanges).toBe(false);
+      app.setAttribute("current-path", "/about");
+      expect(app.getAttribute("current-path")).toBe("/about");
+      expect(app.currentPath).toBe("/about");
+      expect(app.shadowRoot?.querySelector('[data-testid="about-section"]')).toBeTruthy();
+    } finally {
+      get.mockRestore();
+    }
+  });
+
   it("routing-mode=host honors base-path when the host reflects a prefixed current-path", () => {
     const app = mount({ "routing-mode": "host", "base-path": "/studio", "current-path": "/studio/about" });
     expect(app.currentPath).toBe("/about");

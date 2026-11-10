@@ -445,11 +445,18 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
             : ""
         }
         <div class="lifecycle-actions">
+          <button type="button" class="hn-btn hn-btn--sm" data-testid="lifecycle-panel-edit-style">Edit map style</button>
           <button type="button" class="hn-btn hn-btn--sm" data-testid="lifecycle-panel-validate">Validate</button>
           <button type="button" class="hn-btn hn-btn--sm" data-testid="lifecycle-panel-save-version">Save as version</button>
         </div>
+        <slot name="style-editor"></slot>
       </div>
     `;
+  }
+
+  public showActionError(message: string): void {
+    this.#error = message;
+    this.render();
   }
 
   #renderPendingPublicationBanner(): string {
@@ -583,6 +590,9 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     if (!root) return;
     const signal = this.connectedSignal;
 
+    root
+      .querySelector('[data-testid="lifecycle-panel-edit-style"]')
+      ?.addEventListener("click", () => this.dispatchTypedEvent("honua-studio-edit-style", {}), { signal });
     root
       .querySelector('[data-testid="lifecycle-panel-validate"]')
       ?.addEventListener("click", () => void this.validateDraft(), { signal });

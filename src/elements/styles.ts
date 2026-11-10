@@ -277,7 +277,7 @@ export function lifecycleStyles(): string {
     .lifecycle-row-main { display: flex; flex-direction: column; gap: var(--hn-space-0, 2px); min-width: 0; }
     .lifecycle-row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lifecycle-row-meta { display: flex; gap: var(--hn-space-2, 8px); flex-wrap: wrap; }
-    .lifecycle-empty { color: var(--hn-ink-faint, #8b988f); margin: 0; }
+    .lifecycle-empty { color: var(--hn-ink-muted, #5f6e66); margin: 0; }
     .lifecycle-banner {
       border: 1px solid var(--hn-warning-border, #d9a441);
       background: var(--hn-warning-tint, #fbf1dd);

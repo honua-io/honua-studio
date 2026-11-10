@@ -4,6 +4,7 @@ import { applyCompositionCommands } from "../../src/composition/reducer.js";
 import { applyStudioDraftBody, toStudioCompositionBody } from "../../src/mcp/tool-bridge.js";
 import {
   bindNewRenderLayerOwners,
+  featureLabelStyle,
   thematicMapStyle,
   validateInlineStyleBody,
   validateMapStyleEdit,
@@ -72,6 +73,44 @@ describe("map-local authorized style editing", () => {
       "#ff0000",
       "#000000",
     ]);
+  });
+
+  it("adds a symbol label for one described field on the selected source", () => {
+    const next = featureLabelStyle(style, { id: "roads", sourceId: "roads" }, { name: "name", type: "String" });
+    expect(validateMapStyleEdit(style, next)).toEqual([]);
+    expect((next.layers as Record<string, unknown>[])[1]).toMatchObject({
+      id: "roads__labels",
+      type: "symbol",
+      source: "roads",
+      layout: { "text-field": ["get", "name"] },
+      metadata: { "honua:compositionLayerId": "roads" },
+    });
+    const replaced = featureLabelStyle(next, { id: "roads", sourceId: "roads" }, { name: "class", type: "String" });
+    expect((replaced.layers as Record<string, unknown>[])[1]).toMatchObject({
+      layout: { "text-field": ["get", "class"] },
+    });
+    expect((replaced.layers as unknown[]).length).toBe(2);
+    expect(() =>
+      featureLabelStyle(style, { id: "missing", sourceId: "roads" }, { name: "name", type: "String" }),
+    ).toThrow("primary render layer");
+    expect(() =>
+      featureLabelStyle(style, { id: "roads", sourceId: "roads" }, { name: "name}", type: "String" }),
+    ).toThrow("described field");
+  });
+
+  it("updates an existing untagged label layer without claiming a new owner", () => {
+    const labeled = structuredClone(style) as Record<string, any>;
+    labeled.layers.push({
+      id: "roads__labels",
+      type: "symbol",
+      source: "roads",
+      layout: { "text-field": ["get", "name"] },
+    });
+    const next = featureLabelStyle(labeled, { id: "roads", sourceId: "roads" }, { name: "class", type: "String" });
+    expect(validateMapStyleEdit(labeled, next)).toEqual([]);
+    const label = (next.layers as Record<string, any>[])[1];
+    expect(label.metadata).toBeUndefined();
+    expect(label.layout["text-field"]).toEqual(["get", "class"]);
   });
 
   it("accepts thematic paint and labels on an existing source", () => {

@@ -32,6 +32,7 @@ import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
+import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
   HonuaStudioCommandOutcome,
@@ -442,7 +443,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return;
     }
     if (name === "current-path" && this.routingMode === "host") {
-      this.#router.followHostPath(newValue);
+      if (!this.#router.followHostPath(newValue)) {
+        if (oldValue === null) this.removeAttribute("current-path");
+        else if (this.getAttribute("current-path") !== oldValue) this.setAttribute("current-path", oldValue);
+        return;
+      }
       this.#router.render();
       return;
     }
@@ -497,6 +502,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         this.#children.chat()?.activityLog.append(entry, { ...detail });
       });
     }
+    this.listen(this, "honua-studio-edit-style", () => {
+      const panel = this.shadowRoot?.querySelector("honua-studio-lifecycle-panel");
+      void this.openStyleEditor().catch((error: unknown) => {
+        if (panel instanceof HonuaStudioLifecyclePanelElement)
+          panel.showActionError(error instanceof Error ? error.message : "The style editor could not open.");
+      });
+    });
     this.listen(this, "honua-studio-gp-add-output", (event) => {
       const detail = (event as CustomEvent<HonuaStudioGpAddOutputDetail>).detail;
       void this.toolCallOrchestrator.handleToolCall({
