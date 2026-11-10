@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
+import { StudioLifecycleError } from "../../src/lifecycle/lifecycle-errors.js";
 
 registerAllStudioElements();
 
@@ -63,6 +64,28 @@ describe("host draft approval and attachment", () => {
       await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
     } finally {
       get.mockRestore();
+    }
+  });
+
+  it.each(["prepare", "attach"])("does not mark a %s failure as a rejected creation", async (phase) => {
+    const app = mount();
+    const error = new StudioLifecycleError("validation", "Read refused", { status: 400 });
+    const prepare = vi.spyOn(app, "prepareWorkspaceTurn");
+    const attach = vi.spyOn(app, "attachWorkspaceDraft").mockRejectedValue(error);
+    const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval").mockResolvedValue({
+      draftId: "already-created",
+    } as Awaited<ReturnType<StudioLifecycleClient["createDraft"]>>);
+    if (phase === "prepare") prepare.mockRejectedValue(error);
+    else prepare.mockResolvedValue(undefined);
+    try {
+      await expect(app.createWorkspaceDraft("map", "command")).rejects.toBe(error);
+      expect(error.createDraftRejected).not.toBe(true);
+      expect(create).toHaveBeenCalledTimes(phase === "prepare" ? 0 : 1);
+      expect(attach).toHaveBeenCalledTimes(phase === "prepare" ? 0 : 1);
+    } finally {
+      prepare.mockRestore();
+      attach.mockRestore();
+      create.mockRestore();
     }
   });
 

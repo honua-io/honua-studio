@@ -590,6 +590,44 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
     await expect(c.createDraft(input)).rejects.toMatchObject({ status: 202 });
   });
 
+  it.each([400, 403, 422])("identifies a definitive draft-create rejection (%s)", async (status) => {
+    const c = new StudioLifecycleClient({
+      baseUrl: "/api",
+      fetchImpl: async () => jsonResponse(status, { detail: "Create refused" }),
+    });
+    const input = { packageKey: "map", envelope: { family: "map" as const, schemaVersion: "1.0" } };
+    await expect(c.createDraftWithApproval(input, "create-command")).rejects.toMatchObject({
+      status,
+      createDraftRejected: true,
+    });
+    await expect(c.getDraft("already-created")).rejects.not.toMatchObject({ createDraftRejected: true });
+  });
+
+  it.each([401, 408, 409, 429, 500, 502])("keeps uncertain draft-create outcomes unmarked (%s)", async (status) => {
+    const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl: async () => jsonResponse(status, {}) });
+    const input = { packageKey: "map", envelope: { family: "map" as const, schemaVersion: "1.0" } };
+    await expect(c.createDraftWithApproval(input, "create-command")).rejects.not.toMatchObject({
+      createDraftRejected: true,
+    });
+  });
+
+  it.each(["transport", "malformed-success", "malformed-pending"])(
+    "does not identify %s as a confirmed create rejection",
+    async (outcome) => {
+      const c = new StudioLifecycleClient({
+        baseUrl: "/api",
+        fetchImpl: async () => {
+          if (outcome === "transport") throw new Error("Response lost");
+          return new Response("not-json", { status: outcome === "malformed-pending" ? 202 : 201 });
+        },
+      });
+      const input = { packageKey: "map", envelope: { family: "map" as const, schemaVersion: "1.0" } };
+      await expect(c.createDraftWithApproval(input, "create-command")).rejects.not.toMatchObject({
+        createDraftRejected: true,
+      });
+    },
+  );
+
   it("rejects approval-aware creation without a caller-owned command ID before dispatch", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });

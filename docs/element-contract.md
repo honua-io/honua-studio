@@ -76,6 +76,12 @@ With a caller-owned command ID (required for retryable approval handoffs), draft
 receipt with `operationInstanceId` and `proposalId`. Hosts retain the command ID
 across retries, show the approval handoff, and attach the canonical draft only
 after the operation completes. Omitting the ID preserves legacy strict, single-shot creation; HTTP 202 throws instead of returning a receipt.
+An approval-aware create error has `createDraftRejected === true` only when the
+create POST returns HTTP 400, 403, or 422. The host may acknowledge that rejected
+action and start a corrected command. All other errors retain the original command
+ID: transport failures, uncertain responses, and errors preparing or attaching the
+map do not establish that creation was refused. In particular, a failed attachment
+can follow a successful creation.
 `attachWorkspaceDraft(draftId, mayAccept?)` runs the optional throwing host guard before a queued read and before adopting its result.
 
 `openRecipePicker()` / `closeRecipePicker()` open and close the shared-header
