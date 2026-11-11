@@ -28,16 +28,16 @@ Preview releases [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/
 [v0.1.2](https://github.com/honua-io/honua-studio/releases/tag/v0.1.2) (`1333c66`) and
 [v0.1.3](https://github.com/honua-io/honua-studio/releases/tag/v0.1.3) (`f099681`) exist.
 v0.1.2 and v0.1.3 each attach standalone and Console tarballs, checksums and a source/image receipt.
-At `d1eb637`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42755300180)
-passed typecheck, style, build, 1,778 Vitest tests in 145 files and 44 Node live-harness
-contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42755300061) passed
-all four jobs; the browser job reported 51 passed and Console assets reported six passed.
+At `5ba4acc`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42947075068)
+passed typecheck, style, build, 1,797 Vitest tests in 147 files and 52 Node live-harness
+contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42947074965) passed
+all four jobs; the browser job reported 50 passed, Console assets six passed and Blazor six passed.
 These are fixture and packaging receipts.
-The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/42727969352)
-at `f099681` had 2 passes and 3 failures, retries disabled. Boot and scripted MCP passed.
-Publication stopped because `HONUA_LIVE_CONSOLE_URL` was absent. Both model journeys refused
-the demo's Bedrock-only provider before a call. This run did not reach the HTTP 400 chat
-tracked in [server#7092](https://github.com/honua-io/honua-server/issues/7092).
+The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/42909671282)
+at `03136c6`, which is not current main, had 2 passes and 3 failures, retries disabled, in 11.1 seconds.
+Boot and scripted MCP passed. Publication stopped because `HONUA_LIVE_CONSOLE_URL` was absent.
+Both model journeys refused the demo's Bedrock-only provider before a call. This run did not reach
+the HTTP 400 chat tracked in [server#7092](https://github.com/honua-io/honua-server/issues/7092).
 The [latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
 is branch head `1521734`, not current main. It used server/executor `9d2169cc` and Console
 `97631d3`: 4 passed, 1 failed, no skips, retries or flaky tests in 29.3 seconds. Boot, real
@@ -48,7 +48,7 @@ before forwarding. The three forwarded calls returned HTTP 200 with completed us
 65,986 input and 387 output tokens. This run recorded no thinking-block rejection. The earlier
 thinking-block failure remains [server#7122](https://github.com/honua-io/honua-server/issues/7122).
 The call-budget failure alone does not establish a product defect. That receipt does not
-qualify `d1eb637`. Studio is not live-qualified for rc.2. Any further paid run requires main
+qualify `5ba4acc`. Studio is not live-qualified for rc.2. Any further paid run requires main
 authorization, exact-head review and passing required CI. Do not raise the budget, weaken
 assertions or rerun to green.
 The qualification workflow (`live-compose-qualify.yml`, called by `live-demo-smoke.yml`) prepares the customer quickstart at the server

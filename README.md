@@ -82,21 +82,21 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are separate from those packaging gates; rc.2 requires live proof. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-Latest default-branch evidence, at `d1eb637`:
+Latest default-branch evidence, at `5ba4acc`:
 
-- [CI run 42755300180](https://github.com/honua-io/honua-studio/actions/runs/42755300180)
-  passed typecheck, style, build, 1,778 Vitest tests across 145 files, and 44 Node
+- [CI run 42947075068](https://github.com/honua-io/honua-studio/actions/runs/42947075068)
+  passed typecheck, style, build, 1,797 Vitest tests across 147 files, and 52 Node
   live-harness contracts.
-- [Smoke run 42755300061](https://github.com/honua-io/honua-studio/actions/runs/42755300061)
+- [Smoke run 42947074965](https://github.com/honua-io/honua-studio/actions/runs/42947074965)
   passed the container, browser, production Console-assets and Blazor jobs. The browser
-  job reported 51 passed. Console assets reported six passed. These fixture and packaging
-  checks do not prove a real model turn or live publication.
-- [Latest scheduled demo canary 42727969352](https://github.com/honua-io/honua-studio/actions/runs/42727969352),
-  at `f099681`, reported **two passed, three failed**, with retries disabled. Boot and
-  scripted MCP composition passed. Publication stopped because `HONUA_LIVE_CONSOLE_URL`
-  was absent. Both real-model journeys refused invocation before a provider call: readiness
-  advertised only a Bedrock adapter, with no allowed Opus 5.5 or Sol provider. This run did
-  not reach an HTTP 400 chat response. The earlier demo HTTP 400 remains
+  job reported 50 passed. Console assets reported six passed and Blazor reported six passed.
+  These fixture and packaging checks do not prove a real model turn or live publication.
+- [Latest scheduled demo canary 42909671282](https://github.com/honua-io/honua-studio/actions/runs/42909671282),
+  at `03136c6` (not current main), reported **two passed, three failed**, with retries disabled,
+  in 11.1 seconds. Boot and scripted MCP composition passed. Publication stopped because
+  `HONUA_LIVE_CONSOLE_URL` was absent. Both real-model journeys refused invocation before a
+  provider call: readiness advertised only a Bedrock adapter, with no allowed Opus 5.5 or Sol
+  provider. This run did not reach an HTTP 400 chat response. The earlier demo HTTP 400 remains
   [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092).
 
 The candidate qualification workflow prepares the **customer quickstart Compose stack on the
@@ -112,7 +112,7 @@ The [latest Compose qualification](https://github.com/honua-io/honua-studio/acti
 ran on branch head `1521734`, which is not current main. It used server/executor `9d2169cc`
 from [candidate build 42665713376](https://github.com/honua-io/honua-server/actions/runs/42665713376)
 and Console `97631d3`. It recorded **four passed, one failed, zero skipped, zero retries and
-zero flaky tests** in 29.3 seconds. That receipt does not qualify `d1eb637`.
+zero flaky tests** in 29.3 seconds. That receipt does not qualify `5ba4acc`.
 
 | Journey | Observed result |
 | --- | --- |
@@ -203,7 +203,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
 | Candidate journeys record one row per source SHA and stay switched off until `HONUA_CANDIDATE_JOURNEYS` is `on` and the pinned server revision is that SHA. No schedule. | `.github/workflows/live-candidate-journeys.yml` | #228 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest demo canary](https://github.com/honua-io/honua-studio/actions/runs/42727969352): 2 passed, 3 failed before a model turn | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest demo canary](https://github.com/honua-io/honua-studio/actions/runs/42909671282) at `03136c6` (not current main): 2 passed, 3 failed before a model turn | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
