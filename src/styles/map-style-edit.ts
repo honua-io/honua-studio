@@ -219,6 +219,7 @@ export function featureLabelStyle(
       type: "symbol",
       source: owner.sourceId,
       ...(typeof sourceLayer === "string" ? { "source-layer": sourceLayer } : {}),
+      ...(primary.filter !== undefined ? { filter: structuredClone(primary.filter) } : {}),
       layout: { "text-field": textField },
       metadata: { "honua:compositionLayerId": owner.id },
     });

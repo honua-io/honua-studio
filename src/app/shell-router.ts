@@ -8,11 +8,16 @@ import { Router } from "../router/router.js";
 
 export type RouteContext = Required<HomeViewContext>;
 
+export interface StudioRouteContext extends RouteContext {
+  /** False when the open view still holds edits navigation must not discard. */
+  readonly releaseView: () => boolean;
+}
+
 export interface StudioRoute {
   readonly path: string;
   readonly navTestId: string;
   readonly label: string;
-  readonly render: (root: HTMLElement, context: RouteContext) => void;
+  readonly render: (root: HTMLElement, context: StudioRouteContext) => void;
 }
 
 export const STUDIO_ROUTES: readonly StudioRoute[] = [
@@ -26,7 +31,7 @@ export const STUDIO_ROUTES: readonly StudioRoute[] = [
     path: "/content",
     navTestId: "nav-content",
     label: "Content",
-    render: (root, { auth }) => renderContent(root, auth),
+    render: (root, { auth, releaseView }) => renderContent(root, auth, releaseView),
   },
   { path: "/about", navTestId: "nav-about", label: "About", render: (root) => renderAbout(root) },
 ];
@@ -164,7 +169,12 @@ export class ShellRouter {
 
   #renderRoute(route: StudioRoute, root: HTMLElement): void {
     const { host } = this.options;
-    route.render(root, { client: host.studioClient, auth: host.auth, onAddSource: this.options.addCatalogSource });
+    route.render(root, {
+      client: host.studioClient,
+      auth: host.auth,
+      onAddSource: this.options.addCatalogSource,
+      releaseView: () => this.#releaseView(),
+    });
     this.options.onRouteRendered();
   }
 }

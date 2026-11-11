@@ -69,6 +69,17 @@ async function panelDraft(app: HonuaStudioAppElement, draftId: string): Promise<
   return panel;
 }
 
+function openContentDraft(app: HonuaStudioAppElement, draftId: string): void {
+  const browser = app.shadowRoot?.querySelector("honua-studio-content-browser");
+  if (!browser) throw new Error("The content route did not mount a browser.");
+  browser.dispatchEvent(
+    new CustomEvent("honua-studio-open-item", {
+      bubbles: true,
+      detail: { draftId, itemId: "item", family: "map", packageKey: "map" },
+    }),
+  );
+}
+
 function markStyleDirty(app: HonuaStudioAppElement) {
   const frame = app.shadowRoot?.querySelector("iframe");
   if (!frame) throw new Error("The style editor did not open a frame.");
@@ -162,6 +173,58 @@ describe("style editor follows the lifecycle panel draft", () => {
     expect(nextFrame).toBeTruthy();
     expect(nextFrame).not.toBe(firstFrame);
     expect(nextFrame?.isConnected).toBe(true);
+  });
+
+  it("closes a clean style editor before the content list opens another draft", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+      draftEnvelope(draftId, styleFor("#aaaaaa")),
+    );
+    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+    const app = await mountedContentApp();
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    openContentDraft(app, "draft-a");
+    await panelDraft(app, "draft-a");
+    await app.openStyleEditor();
+    expect(app.shadowRoot?.querySelector("iframe")?.isConnected).toBe(true);
+    app.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="content-route-back"]')?.click();
+    expect(app.shadowRoot?.querySelector("iframe")).toBeFalsy();
+    openContentDraft(app, "draft-b");
+    await vi.waitFor(() =>
+      expect(app.shadowRoot?.querySelector("honua-studio-lifecycle-panel")?.getAttribute("draft-id")).toBe("draft-b"),
+    );
+    expect(app.shadowRoot?.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("keeps the open draft when content navigation would leave a dirty style editor", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+      draftEnvelope(draftId, styleFor("#aaaaaa")),
+    );
+    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+    const app = await mountedContentApp();
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    openContentDraft(app, "draft-a");
+    await panelDraft(app, "draft-a");
+    await app.openStyleEditor();
+    const frame = markStyleDirty(app);
+    expect(app.hasUnsavedStyleChanges).toBe(true);
+    openContentDraft(app, "draft-a");
+    const revealed = app.shadowRoot?.querySelector<HTMLElement>('[data-testid="content-route-panel"]');
+    expect(revealed?.hidden).toBe(false);
+    app.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="content-route-back"]')?.click();
+    const panelSlot = app.shadowRoot?.querySelector<HTMLElement>('[data-testid="content-route-panel"]');
+    expect(panelSlot?.hidden).toBe(false);
+    expect(frame.isConnected).toBe(true);
+    expect(app.shadowRoot?.querySelector("honua-studio-lifecycle-panel")?.getAttribute("draft-id")).toBe("draft-a");
+    openContentDraft(app, "draft-b");
+    expect(app.shadowRoot?.querySelector("honua-studio-lifecycle-panel")?.getAttribute("draft-id")).toBe("draft-a");
+    expect(frame.isConnected).toBe(true);
+    expect(app.shadowRoot?.querySelector("[aria-label='Map style editor'] [role='status']")?.textContent).toContain(
+      "Save or discard visual style edits before leaving.",
+    );
   });
 
   it("keeps a dirty style editor when the lifecycle panel names another draft", async () => {

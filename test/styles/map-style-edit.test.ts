@@ -98,6 +98,18 @@ describe("map-local authorized style editing", () => {
     ).toThrow("described field");
   });
 
+  it("copies the selected render layer filter onto a new label layer", () => {
+    const filtered = structuredClone(style) as Record<string, any>;
+    const predicate = ["==", ["get", "class"], "primary"];
+    filtered.layers[0].filter = predicate;
+    const next = featureLabelStyle(filtered, { id: "roads", sourceId: "roads" }, { name: "name", type: "String" });
+    expect(validateMapStyleEdit(filtered, next)).toEqual([]);
+    const label = (next.layers as Record<string, any>[])[1];
+    expect(label.filter).toEqual(predicate);
+    label.filter[2] = "changed";
+    expect(filtered.layers[0].filter[2]).toBe("primary");
+  });
+
   it("updates an existing untagged label layer without claiming a new owner", () => {
     const labeled = structuredClone(style) as Record<string, any>;
     labeled.layers.push({
