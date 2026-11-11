@@ -35,8 +35,11 @@ at `0fa9258` ran all five with retries disabled: 2 passed, 3 failed, 0 skipped. 
 scripted MCP passed; publication stopped at the absent human credential after verifying
 pending state; model journeys refused the demo's Bedrock-only provider configuration.
 Do not turn fixture or packaging receipts into claims of live model/publication success.
-The live publish journey requires `HONUA_LIVE_HUMAN_TOKEN`; model calls must select a
-configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
+The live publish journey signs a dedicated human into the Console UI using CI secrets
+`HONUA_LIVE_APPROVER_USERNAME` and `HONUA_LIVE_APPROVER_PASSWORD`. Configure repository variables
+`HONUA_LIVE_CONSOLE_URL`, `HONUA_LIVE_CONSOLE_PROFILE_ID` and `HONUA_LIVE_APPROVER_IDP_ORIGIN`.
+The approver uses a fresh browser context and clicks the selected proposal; no bearer or
+API-key approval path exists. Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
 models, skipped MCP checks or a weaker assertion to work around an older demo revision.
 
 ## Invariants

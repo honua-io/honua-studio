@@ -2,7 +2,8 @@
 import { expect, test } from "@playwright/test";
 
 import { startPreviewServer } from "./helpers.mjs";
-import { approveLivePublication, selectLiveModel } from "./live-journey-contract.mjs";
+import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
+import { selectLiveModel } from "./live-journey-contract.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const LIVE_API_KEY = process.env.HONUA_LIVE_API_KEY;
@@ -63,13 +64,14 @@ test.describe("live demo-server journeys @live", () => {
     expect(before.items).toHaveLength(1);
     expect(before.items[0].state).not.toBe("published");
     expect(before.items[0].publishedVersionId).toBeFalsy();
-    const approved = await approveLivePublication(
-      LIVE_BASE_URL,
-      pending.proposalId,
-      process.env.HONUA_LIVE_HUMAN_TOKEN,
-    );
-    expect(approved.proposalId).toBe(pending.proposalId);
-    expect(approved.status).toBe("Succeeded");
+    const approvalConfiguration = liveApprovalConfiguration();
+    const approvalContext = await page.context().browser().newContext();
+    try {
+      const approvalPage = await approvalContext.newPage();
+      await approveLivePublication(approvalPage, { ...approvalConfiguration, proposalId: pending.proposalId });
+    } finally {
+      await approvalContext.close();
+    }
     const { itemId, requestId } = pending.resourceIds;
     expect(itemId).toBe(before.items[0].itemId);
     expect(requestId).toBeTruthy();
