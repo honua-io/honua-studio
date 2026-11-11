@@ -74,6 +74,15 @@ test("a redirected mismatch keeps the failing exit status", () => {
   }
 });
 
+test("an armed command rejects a missing SHA before any qualification", () => {
+  const child = spawnSync(process.execPath, [scriptPath], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, HONUA_CANDIDATE_JOURNEYS: "on" },
+  });
+  assert.equal(child.status, 2);
+  assert.match(child.stderr, /40 lowercase hex/);
+});
+
 test("the command rejects a SHA that is not 40 lowercase hex characters", () => {
   assert.throws(() => switchedOffCandidateRow(lock, lock.server.revision.slice(0, 7)), /40 lowercase hex/);
   const child = spawnSync(process.execPath, [scriptPath, "not-a-sha"], {
@@ -99,10 +108,12 @@ test("candidate journeys have no schedule and stay off until the repository vari
   assert.doesNotMatch(switchedOff, /live-compose-stack\.mjs/u);
   assert.doesNotMatch(switchedOff, /live-compose-qualify\.yml/u);
   assert.match(qualify, /uses: \.\/\.github\/workflows\/live-compose-qualify\.yml/u);
+  assert.match(qualify, /row_mode: candidate/u);
   assert.match(qualify, /candidate_sha:/u);
   assert.match(shared, /workflow_call:/u);
   assert.match(shared, /live-compose-stack\.mjs check/u);
-  assert.match(shared, /inputs\.candidate_sha != ''/u);
+  assert.match(shared, /inputs\.row_mode == 'candidate'/u);
+  assert.doesNotMatch(shared, /candidate_sha != ''/u);
   assert.match(shared, /live-candidate-row\.mjs/u);
   assert.doesNotMatch(workflow, /live-compose-stack\.mjs/u);
 });

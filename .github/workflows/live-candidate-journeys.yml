@@ -5,7 +5,6 @@ name: Live candidate journeys
 # That send is not wired, and this workflow has no schedule.
 # Journeys start only when the repository variable HONUA_CANDIDATE_JOURNEYS is on
 # and scripts/live-compose-images.json pins that same server revision.
-# The armed job calls the shared qualification workflow; it does not copy those steps.
 
 on:
   repository_dispatch:
@@ -57,5 +56,6 @@ jobs:
     uses: ./.github/workflows/live-compose-qualify.yml
     with:
       artifact_name: live-candidate-journeys
+      row_mode: candidate
       candidate_sha: ${{ github.event.client_payload.candidate_sha || inputs.candidate_sha }}
     secrets: inherit

@@ -13,26 +13,26 @@ function requireCandidateSha(candidateSha) {
   }
 }
 
-function candidateRow(lock, candidateSha, status, journeys) {
+function candidateRow(lock, candidateSha, status) {
   return {
     candidate_sha: candidateSha,
     lock_revision: lockRevision(lock),
     status,
-    journeys,
+    journeys: status === "armed" ? "ready" : "not-run",
   };
 }
 
 export function switchedOffCandidateRow(lock, candidateSha) {
   requireCandidateSha(candidateSha);
-  return candidateRow(lock, candidateSha, "switched-off", "not-run");
+  return candidateRow(lock, candidateSha, "switched-off");
 }
 
 export function armedCandidateRow(lock, candidateSha) {
   requireCandidateSha(candidateSha);
   if (lockRevision(lock) !== candidateSha) {
-    return candidateRow(lock, candidateSha, "lock-mismatch", "not-run");
+    return candidateRow(lock, candidateSha, "lock-mismatch");
   }
-  return candidateRow(lock, candidateSha, "armed", "ready");
+  return candidateRow(lock, candidateSha, "armed");
 }
 
 function main() {

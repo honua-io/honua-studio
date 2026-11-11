@@ -10,8 +10,13 @@ on:
         description: Artifact that holds this run's qualification evidence
         required: true
         type: string
+      row_mode:
+        description: none, or candidate to require a pinned SHA before qualification
+        required: false
+        type: string
+        default: none
       candidate_sha:
-        description: When set, refuse to qualify unless the pinned server revision is this SHA
+        description: Candidate source SHA required when row_mode is candidate
         required: false
         type: string
         default: ""
@@ -38,7 +43,7 @@ jobs:
           cache: npm
 
       - name: Require the pinned image revision for this SHA
-        if: ${{ inputs.candidate_sha != '' }}
+        if: ${{ inputs.row_mode == 'candidate' }}
         env:
           HONUA_CANDIDATE_JOURNEYS: "on"
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
