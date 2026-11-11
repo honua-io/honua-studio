@@ -528,6 +528,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.listen(this, "honua-studio-edit-style", (event) => {
       void this.#openStyleFromPanel(event);
     });
+    this.listen(this, "honua-studio-release-view", (event) => {
+      if (!this.#styleEditor.releaseForNavigation()) event.preventDefault();
+    });
     this.listen(this, "honua-studio-gp-add-output", (event) => {
       const detail = (event as CustomEvent<HonuaStudioGpAddOutputDetail>).detail;
       void this.toolCallOrchestrator.handleToolCall({

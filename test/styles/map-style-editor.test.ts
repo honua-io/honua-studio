@@ -370,6 +370,35 @@ it("revalidates every applied owner after frame flush before save", async () => 
   expect(editor.dirty).toBe(false);
 });
 
+it("enables save after a valid thematic preview replaces an invalid binding", async () => {
+  let fields = [{ name: "speed", type: "number" }];
+  const { container, editor, onSave } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    { layers: [{ id: "roads", sourceId: "roads" }], getFields: async () => fields },
+  );
+  await editor.refreshThematicFields();
+  const { apply } = previewThematicBreak(container);
+  const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "Save map style");
+  if (!save) throw new Error("Save is missing.");
+  expect(save.disabled).toBe(false);
+  fields = [{ name: "class", type: "string" }];
+  await editor.refreshThematicFields();
+  expect(save.disabled).toBe(true);
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  )!;
+  field.value = "class";
+  field.dispatchEvent(new Event("change"));
+  mode.value = "categories";
+  values.value = "Residential";
+  apply.click();
+  expect(save.disabled).toBe(false);
+  await editor.save();
+  expect(onSave).toHaveBeenCalledOnce();
+});
+
 it("refuses a same-name thematic field whose actual type changed", async () => {
   let fieldType = "number";
   const { container, editor, onSave } = setup(

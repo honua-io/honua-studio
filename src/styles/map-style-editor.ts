@@ -560,6 +560,7 @@ export class MapStyleEditor {
       expression,
       valid: true,
     });
+    this.#setDirty(true);
   }
   #previewFeatureLabels(controls: ThematicControls): void {
     const selected = this.#selectedField(controls);

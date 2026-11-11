@@ -249,4 +249,80 @@ describe("style editor follows the lifecycle panel draft", () => {
     expect(app.hasUnsavedStyleChanges).toBe(true);
     expect(frame.isConnected).toBe(true);
   });
+
+  it("keeps the open draft when reopening a version would leave a dirty style editor", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+      draftEnvelope(draftId, styleFor("#aaaaaa")),
+    );
+    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({
+      itemId: "item",
+      versions: [savedVersion()],
+    });
+    const reopen = vi.spyOn(StudioLifecycleClient.prototype, "reopenVersion");
+    const app = await mountedContentApp();
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    const panel = await panelDraft(app, "draft-a");
+    await app.openStyleEditor();
+    const frame = markStyleDirty(app);
+    const reopenButton = await vi.waitFor(() => {
+      const button = panel.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-reopen"]');
+      expect(button).toBeTruthy();
+      return button!;
+    });
+    reopenButton.click();
+    await vi.waitFor(() =>
+      expect(app.shadowRoot?.querySelector("[aria-label='Map style editor'] [role='status']")?.textContent).toContain(
+        "Save or discard visual style edits before leaving.",
+      ),
+    );
+    expect(reopen).not.toHaveBeenCalled();
+    expect(panel.getAttribute("draft-id")).toBe("draft-a");
+    expect(frame.isConnected).toBe(true);
+    expect(app.hasUnsavedStyleChanges).toBe(true);
+  });
+
+  it("closes a clean style editor before a reopened version replaces the panel draft", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+      draftEnvelope(draftId, styleFor(draftId === "draft-b" ? "#bbbbbb" : "#aaaaaa")),
+    );
+    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({
+      itemId: "item",
+      versions: [savedVersion()],
+    });
+    const reopen = vi
+      .spyOn(StudioLifecycleClient.prototype, "reopenVersion")
+      .mockResolvedValue(draftEnvelope("draft-b", styleFor("#bbbbbb")));
+    const app = await mountedContentApp();
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    const panel = await panelDraft(app, "draft-a");
+    await app.openStyleEditor();
+    expect(app.shadowRoot?.querySelector("iframe")?.isConnected).toBe(true);
+    const reopenButton = await vi.waitFor(() => {
+      const button = panel.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-reopen"]');
+      expect(button).toBeTruthy();
+      return button!;
+    });
+    reopenButton.click();
+    await vi.waitFor(() => expect(panel.getAttribute("draft-id")).toBe("draft-b"));
+    expect(reopen).toHaveBeenCalledOnce();
+    expect(app.shadowRoot?.querySelector("iframe")).toBeFalsy();
+    expect(app.hasUnsavedStyleChanges).toBe(false);
+  });
 });
+
+function savedVersion() {
+  return {
+    itemId: "item",
+    packageKey: "map",
+    versionId: "version-1",
+    versionNumber: 1,
+    contentHash: "abc123",
+    createdAt: "2026-01-01T00:00:00Z",
+    validation: { status: "valid", diagnostics: [] },
+    envelope: { family: "map", schemaVersion: "1.0", body: { layers: [] } },
+  } as Awaited<ReturnType<StudioLifecycleClient["listVersions"]>>["versions"][number];
+}

@@ -254,15 +254,23 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
 
   /** Copies an immutable version into a new mutable draft and switches this panel to it. Never publishes or moves a pointer. */
   public async reopenVersion(versionId: string): Promise<void> {
-    if (!this.#itemId) return;
+    if (!this.#itemId || !this.#releaseMountedEditor()) return;
     try {
       const draft = await this.client.reopenVersion(this.#itemId, versionId);
+      if (!this.#releaseMountedEditor()) return;
       this.#activity({ kind: "version-reopened", itemId: this.#itemId, versionId, draftId: draft.draftId });
       this.draftId = draft.draftId; // triggers attributeChangedCallback -> #load()
     } catch (error) {
       this.#error = describeError(error);
       this.render();
     }
+  }
+
+  /** A mounted style editor must close when it is clean, and block the switch when it still has edits. */
+  #releaseMountedEditor(): boolean {
+    const leaving = new CustomEvent("honua-studio-release-view", { bubbles: true, composed: true, cancelable: true });
+    this.dispatchEvent(leaving);
+    return !leaving.defaultPrevented;
   }
 
   #setCompare(side: "left" | "right", versionId: string): void {
