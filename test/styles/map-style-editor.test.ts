@@ -68,6 +68,24 @@ function setup(
   });
   return { container, frame, editor, onSave, onPreview, onDirty, send };
 }
+
+function previewThematicBreak(container: ParentNode, listed = "10", fieldName = "speed") {
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]');
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]');
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  );
+  const apply = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview thematic colors",
+  );
+  if (!field || !mode || !values || !apply) throw new Error("Thematic controls are missing.");
+  field.value = fieldName;
+  field.dispatchEvent(new Event("change"));
+  mode.value = "breaks";
+  values.value = listed;
+  apply.click();
+  return { field, mode, values, apply };
+}
 describe("credential-free controlled Maputnik frame", () => {
   it("uses scripts-only sandbox and a source/channel bound data protocol", () => {
     const { frame, editor, send, onPreview } = setup();
@@ -434,19 +452,7 @@ it("recovers when the field source throws before returning a promise", async () 
     { layers: [{ id: "roads", sourceId: "roads" }], getFields },
   );
   await editor.refreshThematicFields();
-  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
-  field.value = "speed";
-  field.dispatchEvent(new Event("change"));
-  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
-  const values = container.querySelector<HTMLTextAreaElement>(
-    'textarea[aria-label="Explicit thematic values, one per line"]',
-  )!;
-  const apply = [...container.querySelectorAll("button")].find(
-    (button) => button.textContent === "Preview thematic colors",
-  )!;
-  mode.value = "breaks";
-  values.value = "10";
-  apply.click();
+  const { apply } = previewThematicBreak(container);
   await editor.refreshThematicFields();
   const status = container.querySelector("[role='status']")!;
   expect(status.textContent).toContain("The field source failed before it could answer.");
