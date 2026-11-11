@@ -60,6 +60,17 @@ interface AppliedThematicBinding {
   valid: boolean;
 }
 
+interface ThematicControls {
+  readonly owner: HTMLSelectElement;
+  readonly field: HTMLSelectElement;
+  readonly mode: HTMLSelectElement;
+  readonly values: HTMLTextAreaElement;
+  readonly apply: HTMLButtonElement;
+  readonly labels: HTMLButtonElement;
+  fields: readonly MapStyleField[];
+  chosenFieldName?: string;
+}
+
 function thematicExpression(style: MapStyleDocument, ownerId: string, sourceId: string): string | undefined {
   const layers = style.layers;
   if (!Array.isArray(layers)) return undefined;
@@ -408,21 +419,16 @@ export class MapStyleEditor {
     labels.type = "button";
     labels.textContent = "Preview feature labels";
     labels.disabled = true;
-    const state: { fields: readonly MapStyleField[]; chosenFieldName?: string } = { fields: [] };
-    const enableFieldActions = () => {
-      const ready = state.fields.some((actual) => actual.name === field.value);
-      apply.disabled = !ready;
-      labels.disabled = !ready;
-    };
-    const load = () => this.#reloadThematicFields(owner, field, apply, labels, state, enableFieldActions);
+    const controls: ThematicControls = { owner, field, mode, values, apply, labels, fields: [] };
+    const load = () => this.#reloadThematicFields(controls);
     this.#refreshFields = load;
     owner.addEventListener("change", () => {
-      state.chosenFieldName = undefined;
+      controls.chosenFieldName = undefined;
       void load();
     });
     field.addEventListener("change", () => {
-      state.chosenFieldName = field.value || undefined;
-      enableFieldActions();
+      controls.chosenFieldName = field.value || undefined;
+      this.#enableFieldActions(controls);
     });
     values.addEventListener("input", () => {
       this.#setDirty(true);
@@ -431,14 +437,14 @@ export class MapStyleEditor {
     });
     apply.addEventListener("click", () => {
       try {
-        this.#previewThematic(owner, field, state.fields, mode, values);
+        this.#previewThematic(controls);
       } catch (error) {
         this.#error(error);
       }
     });
     labels.addEventListener("click", () => {
       try {
-        this.#previewFeatureLabels(owner, field, state.fields);
+        this.#previewFeatureLabels(controls);
       } catch (error) {
         this.#error(error);
       }
@@ -457,76 +463,68 @@ export class MapStyleEditor {
     );
     void load();
   }
-  #reloadThematicFields(
-    owner: HTMLSelectElement,
-    field: HTMLSelectElement,
-    apply: HTMLButtonElement,
-    labels: HTMLButtonElement,
-    state: { fields: readonly MapStyleField[]; chosenFieldName?: string },
-    enable: () => void,
-  ): Promise<void> {
-    if (this.#disposed) return Promise.resolve();
+  #enableFieldActions(controls: ThematicControls): void {
+    const ready = controls.fields.some((actual) => actual.name === controls.field.value);
+    controls.apply.disabled = !ready;
+    controls.labels.disabled = !ready;
+  }
+  async #reloadThematicFields(controls: ThematicControls): Promise<void> {
+    if (this.#disposed) return;
     const current = ++this.#fieldLoadEpoch;
-    this.#selectedOwner = owner.value;
-    this.#options.onSelectLayer?.(owner.value);
-    const selected = this.#options.layers?.find((layer) => layer.id === owner.value);
-    field.replaceChildren();
-    state.fields = [];
-    apply.disabled = true;
-    labels.disabled = true;
-    if (!selected || !this.#options.getFields) return Promise.resolve();
+    this.#selectedOwner = controls.owner.value;
+    this.#options.onSelectLayer?.(controls.owner.value);
+    const selected = this.#options.layers?.find((layer) => layer.id === controls.owner.value);
+    controls.field.replaceChildren();
+    controls.fields = [];
+    controls.apply.disabled = true;
+    controls.labels.disabled = true;
+    if (!selected || !this.#options.getFields) return;
     this.#fieldLoadPending = true;
     this.#setDirty(this.#dirty);
     const generation = current;
-    return this.#options
-      .getFields(selected.sourceId)
-      .then((observed) => {
-        if (this.#disposed || generation !== this.#fieldLoadEpoch || owner.value !== selected.id) return;
-        state.fields = observed;
-        for (const actual of observed) field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
-        const binding = this.#appliedThematics.get(selected.id);
-        if (binding && binding.sourceId === selected.sourceId) {
-          binding.valid = observed.some(
-            (actual) => actual.name === binding.fieldName && actual.type === binding.fieldType,
-          );
-          if (!binding.valid)
-            this.#status.textContent = "The applied thematic field changed. Choose a current field and reapply.";
-        }
-        if (state.chosenFieldName !== undefined) {
-          if (observed.some((actual) => actual.name === state.chosenFieldName)) field.value = state.chosenFieldName;
-          else {
-            field.selectedIndex = -1;
-            this.#status.textContent = "The selected source field is unavailable. Choose a current described field.";
-          }
-        } else if (observed.length) state.chosenFieldName = field.value;
-        enable();
-        this.#frame.contentWindow?.postMessage(
-          { type: "honua:style-fields", channel: this.#channel, sourceId: selected.sourceId, fields: observed },
-          "*",
+    try {
+      const observed = await this.#options.getFields(selected.sourceId);
+      if (this.#disposed || generation !== this.#fieldLoadEpoch || controls.owner.value !== selected.id) return;
+      controls.fields = observed;
+      for (const actual of observed) controls.field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
+      const binding = this.#appliedThematics.get(selected.id);
+      if (binding && binding.sourceId === selected.sourceId) {
+        binding.valid = observed.some(
+          (actual) => actual.name === binding.fieldName && actual.type === binding.fieldType,
         );
-      })
-      .catch((error: unknown) => {
-        if (!this.#disposed && generation === this.#fieldLoadEpoch) {
-          const binding = this.#appliedThematics.get(selected.id);
-          if (binding) binding.valid = false;
-          this.#error(error);
+        if (!binding.valid)
+          this.#status.textContent = "The applied thematic field changed. Choose a current field and reapply.";
+      }
+      if (controls.chosenFieldName !== undefined) {
+        if (observed.some((actual) => actual.name === controls.chosenFieldName))
+          controls.field.value = controls.chosenFieldName;
+        else {
+          controls.field.selectedIndex = -1;
+          this.#status.textContent = "The selected source field is unavailable. Choose a current described field.";
         }
-      })
-      .finally(() => {
-        if (generation === this.#fieldLoadEpoch) {
-          this.#fieldLoadPending = false;
-          this.#setDirty(this.#dirty);
-        }
-      });
+      } else if (observed.length) controls.chosenFieldName = controls.field.value;
+      this.#enableFieldActions(controls);
+      this.#frame.contentWindow?.postMessage(
+        { type: "honua:style-fields", channel: this.#channel, sourceId: selected.sourceId, fields: observed },
+        "*",
+      );
+    } catch (error) {
+      if (!this.#disposed && generation === this.#fieldLoadEpoch) {
+        const binding = this.#appliedThematics.get(selected.id);
+        if (binding) binding.valid = false;
+        this.#error(error);
+      }
+    } finally {
+      if (generation === this.#fieldLoadEpoch) {
+        this.#fieldLoadPending = false;
+        this.#setDirty(this.#dirty);
+      }
+    }
   }
-  #selectedField(
-    owner: HTMLSelectElement,
-    field: HTMLSelectElement,
-    fields: readonly MapStyleField[],
-  ): { owner: MapStyleLayerOwner; field: MapStyleField } {
+  #selectedField(controls: ThematicControls): { owner: MapStyleLayerOwner; field: MapStyleField } {
     if (this.#busy || this.#fieldLoadPending) throw new Error("Wait for the current field refresh.");
-    const selected = this.#options.layers?.find((layer) => layer.id === owner.value);
-    const actual = fields.find((item) => item.name === field.value);
+    const selected = this.#options.layers?.find((layer) => layer.id === controls.owner.value);
+    const actual = controls.fields.find((item) => item.name === controls.field.value);
     if (!selected || !actual) throw new Error("Choose an actual described field.");
     return { owner: selected, field: actual };
   }
@@ -540,20 +538,15 @@ export class MapStyleEditor {
     this.#load();
     this.#status.textContent = status;
   }
-  #previewThematic(
-    owner: HTMLSelectElement,
-    field: HTMLSelectElement,
-    fields: readonly MapStyleField[],
-    mode: HTMLSelectElement,
-    values: HTMLTextAreaElement,
-  ): void {
-    const selected = this.#selectedField(owner, field, fields);
+  #previewThematic(controls: ThematicControls): void {
+    const selected = this.#selectedField(controls);
+    const numeric = controls.mode.value === "breaks" || isNumericMapStyleField(selected.field);
     const next = thematicMapStyle(
       this.#candidate,
       selected.owner,
       selected.field,
-      mode.value as "categories" | "breaks",
-      explicitThematicValues(values.value, mode.value === "breaks" || isNumericMapStyleField(selected.field)),
+      controls.mode.value as "categories" | "breaks",
+      explicitThematicValues(controls.values.value, numeric),
       ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6", "#3182bd", "#08519c"],
     );
     this.#acceptPreview(next, "Unsaved thematic preview over the selected actual field.");
@@ -568,8 +561,8 @@ export class MapStyleEditor {
       valid: true,
     });
   }
-  #previewFeatureLabels(owner: HTMLSelectElement, field: HTMLSelectElement, fields: readonly MapStyleField[]): void {
-    const selected = this.#selectedField(owner, field, fields);
+  #previewFeatureLabels(controls: ThematicControls): void {
+    const selected = this.#selectedField(controls);
     this.#acceptPreview(
       featureLabelStyle(this.#candidate, selected.owner, selected.field),
       "Unsaved feature labels over the selected actual field.",

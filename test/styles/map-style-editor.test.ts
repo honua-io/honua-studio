@@ -422,6 +422,42 @@ it("blocks saving an applied thematic preview while its field refresh is pending
   expect(onSave).toHaveBeenCalledOnce();
 });
 
+it("recovers when the field source throws before returning a promise", async () => {
+  let reads = 0;
+  const getFields = vi.fn(() => {
+    reads++;
+    if (reads >= 3) throw new Error("The field source failed before it could answer.");
+    return Promise.resolve([{ name: "speed", type: "number" }]);
+  });
+  const { container, editor, onSave } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    { layers: [{ id: "roads", sourceId: "roads" }], getFields },
+  );
+  await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "speed";
+  field.dispatchEvent(new Event("change"));
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  )!;
+  const apply = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview thematic colors",
+  )!;
+  mode.value = "breaks";
+  values.value = "10";
+  apply.click();
+  await editor.refreshThematicFields();
+  const status = container.querySelector("[role='status']")!;
+  expect(status.textContent).toContain("The field source failed before it could answer.");
+  await editor.save();
+  expect(onSave).not.toHaveBeenCalled();
+  expect(status.textContent).toContain("no longer available");
+  expect(status.textContent).not.toContain("Wait for the current thematic field refresh");
+  apply.click();
+  expect(status.textContent).not.toContain("Wait for the current field refresh.");
+});
+
 it("refuses save when disposal happens during post-flush field revalidation", async () => {
   let resolveRevalidation: ((fields: readonly { name: string; type: string }[]) => void) | undefined;
   let reads = 0;
