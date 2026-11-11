@@ -1474,45 +1474,136 @@ it.each([false, true])("shows shared-link detachment only for live references (i
   }
 });
 
-it("attaches the open lifecycle draft before editing its style", async () => {
-  const draft = (draftId: string) =>
-    ({
-      draftId,
-      itemId: "item",
-      generation: 1,
-      packageKey: "map",
-      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
-    }) as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
-  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) => draft(draftId));
-  vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
-  const order: string[] = [];
+function styleFor(color: string) {
+  return {
+    version: 8,
+    sources: {},
+    layers: [{ id: "background", type: "background", paint: { "background-color": color } }],
+  };
+}
+
+async function mountedContentApp(): Promise<HonuaStudioAppElement> {
   window.location.hash = "#/content";
   const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
   app.session = fixtureSession();
   app.setAttribute("data-theme-set", "");
   document.body.appendChild(app);
+  await vi.waitFor(() => expect(app.shadowRoot?.querySelector("honua-studio-lifecycle-panel")?.isConnected).toBe(true));
+  return app;
+}
+
+async function panelDraft(app: HonuaStudioAppElement, draftId: string): Promise<HTMLElement> {
+  let panel: HTMLElement | undefined;
+  await vi.waitFor(() => {
+    const current = app.shadowRoot?.querySelector("honua-studio-lifecycle-panel");
+    expect(current?.isConnected).toBe(true);
+    if (current instanceof HTMLElement && current.getAttribute("draft-id") !== draftId)
+      (current as HTMLElement & { draftId: string }).draftId = draftId;
+    expect(current?.shadowRoot?.querySelector('[data-testid="lifecycle-panel-edit-style"]')).toBeTruthy();
+    panel = current as HTMLElement;
+  });
+  if (!panel) throw new Error("The content route did not keep a lifecycle panel.");
+  return panel;
+}
+
+it("reopens a clean style editor against the lifecycle panel draft", async () => {
+  const active = { id: "draft-a" };
+  const styles = { "draft-a": styleFor("#aaaaaa"), "draft-b": styleFor("#bbbbbb") };
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(
+    async (draftId: string) =>
+      ({
+        draftId,
+        itemId: "item",
+        generation: 1,
+        packageKey: "map",
+        envelope: {
+          family: "map",
+          schemaVersion: "1.0",
+          format: "honua_map_package.v1",
+          body: { layers: [], mapSpec: styles[draftId as "draft-a" | "draft-b"] },
+        },
+      }) as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>,
+  );
+  vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+  const app = await mountedContentApp();
   try {
     await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    const readStyle = vi
+      .spyOn(canvas, "editableMapStyle")
+      .mockImplementation(async () => styles[active.id as "draft-a"]);
+    await app.openStyleEditor();
+    const firstFrame = app.shadowRoot?.querySelector("iframe");
+    expect(firstFrame).toBeTruthy();
     const attach = app.attachWorkspaceDraft.bind(app);
+    const trace: string[] = [];
     vi.spyOn(app, "attachWorkspaceDraft").mockImplementation(async (draftId: string) => {
-      order.push(`attach:${draftId}`);
+      trace.push(`attach:${draftId}`);
       await attach(draftId);
+      active.id = draftId;
     });
-    vi.spyOn(app, "openStyleEditor").mockImplementation(async () => {
-      order.push("open");
+    readStyle.mockImplementation(async () => {
+      trace.push(`read:${active.id}`);
+      return styles[active.id as "draft-a" | "draft-b"];
     });
-    let panel: HTMLElement | undefined;
-    await vi.waitFor(() => {
-      const current = app.shadowRoot?.querySelector("honua-studio-lifecycle-panel");
-      expect(current?.isConnected).toBe(true);
-      if (current instanceof HTMLElement && current.getAttribute("draft-id") !== "draft-b")
-        (current as HTMLElement & { draftId: string }).draftId = "draft-b";
-      expect(current?.shadowRoot?.querySelector('[data-testid="lifecycle-panel-edit-style"]')).toBeTruthy();
-      panel = current as HTMLElement;
-    });
-    panel?.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-panel-edit-style"]')?.click();
-    await vi.waitFor(() => expect(order).toContain("open"));
-    expect(order).toEqual(["attach:draft-b", "open"]);
+    const panel = await panelDraft(app, "draft-b");
+    panel.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-panel-edit-style"]')?.click();
+    await vi.waitFor(() => expect(trace).toContain("read:draft-b"));
+    expect(trace.indexOf("attach:draft-b")).toBeLessThan(trace.indexOf("read:draft-b"));
+    const nextFrame = app.shadowRoot?.querySelector("iframe");
+    expect(nextFrame).toBeTruthy();
+    expect(nextFrame).not.toBe(firstFrame);
+    expect(nextFrame?.isConnected).toBe(true);
+  } finally {
+    app.remove();
+    app.session = undefined;
+    vi.restoreAllMocks();
+  }
+});
+
+it("keeps a dirty style editor when the lifecycle panel names another draft", async () => {
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(
+    async (draftId: string) =>
+      ({
+        draftId,
+        itemId: "item",
+        generation: 1,
+        packageKey: "map",
+        envelope: {
+          family: "map",
+          schemaVersion: "1.0",
+          format: "honua_map_package.v1",
+          body: { layers: [], mapSpec: styleFor("#aaaaaa") },
+        },
+      }) as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>,
+  );
+  vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+  const app = await mountedContentApp();
+  try {
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    await app.openStyleEditor();
+    const frame = app.shadowRoot?.querySelector("iframe");
+    expect(frame).toBeTruthy();
+    const channel = new URLSearchParams(new URL(frame!.src).hash.slice(1)).get("channel");
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: frame!.contentWindow,
+        origin: "null",
+        data: { type: "honua:style-input", channel },
+      }),
+    );
+    expect(app.hasUnsavedStyleChanges).toBe(true);
+    const panel = await panelDraft(app, "draft-b");
+    panel.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-panel-edit-style"]')?.click();
+    await vi.waitFor(() =>
+      expect(app.shadowRoot?.querySelector("[aria-label='Map style editor'] [role='status']")?.textContent).toContain(
+        "Save pending Studio edits",
+      ),
+    );
+    expect(app.hasUnsavedStyleChanges).toBe(true);
+    expect(frame?.isConnected).toBe(true);
   } finally {
     app.remove();
     app.session = undefined;
