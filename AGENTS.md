@@ -57,6 +57,7 @@ and a real OIDC provider, and seeds a dedicated test person. The only operator-s
 `HONUA_LIVE_ANTHROPIC_API_KEY`; per-run API/bootstrap credentials and the test person's password
 are generated privately. Playwright signs into Console in a fresh browser context and attempts to
 approve the selected proposal; no supplied bearer or API key approves publication.
+`live-candidate-journeys.yml` records one row per candidate source SHA and has no schedule. Journeys stay off unless the repository variable `HONUA_CANDIDATE_JOURNEYS` is `on` and `scripts/live-compose-images.json` pins that same server revision.
 `live-demo-canary.yml` retains the demo as a separate non-gating canary;
 its external Console uses `HONUA_LIVE_APPROVER_USERNAME`/`HONUA_LIVE_APPROVER_PASSWORD` secrets
 and `HONUA_LIVE_CONSOLE_URL`/`HONUA_LIVE_CONSOLE_PROFILE_ID`/`HONUA_LIVE_APPROVER_IDP_ORIGIN` variables.

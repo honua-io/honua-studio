@@ -79,7 +79,7 @@ jobs:
         run: node --test scripts/__tests__/codeql-workflow.test.mjs
 
       - name: Test live journey harness contracts
-        run: node --test scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
+        run: node --test scripts/__tests__/live-candidate-row.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
 
       - name: Unit tests
         run: npm test
