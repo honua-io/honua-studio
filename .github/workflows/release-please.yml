@@ -56,9 +56,11 @@ jobs:
 
       # A release pull request the App opens starts its required checks at once;
       # one opened with GITHUB_TOKEN gets approval-required runs instead.
+      # A 404 here means the app is not installed. That must not skip the pull request.
       - name: Mint the release pull request token
         id: app-token
         if: steps.creds.outputs.available == 'true'
+        continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
@@ -66,6 +68,10 @@ jobs:
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write
+
+      - name: Warn when the bot app cannot open the pull request
+        if: steps.creds.outputs.available == 'true' && steps.app-token.outcome == 'failure'
+        run: echo "::warning::The bot app could not mint a token for this repository, so GITHUB_TOKEN opens the release pull request. Required checks on that pull request wait for a maintainer to approve the workflow runs."
 
       - name: Open or update the release pull request
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
