@@ -110,6 +110,49 @@ describe("style editor follows the lifecycle panel draft", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps a host-opened style editor visible while the content browser hides the lifecycle panel", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+      draftEnvelope(draftId, styleFor("#aaaaaa")),
+    );
+    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+    const app = await mountedContentApp();
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    const panel = await panelDraft(app, "draft-a");
+    const panelSlot = panel.parentElement;
+    if (!panelSlot) throw new Error("The lifecycle panel has no slot.");
+    panelSlot.hidden = true;
+    expect(panel.getAttribute("draft-id")).toBe("draft-a");
+    expect(panel.shadowRoot?.querySelector("slot[name='style-editor']")).toBeTruthy();
+    await app.openStyleEditor();
+    const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
+    expect(editor?.isConnected).toBe(true);
+    expect(panelSlot.contains(editor ?? null)).toBe(false);
+    expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.contains(editor ?? null)).toBe(true);
+    expect(editor?.querySelector("iframe")?.isConnected).toBe(true);
+  });
+
+  it("mounts the style editor in the lifecycle panel that is showing the open draft", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+      draftEnvelope(draftId, styleFor("#aaaaaa")),
+    );
+    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+    const app = await mountedContentApp();
+    await app.attachWorkspaceDraft("draft-a");
+    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+    const panel = await panelDraft(app, "draft-a");
+    const slot = panel.parentElement;
+    if (!slot) throw new Error("The lifecycle panel has no slot.");
+    slot.hidden = false;
+    await app.openStyleEditor();
+    const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
+    expect(panel.contains(editor ?? null)).toBe(true);
+    expect(editor?.getAttribute("slot")).toBe("style-editor");
+    expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.hasAttribute("data-style-mode")).toBe(false);
+  });
+
   it("removes a refused host path when current-path was absent, then accepts the retry", async () => {
     const style = styleFor("#ffffff");
     vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
