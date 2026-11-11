@@ -1473,3 +1473,49 @@ it.each([false, true])("shows shared-link detachment only for live references (i
     vi.restoreAllMocks();
   }
 });
+
+it("attaches the open lifecycle draft before editing its style", async () => {
+  const draft = (draftId: string) =>
+    ({
+      draftId,
+      itemId: "item",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", format: "honua_map_package.v1", body: { layers: [] } },
+    }) as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) => draft(draftId));
+  vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+  const order: string[] = [];
+  window.location.hash = "#/content";
+  const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+  app.session = fixtureSession();
+  app.setAttribute("data-theme-set", "");
+  document.body.appendChild(app);
+  try {
+    await app.attachWorkspaceDraft("draft-a");
+    const attach = app.attachWorkspaceDraft.bind(app);
+    vi.spyOn(app, "attachWorkspaceDraft").mockImplementation(async (draftId: string) => {
+      order.push(`attach:${draftId}`);
+      await attach(draftId);
+    });
+    vi.spyOn(app, "openStyleEditor").mockImplementation(async () => {
+      order.push("open");
+    });
+    let panel: HTMLElement | undefined;
+    await vi.waitFor(() => {
+      const current = app.shadowRoot?.querySelector("honua-studio-lifecycle-panel");
+      expect(current?.isConnected).toBe(true);
+      if (current instanceof HTMLElement && current.getAttribute("draft-id") !== "draft-b")
+        (current as HTMLElement & { draftId: string }).draftId = "draft-b";
+      expect(current?.shadowRoot?.querySelector('[data-testid="lifecycle-panel-edit-style"]')).toBeTruthy();
+      panel = current as HTMLElement;
+    });
+    panel?.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-panel-edit-style"]')?.click();
+    await vi.waitFor(() => expect(order).toContain("open"));
+    expect(order).toEqual(["attach:draft-b", "open"]);
+  } finally {
+    app.remove();
+    app.session = undefined;
+    vi.restoreAllMocks();
+  }
+});
