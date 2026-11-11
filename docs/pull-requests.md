@@ -13,7 +13,7 @@ runs the identical smokes — and `needs:` them — before it pushes a versioned
 `NODE_VERSION`/`DOTNET_VERSION` because a reusable workflow does not inherit the caller's `env`.
 `pr-issue-disposition.yml` runs the `PR Issue Disposition` check on every PR, and `claude-second-review.yml` the
 second-pass review once the first pass's threads are resolved.
-`live-demo-smoke.yml` dispatches `test:browser:live` against the digest-pinned customer Compose stack,
+`live-demo-smoke.yml` calls `live-compose-qualify.yml`, which runs the digest-pinned customer Compose qualification,
 using a dedicated OIDC test person for Console approval and the Anthropic API secret for Opus 5.5.
 `live-demo-canary.yml` retains the nightly demo as a separate non-gating canary. Fixture smokes
 do not establish live qualification. `security.yml` runs the org's reusable Trivy + Scorecard workflows.
