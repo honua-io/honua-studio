@@ -138,11 +138,11 @@ export class StyleEditorHost {
     });
   }
 
-  #mountPanel(): HTMLElement {
+  #mountPanel(draftId: string): HTMLElement {
     const panel = window.document.createElement("section");
     panel.setAttribute("aria-label", "Map style editor");
     const lifecycle = this.options.chrome.lifecyclePanel();
-    if (lifecycle) {
+    if (lifecycle && this.#lifecycleDisplaysDraft(lifecycle, draftId)) {
       panel.slot = "style-editor";
       lifecycle.append(panel);
     } else {
@@ -153,6 +153,24 @@ export class StyleEditorHost {
     return panel;
   }
 
+  #lifecycleDisplaysDraft(lifecycle: HTMLElement, draftId: string): boolean {
+    return (
+      lifecycle.getAttribute("draft-id") === draftId &&
+      Boolean(lifecycle.shadowRoot?.querySelector("slot[name='style-editor']")) &&
+      this.#isDisplayed(lifecycle)
+    );
+  }
+
+  #isDisplayed(start: HTMLElement): boolean {
+    let node: Node | null = start;
+    while (node) {
+      if (node instanceof HTMLElement && node.hidden) return false;
+      const parent: Node | null = node.parentNode;
+      node = parent instanceof ShadowRoot ? parent.host : parent;
+    }
+    return true;
+  }
+
   #editorOptions(
     session: EditingSession,
     document: MapStyleDocument,
@@ -160,7 +178,7 @@ export class StyleEditorHost {
   ): MapStyleEditorOptions {
     const { state } = this.options.composition;
     return {
-      container: this.#mountPanel(),
+      container: this.#mountPanel(session.identity.draftId),
       document,
       assetsUrl: this.options.host.styleEditorAssetsUrl,
       scope: {

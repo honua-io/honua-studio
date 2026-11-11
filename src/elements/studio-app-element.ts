@@ -500,7 +500,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       await this.openStyleEditor();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "The style editor could not open.";
-      const status = panel?.querySelector<HTMLElement>("[role='status']");
+      const status =
+        this.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor'] [role='status']") ??
+        panel?.querySelector<HTMLElement>("[role='status']");
       if (status) status.textContent = message;
       else if (panel) panel.showActionError(message);
       else {
