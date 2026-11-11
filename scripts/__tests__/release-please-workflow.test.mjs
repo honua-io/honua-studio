@@ -28,3 +28,8 @@ test("a failed bot token mint still opens the release pull request", () => {
   const open = step("Open or update the release pull request");
   assert.match(open, /token:\s*\$\{\{\s*steps\.app-token\.outputs\.token \|\| secrets\.GITHUB_TOKEN\s*\}\}/u);
 });
+
+test("unit tests run the release workflow pin", () => {
+  const ci = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+  assert.match(ci, /node --test scripts\/__tests__\/release-please-workflow\.test\.mjs/u);
+});
