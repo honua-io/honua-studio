@@ -41,7 +41,8 @@ jobs:
       - name: Record one switched-off row
         run: |
           mkdir -p .tmp
-          node scripts/live-candidate-row.mjs "$CANDIDATE_SHA" | tee .tmp/candidate-journey-row.json
+          node scripts/live-candidate-row.mjs "$CANDIDATE_SHA" > .tmp/candidate-journey-row.json
+          cat .tmp/candidate-journey-row.json
 
       - name: Upload the candidate row
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -70,7 +71,8 @@ jobs:
           HONUA_CANDIDATE_JOURNEYS: "on"
         run: |
           mkdir -p .tmp
-          node scripts/live-candidate-row.mjs "$CANDIDATE_SHA" | tee .tmp/candidate-journey-row.json
+          node scripts/live-candidate-row.mjs "$CANDIDATE_SHA" > .tmp/candidate-journey-row.json
+          cat .tmp/candidate-journey-row.json
 
       - name: Check qualification inputs
         id: images

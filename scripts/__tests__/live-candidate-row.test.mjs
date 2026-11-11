@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -51,6 +52,21 @@ test("the command fails when the armed pin does not match the SHA", () => {
   assert.equal(JSON.parse(child.stdout).status, "lock-mismatch");
 });
 
+test("a redirected mismatch keeps the failing exit status", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "candidate-row-"));
+  const output = resolve(directory, "row.json");
+  try {
+    const child = spawnSync("bash", ["-c", 'node "$1" "$2" > "$3"', "bash", scriptPath, otherSha, output], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, HONUA_CANDIDATE_JOURNEYS: "on" },
+    });
+    assert.equal(child.status, 1, child.stderr);
+    assert.equal(JSON.parse(readFileSync(output, "utf8")).status, "lock-mismatch");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("the command rejects a SHA that is not 40 lowercase hex characters", () => {
   assert.throws(() => candidateJourneyRow(lock, lock.server.revision.slice(0, 7), false), /40 lowercase hex/);
   const child = spawnSync(process.execPath, [scriptPath, "not-a-sha"], {
@@ -64,6 +80,7 @@ test("the command rejects a SHA that is not 40 lowercase hex characters", () => 
 test("candidate journeys have no schedule and stay off until the repository variable is on", () => {
   const workflow = readFileSync(workflowPath, "utf8");
   assert.doesNotMatch(workflow, /schedule:/u);
+  assert.doesNotMatch(workflow, /\| tee /u);
   assert.match(workflow, /types:\s*\[candidate-published\]/u);
   assert.match(workflow, /vars\.HONUA_CANDIDATE_JOURNEYS != 'on'/u);
   assert.match(workflow, /vars\.HONUA_CANDIDATE_JOURNEYS == 'on'/u);
