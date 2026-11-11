@@ -202,6 +202,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
+| Candidate journeys record one row per source SHA and stay switched off until `HONUA_CANDIDATE_JOURNEYS` is `on` and the pinned server revision is that SHA. No schedule. | `.github/workflows/live-candidate-journeys.yml` | #228 |
 | `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest demo canary](https://github.com/honua-io/honua-studio/actions/runs/42727969352): 2 passed, 3 failed before a model turn | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API

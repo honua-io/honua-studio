@@ -1,0 +1,61 @@
+name: Live candidate journeys
+
+# One result row per candidate source SHA. The image build sends
+# repository_dispatch type candidate-published with client_payload.candidate_sha.
+# That send is not wired, and this workflow has no schedule.
+# Journeys start only when the repository variable HONUA_CANDIDATE_JOURNEYS is on
+# and scripts/live-compose-images.json pins that same server revision.
+
+on:
+  repository_dispatch:
+    types: [candidate-published]
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 40-character source SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-candidate-journeys
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha || inputs.candidate_sha }}
+
+jobs:
+  switched-off:
+    name: Record switched-off candidate row
+    if: ${{ vars.HONUA_CANDIDATE_JOURNEYS != 'on' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Record one switched-off row
+        run: |
+          mkdir -p .tmp
+          node scripts/live-candidate-row.mjs "$CANDIDATE_SHA" > .tmp/candidate-journey-row.json
+          cat .tmp/candidate-journey-row.json
+
+      - name: Upload the candidate row
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-journey-row
+          path: .tmp/candidate-journey-row.json
+          if-no-files-found: error
+
+  qualify:
+    name: Qualify the pinned candidate
+    if: ${{ vars.HONUA_CANDIDATE_JOURNEYS == 'on' }}
+    uses: ./.github/workflows/live-compose-qualify.yml
+    with:
+      artifact_name: live-candidate-journeys
+      row_mode: candidate
+      candidate_sha: ${{ github.event.client_payload.candidate_sha || inputs.candidate_sha }}
+    secrets: inherit
