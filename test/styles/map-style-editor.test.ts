@@ -68,6 +68,24 @@ function setup(
   });
   return { container, frame, editor, onSave, onPreview, onDirty, send };
 }
+
+function previewThematicBreak(container: ParentNode, listed = "10", fieldName = "speed") {
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]');
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]');
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  );
+  const apply = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview thematic colors",
+  );
+  if (!field || !mode || !values || !apply) throw new Error("Thematic controls are missing.");
+  field.value = fieldName;
+  field.dispatchEvent(new Event("change"));
+  mode.value = "breaks";
+  values.value = listed;
+  apply.click();
+  return { field, mode, values, apply };
+}
 describe("credential-free controlled Maputnik frame", () => {
   it("uses scripts-only sandbox and a source/channel bound data protocol", () => {
     const { frame, editor, send, onPreview } = setup();
@@ -352,6 +370,35 @@ it("revalidates every applied owner after frame flush before save", async () => 
   expect(editor.dirty).toBe(false);
 });
 
+it("enables save after a valid thematic preview replaces an invalid binding", async () => {
+  let fields = [{ name: "speed", type: "number" }];
+  const { container, editor, onSave } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    { layers: [{ id: "roads", sourceId: "roads" }], getFields: async () => fields },
+  );
+  await editor.refreshThematicFields();
+  const { apply } = previewThematicBreak(container);
+  const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "Save map style");
+  if (!save) throw new Error("Save is missing.");
+  expect(save.disabled).toBe(false);
+  fields = [{ name: "class", type: "string" }];
+  await editor.refreshThematicFields();
+  expect(save.disabled).toBe(true);
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  const mode = container.querySelector<HTMLSelectElement>('select[aria-label="Thematic method"]')!;
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  )!;
+  field.value = "class";
+  field.dispatchEvent(new Event("change"));
+  mode.value = "categories";
+  values.value = "Residential";
+  apply.click();
+  expect(save.disabled).toBe(false);
+  await editor.save();
+  expect(onSave).toHaveBeenCalledOnce();
+});
+
 it("refuses a same-name thematic field whose actual type changed", async () => {
   let fieldType = "number";
   const { container, editor, onSave } = setup(
@@ -420,6 +467,30 @@ it("blocks saving an applied thematic preview while its field refresh is pending
   await refresh;
   await editor.save();
   expect(onSave).toHaveBeenCalledOnce();
+});
+
+it("recovers when the field source throws before returning a promise", async () => {
+  let reads = 0;
+  const getFields = vi.fn(() => {
+    reads++;
+    if (reads >= 3) throw new Error("The field source failed before it could answer.");
+    return Promise.resolve([{ name: "speed", type: "number" }]);
+  });
+  const { container, editor, onSave } = setup(
+    { kind: "map-local", detachesSharedStyles: true },
+    { layers: [{ id: "roads", sourceId: "roads" }], getFields },
+  );
+  await editor.refreshThematicFields();
+  const { apply } = previewThematicBreak(container);
+  await editor.refreshThematicFields();
+  const status = container.querySelector("[role='status']")!;
+  expect(status.textContent).toContain("The field source failed before it could answer.");
+  await editor.save();
+  expect(onSave).not.toHaveBeenCalled();
+  expect(status.textContent).toContain("no longer available");
+  expect(status.textContent).not.toContain("Wait for the current thematic field refresh");
+  apply.click();
+  expect(status.textContent).not.toContain("Wait for the current field refresh.");
 });
 
 it("refuses save when disposal happens during post-flush field revalidation", async () => {
@@ -558,6 +629,34 @@ it("shared style permission and incomplete impact prevent the save callback", as
   await editor.save();
   expect(onSave).not.toHaveBeenCalled();
   expect(editor.dirty).toBe(true);
+});
+it("saves host-authored feature labels when the visual frame never becomes ready", async () => {
+  const { container, editor, frame, onSave, onPreview } = setup(
+    { kind: "map-local", detachesSharedStyles: false },
+    {
+      layers: [{ id: "roads", sourceId: "roads" }],
+      getFields: async () => [{ name: "name", type: "string" }],
+    },
+  );
+  vi.mocked(frame.contentWindow!.postMessage).mockImplementation(() => {});
+  await editor.refreshThematicFields();
+  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+  field.value = "name";
+  field.dispatchEvent(new Event("change"));
+  const labels = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview feature labels",
+  )!;
+  expect(labels.disabled).toBe(false);
+  labels.click();
+  expect(onPreview).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      layers: expect.arrayContaining([expect.objectContaining({ id: "roads__labels", type: "symbol" })]),
+    }),
+  );
+  await editor.save();
+  expect(onSave).toHaveBeenCalledOnce();
+  expect(editor.dirty).toBe(false);
+  expect(container.textContent).toContain("Map style saved to the authorized draft.");
 });
 it("missing canonical save readback retains dirty buffer", async () => {
   const { editor, onSave, send } = setup();

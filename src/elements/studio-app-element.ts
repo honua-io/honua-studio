@@ -32,6 +32,7 @@ import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
+import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
 import type {
   HonuaStudioChatToolCallResultDetail,
   HonuaStudioCommandOutcome,
@@ -442,7 +443,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       return;
     }
     if (name === "current-path" && this.routingMode === "host") {
-      this.#router.followHostPath(newValue);
+      if (!this.#router.followHostPath(newValue)) {
+        if (oldValue === null) this.removeAttribute("current-path");
+        else if (this.getAttribute("current-path") !== oldValue) this.setAttribute("current-path", oldValue);
+        return;
+      }
       this.#router.render();
       return;
     }
@@ -482,6 +487,29 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     void this.applyHistoryAction(action);
   }
 
+  /** The panel's draft is the one on screen. Attach it before opening, and leave a dirty editor in place. */
+  async #openStyleFromPanel(event: Event): Promise<void> {
+    const reported = event.composedPath().find((node) => node instanceof HonuaStudioLifecyclePanelElement);
+    const panel = reported instanceof HonuaStudioLifecyclePanelElement ? reported : undefined;
+    try {
+      const requested = panel?.draftId;
+      if (requested && requested !== this.#drafts.identity?.draftId) {
+        if (!this.hasUnsavedStyleChanges) await this.closeStyleEditor();
+        await this.attachWorkspaceDraft(requested);
+      }
+      await this.openStyleEditor();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "The style editor could not open.";
+      const status = panel?.querySelector<HTMLElement>("[role='status']");
+      if (status) status.textContent = message;
+      else if (panel) panel.showActionError(message);
+      else {
+        const fallback = this.shadowRoot?.querySelector("honua-studio-lifecycle-panel");
+        if (fallback instanceof HonuaStudioLifecyclePanelElement) fallback.showActionError(message);
+      }
+    }
+  }
+
   /** Chat tool calls, lifecycle and GP panel activity arrive as composed events from descendants. */
   #listenForChildActivity(): void {
     this.listen(this, "honua-studio-chat-tool-call-result", (event) => {
@@ -497,6 +525,12 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
         this.#children.chat()?.activityLog.append(entry, { ...detail });
       });
     }
+    this.listen(this, "honua-studio-edit-style", (event) => {
+      void this.#openStyleFromPanel(event);
+    });
+    this.listen(this, "honua-studio-release-view", (event) => {
+      if (!this.#styleEditor.releaseForNavigation()) event.preventDefault();
+    });
     this.listen(this, "honua-studio-gp-add-output", (event) => {
       const detail = (event as CustomEvent<HonuaStudioGpAddOutputDetail>).detail;
       void this.toolCallOrchestrator.handleToolCall({

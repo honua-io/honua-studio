@@ -14,7 +14,7 @@ import type { HonuaStudioContentBrowserElement } from "../elements/studio-conten
 import type { HonuaStudioLifecyclePanelElement } from "../elements/studio-lifecycle-panel-element.js";
 import type { HonuaStudioOpenItemDetail } from "../elements/types.js";
 
-export function renderContent(root: HTMLElement, auth: AuthSession): void {
+export function renderContent(root: HTMLElement, auth: AuthSession, releaseView: () => boolean): void {
   registerStudioElement("honua-studio-content-browser");
   registerStudioElement("honua-studio-lifecycle-panel");
 
@@ -56,12 +56,18 @@ export function renderContent(root: HTMLElement, auth: AuthSession): void {
   }
 
   panelSlot.querySelector('[data-testid="content-route-back"]')?.addEventListener("click", () => {
+    if (!releaseView()) return;
     showBrowser();
     browser.refresh();
   });
 
   browser.addEventListener("honua-studio-open-item", (event) => {
     const detail = (event as CustomEvent<HonuaStudioOpenItemDetail>).detail;
+    const switchesDraft = panel.itemId !== detail.itemId || panel.draftId !== detail.draftId;
+    if (switchesDraft && !releaseView()) {
+      showPanel();
+      return;
+    }
     panel.itemId = detail.itemId;
     panel.draftId = detail.draftId;
     showPanel();

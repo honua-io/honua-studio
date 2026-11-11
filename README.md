@@ -145,11 +145,12 @@ tool action, then its closing response); extra rounds fail the qualification wit
 provider invocation. Model-selected composition requested a fourth call and failed.
 
 The keyboard lifecycle fixture (`test/playwright/keyboard-map-journey.spec.mjs`) creates
-a recipe map, saves a version and explicitly confirms publication against the mock
-REST store. It allows at most 100 keyboard actions, counting each traversal key,
-activation key or text entry, and checks axe at the recipe, rendered map and
-confirmation in both themes and color modes. This covers lifecycle controls; the
-complete Console-hosted styling and labeling journey still requires live proof.
+a recipe map, labels the selected field, saves that style, saves a version and
+explicitly confirms publication against the mock REST store. It allows at most 100
+keyboard actions, counting each traversal key, activation key or text entry, and
+checks axe at the recipe, rendered map, style editor and confirmation in both themes
+and color modes. Studio's own controls perform the style and label steps. A signed-in
+Console session against a live server remains a separate proof.
 
 
 2026.1 ships Studio as a **self-hosted Preview, not GA**. There is still no

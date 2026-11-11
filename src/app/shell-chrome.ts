@@ -104,6 +104,16 @@ export class ShellChrome {
     return this.#root?.querySelector<HTMLElement>(".app-slots") ?? null;
   }
 
+  lifecyclePanel(): HTMLElement | null {
+    return this.#root?.querySelector<HTMLElement>("honua-studio-lifecycle-panel") ?? null;
+  }
+
+  focusStyleEditorReturn(): void {
+    this.lifecyclePanel()
+      ?.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="lifecycle-panel-edit-style"]')
+      ?.focus();
+  }
+
   recipeOutlet(): HTMLElement | null {
     return this.#root?.querySelector<HTMLElement>("[data-recipe-outlet]") ?? null;
   }

@@ -181,3 +181,49 @@ export function thematicMapStyle(
   if (!changed) throw new Error("The selected composed layer has no primary render layer. Add one in Maputnik first.");
   return result;
 }
+
+/** A symbol label on the selected layer's source, using one described field. */
+export function featureLabelStyle(
+  style: MapStyleDocument,
+  owner: MapStyleLayerOwner,
+  field: MapStyleField,
+): MapStyleDocument {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field.name)) throw new Error("Choose a described field name for labels.");
+  const result = structuredClone(style) as Record<string, unknown>;
+  if (!Array.isArray(result.layers)) throw new Error("The style has no render-layer array.");
+  const layers = result.layers;
+  const primary = layers.find(
+    (value): value is Record<string, unknown> =>
+      object(value) && value.id === owner.id && value.source === owner.sourceId,
+  );
+  if (!primary) throw new Error("The selected composed layer has no primary render layer. Add one in Maputnik first.");
+  const labelId = `${owner.id}__labels`;
+  const textField = ["get", field.name];
+  const sourceLayer = primary["source-layer"];
+  let found = false;
+  const next = layers.map((value) => {
+    if (!object(value) || value.id !== labelId) return value;
+    found = true;
+    if (value.source !== owner.sourceId) throw new Error("The label layer does not use the selected source.");
+    const metadata = object(value.metadata) ? value.metadata : {};
+    if (metadata["honua:compositionLayerId"] !== undefined && metadata["honua:compositionLayerId"] !== owner.id)
+      throw new Error("The label layer belongs to another composed layer.");
+    return {
+      ...value,
+      layout: { ...(object(value.layout) ? value.layout : {}), "text-field": textField },
+    };
+  });
+  if (!found) {
+    next.push({
+      id: labelId,
+      type: "symbol",
+      source: owner.sourceId,
+      ...(typeof sourceLayer === "string" ? { "source-layer": sourceLayer } : {}),
+      ...(primary.filter !== undefined ? { filter: structuredClone(primary.filter) } : {}),
+      layout: { "text-field": textField },
+      metadata: { "honua:compositionLayerId": owner.id },
+    });
+  }
+  result.layers = next;
+  return result;
+}
