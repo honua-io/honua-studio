@@ -350,6 +350,7 @@ test.describe("live demo-server journeys @live", () => {
       return restCall("GET", `/v1/studio/package-drafts/${listed.items[0].draftId}`);
     };
     try {
+      page.setDefaultTimeout(30_000);
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("app-shell")).toBeVisible();
