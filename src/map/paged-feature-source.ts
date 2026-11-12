@@ -3,6 +3,9 @@ import { loadHonuaFeatureServiceGeoJson } from "@honua/sdk-js/map";
 import { type AuthenticatedSourceOptions, trustedSourceUrl } from "./authenticated-source-protocol.js";
 import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 
+const MAX_PREVIEW_PAGES = 32;
+const HTTP_TOO_MANY_REQUESTS = 429;
+
 /** Uses the SDK's canonical feature query/paging and geometry conversion. */
 export async function loadPagedFeatureSource(
   target: URL,
@@ -19,6 +22,7 @@ export async function loadPagedFeatureSource(
   let pages = 0;
   let incomplete = false;
   let metadataObserved = false;
+  let rateLimit: { readonly retryAfter?: number } | undefined;
   const client = new HonuaClient({
     baseUrl: root,
     preferBinary: false,
@@ -56,7 +60,7 @@ export async function loadPagedFeatureSource(
         const bytes = await readBoundedFeatureBody(response, signal, () => authority === options.getAuth());
         const body = response.ok
           ? (parseFeatureResponseBody(bytes) as {
-              error?: { code?: unknown };
+              error?: { code?: unknown; retryAfterSeconds?: unknown };
               exceededTransferLimit?: boolean;
               features?: unknown[];
             })
@@ -66,6 +70,11 @@ export async function loadPagedFeatureSource(
         if (response.status === 401 || body?.error?.code === 499) {
           if (attempt === 0 && authority) continue;
           throw new Error("The Studio session cannot authorize this source query.");
+        }
+        if (response.status === HTTP_TOO_MANY_REQUESTS || body?.error?.code === HTTP_TOO_MANY_REQUESTS) {
+          rateLimit = { retryAfter: retryAfterSeconds(response, body?.error?.retryAfterSeconds) };
+          if (!url.pathname.endsWith("/query") || pages === 0) throw rateLimitError(rateLimit.retryAfter);
+          return endOfPaging();
         }
         if (body?.error) throw new Error("The source server refused the SDK query.");
         if (body) {
@@ -90,15 +99,41 @@ export async function loadPagedFeatureSource(
     outFields: (target.searchParams.get("outFields") ?? "*").split(","),
     outSR: 4326,
     pageSize: 2000,
-    maxPages: 32,
+    maxPages: MAX_PREVIEW_PAGES,
     signal,
   });
   signal.throwIfAborted();
   if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
-  if (!metadataObserved) throw new Error("Authorized source metadata could not be loaded.");
-  if (pages >= 32 && incomplete)
-    options.onIncomplete?.(
-      `Showing ${source.data.features.length} features at the 32-page preview limit; additional features remain.`,
-    );
+  if (!metadataObserved)
+    throw rateLimit
+      ? rateLimitError(rateLimit.retryAfter)
+      : new Error("Authorized source metadata could not be loaded.");
+  const featureCount = source.data.features.length;
+  if (rateLimit) options.onIncomplete?.(rateLimitedNotice(featureCount, rateLimit.retryAfter));
+  else if (pages >= MAX_PREVIEW_PAGES && incomplete) options.onIncomplete?.(pageLimitNotice(featureCount));
   return source.data as unknown as Record<string, unknown>;
+}
+
+/** An empty page ends SDK paging while keeping the pages already loaded. */
+function endOfPaging(): Response {
+  return new Response(JSON.stringify({ features: [] }), { status: 200 });
+}
+
+function rateLimitedNotice(featureCount: number, retryAfter: number | undefined): string {
+  return `Showing the first ${featureCount} features; the server is limiting requests, so the rest did not load${retryAfter ? ` (retry in ${retryAfter} seconds)` : ""}.`;
+}
+
+function pageLimitNotice(featureCount: number): string {
+  return `Showing ${featureCount} features at the ${MAX_PREVIEW_PAGES}-page preview limit; additional features remain.`;
+}
+
+function retryAfterSeconds(response: Response, declared: unknown): number | undefined {
+  const seconds = typeof declared === "number" ? declared : Number(response.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
+function rateLimitError(retryAfter: number | undefined): Error {
+  return new Error(
+    `The server is limiting requests for this source; try again${retryAfter ? ` in ${retryAfter} seconds` : " shortly"}.`,
+  );
 }
