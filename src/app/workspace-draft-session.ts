@@ -2,17 +2,17 @@ import type { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
-import { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
+import { EditorDraftBinding } from "../lifecycle/workspace-draft.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import { WORKSPACE_SESSION_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
+import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./workspace-authority.js";
 
-export type WorkspaceDraftIdentity = { draftId: string; generation: number; packageKey: string };
+export type EditorDraftIdentity = { draftId: string; generation: number; packageKey: string };
 
 /** Element callbacks; the public methods stay the seam hosts and tests can wrap. */
-export interface WorkspaceDraftSessionHooks {
-  readonly prepareWorkspaceTurn: () => Promise<unknown>;
-  readonly attachWorkspaceDraft: (draftId: string) => Promise<void>;
+export interface EditorDraftSessionHooks {
+  readonly prepareEditorTurn: () => Promise<unknown>;
+  readonly attachEditorDraft: (draftId: string) => Promise<void>;
   readonly hasDirtyForm: () => boolean;
   readonly settleStyleEdits: () => Promise<void>;
   /** Runs when an attach targets a draft other than the active one. */
@@ -20,7 +20,7 @@ export interface WorkspaceDraftSessionHooks {
   /** Runs before the active map changes to another draft. */
   readonly beforeMapSwitch: (draftId: string) => void;
   readonly afterMapSwitch: () => void;
-  readonly onDraftChange: (identity: WorkspaceDraftIdentity | undefined) => void;
+  readonly onDraftChange: (identity: EditorDraftIdentity | undefined) => void;
 }
 
 /**
@@ -28,24 +28,24 @@ export interface WorkspaceDraftSessionHooks {
  * a later operation observes the result of an earlier one; `activeMap` advances when another draft
  * becomes active.
  */
-export class WorkspaceDraftSession {
+export class EditorDraftSession {
   readonly activeMap = new StalenessEpoch();
-  #binding: WorkspaceDraftBinding | undefined;
+  #binding: EditorDraftBinding | undefined;
   #conflict = false;
   historyBusy = false;
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly authority: WorkspaceAuthority,
+    private readonly authority: EditorAuthority,
     private readonly composition: CompositionController,
-    private readonly hooks: WorkspaceDraftSessionHooks,
+    private readonly hooks: EditorDraftSessionHooks,
   ) {}
 
-  get binding(): WorkspaceDraftBinding | undefined {
+  get binding(): EditorDraftBinding | undefined {
     return this.#binding;
   }
 
-  get identity(): WorkspaceDraftIdentity | undefined {
+  get identity(): EditorDraftIdentity | undefined {
     return this.#binding?.identity;
   }
 
@@ -83,13 +83,13 @@ export class WorkspaceDraftSession {
     this.hooks.onDraftChange(this.identity);
   }
 
-  async create(packageKey: string, commandId?: string): Promise<WorkspaceDraftIdentity | StudioApprovalPending> {
+  async create(packageKey: string, commandId?: string): Promise<EditorDraftIdentity | StudioApprovalPending> {
     const key = packageKey.trim();
     if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
       throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
     const generation = this.authority.epoch.current;
-    await this.hooks.prepareWorkspaceTurn();
-    this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    await this.hooks.prepareEditorTurn();
+    this.authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
     const client = this.authority.lifecycleClient();
     const request = {
       packageKey: key,
@@ -101,9 +101,9 @@ export class WorkspaceDraftSession {
     const created = await (commandId === undefined
       ? client.createDraft(request)
       : client.createDraftWithApproval(request, commandId));
-    this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    this.authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
     if ("status" in created) return created;
-    await this.hooks.attachWorkspaceDraft(created.draftId);
+    await this.hooks.attachEditorDraft(created.draftId);
     const identity = this.identity;
     if (!identity || identity.draftId !== created.draftId) throw new Error("The created draft was not attached.");
     return identity;
@@ -119,7 +119,7 @@ export class WorkspaceDraftSession {
     this.#requireAcceptable(generation, mayAccept);
     const previous = this.identity;
     // Observe prospectively: a refused read must not advance the active binding's generation.
-    const binding = new WorkspaceDraftBinding(this.authority.lifecycleClient());
+    const binding = new EditorDraftBinding(this.authority.lifecycleClient());
     const state = await binding.observe(draftId);
     this.#requireAcceptable(generation, mayAccept);
     // A same-principal lease can renew while the prospective GET is in flight.
@@ -155,7 +155,7 @@ export class WorkspaceDraftSession {
     const identity = binding?.identity;
     if (!identity || binding !== this.#binding || this.isEditPending()) return false;
     try {
-      await this.hooks.attachWorkspaceDraft(identity.draftId);
+      await this.hooks.attachEditorDraft(identity.draftId);
     } catch (error) {
       if (!this.authority.epoch.isCurrent(generation) || this.isEditPending()) return false;
       throw error;
@@ -163,7 +163,7 @@ export class WorkspaceDraftSession {
     return this.authority.epoch.isCurrent(generation) && !this.hooks.hasDirtyForm();
   }
 
-  async prepareTurn(): Promise<WorkspaceDraftIdentity | undefined> {
+  async prepareTurn(): Promise<EditorDraftIdentity | undefined> {
     await this.hooks.settleStyleEdits();
     await this.#queue;
     if (this.isEditPending())
@@ -172,7 +172,7 @@ export class WorkspaceDraftSession {
   }
 
   #requireAcceptable(generation: EpochToken, mayAccept: (() => void) | undefined): void {
-    this.authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    this.authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
     mayAccept?.();
     if (this.hooks.hasDirtyForm()) throw new Error("Save pending Studio edits before attaching a draft.");
   }

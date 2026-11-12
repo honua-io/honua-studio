@@ -1,15 +1,15 @@
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
-import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
+import type { EditorDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
+import type { EditorAuthority } from "./workspace-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./workspace-draft-session.js";
 
 type PublishReceipt = ReturnType<StudioLifecycleClient["requestPublish"]>;
 type PublicationReceipt = ReturnType<StudioLifecycleClient["getPublicationRequest"]>;
 
 interface PublicationReview {
-  readonly binding: WorkspaceDraftBinding;
+  readonly binding: EditorDraftBinding;
   readonly generation: EpochToken;
   readonly itemId: string;
   readonly versionId: string;
@@ -20,7 +20,7 @@ interface PublicationReview {
 /** What a queued lifecycle step gets: a fresh client, the draft it started on and its staleness check. */
 interface LifecycleStep {
   readonly client: StudioLifecycleClient;
-  readonly identity: WorkspaceDraftIdentity;
+  readonly identity: EditorDraftIdentity;
   readonly current: () => void;
   readonly generation: EpochToken;
 }
@@ -34,14 +34,14 @@ const SESSION_OR_MAP_CHANGED = "The workspace session or map changed.";
  * Saved versions of the active draft and their human-gated publication. Publishing requires a review
  * taken in the same workspace session, and nothing here publishes as a side effect.
  */
-export class WorkspacePublication {
+export class EditorRelease {
   #reviews = new WeakMap<StudioContentVersion, PublicationReview>();
 
   constructor(
-    private readonly authority: WorkspaceAuthority,
-    private readonly drafts: WorkspaceDraftSession,
+    private readonly authority: EditorAuthority,
+    private readonly drafts: EditorDraftSession,
     private readonly hooks: {
-      readonly prepareWorkspaceTurn: () => Promise<unknown>;
+      readonly prepareEditorTurn: () => Promise<unknown>;
       readonly saveCurrentView: (current: () => void) => Promise<void>;
     },
   ) {}
@@ -195,7 +195,7 @@ export class WorkspacePublication {
     const generation = this.authority.epoch.current;
     const identity = binding?.identity;
     if (!binding || !identity) throw new Error("Open a map draft before using saved versions.");
-    await this.hooks.prepareWorkspaceTurn();
+    await this.hooks.prepareEditorTurn();
     const current = () => {
       if (!this.authority.epoch.isCurrent(generation) || binding !== this.drafts.binding)
         throw new Error(SESSION_OR_MAP_CHANGED);

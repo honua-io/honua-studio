@@ -1,4 +1,4 @@
-import { workspaceAgent } from "./workspace-agent.js";
+import { editorAgent } from "./workspace-agent.js";
 /**
  * Standalone shell bootstrap (honua-studio#5 REQ-002).
  *
@@ -98,4 +98,5 @@ if (chat) {
   }
 }
 
-Object.assign(globalThis, { HonuaStudioWorkspace: workspaceAgent });
+/** `HonuaStudioWorkspace` is the deprecated global name, kept for one release. */
+Object.assign(globalThis, { HonuaStudioEditor: editorAgent, HonuaStudioWorkspace: editorAgent });

@@ -5,15 +5,15 @@ import type { CompositionState } from "../composition/model.js";
 import { applyCompositionCommands, isCompositionCommandError } from "../composition/reducer.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
-import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
+import type { EditorDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import { WORKSPACE_SESSION_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftSession } from "./workspace-draft-session.js";
+import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./workspace-authority.js";
+import type { EditorDraftSession } from "./workspace-draft-session.js";
 
 type HistoryAction = "undo" | "redo";
 type CommandOptions = { readonly isCurrent?: () => boolean };
@@ -21,15 +21,15 @@ type LeaseSnapshot = { readonly auth: unknown; readonly token: EpochToken };
 type PublishedLayer = { readonly layerId: number; readonly serviceName: string; readonly layerName?: string };
 
 interface DraftEdit {
-  readonly binding: WorkspaceDraftBinding;
+  readonly binding: EditorDraftBinding;
   readonly generation: EpochToken;
   readonly commands: readonly CompositionCommand[];
   readonly isCurrent?: () => boolean;
 }
 
 export interface CompositionEditorOptions {
-  readonly authority: WorkspaceAuthority;
-  readonly drafts: WorkspaceDraftSession;
+  readonly authority: EditorAuthority;
+  readonly drafts: EditorDraftSession;
   readonly catalog: SourceCatalog;
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;
@@ -203,17 +203,13 @@ export class CompositionEditor {
     return applied;
   }
 
-  #replaceDraftHistory(
-    binding: WorkspaceDraftBinding,
-    target: CompositionState,
-    action: HistoryAction,
-  ): Promise<boolean> {
+  #replaceDraftHistory(binding: EditorDraftBinding, target: CompositionState, action: HistoryAction): Promise<boolean> {
     const { authority, composition, drafts } = this.options;
     const generation = authority.epoch.current;
     return drafts.enqueue(async () => {
-      authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+      authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
       const observed = await binding.replace(target);
-      authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+      authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
       const changed = action === "undo" ? composition.undo() : composition.redo();
       composition.replaceState(observed);
       drafts.announce();
@@ -249,7 +245,7 @@ export class CompositionEditor {
   async #applyToDraft(edit: DraftEdit): Promise<void> {
     const { authority, composition, drafts } = this.options;
     const { binding, generation, commands } = edit;
-    authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
     if (binding !== drafts.binding) throw new Error("The active map changed before the edit began.");
     const styleCommand = commands.length === 1 && commands[0]?.name === "setMapStyle" ? commands[0] : undefined;
     let anchor = composition.state;
@@ -269,7 +265,7 @@ export class CompositionEditor {
           annotations: target.annotations,
         }
       : await binding.replace(target);
-    authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
+    authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
     // The accepted style response establishes one authoritative revision;
     // replaying it against the older source anchor would reject valid additions.
     if (!styleCommand) for (const command of commands) composition.apply(command);
@@ -286,7 +282,7 @@ export class CompositionEditor {
   #requireUnchangedSince(edit: DraftEdit, state: CompositionState): void {
     const { authority, composition, drafts } = this.options;
     if (!authority.epoch.isCurrent(edit.generation) || edit.binding !== drafts.binding)
-      throw new Error(WORKSPACE_SESSION_CHANGED);
+      throw new Error(EDITOR_SESSION_CHANGED);
     if (state !== composition.state || edit.isCurrent?.() === false)
       throw new Error("The map changed while preparing its style.");
   }

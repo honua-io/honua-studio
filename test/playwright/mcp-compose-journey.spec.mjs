@@ -39,7 +39,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
       // /api rewrite, same base the chat SSE fixture itself uses).
       await page.evaluate((token) => {
         window.__honuaStudioApp.session = { getToken: async () => token, onExpired: () => () => {} };
-        window.__honuaStudioApp.enableLiveComposition({
+        window.__honuaStudioApp.enableLiveEditing({
           baseUrl: "/api",
           packageKey: "pkg-mcp-compose-journey",
           family: "map",
@@ -165,7 +165,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
 
       await page.evaluate((token) => {
         window.__honuaStudioApp.session = { getToken: async () => token, onExpired: () => () => {} };
-        window.__honuaStudioApp.enableLiveComposition({
+        window.__honuaStudioApp.enableLiveEditing({
           baseUrl: "/api",
           packageKey: "pkg-mcp-visibility-journey",
           family: "map",

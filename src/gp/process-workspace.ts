@@ -219,7 +219,7 @@ export class ProcessServerError extends Error {
   }
 }
 
-export class ServerProcessWorkspace {
+export class ServerProcessEditor {
   readonly #attempted = new Set<string>();
   constructor(
     private readonly options: {

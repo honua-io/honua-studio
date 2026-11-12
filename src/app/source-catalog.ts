@@ -4,7 +4,7 @@ import { canonicalCompositionJson } from "../composition/model.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import { WORKSPACE_AUTHORITY_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./workspace-authority.js";
 
 export interface SourceCatalogHooks {
   readonly isConnected: () => boolean;
@@ -28,7 +28,7 @@ export class SourceCatalog {
   #processSourceAuthority: EpochToken | undefined;
 
   constructor(
-    private readonly authority: WorkspaceAuthority,
+    private readonly authority: EditorAuthority,
     private readonly hooks: SourceCatalogHooks,
   ) {}
 
@@ -96,7 +96,7 @@ export class SourceCatalog {
       ? authority.studioClient
       : new StudioClient(runtimeServerBaseUrl(), auth, runtimeMcpBaseUrl());
     const catalog = await client.listCatalog();
-    if (!authority.epoch.isCurrent(generation) || auth !== authority.auth) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
+    if (!authority.epoch.isCurrent(generation) || auth !== authority.auth) throw new Error(EDITOR_AUTHORITY_CHANGED);
     this.apply(catalog);
     this.#processSourceAuthority = generation;
     return catalog
@@ -118,7 +118,7 @@ export class SourceCatalog {
       signal: AbortSignal.timeout(8000),
     });
     const result = await provider.resolveProcessSource(source);
-    authority.epoch.assertCurrent(generation, WORKSPACE_AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(generation, EDITOR_AUTHORITY_CHANGED);
     return result;
   }
 

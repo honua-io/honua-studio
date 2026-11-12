@@ -3,7 +3,7 @@ import "./theme/theme-console.css";
 export { registerAllStudioElements } from "./elements/registry.js";
 export { EXPLORE_DATASET_RECIPE } from "./recipes/explore-dataset.js";
 export type { ExploreDatasetInput, ExploreDatasetMetadata } from "./recipes/explore-dataset.js";
-export { createWorkspaceAgentSession, workspaceAgentFeatures } from "./workspace-agent.js";
+export { createEditorAgentSession, editorAgentFeatures } from "./workspace-agent.js";
 
 export { StudioAiTranscriptVerifier, InMemoryStudioAiReplayStore } from "@honua/sdk-js/studio-agent";
 
@@ -14,17 +14,17 @@ export {
   hashDatasetImportFile,
 } from "@honua/sdk-js/control-plane";
 
-export { ServerProcessWorkspace } from "./gp/process-workspace.js";
+export { ServerProcessEditor } from "./gp/process-workspace.js";
 export { HonuaStudioProcessesElement, type ProcessSourcePicker } from "./elements/studio-processes-element.js";
 
-export { LocalProcessWorkspace } from "./gp/custom-process-workspace.js";
+export { LocalProcessEditor } from "./gp/custom-process-workspace.js";
 
 export { HonuaStudioCustomProcessesElement } from "./elements/studio-custom-processes-element.js";
 
 export { MapStyleEditor, type MapStyleEditorOptions, type MapStyleEditorScope } from "./styles/map-style-editor.js";
 export type { MapStyleDocument } from "./styles/map-style-edit.js";
 
-export { createWorkspaceLifecycleReader, type WorkspaceLifecycleReader } from "./lifecycle/workspace-reader.js";
+export { createContentLifecycleReader, type ContentLifecycleReader } from "./lifecycle/workspace-reader.js";
 export {
   readSharedStyleMapConsumer,
   type SharedStyleMapConsumer,
@@ -47,8 +47,10 @@ export {
 } from "./map/read-only-map-canvas.js";
 
 export {
-  createReadOnlyCompositionView,
-  type ReadOnlyCompositionView,
-  type ReadOnlyCompositionViewOptions,
-  type ReadOnlyCompositionDocument,
+  createReadOnlyAppView,
+  type ReadOnlyAppView,
+  type ReadOnlyAppViewOptions,
+  type ReadOnlyAppDocument,
 } from "./map/read-only-composition-view.js";
+
+export * from "./console-entry-deprecated.js";

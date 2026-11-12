@@ -30,7 +30,7 @@ async function openWorkspaceEditor(page, url) {
   await page.evaluate(() => {
     window.__honuaStudioApp.agentSessionAdapter = { submitTurn: async () => ({ content: "" }) };
   });
-  await expect(page.locator("honua-studio-app")).toHaveAttribute("data-workspace-host", "");
+  await expect(page.locator("honua-studio-app")).toHaveAttribute("data-editor-host", "");
   await expect(page.getByTestId("studio-canvas")).toBeVisible();
 }
 

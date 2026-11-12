@@ -19,7 +19,7 @@ import {
   type StudioAgentSessionOptions,
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
-import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
+import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../workspace-agent.js";
 
 import {
   type ActivityLog,
@@ -43,6 +43,7 @@ import {
 import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
+import { DEPRECATED_CHAT_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, chatStyles } from "./styles.js";
 import type {
@@ -90,6 +91,7 @@ export interface StudioAgentCertificationOptions {
   readonly transcriptVerifier?: StudioAgentTranscriptVerifier;
 }
 
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioChatElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["label", "placeholder"];
@@ -106,9 +108,9 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   #annotationSeq = 0;
   #activeAbort: AbortController | undefined;
   #agentSession: StudioAgentSession | undefined;
-  public agentSessionAdapter: WorkspaceAgentSessionAdapter | undefined;
+  public agentSessionAdapter: EditorAgentSessionAdapter | undefined;
   /** Human-visible projection only; this never modifies the model's session history. */
-  public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
+  public setEditorConversation(messages: readonly EditorConversationMessage[]): boolean {
     if (this.streaming) return false;
     const ids = new Set<string>();
     for (const message of messages) {
@@ -747,3 +749,9 @@ function renderMessage(message: ChatState["messages"][number]): string {
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
+
+export interface HonuaStudioChatElement {
+  /** @deprecated Use setEditorConversation. Removed in the next minor. */
+  setWorkspaceConversation: HonuaStudioChatElement["setEditorConversation"];
+}
+defineDeprecatedAliases(HonuaStudioChatElement, DEPRECATED_CHAT_ELEMENT_ALIASES);

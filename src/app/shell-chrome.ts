@@ -5,7 +5,7 @@ import { appShellStyles, baseElementStyles } from "../elements/styles.js";
 import type { HonuaStudioThemeSwitcherVisibility } from "../elements/types.js";
 import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
-import type { WorkspaceAgentSessionAdapter } from "../workspace-agent.js";
+import type { EditorAgentSessionAdapter } from "../workspace-agent.js";
 import { STUDIO_ROUTES } from "./shell-router.js";
 
 /** Package families whose drafts carry a composition body; mirrors the server gate and `mock-server.mjs`. */
@@ -25,7 +25,7 @@ export interface ShellChromeHost {
   themeMode: ThemeMode;
   readonly themeSwitcherVisibility: HonuaStudioThemeSwitcherVisibility;
   readonly currentPath: string;
-  readonly agentSessionAdapter: WorkspaceAgentSessionAdapter | undefined;
+  readonly agentSessionAdapter: EditorAgentSessionAdapter | undefined;
   readonly hasUnsavedStyleChanges: boolean;
   readonly composition: CompositionController;
   readonly toolCallOrchestrator: { readonly isLive: boolean };
@@ -34,8 +34,8 @@ export interface ShellChromeHost {
   openDesignInspector(): Promise<void>;
   closeDesignInspector(): void;
   applyHistoryAction(action: "undo" | "redo"): Promise<boolean>;
-  enableLiveComposition(options: { readonly packageKey: string; readonly family?: StudioPackageFamilyWire }): void;
-  disableLiveComposition(): void;
+  enableLiveEditing(options: { readonly packageKey: string; readonly family?: StudioPackageFamilyWire }): void;
+  disableLiveEditing(): void;
 }
 
 export interface ShellChromeOptions {
@@ -356,7 +356,7 @@ export class ShellChrome {
     this.#on(toggle, "click", () => {
       // One button: open the connect form in fixture mode, return to fixture mode when live.
       if (host.toolCallOrchestrator.isLive) {
-        host.disableLiveComposition();
+        host.disableLiveEditing();
         return;
       }
       if (!form || !toggle) return;
@@ -373,7 +373,7 @@ export class ShellChrome {
         | StudioPackageFamilyWire
         | undefined;
       this.#closeLiveForm();
-      host.enableLiveComposition({ packageKey, ...(family ? { family } : {}) });
+      host.enableLiveEditing({ packageKey, ...(family ? { family } : {}) });
     });
   }
 

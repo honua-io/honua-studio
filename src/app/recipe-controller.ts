@@ -14,23 +14,23 @@ import { RecipeSourceChoices, type RecipeSourcesHost } from "./recipe-source-cho
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import { WORKSPACE_AUTHORITY_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./workspace-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./workspace-draft-session.js";
 
 /** The public `<honua-studio-app>` methods the recipe picker goes through; hosts and tests may wrap them. */
 export interface RecipeHost extends RecipeSourcesHost {
   resolveRecipeSource(sourceId: string, signal: AbortSignal): Promise<ExploreDatasetMetadata>;
-  createRecipeDraft(input: ExploreDatasetInput, submissionId: string): Promise<WorkspaceDraftIdentity>;
+  createRecipeDraft(input: ExploreDatasetInput, submissionId: string): Promise<EditorDraftIdentity>;
   openRecipePicker(): void;
   closeRecipePicker(): void;
-  prepareWorkspaceTurn(): Promise<unknown>;
+  prepareEditorTurn(): Promise<unknown>;
 }
 
 export interface RecipeControllerOptions {
   readonly host: RecipeHost;
-  readonly authority: WorkspaceAuthority;
+  readonly authority: EditorAuthority;
   readonly catalog: SourceCatalog;
-  readonly drafts: WorkspaceDraftSession;
+  readonly drafts: EditorDraftSession;
   readonly chrome: ShellChrome;
 }
 
@@ -43,11 +43,11 @@ interface RecipeSubmissionEntry {
   attachmentAllowed: boolean;
   metadataAbort?: AbortController;
   request?: StudioPackageDraftCreateRequest;
-  pending?: Promise<WorkspaceDraftIdentity>;
+  pending?: Promise<EditorDraftIdentity>;
 }
 
 const TOGGLE = "recipe-toggle";
-const REOPEN_IN_ORIGINAL_WORKSPACE = `${WORKSPACE_AUTHORITY_CHANGED} Reopen this draft in its original workspace.`;
+const REOPEN_IN_ORIGINAL_EDITOR = `${EDITOR_AUTHORITY_CHANGED} Reopen this draft in its original workspace.`;
 const CANCELLED_BEFORE_SUBMISSION = "Recipe creation was cancelled before submission.";
 
 function activeMapChanged(draftId: string): Error {
@@ -152,7 +152,7 @@ export class RecipeController {
     return this.#sources.resolve(sourceId, signal);
   }
 
-  createDraft(requestedInput: ExploreDatasetInput, submissionId: string): Promise<WorkspaceDraftIdentity> {
+  createDraft(requestedInput: ExploreDatasetInput, submissionId: string): Promise<EditorDraftIdentity> {
     const input = frozenCopy(requestedInput);
     if (!/^[A-Za-z0-9-]{1,100}$/.test(submissionId))
       return Promise.reject(new Error("A stable recipe submission ID is required."));
@@ -189,20 +189,20 @@ export class RecipeController {
     return entry;
   }
 
-  async #submit(entry: RecipeSubmissionEntry, input: ExploreDatasetInput): Promise<WorkspaceDraftIdentity> {
-    await this.options.host.prepareWorkspaceTurn();
-    this.#epoch.assertCurrent(entry.generation, WORKSPACE_AUTHORITY_CHANGED);
+  async #submit(entry: RecipeSubmissionEntry, input: ExploreDatasetInput): Promise<EditorDraftIdentity> {
+    await this.options.host.prepareEditorTurn();
+    this.#epoch.assertCurrent(entry.generation, EDITOR_AUTHORITY_CHANGED);
     const client = this.options.authority.lifecycleClient();
     if (!entry.request) {
       const request = await this.#buildRequest(entry, input, client);
-      this.#epoch.assertCurrent(entry.generation, WORKSPACE_AUTHORITY_CHANGED);
+      this.#epoch.assertCurrent(entry.generation, EDITOR_AUTHORITY_CHANGED);
       entry.request = request;
     }
     if (!entry.attachmentAllowed && !entry.submission.submitted) throw new Error(CANCELLED_BEFORE_SUBMISSION);
     const created = await entry.submission.createDraft(entry.request, (request, commandId) =>
       client.createDraft(request, commandId),
     );
-    this.#epoch.assertCurrent(entry.generation, REOPEN_IN_ORIGINAL_WORKSPACE);
+    this.#epoch.assertCurrent(entry.generation, REOPEN_IN_ORIGINAL_EDITOR);
     return this.#attachCreated(entry, created.draftId);
   }
 
@@ -231,7 +231,7 @@ export class RecipeController {
     };
   }
 
-  async #attachCreated(entry: RecipeSubmissionEntry, draftId: string): Promise<WorkspaceDraftIdentity> {
+  async #attachCreated(entry: RecipeSubmissionEntry, draftId: string): Promise<EditorDraftIdentity> {
     const { drafts } = this.options;
     const activeDraftId = drafts.identity?.draftId;
     if (!entry.attachmentAllowed)
@@ -253,7 +253,7 @@ export class RecipeController {
   }
 
   #requireAttachable(entry: RecipeSubmissionEntry, draftId: string): void {
-    this.#epoch.assertCurrent(entry.generation, REOPEN_IN_ORIGINAL_WORKSPACE);
+    this.#epoch.assertCurrent(entry.generation, REOPEN_IN_ORIGINAL_EDITOR);
     if (!entry.attachmentAllowed)
       throw new Error(
         `Draft ${draftId} was created, but attachment was cancelled. Open that draft explicitly to recover it.`,

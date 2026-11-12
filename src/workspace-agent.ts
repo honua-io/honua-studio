@@ -5,10 +5,10 @@ import {
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
 
-export const workspaceAgentFeatures = Object.freeze({ toolApproval: true, visualStyleScopes: true });
+export const editorAgentFeatures = Object.freeze({ toolApproval: true, visualStyleScopes: true });
 
 /** Creates the one host-owned model/tool loop with a separately authenticated agent transport. */
-export function createWorkspaceAgentSession(options: {
+export function createEditorAgentSession(options: {
   readonly fetchImpl: typeof fetch;
   readonly system: StudioAgentSessionOptions["system"];
   readonly toolFamilies: readonly string[];
@@ -30,9 +30,9 @@ export function createWorkspaceAgentSession(options: {
   });
 }
 
-export const workspaceAgent = { createSession: createWorkspaceAgentSession };
+export const editorAgent = { createSession: createEditorAgentSession };
 
-export interface WorkspaceAgentSessionAdapter {
+export interface EditorAgentSessionAdapter {
   submitTurn(
     prompt: string,
     options: {
@@ -42,7 +42,7 @@ export interface WorkspaceAgentSessionAdapter {
   ): ReturnType<StudioAgentSession["chat"]>;
 }
 
-export interface WorkspaceConversationMessage {
+export interface EditorConversationMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly content: string;

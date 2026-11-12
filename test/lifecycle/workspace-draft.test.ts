@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
-import { WorkspaceDraftBinding } from "../../src/lifecycle/workspace-draft.js";
+import { EditorDraftBinding } from "../../src/lifecycle/workspace-draft.js";
 
 let server: Awaited<ReturnType<typeof startMockServer>> | undefined;
 afterEach(async () => {
@@ -25,7 +25,7 @@ it("observes actual native draft, preserves metadata and rejects stale human wri
       body: { layers: [], retained: { native: true } },
     },
   });
-  const human = new WorkspaceDraftBinding(client);
+  const human = new EditorDraftBinding(client);
   expect((await human.observe(draft.draftId)).layers).toEqual([]);
   await human.replace({ ...createEmptyCompositionState(), view: { center: [12, 34], zoom: 5 } });
   const saved = await client.getDraft(draft.draftId);

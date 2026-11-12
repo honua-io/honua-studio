@@ -1,5 +1,5 @@
 import type { StudioPackageEnvelope } from "../lifecycle/lifecycle-types.js";
-import type { WorkspaceLifecycleReader } from "../lifecycle/workspace-reader.js";
+import type { ContentLifecycleReader } from "../lifecycle/workspace-reader.js";
 
 export interface SharedStyleMapConsumerReference {
   readonly itemId: string;
@@ -33,7 +33,7 @@ export interface SharedStyleMapConsumer {
 
 /** Read the explicitly selected authorized consumer; never consult a retained map or mutate its draft. */
 export async function readSharedStyleMapConsumer(
-  reader: WorkspaceLifecycleReader,
+  reader: ContentLifecycleReader,
   reference: SharedStyleMapConsumerReference,
 ): Promise<SharedStyleMapConsumer> {
   if (!reference.itemId || !reference.packageKey) throw new Error("Select an actual map consumer identity.");

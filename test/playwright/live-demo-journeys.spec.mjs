@@ -293,7 +293,7 @@ test.describe("live demo-server journeys @live", () => {
         window.__honuaStudioApp.sourceCatalog = [
           { id: "hi-parcels", title: "Hawaii parcels", protocol: "ogc-features", geometryType: "Polygon" },
         ];
-        window.__honuaStudioApp.enableLiveComposition({
+        window.__honuaStudioApp.enableLiveEditing({
           baseUrl: "",
           packageKey: key,
           family: "map",
@@ -355,7 +355,7 @@ test.describe("live demo-server journeys @live", () => {
       // vite.config.ts proxies to the SERVER ORIGIN's /mcp (the deployed
       // endpoint lives at the root, outside the REST /api prefix).
       await page.evaluate((key) => {
-        window.__honuaStudioApp.enableLiveComposition({
+        window.__honuaStudioApp.enableLiveEditing({
           baseUrl: "",
           packageKey: key,
           family: "map",

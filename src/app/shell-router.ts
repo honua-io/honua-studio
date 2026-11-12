@@ -72,7 +72,7 @@ export interface ShellRouterOptions {
   readonly hasView: () => boolean;
   readonly viewRoot: () => HTMLElement;
   readonly onRouteRendered: () => void;
-  readonly isWorkspaceHost: () => boolean;
+  readonly isEditorHost: () => boolean;
   readonly addCatalogSource: (dataset: CatalogDataset) => Promise<void>;
   /** Returns false when the current view holds work that navigation must not discard. */
   readonly releaseView?: () => boolean;
@@ -92,7 +92,7 @@ export class ShellRouter {
 
   /** Binds a fresh hash router to the current `#view`; a chrome rebuild replaces that node. */
   startHashRouting(): void {
-    if (this.options.host.routingMode !== "hash" || this.options.isWorkspaceHost()) return;
+    if (this.options.host.routingMode !== "hash" || this.options.isEditorHost()) return;
     this.#hashRouter?.stop();
     this.#hashRouter = new Router(
       this.options.viewRoot(),
@@ -118,7 +118,7 @@ export class ShellRouter {
   render(): void {
     if (!this.options.hasView()) return;
     if (!this.#releaseView()) return;
-    if (this.options.isWorkspaceHost()) {
+    if (this.options.isEditorHost()) {
       this.options.viewRoot().replaceChildren();
       return;
     }

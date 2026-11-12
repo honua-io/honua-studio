@@ -2,7 +2,7 @@
  * `<honua-studio-app>`: the Studio shell. Attribute, property and event contract: docs/element-contract.md;
  * session contract: docs/embed-session.md. A host that supplies its own chat or canvas child wires it itself;
  * this element only uses the public properties and events any embedder could use. Behaviour lives in the
- * controllers `StudioWorkspace` assembles; this class is the public facade and the element lifecycle.
+ * controllers `StudioAppRoot` assembles; this class is the public facade and the element lifecycle.
  */
 import type { HonuaAgentToolDefinitionLike, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
 import {
@@ -13,12 +13,12 @@ import {
 } from "@honua/sdk-js/studio-agent";
 import { historyShortcutAction } from "../app/composition-editor.js";
 import type { DesignRelationship } from "../app/design-inspector-host.js";
-import type { LiveCompositionOptions } from "../app/live-composition-controller.js";
+import type { LiveEditingOptions } from "../app/live-composition-controller.js";
 import type { ProcessSourceChoice } from "../app/source-catalog.js";
-import { StudioWorkspace } from "../app/studio-workspace.js";
-import type { WorkspaceStyleProviderOptions } from "../app/workspace-authority.js";
-import type { WorkspaceDraftIdentity } from "../app/workspace-draft-session.js";
-import type { WorkspacePublication } from "../app/workspace-publication.js";
+import { StudioAppRoot } from "../app/studio-workspace.js";
+import type { EditorStyleProviderOptions } from "../app/workspace-authority.js";
+import type { EditorDraftIdentity } from "../app/workspace-draft-session.js";
+import type { EditorRelease } from "../app/workspace-publication.js";
 import type { AuthSession, SessionAdapter } from "../auth/index.js";
 import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionController } from "../composition/controller.js";
@@ -29,8 +29,9 @@ import type { ExploreDatasetInput, ExploreDatasetMetadata } from "../recipes/exp
 import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
-import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
+import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../workspace-agent.js";
 import { HonuaStudioElementBase } from "./base-element.js";
+import { DEPRECATED_APP_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
 import type {
@@ -54,13 +55,14 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioAppElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["data-theme-set", "data-theme", "routing-mode", "current-path", "base-path", "theme-switcher"];
   }
 
   public styleEditorAssetsUrl = "/maputnik/index.html";
-  readonly #workspace = new StudioWorkspace(this, {
+  readonly #workspace = new StudioAppRoot(this, {
     setShadowHtml: (html) => this.setShadowHtml(html),
     connectedSignal: () => this.connectedSignal,
   });
@@ -76,8 +78,8 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   readonly #styleEditor = this.#workspace.styleEditor;
   readonly #recipes = this.#workspace.recipes;
   readonly #live = this.#workspace.live;
-  #workspaceAgentAdapter: WorkspaceAgentSessionAdapter | undefined;
-  #workspaceConversation: readonly WorkspaceConversationMessage[] = [];
+  #workspaceAgentAdapter: EditorAgentSessionAdapter | undefined;
+  #workspaceConversation: readonly EditorConversationMessage[] = [];
   #themeLoader: ThemeLoader | undefined;
 
   /**
@@ -109,16 +111,16 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
-  public createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions = {}): AuthoritativeStyleProvider {
-    return this.#authority.createWorkspaceStyleProvider(options);
+  public createEditorStyleProvider(options: EditorStyleProviderOptions = {}): AuthoritativeStyleProvider {
+    return this.#authority.createEditorStyleProvider(options);
   }
 
   /** Workspace-host agent transport; while set, the host's own composer replaces the chat slot. */
-  public get agentSessionAdapter(): WorkspaceAgentSessionAdapter | undefined {
+  public get agentSessionAdapter(): EditorAgentSessionAdapter | undefined {
     return this.#workspaceAgentAdapter;
   }
 
-  public set agentSessionAdapter(adapter: WorkspaceAgentSessionAdapter | undefined) {
+  public set agentSessionAdapter(adapter: EditorAgentSessionAdapter | undefined) {
     const previous = this.#workspaceAgentAdapter;
     this.#workspaceAgentAdapter = adapter;
     this.#workspace.syncHostMode();
@@ -131,9 +133,9 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     else this.#chrome.showChatSlot();
   }
 
-  public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
+  public setEditorConversation(messages: readonly EditorConversationMessage[]): boolean {
     this.#workspaceConversation = messages.map((message) => ({ ...message }));
-    return this.#children.chat()?.setWorkspaceConversation(this.#workspaceConversation) ?? true;
+    return this.#children.chat()?.setEditorConversation(this.#workspaceConversation) ?? true;
   }
 
   /** Composition state the canvas renders; it survives reconnection. */
@@ -143,7 +145,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /**
    * Tool-call orchestrator over `.composition`, logging to the chat's activity log when a chat child
-   * exists. Applies through the local reducer until `.enableLiveComposition()` attaches a live MCP session.
+   * exists. Applies through the local reducer until `.enableLiveEditing()` attaches a live MCP session.
    */
   public get toolCallOrchestrator(): ToolCallOrchestrator {
     return this.#live.orchestrator;
@@ -190,14 +192,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /**
    * Attaches a live MCP session so tool calls mutate a server draft through `honua_studio_*` tools instead
    * of the local reducer. The header's "Go live…" control calls this; every mode change is announced as
-   * `honua-studio-composition-mode-change` and logged.
+   * `honua-studio-editing-mode-change` and logged.
    */
-  public enableLiveComposition(options: LiveCompositionOptions): void {
+  public enableLiveEditing(options: LiveEditingOptions): void {
     this.#live.enable(options);
   }
 
   /** Returns to fixture mode. State the server already accepted stays; only future tool calls stay local. */
-  public disableLiveComposition(): void {
+  public disableLiveEditing(): void {
     this.#live.disable();
   }
 
@@ -239,62 +241,59 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Explicit human create action; never creates a draft as a side effect of viewing or chatting. */
-  public createWorkspaceDraft(
+  public createEditorDraft(
     packageKey: string,
     commandId?: string,
-  ): Promise<WorkspaceDraftIdentity | StudioApprovalPending> {
+  ): Promise<EditorDraftIdentity | StudioApprovalPending> {
     return this.#drafts.create(packageKey, commandId);
   }
 
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
-  public attachWorkspaceDraft(draftId: string, mayAccept?: () => void): Promise<void> {
+  public attachEditorDraft(draftId: string, mayAccept?: () => void): Promise<void> {
     return this.#drafts.attach(draftId, mayAccept);
   }
 
   /** Idle observation for external draft changes; never discard an unsaved form value. */
-  public refreshWorkspaceDraft(): Promise<boolean> {
+  public refreshEditorDraft(): Promise<boolean> {
     return this.#drafts.refresh();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
-  public prepareWorkspaceTurn(): Promise<WorkspaceDraftIdentity | undefined> {
+  public prepareEditorTurn(): Promise<EditorDraftIdentity | undefined> {
     return this.#drafts.prepareTurn();
   }
 
   /** Save the active server draft as an immutable version; never publish it. */
-  public saveWorkspaceVersion(): Promise<StudioContentVersion> {
+  public saveEditorVersion(): Promise<StudioContentVersion> {
     return this.#publication.saveVersion();
   }
 
   /** List versions belonging to the active draft's server-owned content item. */
-  public listWorkspaceVersions(): Promise<readonly StudioContentVersion[]> {
+  public listEditorVersions(): Promise<readonly StudioContentVersion[]> {
     return this.#publication.listVersions();
   }
 
   /** Read the exact saved version for the host's human publication review. Never submits. */
-  public reviewWorkspacePublication(versionId: string): Promise<StudioContentVersion> {
+  public reviewEditorRelease(versionId: string): Promise<StudioContentVersion> {
     return this.#publication.review(versionId);
   }
 
-  /** Human host action only; see `WorkspacePublication.publish` for the retry contract. */
-  public publishWorkspaceVersion(
+  /** Human host action only; see `EditorRelease.publish` for the retry contract. */
+  public releaseEditorVersion(
     review: StudioContentVersion,
     request: StudioPublishRequestInput,
     commandId: string,
-  ): ReturnType<WorkspacePublication["publish"]> {
+  ): ReturnType<EditorRelease["publish"]> {
     return this.#publication.publish(review, request, commandId);
   }
 
   /** Read an active item's publication receipt without flushing edits or submitting a mutation. */
-  public readWorkspacePublication(
-    versionId: string,
-    requestId: string,
-  ): ReturnType<WorkspacePublication["readPublication"]> {
+  public readEditorRelease(versionId: string, requestId: string): ReturnType<EditorRelease["readPublication"]> {
     return this.#publication.readPublication(versionId, requestId);
   }
 
   /** Reopen a version of the active map as a new draft, preserving the saved version. */
-  public reopenWorkspaceVersion(versionId: string): Promise<void> {
+  public reopenEditorVersion(versionId: string): Promise<void> {
     return this.#publication.reopenVersion(versionId);
   }
 
@@ -345,7 +344,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Explicit create. Stable submission IDs reuse the same canonical request and Idempotency-Key. */
-  public createRecipeDraft(input: ExploreDatasetInput, submissionId: string): Promise<WorkspaceDraftIdentity> {
+  public createRecipeDraft(input: ExploreDatasetInput, submissionId: string): Promise<EditorDraftIdentity> {
     return this.#recipes.createDraft(input, submissionId);
   }
 
@@ -418,7 +417,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     void this.#live.resumeSharePreview();
     this.#listenForChildActivity();
     this.agentSessionAdapter = this.#workspaceAgentAdapter;
-    if (this.#workspaceConversation.length) this.setWorkspaceConversation(this.#workspaceConversation);
+    if (this.#workspaceConversation.length) this.setEditorConversation(this.#workspaceConversation);
   }
 
   protected onDisconnect(): void {
@@ -495,7 +494,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const requested = panel?.draftId;
       if (requested && requested !== this.#drafts.identity?.draftId) {
         if (!this.hasUnsavedStyleChanges) await this.closeStyleEditor();
-        await this.attachWorkspaceDraft(requested);
+        await this.attachEditorDraft(requested);
       }
       await this.openStyleEditor();
     } catch (error: unknown) {
@@ -544,3 +543,35 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
   }
 }
+
+export interface HonuaStudioAppElement {
+  /** @deprecated Use createEditorStyleProvider. Removed in the next minor. */
+  createWorkspaceStyleProvider: HonuaStudioAppElement["createEditorStyleProvider"];
+  /** @deprecated Use setEditorConversation. Removed in the next minor. */
+  setWorkspaceConversation: HonuaStudioAppElement["setEditorConversation"];
+  /** @deprecated Use enableLiveEditing. Removed in the next minor. */
+  enableLiveComposition: HonuaStudioAppElement["enableLiveEditing"];
+  /** @deprecated Use disableLiveEditing. Removed in the next minor. */
+  disableLiveComposition: HonuaStudioAppElement["disableLiveEditing"];
+  /** @deprecated Use createEditorDraft. Removed in the next minor. */
+  createWorkspaceDraft: HonuaStudioAppElement["createEditorDraft"];
+  /** @deprecated Use attachEditorDraft. Removed in the next minor. */
+  attachWorkspaceDraft: HonuaStudioAppElement["attachEditorDraft"];
+  /** @deprecated Use refreshEditorDraft. Removed in the next minor. */
+  refreshWorkspaceDraft: HonuaStudioAppElement["refreshEditorDraft"];
+  /** @deprecated Use prepareEditorTurn. Removed in the next minor. */
+  prepareWorkspaceTurn: HonuaStudioAppElement["prepareEditorTurn"];
+  /** @deprecated Use saveEditorVersion. Removed in the next minor. */
+  saveWorkspaceVersion: HonuaStudioAppElement["saveEditorVersion"];
+  /** @deprecated Use listEditorVersions. Removed in the next minor. */
+  listWorkspaceVersions: HonuaStudioAppElement["listEditorVersions"];
+  /** @deprecated Use reviewEditorRelease. Removed in the next minor. */
+  reviewWorkspacePublication: HonuaStudioAppElement["reviewEditorRelease"];
+  /** @deprecated Use releaseEditorVersion. Removed in the next minor. */
+  publishWorkspaceVersion: HonuaStudioAppElement["releaseEditorVersion"];
+  /** @deprecated Use readEditorRelease. Removed in the next minor. */
+  readWorkspacePublication: HonuaStudioAppElement["readEditorRelease"];
+  /** @deprecated Use reopenEditorVersion. Removed in the next minor. */
+  reopenWorkspaceVersion: HonuaStudioAppElement["reopenEditorVersion"];
+}
+defineDeprecatedAliases(HonuaStudioAppElement, DEPRECATED_APP_ELEMENT_ALIASES);

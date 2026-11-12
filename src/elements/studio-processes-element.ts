@@ -5,10 +5,11 @@ import {
   type ProcessRegistry,
   type ProcessRun,
   ProcessValidationError,
-  type ServerProcessWorkspace,
+  type ServerProcessEditor,
   validateProcessGraph,
 } from "../gp/process-workspace.js";
 import { HonuaStudioElementBase } from "./base-element.js";
+import { DEPRECATED_PROCESSES_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 
 export interface ProcessSourcePicker {
   list(): Promise<readonly { id: string; title: string }[]>;
@@ -16,8 +17,9 @@ export interface ProcessSourcePicker {
 }
 
 /** Edits the canonical workflow graph; compilation and execution remain server-owned. */
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
-  #client: ServerProcessWorkspace | undefined;
+  #client: ServerProcessEditor | undefined;
   #sourcePicker: ProcessSourcePicker | undefined;
   #sourcePickGeneration = 0;
   public get sourcePicker(): ProcessSourcePicker | undefined {
@@ -30,10 +32,10 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
   }
   #attachmentGeneration = 0;
   #clientGeneration = 0;
-  public get client(): ServerProcessWorkspace | undefined {
+  public get client(): ServerProcessEditor | undefined {
     return this.#client;
   }
-  public set client(client: ServerProcessWorkspace | undefined) {
+  public set client(client: ServerProcessEditor | undefined) {
     if (client !== this.#client) {
       this.#attachmentGeneration++;
       this.#clientGeneration++;
@@ -53,7 +55,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
   #registry: ProcessRegistry | undefined;
   #diagnostics: readonly ProcessDiagnostic[] = [];
   #pendingAction: Promise<void> = Promise.resolve();
-  #prepared: Awaited<ReturnType<ServerProcessWorkspace["prepare"]>> | undefined;
+  #prepared: Awaited<ReturnType<ServerProcessEditor["prepare"]>> | undefined;
   #run: ProcessRun | undefined;
   #busy = false;
   #message = "Load the server registry to add built-in process nodes.";
@@ -70,7 +72,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     this.#prepared = undefined;
     this.render();
   }
-  public async prepareWorkspaceTask(): Promise<{ packageId: string; version: number; contentHash: string }> {
+  public async prepareEditorTask(): Promise<{ packageId: string; version: number; contentHash: string }> {
     await this.#pendingAction;
     if (this.#dirty || !this.#prepared) throw new Error("Save and validate the current graph before capturing a turn.");
     return {
@@ -79,7 +81,7 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
       contentHash: this.#prepared.contentHash,
     };
   }
-  public async attachWorkspaceTask(task: {
+  public async attachEditorTask(task: {
     packageId: string;
     version: number;
     contentHash: string;
@@ -633,3 +635,11 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     }
   }
 }
+
+export interface HonuaStudioProcessesElement {
+  /** @deprecated Use prepareEditorTask. Removed in the next minor. */
+  prepareWorkspaceTask: HonuaStudioProcessesElement["prepareEditorTask"];
+  /** @deprecated Use attachEditorTask. Removed in the next minor. */
+  attachWorkspaceTask: HonuaStudioProcessesElement["attachEditorTask"];
+}
+defineDeprecatedAliases(HonuaStudioProcessesElement, DEPRECATED_PROCESSES_ELEMENT_ALIASES);

@@ -10,8 +10,8 @@ import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftSession } from "./workspace-draft-session.js";
+import type { EditorAuthority } from "./workspace-authority.js";
+import type { EditorDraftSession } from "./workspace-draft-session.js";
 
 export type DesignRelationship = { readonly interactionId: string; readonly ownerRef: string };
 
@@ -23,8 +23,8 @@ export interface DesignInspectorHostElement extends EventTarget {
 
 export interface DesignInspectorHostOptions {
   readonly host: DesignInspectorHostElement;
-  readonly authority: WorkspaceAuthority;
-  readonly drafts: WorkspaceDraftSession;
+  readonly authority: EditorAuthority;
+  readonly drafts: EditorDraftSession;
   readonly catalog: SourceCatalog;
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;

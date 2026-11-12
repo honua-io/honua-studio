@@ -1,6 +1,6 @@
 import type {
   ImportedProcessDataset,
-  LocalProcessWorkspace,
+  LocalProcessEditor,
   LocalProjectIdentity,
   LocalReadOnlyFile,
   LocalRunReceipt,
@@ -9,16 +9,18 @@ import type {
   PublishedProcessLayer,
 } from "../gp/custom-process-workspace.js";
 import { HonuaStudioElementBase } from "./base-element.js";
+import { DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 
 /** Separate Python/.NET source/fixture lane. Every run is a local sandbox snapshot. */
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
-  #client: LocalProcessWorkspace | undefined;
+  #client: LocalProcessEditor | undefined;
   #project: LocalProjectIdentity | undefined;
   #pendingAction: Promise<void> = Promise.resolve();
-  public get client(): LocalProcessWorkspace | undefined {
+  public get client(): LocalProcessEditor | undefined {
     return this.#client;
   }
-  public set client(client: LocalProcessWorkspace | undefined) {
+  public set client(client: LocalProcessEditor | undefined) {
     if (client === this.#client) return;
     this.#stopImportPolling();
     this.#import = undefined;
@@ -34,7 +36,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     this.#values = {};
     if (this.isConnected) this.render();
   }
-  public async prepareWorkspaceTask(): Promise<{ projectId: string; revision: number; sourceDigest: string }> {
+  public async prepareEditorTask(): Promise<{ projectId: string; revision: number; sourceDigest: string }> {
     await this.#pendingAction;
     if (!this.#project || !this.client || this.#dirty())
       throw new Error("Load the actual project and save source before capturing a turn.");
@@ -46,7 +48,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
       throw new Error("The actual project changed; refresh it before capturing a turn.");
     return { projectId: observed.projectId, revision: observed.revision, sourceDigest: observed.sourceDigest };
   }
-  public async attachWorkspaceTask(reference: {
+  public async attachEditorTask(reference: {
     projectId: string;
     revision: number;
     sourceDigest: string;
@@ -67,7 +69,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     this.render();
     return true;
   }
-  public async refreshWorkspaceTask(): Promise<boolean> {
+  public async refreshEditorTask(): Promise<boolean> {
     await this.#pendingAction;
     if (!this.client || !this.#project) return false;
     const client = this.client;
@@ -81,9 +83,9 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
       }
       return false;
     }
-    return this.attachWorkspaceTask(observed);
+    return this.attachEditorTask(observed);
   }
-  #assertClient(client: LocalProcessWorkspace): void {
+  #assertClient(client: LocalProcessEditor): void {
     if (client !== this.client) throw new Error("The local workspace session changed.");
   }
   #matches(
@@ -333,3 +335,13 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     }
   }
 }
+
+export interface HonuaStudioCustomProcessesElement {
+  /** @deprecated Use prepareEditorTask. Removed in the next minor. */
+  prepareWorkspaceTask: HonuaStudioCustomProcessesElement["prepareEditorTask"];
+  /** @deprecated Use attachEditorTask. Removed in the next minor. */
+  attachWorkspaceTask: HonuaStudioCustomProcessesElement["attachEditorTask"];
+  /** @deprecated Use refreshEditorTask. Removed in the next minor. */
+  refreshWorkspaceTask: HonuaStudioCustomProcessesElement["refreshEditorTask"];
+}
+defineDeprecatedAliases(HonuaStudioCustomProcessesElement, DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES);

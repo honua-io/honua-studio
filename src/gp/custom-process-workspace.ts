@@ -64,7 +64,7 @@ export interface PublishedProcessLayer {
 }
 
 /** Separate custom-code lane: filesystem edits + sandbox fixtures, followed by ordinary server import. */
-export class LocalProcessWorkspace {
+export class LocalProcessEditor {
   #identity: LocalProjectIdentity | undefined;
   constructor(
     private readonly options: {

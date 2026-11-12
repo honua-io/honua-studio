@@ -59,7 +59,7 @@ test.describe("GP journey: validate -> preview -> confirm -> execute -> monitor 
 
       await page.evaluate((fixtureToken) => {
         window.__honuaStudioApp.session = { getToken: async () => fixtureToken, onExpired: () => () => {} };
-        window.__honuaStudioApp.enableLiveComposition({
+        window.__honuaStudioApp.enableLiveEditing({
           baseUrl: "/api",
           packageKey: "gp-journey-map",
           family: "map",

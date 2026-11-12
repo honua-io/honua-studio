@@ -253,7 +253,7 @@ native model and visual workflow qualification remains pending.
   results. This does not publish the map or qualify the complete installed
   Console journey.
 - **Read-only composition views are available to hosts.**
-  `createReadOnlyCompositionView` mounts the map and widget deck over one private
+  `createReadOnlyAppView` mounts the map and widget deck over one private
   controller, with bounded current-reader source transport and local controls.
   `createReadOnlyMapCanvas` remains available for map-only hosts. Both avoid an
   editor or lifecycle write path. Audience-route integration and actual published

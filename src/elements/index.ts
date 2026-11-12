@@ -165,4 +165,4 @@ export {
   validateGpPackageBodyStructurally,
 } from "../gp/index.js";
 
-export { createWorkspaceAgentSession } from "../workspace-agent.js";
+export { createEditorAgentSession } from "../workspace-agent.js";

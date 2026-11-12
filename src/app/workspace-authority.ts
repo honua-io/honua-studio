@@ -8,15 +8,15 @@ import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-p
 import { runtimeLifecycleClient, sourceStyleProvider } from "./runtime-clients.js";
 import { StalenessEpoch } from "./staleness-epoch.js";
 
-export const WORKSPACE_AUTHORITY_CHANGED = "The workspace authority changed.";
-export const WORKSPACE_SESSION_CHANGED = "The workspace session changed.";
+export const EDITOR_AUTHORITY_CHANGED = "The workspace authority changed.";
+export const EDITOR_SESSION_CHANGED = "The workspace session changed.";
 
-export interface WorkspaceStyleProviderOptions {
+export interface EditorStyleProviderOptions {
   readonly getAuthority?: () => unknown;
   readonly signal?: AbortSignal;
 }
 
-export interface WorkspaceAuthorityHooks {
+export interface EditorAuthorityHooks {
   readonly isConnected: () => boolean;
   readonly onAuthReplaced: () => void;
   readonly onAuthStateChange: () => void;
@@ -32,7 +32,7 @@ function disposeAuthSession(auth: AuthSession | undefined): void {
  * catalog client bound to it. `epoch` advances when the principal changes and `lease` on every session
  * assignment, so async work can tell that the authority or its credentials moved on.
  */
-export class WorkspaceAuthority {
+export class EditorAuthority {
   readonly epoch = new StalenessEpoch();
   readonly lease = new StalenessEpoch();
   #session: SessionAdapter | undefined;
@@ -42,7 +42,7 @@ export class WorkspaceAuthority {
   #studioClient: StudioClient | undefined;
   #studioClientOverridden = false;
 
-  constructor(private readonly hooks: WorkspaceAuthorityHooks) {}
+  constructor(private readonly hooks: EditorAuthorityHooks) {}
 
   get session(): SessionAdapter | undefined {
     return this.#session;
@@ -79,7 +79,7 @@ export class WorkspaceAuthority {
     return runtimeLifecycleClient(this.auth);
   }
 
-  createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions = {}): AuthoritativeStyleProvider {
+  createEditorStyleProvider(options: EditorStyleProviderOptions = {}): AuthoritativeStyleProvider {
     const generation = this.epoch.current;
     const authority = options.getAuthority?.();
     return sourceStyleProvider({

@@ -144,7 +144,7 @@ async function main() {
         },
         capabilities.data.transcriptSigning,
       );
-      window.__honuaStudioApp.enableLiveComposition({
+      window.__honuaStudioApp.enableLiveEditing({
         baseUrl: window.__honuaStudioRuntimeConfig.mcpBaseUrl,
         packageKey: key,
         family: "map",

@@ -129,14 +129,14 @@ export function appShellStyles(): string {
       padding: var(--hn-space-0, 2px);
     }
     /* Console owns product navigation and the one primary conversation. */
-    :host([data-workspace-host]) slot[name="chat"],
-    :host([data-workspace-host]) .app-brand,
-    :host([data-workspace-host]) .app-nav,
-    :host([data-workspace-host]) .app-view,
-    :host([data-workspace-host]) .app-theme-controls,
-    :host([data-workspace-host]) [data-testid="live-composition-status"],
-    :host([data-workspace-host]) [data-testid="live-composition-toggle"],
-    :host([data-workspace-host]) [data-testid="live-composition-form"] { display: none; }
+    :host([data-editor-host]) slot[name="chat"],
+    :host([data-editor-host]) .app-brand,
+    :host([data-editor-host]) .app-nav,
+    :host([data-editor-host]) .app-view,
+    :host([data-editor-host]) .app-theme-controls,
+    :host([data-editor-host]) [data-testid="live-composition-status"],
+    :host([data-editor-host]) [data-testid="live-composition-toggle"],
+    :host([data-editor-host]) [data-testid="live-composition-form"] { display: none; }
     .app-view {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
       gap: var(--hn-space-5, 24px); align-items: start;

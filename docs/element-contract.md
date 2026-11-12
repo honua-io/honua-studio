@@ -40,7 +40,7 @@ that relationship focus; attempting to open a different draft closes the panel
 and cancels its metadata while the prospective read runs.
 
 Implementation: `src/elements/studio-app-element.ts` is the public facade over the
-controllers in `src/app/` that `StudioWorkspace` assembles. Composes a header
+controllers in `src/app/` that `StudioAppRoot` assembles. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
 routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
 + `<honua-studio-canvas>` (created automatically unless the host already
@@ -63,15 +63,15 @@ supplied its own light-DOM children with those tag names — see
 | — | `sourceCatalog` | `CatalogDataset[] \| undefined` | fetched once a session exists | What the composition map resolves layer sources against and the AI map kit advertises to a model. Assigning it takes ownership: no fetch will overwrite it, and a session change will not discard it. |
 | — | `aiMapKit` | `HonuaAiMapKit` (read-only) | built lazily | The SDK's `createHonuaAiMapKit` over `.composition` — tool definitions (Honua/MCP/OpenAI), capability-aware map context, system prompt, policy-gated `execute()`. See `src/map/agent-map-kit.ts`. |
 
-**Methods**: `enableLiveComposition({ packageKey, family?, schemaVersion?,
+**Methods**: `enableLiveEditing({ packageKey, family?, schemaVersion?,
 baseUrl? })` attaches a live MCP session so tool calls mutate a real Studio
-draft; `disableLiveComposition()` returns to fixture/offline mode (the
+draft; `disableLiveEditing()` returns to fixture/offline mode (the
 default). Both are also reachable from the header's own control
 (honua-studio#23 REQ-004) — the "Fixture mode" / "Live · &lt;key&gt;" badge
 plus a "Go live…" form; there is no test-hook-only path.
 
-For the Console-owned workspace, `createWorkspaceDraft(packageKey, commandId?)` and
-`attachWorkspaceDraft(draftId)` bind the canvas to a server draft.
+For the Console-owned workspace, `createEditorDraft(packageKey, commandId?)` and
+`attachEditorDraft(draftId)` bind the canvas to a server draft.
 With a caller-owned command ID (required for retryable approval handoffs), draft creation returns either the attached draft identity or an `awaiting-approval`
 receipt with `operationInstanceId` and `proposalId`. Hosts retain the command ID
 across retries, show the approval handoff, and attach the canonical draft only
@@ -82,7 +82,7 @@ action and start a corrected command. All other errors retain the original comma
 ID: transport failures, uncertain responses, and errors preparing or attaching the
 map do not establish that creation was refused. In particular, a failed attachment
 can follow a successful creation.
-`attachWorkspaceDraft(draftId, mayAccept?)` runs the optional throwing host guard before a queued read and before adopting its result.
+`attachEditorDraft(draftId, mayAccept?)` runs the optional throwing host guard before a queued read and before adopting its result.
 
 `openRecipePicker()` / `closeRecipePicker()` open and close the shared-header
 Explore a dataset picker in either host or standalone mode. Opening only discovers
@@ -103,21 +103,21 @@ The descriptor and input/metadata
 types are exported by the Console bundle. No source rows, credentials or recipe
 state are persisted separately; the output is an ordinary map-family composition.
 
-`prepareWorkspaceTurn()` waits for accepted visual edits and returns its
+`prepareEditorTurn()` waits for accepted visual edits and returns its
 current draft identity; it refuses unresolved edits or conflicts.
-`saveWorkspaceVersion()` saves that draft as an immutable version,
-`listWorkspaceVersions()` reads versions of the same server-owned content
-item, and `reopenWorkspaceVersion(versionId)` opens a version of that item
+`saveEditorVersion()` saves that draft as an immutable version,
+`listEditorVersions()` reads versions of the same server-owned content
+item, and `reopenEditorVersion(versionId)` opens a version of that item
 as a new draft. These methods use the current injected session and do not
 publish. They reject stale results after a session or active-map change.
-Reopening emits `honua-workspace-draft-change` with the new
+Reopening emits `honua-studio-draft-change` with the new
 `{ draftId, generation, packageKey }`, allowing the host conversation to
 follow the same draft. The host should await each action, show failures,
 and require another explicit action before retrying a failed mutation.
 
-`reviewWorkspacePublication(versionId)` reads the exact saved version for a
+`reviewEditorRelease(versionId)` reads the exact saved version for a
 human review without submitting anything. Pass that returned object to
-`publishWorkspaceVersion(review, input, commandId)` only after the human
+`releaseEditorVersion(review, input, commandId)` only after the human
 confirms the version, route and audience. The review is bound to this app's
 active map and session; a fresh read verifies the immutable content hash
 before submission. The input uses the lifecycle API's `intent` and optional
@@ -131,7 +131,7 @@ submitted review is refused. An `awaiting-approval` receipt retains operation
 and proposal identifiers and does not mean the map is published. These methods
 do not themselves provide a durable host recovery UI after browser reload.
 
-`readWorkspacePublication(versionId, requestId)` reads the publication receipt for
+`readEditorRelease(versionId, requestId)` reads the publication receipt for
 the active draft's server-owned item and selected version. It checks the current map/session before and
 after the read and rejects mismatched receipt identifiers. It does not flush
 draft edits or submit a mutation. Pending publication responses retain the
@@ -145,7 +145,7 @@ shadow boundary): `honua-studio-ready` (base contract, see below),
 *request*, never applied by the element itself), `honua-studio-theme-change`
 (`{ themeSet, mode }`), `honua-studio-session-required` (`{ reason }`),
 `honua-studio-error` (`{ message, error? }`),
-`honua-studio-composition-mode-change` (`{ mode: "fixture" | "live",
+`honua-studio-editing-mode-change` (`{ mode: "fixture" | "live",
 packageKey?, family? }`).
 
 Sign-in/sign-out controls (and any interactive auth affordance at all) only
@@ -710,7 +710,7 @@ changes. Referenced styles use their canonical embedded body when present.
 Live references require an authoritative `styleProvider` and a source supported
 by that reader; unresolved references cannot silently substitute a preset.
 
-`createReadOnlyCompositionView(options)` supplies a map and widget deck using
+`createReadOnlyAppView(options)` supplies a map and widget deck using
 one private composition controller. The host passes separate `container` and
 `widgetContainer` elements, the canonical body and current-reader projection,
 and a stable `getAudienceTransport()` object for one viewer principal and
