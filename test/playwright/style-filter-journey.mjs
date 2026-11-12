@@ -53,7 +53,8 @@ function mapDiagnostics(page) {
       }
       return undefined;
     };
-    const map = find(document)?.mapView?.map;
+    const mapView = find(document)?.mapView;
+    const map = mapView?.map;
     const layers =
       map
         ?.getStyle()
