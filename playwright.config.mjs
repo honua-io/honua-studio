@@ -13,6 +13,5 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   use: {
     headless: true,
-    screenshot: "only-on-failure",
   },
 });

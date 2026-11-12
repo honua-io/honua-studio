@@ -60,8 +60,6 @@ export async function approveLivePublication(page, options) {
     await expect(panel.locator("[data-proposal-status]")).toHaveAttribute("data-proposal-status", "Succeeded");
   } catch (error) {
     await recordApprovalFailure(page, { configuration, stage, error });
-    // Playwright's own failure screenshot and page snapshot are unredacted; leave nothing signed in on screen.
-    await page.goto("about:blank").catch(() => {});
     throw new Error(`Console publication approval failed during ${stage}.`);
   }
 }
