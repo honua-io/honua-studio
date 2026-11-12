@@ -8,8 +8,8 @@ import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-p
 import { runtimeLifecycleClient, sourceStyleProvider } from "./runtime-clients.js";
 import { StalenessEpoch } from "./staleness-epoch.js";
 
-export const EDITOR_AUTHORITY_CHANGED = "The workspace authority changed.";
-export const EDITOR_SESSION_CHANGED = "The workspace session changed.";
+export const EDITOR_AUTHORITY_CHANGED = "The editor authority changed.";
+export const EDITOR_SESSION_CHANGED = "The editor session changed.";
 
 export interface EditorStyleProviderOptions {
   readonly getAuthority?: () => unknown;
@@ -87,7 +87,7 @@ export class EditorAuthority {
       signal: options.signal,
       getAuth: () => {
         if (!this.epoch.isCurrent(generation) || options.getAuthority?.() !== authority)
-          throw new Error("The selected style workspace authority changed.");
+          throw new Error("The selected style editor authority changed.");
         return this.auth;
       },
     });

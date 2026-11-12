@@ -125,7 +125,7 @@ describe("embedded workspace publication review", () => {
       getDraft.mockResolvedValue({ ...draft, draftId: "other-draft", itemId: "other-item" });
       await app.attachEditorDraft("other-draft");
     }
-    await expect(app.releaseEditorVersion(review, input, "command")).rejects.toThrow("original workspace session");
+    await expect(app.releaseEditorVersion(review, input, "command")).rejects.toThrow("original editor session");
     expect(publish).not.toHaveBeenCalled();
   });
 

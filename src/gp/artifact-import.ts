@@ -74,7 +74,7 @@ export class ArtifactImportTracker {
   }
   assertAuthority(authority: ImportAuthority): void {
     if (authority.scope !== this.options.scope() || authority.key !== this.#key())
-      throw new Error("The import workspace changed during the request.");
+      throw new Error("The import scope changed during the request.");
     if (this.options.storage.getItem(authority.key) !== authority.raw)
       throw new Error("The saved import job changed during the request. Resume its current reference.");
   }

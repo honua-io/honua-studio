@@ -242,7 +242,7 @@ describe("artifact import acceptance boundaries", () => {
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
     workspace = "other";
     release(new Response(JSON.stringify({ jobId: "accepted-original" })));
-    await expect(pending).rejects.toThrow("workspace changed");
+    await expect(pending).rejects.toThrow("import scope changed");
     expect([...saved.entries.keys()].some((key) => key.includes('"other"'))).toBe(false);
     expect([...saved.entries.values()].every((value) => !value.includes("accepted-original"))).toBe(true);
   });

@@ -135,7 +135,7 @@ export class DesignInspectorHost {
     const fields = await provider.describeSource(source);
     signal.throwIfAborted();
     if (!authority.epoch.isCurrent(scope.generation) || scope.draftId !== drafts.identity?.draftId)
-      throw new Error("The workspace draft or authority changed.");
+      throw new Error("The editor draft or authority changed.");
     return fields;
   }
 

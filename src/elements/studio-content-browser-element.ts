@@ -179,11 +179,11 @@ export class HonuaStudioContentBrowserElement extends HonuaStudioElementBase {
           <input
             type="search"
             data-testid="content-browser-search"
-            placeholder="Search package key…"
+            placeholder="Search content key…"
             value="${escapeHtml(this.#search)}"
           />
-          <select data-testid="content-browser-family-filter" aria-label="Family">
-            <option value="all" ${this.#family === "all" ? "selected" : ""}>All families</option>
+          <select data-testid="content-browser-family-filter" aria-label="Kind">
+            <option value="all" ${this.#family === "all" ? "selected" : ""}>All kinds</option>
             ${STUDIO_PACKAGE_FAMILIES.map(
               (family) => `<option value="${family}" ${this.#family === family ? "selected" : ""}>${family}</option>`,
             ).join("")}
@@ -228,12 +228,12 @@ export class HonuaStudioContentBrowserElement extends HonuaStudioElementBase {
       .join("");
     return `
       <div class="lifecycle-section" data-testid="content-browser-items-section">
-        <h3>Content items <span class="hn-muted">(${this.#itemsTotal})</span></h3>
+        <h3>Saved content <span class="hn-muted">(${this.#itemsTotal})</span></h3>
         ${this.#itemsError ? `<p class="hn-error" data-testid="content-browser-items-error">${escapeHtml(this.#itemsError)}</p>` : ""}
         ${
           rows
             ? `<ul class="lifecycle-table" data-testid="content-browser-items-list">${rows}</ul>`
-            : `<p class="lifecycle-empty" data-testid="content-browser-items-empty">${this.#itemsLoading ? "Loading…" : "No content items yet."}</p>`
+            : `<p class="lifecycle-empty" data-testid="content-browser-items-empty">${this.#itemsLoading ? "Loading…" : "No saved content yet."}</p>`
         }
         ${
           this.#itemsCursor

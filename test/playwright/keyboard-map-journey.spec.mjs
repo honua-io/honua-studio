@@ -57,7 +57,7 @@ for (const themeSet of ["standalone", "console"]) {
         await expect(page.getByTestId("auth-status")).toHaveText("Signed in");
         await waitForSignedInMap(page);
         await keyboard.activate(page.getByRole("button", { name: "Start from a recipe", exact: true }));
-        await keyboard.enterText(page.getByRole("textbox", { name: "Package key", exact: true }), key);
+        await keyboard.enterText(page.getByRole("textbox", { name: "Content key", exact: true }), key);
         await keyboard.focusByKeyboard(page.getByRole("combobox", { name: "Authorized dataset", exact: true }));
         await keyboard.press("Home");
         await keyboard.press("ArrowDown");
@@ -103,7 +103,7 @@ for (const themeSet of ["standalone", "console"]) {
         await keyboard.activate(page.getByRole("button", { name: "Publish…", exact: true }));
         await expect(page.getByRole("button", { name: "Confirm publish", exact: true })).toBeDisabled();
         await expectNoSeriousAxeViolations(page, info, "publish-confirmation");
-        await keyboard.enterText(page.getByRole("textbox", { name: "Confirm package key", exact: true }), key);
+        await keyboard.enterText(page.getByRole("textbox", { name: "Confirm content key", exact: true }), key);
         await keyboard.activate(page.getByRole("button", { name: "Confirm publish", exact: true }));
         await expect(page.getByTestId("lifecycle-panel-message")).toContainText("Published");
         const response = await fetch(`${mock.url}/v1/studio/content-items?q=${key}`, {

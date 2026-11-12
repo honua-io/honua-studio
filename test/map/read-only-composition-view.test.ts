@@ -808,7 +808,7 @@ it.each(["service/1", "parcels"])(
     await until(() => root().querySelectorAll('[data-control-id="valid"] option').length === 3);
     const select = root().querySelector<HTMLSelectElement>('select[data-control-id="valid"]')!;
     expect([...select.options].map((option) => option.value)).toEqual(["", "North", "South"]);
-    expect(root().textContent).toContain('"unknown" reads from "unknown", which is not a layer in this composition');
+    expect(root().textContent).toContain('"unknown" reads from "unknown", which is not a layer in this map');
     expect(root().querySelector('select[data-control-id="unknown"]')).toBeNull();
     select.value = "North";
     select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));

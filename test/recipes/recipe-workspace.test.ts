@@ -288,7 +288,7 @@ describe("recipe canonical workspace creation", () => {
     const pending = app.listRecipeSources(new AbortController().signal);
     app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
     finish([metadata.source]);
-    await expect(pending).rejects.toThrow("workspace authority changed");
+    await expect(pending).rejects.toThrow("editor authority changed");
   });
 
   it("equates only verified same-origin source aliases while preserving the published service and layer", async () => {
@@ -539,8 +539,8 @@ describe("recipe canonical workspace creation", () => {
     await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
     app.session = { getToken: async () => "other-principal", onExpired: () => () => {} };
     accept(accepted(request));
-    await expect(pending).rejects.toThrow("workspace authority changed");
+    await expect(pending).rejects.toThrow("editor authority changed");
     expect(app.composition.state.layers).toHaveLength(0);
-    await expect(app.createRecipeDraft(input, "authority")).rejects.toThrow("original workspace authority");
+    await expect(app.createRecipeDraft(input, "authority")).rejects.toThrow("original editor authority");
   });
 });

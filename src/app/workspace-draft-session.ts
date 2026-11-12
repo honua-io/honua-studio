@@ -86,7 +86,7 @@ export class EditorDraftSession {
   async create(packageKey: string, commandId?: string): Promise<EditorDraftIdentity | StudioApprovalPending> {
     const key = packageKey.trim();
     if (!/^[A-Za-z0-9._-]{1,200}$/.test(key))
-      throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
+      throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the content key.");
     const generation = this.authority.epoch.current;
     await this.hooks.prepareEditorTurn();
     this.authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
@@ -167,7 +167,7 @@ export class EditorDraftSession {
     await this.hooks.settleStyleEdits();
     await this.#queue;
     if (this.isEditPending())
-      throw new Error("Save or explicitly reload the pending Studio edits before sending a workspace turn.");
+      throw new Error("Save or explicitly reload the pending Studio edits before sending an editor turn.");
     return this.identity;
   }
 

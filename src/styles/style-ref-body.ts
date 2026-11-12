@@ -9,7 +9,7 @@ export function canonicalStyleRefBody(
 ): HonuaStyleRefBody {
   if (bindings !== undefined && styleDocumentToRefBody.length < 2)
     throw new Error(
-      "Explicit shared style bindings require the qualified binding-aware SDK. Reopen in the unified workspace.",
+      "Explicit shared style bindings require the qualified binding-aware SDK. Reopen in the unified editor.",
     );
   // The optional second parameter is newer than the standalone published SDK's
   // declarations. Console builds pin every package file to the reviewed pack.

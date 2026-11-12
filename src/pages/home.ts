@@ -57,8 +57,8 @@ const HOME_MARKUP = `
       <ul class="entity-list" data-testid="catalog-list"></ul>
     </section>
     <section class="hn-panel view-section" aria-labelledby="packages-heading" data-testid="packages-section">
-      <h2 id="packages-heading" class="hn-panel-title">Studio packages</h2>
-      <p class="hn-muted">Draft and published Studio package lifecycle entries.</p>
+      <h2 id="packages-heading" class="hn-panel-title">Studio content</h2>
+      <p class="hn-muted">Draft and released Maps, Apps and other Studio content.</p>
       <ul class="entity-list" data-testid="packages-list"></ul>
     </section>
   `;
@@ -176,7 +176,7 @@ function renderPackages(list: HTMLElement, packages: readonly StudioPackageSumma
             `<li><span class="hn-badge hn-badge--status">${escapeHtml(pkg.state)}</span> ${escapeHtml(pkg.title)} <span class="hn-muted">${escapeHtml(pkg.family)}</span></li>`,
         )
         .join("")
-    : '<li class="hn-muted" data-testid="packages-empty">No packages yet.</li>';
+    : '<li class="hn-muted" data-testid="packages-empty">No Studio content yet.</li>';
 }
 
 /**

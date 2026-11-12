@@ -67,7 +67,7 @@ export class EditorDraftBinding {
 
   public async replace(state: CompositionState): Promise<CompositionState> {
     const current = this.#draft;
-    if (!current) throw new Error("Attach an authorized workspace draft before editing.");
+    if (!current) throw new Error("Attach an authorized editor draft before editing.");
     const draft = await this.client.replaceDraft(current.draftId, {
       packageKey: current.packageKey,
       generation: current.generation,

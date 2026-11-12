@@ -261,11 +261,20 @@ verification does not establish installed workflow or cloud qualification.
 
 The Console entry exports `DatasetImportTaskClient`, `DatasetImportUploadClient`,
 `DatasetImportSubmissionClient`, and `hashDatasetImportFile`. Console supplies
-fresh authenticated headers and its workspace-bound BFF transport; these exports
+fresh authenticated headers and its host-scoped BFF transport; these exports
 do not grant import authority or enable a host that is not ready. Run
 `npm run test:console-assets` to exercise real hashing and read transports in
 Chromium. That packaging check uses controlled HTTP responses; live import,
 query, map and publication qualification remains separate.
+
+The Console entry also exports `createEditorAgentSession`, `editorAgentFeatures`,
+`ServerProcessEditor`, `LocalProcessEditor`, `createContentLifecycleReader` and
+`createReadOnlyAppView`. Their former names (`createWorkspaceAgentSession`,
+`workspaceAgentFeatures`, `ServerProcessWorkspace`, `LocalProcessWorkspace`,
+`createWorkspaceLifecycleReader`, `createReadOnlyCompositionView` and the
+`ReadOnlyComposition*` types) remain deprecated aliases for one release
+(`src/console-entry-deprecated.ts`). The standalone shell sets the global
+`HonuaStudioEditor` and, for the same release, `HonuaStudioWorkspace`.
 
 Before capturing a turn, `await studio.prepareEditorTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching

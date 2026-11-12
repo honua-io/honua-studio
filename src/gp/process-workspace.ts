@@ -282,7 +282,7 @@ export class ServerProcessEditor {
         ),
       );
     if (version.packageId !== saved.packageId || !/^[a-f0-9]{64}$/.test(version.packageHash))
-      throw new Error("Server returned no verified immutable package hash.");
+      throw new Error("Server returned no verified immutable workflow hash.");
     return {
       packageId: saved.packageId,
       version: version.version,
@@ -309,7 +309,7 @@ export class ServerProcessEditor {
       observed.packageHash !== contentHash ||
       !/^[a-f0-9]{64}$/.test(contentHash)
     )
-      throw new Error("The immutable workflow package reference does not match.");
+      throw new Error("The immutable workflow reference does not match.");
     return {
       packageId,
       version,
@@ -361,7 +361,7 @@ export class ServerProcessEditor {
         publication.packageVersion !== version ||
         publication.target !== "Job"
       )
-        throw new Error("Command acceptance is unknown or belongs to another package. No new run was submitted.");
+        throw new Error("Command acceptance is unknown or belongs to another workflow. No new run was submitted.");
     }
     try {
       await this.#request(
@@ -381,7 +381,7 @@ export class ServerProcessEditor {
         observed.packageVersion !== version ||
         observed.target !== "Job"
       )
-        throw new Error("The command publication identity is bound to another immutable package.");
+        throw new Error("The command publication identity is bound to another immutable workflow.");
     }
     // Record the attempt BEFORE sending. A missing reply is reconciled, never blindly rerun.
     this.#attempted.add(commandId);

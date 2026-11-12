@@ -66,10 +66,10 @@ export class StyleEditorHost {
     if (!this.options.composition.state.mapSpec) await this.#initializeDraftStyle(canvas);
     const generation = authority.epoch.current;
     const identity = drafts.identity;
-    if (!identity) throw new Error("The workspace draft is unavailable.");
+    if (!identity) throw new Error("The editor draft is unavailable.");
     const document = await canvas.editableMapStyle();
     if (!authority.epoch.isCurrent(generation) || identity.draftId !== drafts.identity?.draftId)
-      throw new Error("The workspace draft changed while opening the style editor.");
+      throw new Error("The editor draft changed while opening the style editor.");
     const session: EditingSession = { canvas, generation, identity };
     const editor = new MapStyleEditor(this.#editorOptions(session, document, selectedLayerId));
     this.#editor = editor;

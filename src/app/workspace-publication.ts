@@ -28,7 +28,7 @@ interface LifecycleStep {
 type LifecycleAction<T> = (step: LifecycleStep) => Promise<T>;
 
 const LIFECYCLE_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const SESSION_OR_MAP_CHANGED = "The workspace session or map changed.";
+const SESSION_OR_MAP_CHANGED = "The editor session or map changed.";
 
 /**
  * Saved versions of the active draft and their human-gated publication. Publishing requires a review
@@ -98,10 +98,10 @@ export class EditorRelease {
    */
   async publish(review: StudioContentVersion, request: StudioPublishRequestInput, commandId: string): PublishReceipt {
     const state = this.#reviews.get(review);
-    if (!state) throw new Error("Review the saved version in the current workspace before publishing.");
+    if (!state) throw new Error("Review the saved version in the current editor session before publishing.");
     const requireReview = () => {
       if (state.binding !== this.drafts.binding || !this.authority.epoch.isCurrent(state.generation))
-        throw new Error("Review the saved version again in the original workspace session before publishing.");
+        throw new Error("Review the saved version again in the original editor session before publishing.");
     };
     requireReview();
     const submission = this.#pinSubmission(state, request, commandId);

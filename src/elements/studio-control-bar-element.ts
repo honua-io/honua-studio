@@ -382,7 +382,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
 
   #renderAttribution(): { html: string; status?: string } {
     const credits = this.#map?.attributions() ?? [];
-    if (credits.length === 0) return { html: "", status: "No source in this composition declares an attribution." };
+    if (credits.length === 0) return { html: "", status: "No source in this map declares an attribution." };
     return {
       html: `<ul class="control-attribution" data-testid="studio-control-attribution">${credits
         .map((credit) => `<li>${escapeHtml(credit)}</li>`)
@@ -486,7 +486,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       `,
       ...(state.active
         ? {
-            status: `Click the map to add points (${state.points.length} so far). Measurements are transient — nothing is saved to the composition.`,
+            status: `Click the map to add points (${state.points.length} so far). Measurements are transient — nothing is saved to the map.`,
           }
         : {}),
     };

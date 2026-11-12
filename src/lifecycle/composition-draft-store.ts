@@ -171,14 +171,14 @@ export function toCompositionDraft(draft: {
  */
 export function readCompositionBody(body: unknown): CompositionState {
   if (typeof body !== "object" || body === null) {
-    throw new CompositionDraftError("validation", "The draft envelope carries no composition body.");
+    throw new CompositionDraftError("validation", "The draft envelope carries no map body.");
   }
   const candidate = body as { readonly layers?: unknown; readonly format?: unknown };
   if (!Array.isArray(candidate.layers)) {
     const format = typeof candidate.format === "string" ? ` (its \`format\` is "${candidate.format}")` : "";
     throw new CompositionDraftError(
       "validation",
-      `The draft envelope's body has no \`layers\` array${format}, so it is not a Studio composition body. A map-package body is a rendering artifact, not a composition — this client will not read one as an empty map.`,
+      `The draft envelope's body has no \`layers\` array${format}, so it is not an editable Studio map body. A rendered map document is a rendering artifact, not an editable map — this client will not read one as an empty map.`,
     );
   }
   return applyStudioDraftBody(body as StudioCompositionBodyWire);

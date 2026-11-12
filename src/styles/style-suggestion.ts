@@ -175,7 +175,7 @@ export class LayerStyleSuggestion {
       return { ok: false, reason: "The selection changed before the suggestion returned." };
     }
     if (canonicalCompositionJson(this.#controller.state) !== pending.revision) {
-      return { ok: false, reason: "The composition changed since the suggestion." };
+      return { ok: false, reason: "The map changed since the suggestion." };
     }
     try {
       this.#controller.apply({
@@ -236,7 +236,7 @@ export class LayerStyleSuggestion {
       return { ok: false, reason: "The selection changed before the suggestion returned." };
     }
     if (canonicalCompositionJson(this.#controller.state) !== revision) {
-      return { ok: false, reason: "The composition changed since the suggestion." };
+      return { ok: false, reason: "The map changed since the suggestion." };
     }
     return undefined;
   }

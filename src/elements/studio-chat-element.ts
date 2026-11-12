@@ -120,7 +120,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
         !["user", "assistant"].includes(message.role) ||
         typeof message.content !== "string"
       )
-        throw new Error("Invalid workspace conversation projection.");
+        throw new Error("Invalid editor conversation history.");
       ids.add(message.id);
     }
     this.#state = {

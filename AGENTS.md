@@ -97,7 +97,7 @@ and that head is not current main.
 
 ## Issues and PRs
 - File issues in the Specifica format the existing issues use; search open and closed first.
-  Server tools, package lifecycle and the AI proxy belong in honua-server; shared client
+  Server tools, the Studio content lifecycle and the AI proxy belong in honua-server; shared client
   contracts in honua-sdk-js.
 - The `PR Issue Disposition` check (`scripts/lib/pr-issue-disposition.mjs`) fails any PR whose
   footer deviates from its grammar, and every PR gets a Codex pass then a Claude second pass.

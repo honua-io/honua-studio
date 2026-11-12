@@ -148,7 +148,7 @@ export class LayerStyleInspector {
     if (!pending || pending.layerId !== this.#layerId)
       return { ok: false, reason: "There is no style preview to apply." };
     if (canonicalCompositionJson(this.#controller.state) !== pending.canonical) {
-      return { ok: false, reason: "The composition changed since the preview." };
+      return { ok: false, reason: "The map changed since the preview." };
     }
     const command = this.#command(pending);
     if (this.#applyCommand) {

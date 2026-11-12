@@ -235,7 +235,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
       this.#draft = await this.client.getDraft(this.#draft.draftId);
       this.#activity({ kind: "preview-ready", draftId: this.#draft.draftId });
       this.#actionMessage = this.#preview.requiresJob
-        ? "Preview plan ready — this package requires a batch job to execute."
+        ? "Preview plan ready — this GP draft requires a batch job to execute."
         : "Preview plan ready.";
     } catch (error) {
       this.#error = describeError(error);
@@ -343,7 +343,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
   /** REQ-004: offers add-to-composition — dispatches only, never mutates composition state itself. See the module doc + `studio-app-element.ts`'s listener. */
   #addOutputToComposition(sourceId: string, title: string | undefined): void {
     this.dispatchTypedEvent<HonuaStudioGpAddOutputDetail>("honua-studio-gp-add-output", { sourceId, title });
-    this.#actionMessage = `Requested "${title ?? sourceId}" be added to the composition.`;
+    this.#actionMessage = `Requested "${title ?? sourceId}" be added to the map.`;
     this.render();
   }
 
@@ -375,7 +375,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
     const validation = draft.validation ?? { status: "not-validated", diagnostics: [] };
     return `
       <div class="lifecycle-section" data-testid="gp-draft-status">
-        <h3>Package: ${escapeHtml(draft.packageKey)}</h3>
+        <h3>Content key: ${escapeHtml(draft.packageKey)}</h3>
         <p class="lifecycle-row-meta">
           <span class="hn-badge" data-testid="gp-panel-generation">generation ${draft.generation}</span>
           <span class="hn-badge hn-badge--status" data-testid="gp-panel-validation-status">${escapeHtml(validation.status)}</span>
@@ -497,7 +497,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
       <div class="lifecycle-confirm" data-testid="gp-confirm-dialog" role="alertdialog" aria-label="Confirm batch execution">
         <p><strong>Confirm batch execution of ${escapeHtml(expectedKey)}</strong></p>
         <p class="hn-muted">
-          This submits a batch job for asynchronous server-side execution. Type the package key
+          This submits a batch job for asynchronous server-side execution. Type the content key
           <strong data-testid="gp-confirm-expected-key">${escapeHtml(expectedKey)}</strong> to confirm.
         </p>
         <input

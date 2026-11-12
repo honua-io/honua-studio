@@ -547,7 +547,7 @@ export function compositionToMapPackage(
         unresolved.push({
           layerId: ownerId,
           sourceId: owner?.sourceId ?? "",
-          reason: "No approved render layer remains for this composition layer.",
+          reason: "No approved render layer remains for this drawing layer.",
         });
       }
     }

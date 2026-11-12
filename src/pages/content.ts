@@ -21,7 +21,7 @@ export function renderContent(root: HTMLElement, auth: AuthSession, releaseView:
   root.innerHTML = `
     <section class="hn-panel view-section" aria-labelledby="content-heading" data-testid="content-route">
       <h2 id="content-heading" class="hn-panel-title">Content</h2>
-      <p class="hn-muted">Studio content items and drafts — package lifecycle: draft, version, publish, rollback.</p>
+      <p class="hn-muted">Saved Studio content and drafts — lifecycle: draft, version, release, rollback.</p>
       <div data-testid="content-route-browser"></div>
       <div data-testid="content-route-panel" hidden>
         <button type="button" class="hn-btn hn-btn--sm" data-testid="content-route-back">&larr; Back to content</button>

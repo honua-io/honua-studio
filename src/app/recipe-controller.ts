@@ -47,7 +47,7 @@ interface RecipeSubmissionEntry {
 }
 
 const TOGGLE = "recipe-toggle";
-const REOPEN_IN_ORIGINAL_EDITOR = `${EDITOR_AUTHORITY_CHANGED} Reopen this draft in its original workspace.`;
+const REOPEN_IN_ORIGINAL_EDITOR = `${EDITOR_AUTHORITY_CHANGED} Reopen this draft in its original editor session.`;
 const CANCELLED_BEFORE_SUBMISSION = "Recipe creation was cancelled before submission.";
 
 function activeMapChanged(draftId: string): Error {
@@ -157,12 +157,12 @@ export class RecipeController {
     if (!/^[A-Za-z0-9-]{1,100}$/.test(submissionId))
       return Promise.reject(new Error("A stable recipe submission ID is required."));
     if (this.#revokedSubmissionIds.has(submissionId))
-      return Promise.reject(new Error("Retry this submission only in its original workspace authority."));
+      return Promise.reject(new Error("Retry this submission only in its original editor authority."));
     const generation = this.#epoch.current;
     const json = canonicalCompositionJson(input);
     const existing = this.#submissions.get(submissionId);
     if (existing && (existing.input !== json || existing.generation !== generation))
-      return Promise.reject(new Error("Retry this submission with its original inputs and workspace authority."));
+      return Promise.reject(new Error("Retry this submission with its original inputs and editor authority."));
     const entry = existing ?? this.#addSubmission(submissionId, json, generation);
     if (entry.pending) return entry.pending;
     entry.attachmentAllowed = true;

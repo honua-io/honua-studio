@@ -86,7 +86,7 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     return this.attachEditorTask(observed);
   }
   #assertClient(client: LocalProcessEditor): void {
-    if (client !== this.client) throw new Error("The local workspace session changed.");
+    if (client !== this.client) throw new Error("The local process session changed.");
   }
   #matches(
     left: { projectId: string; revision: number; sourceDigest: string },

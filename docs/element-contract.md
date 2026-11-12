@@ -70,7 +70,7 @@ default). Both are also reachable from the header's own control
 (honua-studio#23 REQ-004) — the "Fixture mode" / "Live · &lt;key&gt;" badge
 plus a "Go live…" form; there is no test-hook-only path.
 
-For the Console-owned workspace, `createEditorDraft(packageKey, commandId?)` and
+For the Console-hosted editor, `createEditorDraft(packageKey, commandId?)` and
 `attachEditorDraft(draftId)` bind the canvas to a server draft.
 With a caller-owned command ID (required for retryable approval handoffs), draft creation returns either the attached draft identity or an `awaiting-approval`
 receipt with `operationInstanceId` and `proposalId`. Hosts retain the command ID
@@ -101,13 +101,13 @@ choices with any host-owned catalog and preserves that host catalog. Conflicting
 source IDs/locators are refused; discovery never broadens the host's source scope.
 The descriptor and input/metadata
 types are exported by the Console bundle. No source rows, credentials or recipe
-state are persisted separately; the output is an ordinary map-family composition.
+state are persisted separately; the output is an ordinary Map draft.
 
 `prepareEditorTurn()` waits for accepted visual edits and returns its
 current draft identity; it refuses unresolved edits or conflicts.
 `saveEditorVersion()` saves that draft as an immutable version,
-`listEditorVersions()` reads versions of the same server-owned content
-item, and `reopenEditorVersion(versionId)` opens a version of that item
+`listEditorVersions()` reads versions of the same server-owned Map or
+App, and `reopenEditorVersion(versionId)` opens a version of that item
 as a new draft. These methods use the current injected session and do not
 publish. They reject stale results after a session or active-map change.
 Reopening emits `honua-studio-draft-change` with the new
@@ -147,6 +147,20 @@ shadow boundary): `honua-studio-ready` (base contract, see below),
 `honua-studio-error` (`{ message, error? }`),
 `honua-studio-editing-mode-change` (`{ mode: "fixture" | "live",
 packageKey?, family? }`).
+
+**Deprecated names** (kept for one release, removed in the next minor):
+`createWorkspaceDraft`, `attachWorkspaceDraft`, `refreshWorkspaceDraft`,
+`prepareWorkspaceTurn`, `saveWorkspaceVersion`, `listWorkspaceVersions`,
+`reopenWorkspaceVersion`, `reviewWorkspacePublication`,
+`publishWorkspaceVersion`, `readWorkspacePublication`,
+`setWorkspaceConversation`, `createWorkspaceStyleProvider` and
+`enableLiveComposition`/`disableLiveComposition` delegate to the
+`...Editor...`/`...LiveEditing` methods above
+(`src/elements/deprecated-aliases.ts`). The events
+`honua-workspace-draft-change` and `honua-studio-composition-mode-change` are
+still dispatched, with the same detail, after `honua-studio-draft-change` and
+`honua-studio-editing-mode-change`. The `packageKey`, `family` and
+`workspaceId` fields are server-owned wire names and are unchanged.
 
 Sign-in/sign-out controls (and any interactive auth affordance at all) only
 render when `auth.mode === "standalone"` — REQ-003 (honua-studio#4): in
@@ -240,7 +254,7 @@ untouched).
 **Events**: `honua-studio-activity-replay-step` (`{ entry, index, total }`),
 `honua-studio-activity-replay-complete` (`{ total }`).
 
-### `<honua-studio-canvas>` — composition canvas
+### `<honua-studio-canvas>` — map canvas
 
 Implementation: `src/elements/studio-canvas-element.ts`. Unset
 `composition` (the honua-studio#5 default) still renders the original
@@ -442,7 +456,7 @@ live-instance leak probe the other elements carry.
 ### `<honua-studio-content-browser>` — Studio content browser
 
 Implementation: `src/elements/studio-content-browser-element.ts` (honua-studio#9
-build item 1). Lists Studio content items (immutable, saved) and package
+build item 1). Lists saved Studio content (immutable) and
 drafts (mutable) — server PR #3014's `GET /content-items` / `GET
 /package-drafts` shapes exactly: `family`/`workspaceId`/`owner`/`state`/`q`
 filters, opaque cursor pagination ("Load more"), and the joined publication
@@ -660,11 +674,11 @@ The host owns the binding and trust decision; Studio does not automatically
 trust an arbitrary remote signing manifest. Model-selected actions without
 valid terminal provenance remain refused by SDK 0.2.2.
 
-### Map composition draft metadata
+### Map draft metadata
 
 New MCP and REST composition drafts use the server map family's schema version
 `1.0`, envelope format `honua_map_package.v1`, and body members `mapPackageId`
-and `format`. The initial map identity is the stable package key. Composition
+and `format`. The initial map identity is the stable content key (`packageKey`). Composition
 blocks remain alongside this metadata; the client does not invent a renderable
 `mapSpec` or source bindings. On REST replacement the adapter reads the current
 server envelope, preserves existing identity and unrelated metadata, and uses

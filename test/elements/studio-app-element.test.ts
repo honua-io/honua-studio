@@ -532,7 +532,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     try {
       const app = mount();
       expect(create).not.toHaveBeenCalled();
-      await expect(app.createEditorDraft("bad key")).rejects.toThrow("package key");
+      await expect(app.createEditorDraft("bad key")).rejects.toThrow("content key");
       const identity = await app.createEditorDraft("new-map");
       expect(identity).toEqual({ draftId: "created", generation: 0, packageKey: "new-map" });
       expect(create.mock.calls[0]?.[0].envelope.body).toMatchObject({ mapPackageId: "new-map", layers: [] });
@@ -1336,11 +1336,11 @@ it("pins read-only style discovery before requests while accepting same-authorit
     expect(provider.sessionIdentity).toBe(app.auth);
     expect(provider.sessionIdentity).not.toBe(old);
     workspace = "workspace-b";
-    await expect(provider.list()).rejects.toThrow("workspace authority changed");
+    await expect(provider.list()).rejects.toThrow("editor authority changed");
     expect(fetch).not.toHaveBeenCalled();
     const replacement = app.createEditorStyleProvider();
     app.session = { ...cookie, principalId: "another-owner" };
-    await expect(replacement.list()).rejects.toThrow("workspace authority changed");
+    await expect(replacement.list()).rejects.toThrow("editor authority changed");
     expect(fetch).not.toHaveBeenCalled();
   } finally {
     app.session = undefined;

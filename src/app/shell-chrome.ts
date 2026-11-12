@@ -254,7 +254,7 @@ export class ShellChrome {
   }
 
   #compositionModeMarkup(): string {
-    return `<div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Composition mode">
+    return `<div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Editing mode">
             <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
@@ -270,11 +270,11 @@ export class ShellChrome {
             >Go live…</button>
             <form class="live-form" id="live-composition-form" data-testid="live-composition-form" hidden>
               <label class="live-field">
-                <span class="hn-muted">Studio package key</span>
+                <span class="hn-muted">Content key</span>
                 <input type="text" required data-testid="live-composition-package-key" placeholder="pkg-…" />
               </label>
               <label class="live-field">
-                <span class="hn-muted">Family</span>
+                <span class="hn-muted">Kind</span>
                 <select data-testid="live-composition-family">
                   ${LIVE_COMPOSITION_FAMILIES.map((family) => `<option value="${family}">${family}</option>`).join("")}
                 </select>

@@ -210,7 +210,7 @@ export class StudioClient {
           body.items.length > PAGE_SIZE ||
           (body.nextCursor !== null && body.nextCursor !== undefined && typeof body.nextCursor !== "string")
         ) {
-          throw new StudioClientError("Invalid content item page.");
+          throw new StudioClientError("Invalid Studio content page.");
         }
         for (const item of body.items) {
           if (
@@ -220,7 +220,7 @@ export class StudioClient {
             typeof item.updatedAt !== "string" ||
             !["draft", "current", "published"].includes(item.state)
           ) {
-            throw new StudioClientError("Invalid content item identity or state.");
+            throw new StudioClientError("Invalid Studio content identity or state.");
           }
           packages.push({
             id: item.itemId,
@@ -231,17 +231,17 @@ export class StudioClient {
           });
         }
         if (!body.nextCursor) return packages;
-        if (cursors.has(body.nextCursor)) throw new StudioClientError("Content item pagination repeated a cursor.");
+        if (cursors.has(body.nextCursor)) throw new StudioClientError("Studio content pagination repeated a cursor.");
         cursors.add(body.nextCursor);
         cursor = body.nextCursor;
       }
-      throw new StudioClientError("Content items exceeded the bounded page limit.");
+      throw new StudioClientError("Studio content exceeded the bounded page limit.");
     } catch (error) {
       if (error instanceof StudioLifecycleSessionExpiredError)
         throw new StudioSessionExpiredError(`${this.baseUrl}/v1/studio/content-items`);
       if (error instanceof StudioClientError) throw error;
       throw new StudioClientError(
-        `Could not load Studio content items: ${error instanceof Error ? error.message : String(error)}`,
+        `Could not load Studio content: ${error instanceof Error ? error.message : String(error)}`,
         error,
       );
     }

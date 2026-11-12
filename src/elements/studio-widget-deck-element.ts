@@ -575,7 +575,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     const right = controller.state.layers.find((layer) => layer.id === config.right);
     if (!left || !right) {
       const missing = [!left ? config.left : undefined, !right ? config.right : undefined].filter(Boolean).join(", ");
-      return { html: "", status: `Compare "${widget.id}" references layers not in the composition: ${missing}.` };
+      return { html: "", status: `Compare "${widget.id}" references layers not in the map: ${missing}.` };
     }
     const mode = compareMode(left.visible, right.visible);
     const option = (value: "left" | "both" | "right", label: string): string => `
@@ -608,7 +608,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     const config = normalized.config;
     const known = config.steps.filter((step) => controller.state.layers.some((layer) => layer.id === step.layerId));
     if (known.length === 0) {
-      return { html: "", status: `Time "${widget.id}" steps through layers that are not in the composition yet.` };
+      return { html: "", status: `Time "${widget.id}" steps through layers that are not in the map yet.` };
     }
     const index = currentTimeIndex(controller, config);
     const current = known[index] ?? known[0];
@@ -969,7 +969,7 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
       void dispatch(commands).then(
         (outcome) => {
           if (outcome.ok) return;
-          this.#commandError = outcome.reason ?? "The composition refused that change.";
+          this.#commandError = outcome.reason ?? "The map refused that change.";
           this.render();
         },
         (error: unknown) => {
