@@ -66,3 +66,21 @@ jobs:
             .tmp/live-readiness.json
             .tmp/live-studio-report.json
           if-no-files-found: error
+
+      - name: Redact failed journey page snapshots
+        if: failure()
+        env:
+          HONUA_LIVE_API_KEY: ${{ secrets.HONUA_LIVE_API_KEY }}
+          HONUA_LIVE_APPROVER_USERNAME: ${{ secrets.HONUA_LIVE_APPROVER_USERNAME }}
+          HONUA_LIVE_APPROVER_PASSWORD: ${{ secrets.HONUA_LIVE_APPROVER_PASSWORD }}
+        run: >-
+          node --input-type=module -e 'import { collectPlaywrightContexts } from "./scripts/lib/live-diagnostics.mjs";
+          collectPlaywrightContexts();'
+
+      - name: Upload redacted failed journey page snapshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: demo-studio-canary-failures
+          path: .tmp/live-diagnostics/
+          if-no-files-found: ignore
