@@ -73,7 +73,8 @@ export async function loadPagedFeatureSource(
         }
         if (response.status === HTTP_TOO_MANY_REQUESTS || body?.error?.code === HTTP_TOO_MANY_REQUESTS) {
           rateLimit = { retryAfter: retryAfterSeconds(response, body?.error?.retryAfterSeconds) };
-          return endPagingAtRateLimit(url.pathname.endsWith("/query") && pages > 0, rateLimit.retryAfter);
+          if (!url.pathname.endsWith("/query") || pages === 0) throw rateLimitError(rateLimit.retryAfter);
+          return endOfPaging();
         }
         if (body?.error) throw new Error("The source server refused the SDK query.");
         if (body) {
@@ -107,27 +108,23 @@ export async function loadPagedFeatureSource(
     throw rateLimit
       ? rateLimitError(rateLimit.retryAfter)
       : new Error("Authorized source metadata could not be loaded.");
-  const notice = incompleteNotice(source.data.features.length, rateLimit, pages >= MAX_PREVIEW_PAGES && incomplete);
-  if (notice) options.onIncomplete?.(notice);
+  const featureCount = source.data.features.length;
+  if (rateLimit) options.onIncomplete?.(rateLimitedNotice(featureCount, rateLimit.retryAfter));
+  else if (pages >= MAX_PREVIEW_PAGES && incomplete) options.onIncomplete?.(pageLimitNotice(featureCount));
   return source.data as unknown as Record<string, unknown>;
 }
 
-/** Ends SDK paging with an empty page once at least one page loaded; a first refused page fails the source. */
-function endPagingAtRateLimit(pagesLoaded: boolean, retryAfter: number | undefined): Response {
-  if (!pagesLoaded) throw rateLimitError(retryAfter);
+/** An empty page ends SDK paging while keeping the pages already loaded. */
+function endOfPaging(): Response {
   return new Response(JSON.stringify({ features: [] }), { status: 200 });
 }
 
-function incompleteNotice(
-  featureCount: number,
-  rateLimit: { readonly retryAfter?: number } | undefined,
-  atPageLimit: boolean,
-): string | undefined {
-  if (rateLimit)
-    return `Showing the first ${featureCount} features; the server is limiting requests, so the rest did not load${rateLimit.retryAfter ? ` (retry in ${rateLimit.retryAfter} seconds)` : ""}.`;
-  if (atPageLimit)
-    return `Showing ${featureCount} features at the ${MAX_PREVIEW_PAGES}-page preview limit; additional features remain.`;
-  return undefined;
+function rateLimitedNotice(featureCount: number, retryAfter: number | undefined): string {
+  return `Showing the first ${featureCount} features; the server is limiting requests, so the rest did not load${retryAfter ? ` (retry in ${retryAfter} seconds)` : ""}.`;
+}
+
+function pageLimitNotice(featureCount: number): string {
+  return `Showing ${featureCount} features at the ${MAX_PREVIEW_PAGES}-page preview limit; additional features remain.`;
 }
 
 function retryAfterSeconds(response: Response, declared: unknown): number | undefined {
