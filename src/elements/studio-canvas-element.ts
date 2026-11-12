@@ -492,6 +492,11 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     deck.commandDispatch = this.#commandDispatch;
     deck.composition = this.#composition;
     deck.sourceFilters = this.#interactions?.appearance.sourceFilters ?? {};
+    deck.onClearSourceFilters = (sourceId) => {
+      const runtime = this.#interactions;
+      for (const entry of runtime?.temporaryFilterSummary() ?? [])
+        if (entry.sourceIds.includes(sourceId)) runtime?.clearTemporaryFilter(entry.controlId);
+    };
     deck.unrenderableLayers = (this.#mapView?.projection?.unresolved ?? []).map((entry) => ({
       layerId: entry.layerId,
       reason: entry.reason,

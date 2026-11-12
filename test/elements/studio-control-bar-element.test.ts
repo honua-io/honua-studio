@@ -278,6 +278,72 @@ describe("<honua-studio-control-bar>", () => {
       runtime.dispose();
     });
 
+    it("summarizes active temporary filters and clears one or all through the runtime", async () => {
+      const controller = controllerWithParcels();
+      controller.apply({ name: "addLayer", layer: { id: "districts", sourceId: "src-districts", title: "Districts" } });
+      controller.apply({
+        name: "addControl",
+        control: {
+          id: "zoning",
+          kind: "filterSelect",
+          title: "Zoning",
+          sourceId: "src-parcels",
+          config: { field: "zoning_code", options: ["R-5", "B-2"] },
+        },
+      });
+      controller.apply({
+        name: "addControl",
+        control: {
+          id: "district",
+          kind: "filterSelect",
+          title: "District",
+          sourceId: "src-districts",
+          config: { field: "name", options: ["HON"] },
+        },
+      });
+      const saved = JSON.stringify(controller.state);
+      const runtime = new StudioInteractionRuntime({ controller });
+      const element = mount(controller, { runtime });
+      expect(query(element, "[data-testid='studio-exploration-filters']")).toBeNull();
+      const pick = (controlId: string, value: string) => {
+        const select = query<HTMLSelectElement>(element, `#filter-${controlId}`);
+        if (!select) throw new Error(`missing ${controlId}`);
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      };
+      pick("zoning", "R-5");
+      pick("district", "HON");
+      await flush();
+      const rows = () =>
+        [...(element.shadowRoot?.querySelectorAll("[data-testid='studio-exploration-filter']") ?? [])].map((row) =>
+          row.textContent?.replace(/\s+/g, " ").trim(),
+        );
+      expect(rows()).toEqual(["Zoning: zoning_code is R-5 · parcels Clear", "District: name is HON · Districts Clear"]);
+      expect(query(element, "[data-testid='studio-exploration-filters']")?.textContent).toContain(
+        "2 temporary filters. They are not saved with the map.",
+      );
+
+      query<HTMLButtonElement>(element, "[aria-label='Clear District filter']")?.click();
+      await flush();
+      expect(runtime.clauseFor("district")).toBeUndefined();
+      expect(runtime.clauseFor("zoning")).toEqual({ field: "zoning_code", operator: "=", value: "R-5" });
+      expect(runtime.appearance.filters.parcels).toEqual(["==", ["get", "zoning_code"], "R-5"]);
+      expect(runtime.appearance.filters.districts).toBeUndefined();
+      expect(query<HTMLSelectElement>(element, "#filter-district")?.value).toBe("");
+      expect(rows()).toEqual(["Zoning: zoning_code is R-5 · parcels Clear"]);
+      expect(element.shadowRoot?.activeElement?.getAttribute("aria-label")).toBe("Clear Zoning filter");
+
+      query<HTMLButtonElement>(element, "[data-testid='studio-exploration-reset']")?.click();
+      await flush();
+      expect(runtime.temporaryFilterSummary()).toEqual([]);
+      expect(runtime.appearance.filters).toEqual({});
+      expect(query<HTMLSelectElement>(element, "#filter-zoning")?.value).toBe("");
+      expect(query(element, "[data-testid='studio-exploration-filters']")).toBeNull();
+      expect(element.shadowRoot?.activeElement?.id).toBe("filter-zoning");
+      expect(JSON.stringify(controller.state)).toBe(saved);
+      runtime.dispose();
+    });
+
     it("derives a select's domain from the bound source when the agent authored no options", async () => {
       const controller = controllerWithParcels();
       controller.apply({

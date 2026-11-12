@@ -216,8 +216,8 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     }
     const root = this.ensureShadowRoot();
     this.listen(root, "click", (event) => this.#onClick(event));
-    this.listen(root, "change", (event) => this.#onChange(event));
-    this.listen(root, "input", (event) => this.#onChange(event));
+    this.listen(root, "change", (event) => this.#onChangeAndSummarize(event));
+    this.listen(root, "input", (event) => this.#onChangeAndSummarize(event));
   }
 
   protected onDisconnect(): void {
@@ -240,8 +240,57 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       <style>${baseElementStyles()}${controlBarStyles()}</style>
       <section class="control-bar" part="controls" aria-label="${escapeHtml(label)}" data-testid="studio-control-bar">
         ${cards}
+        <div class="control-exploration-slot" data-exploration-slot>${this.#explorationHtml()}</div>
       </section>
     `);
+  }
+
+  /** Active temporary filters, each with its own Clear, so a user always sees what narrows the map and widgets. */
+  #explorationHtml(): string {
+    const runtime = this.#interactions;
+    const state = this.#composition?.state;
+    const active = runtime?.temporaryFilterSummary() ?? [];
+    if (!state || active.length === 0) return "";
+    const layerTitle = (layerId: string) => state.layers.find((layer) => layer.id === layerId)?.title ?? layerId;
+    const rows = active
+      .map((entry) => {
+        const layers = entry.layerIds.map(layerTitle);
+        const scope = layers.length ? layers.join(", ") : entry.sourceIds.join(", ");
+        return `<li class="control-exploration-filter" data-testid="studio-exploration-filter" data-control-id="${escapeHtml(entry.controlId)}">
+          <span><strong>${escapeHtml(entry.title)}</strong>: ${escapeHtml(entry.label)}<span class="hn-muted"> · ${escapeHtml(scope)}</span></span>
+          <button type="button" class="hn-btn hn-btn--sm" data-action="exploration-clear" data-control-id="${escapeHtml(entry.controlId)}"
+            data-testid="studio-exploration-clear" aria-label="Clear ${escapeHtml(entry.title)} filter">Clear</button>
+        </li>`;
+      })
+      .join("");
+    return `<section class="control-exploration" aria-label="Active exploration filters" data-testid="studio-exploration-filters">
+      <p class="control-exploration-note">Exploring with ${active.length === 1 ? "1 temporary filter" : `${active.length} temporary filters`}. They are not saved with the map.</p>
+      <ul class="control-exploration-list">${rows}</ul>
+      <button type="button" class="hn-btn hn-btn--sm" data-action="exploration-reset" data-testid="studio-exploration-reset">Reset all filters</button>
+    </section>`;
+  }
+
+  /** Repaints only the filter summary, so a slider being dragged is never replaced mid-gesture. */
+  #paintExploration(): void {
+    const slot = this.shadowRoot?.querySelector<HTMLElement>("[data-exploration-slot]");
+    if (slot) slot.innerHTML = this.#explorationHtml();
+  }
+
+  #clearExploration(controlIds: readonly string[]): void {
+    const runtime = this.#interactions;
+    const controls = this.#composition?.state.controls ?? [];
+    if (!runtime) return;
+    for (const controlId of controlIds) {
+      runtime.clearTemporaryFilter(controlId);
+      const control = controls.find((entry) => entry.id === controlId);
+      if (control) this.#announce(control, undefined);
+    }
+    this.render();
+    const root = this.shadowRoot;
+    const next =
+      root?.querySelector<HTMLElement>("[data-testid='studio-exploration-clear']") ??
+      root?.querySelector<HTMLElement>(`[data-control-id="${cssId(controlIds[0] ?? "")}"] [data-action]`);
+    next?.focus();
   }
 
   #renderControl(control: CompositionControl): string {
@@ -743,10 +792,18 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       "bookmark",
       "measure-toggle",
       "measure-clear",
+      "exploration-clear",
+      "exploration-reset",
     ]);
     if (!target) return;
     const controlId = target.dataset.controlId ?? "";
     switch (target.dataset.action) {
+      case "exploration-clear":
+        this.#clearExploration([controlId]);
+        return;
+      case "exploration-reset":
+        this.#clearExploration(this.#interactions?.temporaryFilterSummary().map((entry) => entry.controlId) ?? []);
+        return;
       case "zoom-in":
         this.#map?.nudge({ zoomBy: 1 });
         return;
@@ -778,6 +835,11 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         this.#measure.set(controlId, { active: this.#measure.get(controlId)?.active ?? false, points: [] });
         this.render();
     }
+  }
+
+  #onChangeAndSummarize(event: Event): void {
+    this.#onChange(event);
+    this.#paintExploration();
   }
 
   #onChange(event: Event): void {

@@ -526,6 +526,22 @@ export function controlBarStyles(): string {
       border-color: var(--hn-warning-border, #d9a441);
       background: var(--hn-warning-tint, #fbf1dd);
     }
+    .control-exploration-slot:empty { display: none; }
+    .control-exploration-slot { flex: 1 1 100%; }
+    .control-exploration {
+      display: flex; flex-wrap: wrap; align-items: center; gap: var(--hn-space-2, 8px);
+      border-inline-start: 3px solid var(--hn-accent, #0b6b4d);
+      background: var(--hn-surface-raised, #fff);
+      padding: var(--hn-space-1, 4px) var(--hn-space-3, 12px);
+      font-size: var(--hn-text-sm, 0.8125rem);
+    }
+    .control-exploration-note { margin: 0; }
+    .control-exploration-list { display: flex; flex-wrap: wrap; gap: var(--hn-space-2, 8px); margin: 0; padding: 0; list-style: none; }
+    .control-exploration-filter {
+      display: inline-flex; align-items: center; gap: var(--hn-space-1, 4px);
+      border: 1px solid var(--hn-line, #dfe4df); border-radius: var(--hn-radius-lg, 10px);
+      padding: 2px 2px 2px var(--hn-space-2, 8px);
+    }
     .control-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--hn-space-2, 8px); }
     .control-title { font-size: var(--hn-text-sm, 0.8125rem); font-weight: 600; margin: 0; }
     .control-kind { flex: 0 0 auto; font-family: var(--hn-font-mono, ui-monospace, monospace); }
