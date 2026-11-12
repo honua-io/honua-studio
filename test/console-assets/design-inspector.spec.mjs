@@ -154,7 +154,7 @@ test("built shared editor inspects actual data, follows exact owners, and fences
       { kind: "layer", id: "parcels-a" },
     ]);
     await page.getByTestId("studio-control-filter-select").selectOption("R-5");
-    await expect(panel).toContainText("zoning_code = R-5");
+    await expect(panel).toContainText("zoning_code is R-5");
     await expect(panel).toContainText("matching rows from");
     await expect
       .poll(() =>
