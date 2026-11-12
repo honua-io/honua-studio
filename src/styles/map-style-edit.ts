@@ -182,6 +182,162 @@ export function thematicMapStyle(
   return result;
 }
 
+/** Ramp for one-to-five thematic classes plus the fallback class. */
+export const THEMATIC_PALETTE = ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6", "#3182bd", "#08519c"] as const;
+
+export interface MapStyleLegendEntry {
+  readonly label: string;
+  readonly color: string;
+}
+
+/** Legend rows for exactly the classes `thematicMapStyle` paints with {@link THEMATIC_PALETTE}. */
+export function thematicLegend(
+  mode: "categories" | "breaks",
+  values: readonly (string | number)[],
+): readonly MapStyleLegendEntry[] {
+  if (mode === "categories")
+    return [
+      ...values.map((value, index) => ({ label: String(value), color: THEMATIC_PALETTE[index] })),
+      { label: "Other", color: THEMATIC_PALETTE[values.length] },
+    ];
+  const entries: MapStyleLegendEntry[] = [{ label: `Below ${values[0]}`, color: THEMATIC_PALETTE[0] }];
+  for (let index = 0; index < values.length - 1; index += 1)
+    entries.push({ label: `${values[index]} to below ${values[index + 1]}`, color: THEMATIC_PALETTE[index + 1] });
+  entries.push({ label: `${values[values.length - 1]} or more`, color: THEMATIC_PALETTE[values.length] });
+  return entries;
+}
+
+export type MapStyleGeometry = "circle" | "line" | "fill";
+
+/** One directly editable paint property, or the reason it needs the advanced editor. */
+export interface MapStyleAppearanceProperty {
+  readonly layerId: string;
+  readonly key: string;
+  readonly value: unknown;
+  readonly refusal?: string;
+}
+
+export interface MapStyleAppearance {
+  readonly geometry: MapStyleGeometry;
+  readonly color: MapStyleAppearanceProperty;
+  readonly opacity: MapStyleAppearanceProperty;
+  /** Circle radius, line width, or a polygon's outline width; absent for a polygon without an outline layer. */
+  readonly strokeOrSize?: MapStyleAppearanceProperty & { readonly kind: "size" | "stroke" };
+}
+
+export const MAX_STROKE_OR_SIZE_PX = 50;
+
+export interface MapStyleAppearancePatch {
+  readonly color?: string;
+  readonly opacity?: number;
+  readonly strokeOrSize?: number;
+}
+
+function ownerRenderLayer(style: MapStyleDocument, owner: MapStyleLayerOwner, id = owner.id) {
+  const layers = Array.isArray(style.layers) ? style.layers : [];
+  return layers.find((value) => object(value) && value.id === id && value.source === owner.sourceId) as
+    | Record<string, unknown>
+    | undefined;
+}
+
+function appearanceProperty(layer: Record<string, unknown>, key: string): MapStyleAppearanceProperty {
+  const value = object(layer.paint) ? layer.paint[key] : undefined;
+  return {
+    layerId: String(layer.id),
+    key,
+    value,
+    ...(value === undefined || typeof value === "string" || typeof value === "number"
+      ? {}
+      : {
+          refusal:
+            Array.isArray(value) && (value[0] === "match" || value[0] === "step")
+              ? "Uses field-based classes. Change them under Color by field or in the advanced editor."
+              : "Uses an advanced expression or function. Edit it in the advanced editor.",
+        }),
+  };
+}
+
+/** The selected layer's common paint, read from its primary render layer; undefined when it has none. */
+export function layerAppearance(style: MapStyleDocument, owner: MapStyleLayerOwner): MapStyleAppearance | undefined {
+  const layer = ownerRenderLayer(style, owner);
+  const geometry = layer?.type;
+  if (!layer || (geometry !== "circle" && geometry !== "line" && geometry !== "fill")) return undefined;
+  const outline = geometry === "fill" ? ownerRenderLayer(style, owner, `${owner.id}__outline`) : undefined;
+  const strokeLayer = geometry === "fill" ? outline : layer;
+  const strokeOrSize = strokeLayer
+    ? {
+        kind: geometry === "circle" ? ("size" as const) : ("stroke" as const),
+        ...appearanceProperty(strokeLayer, geometry === "circle" ? "circle-radius" : "line-width"),
+      }
+    : undefined;
+  return {
+    geometry,
+    color: appearanceProperty(layer, `${geometry}-color`),
+    opacity: appearanceProperty(layer, `${geometry}-opacity`),
+    ...(strokeOrSize ? { strokeOrSize } : {}),
+  };
+}
+
+/** Writes literal common paint; refuses to flatten an expression rather than lose it. */
+export function withLayerAppearance(
+  style: MapStyleDocument,
+  owner: MapStyleLayerOwner,
+  patch: MapStyleAppearancePatch,
+): MapStyleDocument {
+  const appearance = layerAppearance(style, owner);
+  if (!appearance) throw new Error("The selected layer has no point, line or polygon render layer.");
+  const writes: [MapStyleAppearanceProperty | undefined, unknown][] = [];
+  if (patch.color !== undefined) {
+    if (!/^#[a-fA-F0-9]{6}$/.test(patch.color)) throw new Error("Choose a valid color.");
+    writes.push([appearance.color, patch.color]);
+  }
+  if (patch.opacity !== undefined) {
+    if (!Number.isFinite(patch.opacity) || patch.opacity < 0 || patch.opacity > 1)
+      throw new Error("Opacity must be between 0 and 100 percent.");
+    writes.push([appearance.opacity, patch.opacity]);
+  }
+  if (patch.strokeOrSize !== undefined) {
+    if (!appearance.strokeOrSize) throw new Error("This polygon has no outline to resize.");
+    if (!Number.isFinite(patch.strokeOrSize) || patch.strokeOrSize < 0 || patch.strokeOrSize > MAX_STROKE_OR_SIZE_PX)
+      throw new Error(`Size and stroke width must be between 0 and ${MAX_STROKE_OR_SIZE_PX} pixels.`);
+    writes.push([appearance.strokeOrSize, patch.strokeOrSize]);
+  }
+  const result = structuredClone(style) as Record<string, unknown>;
+  for (const [property, value] of writes) {
+    if (!property) continue;
+    if (property.refusal) throw new Error(property.refusal);
+    result.layers = (result.layers as unknown[]).map((layer) =>
+      object(layer) && layer.id === property.layerId && layer.source === owner.sourceId
+        ? { ...layer, paint: { ...(object(layer.paint) ? layer.paint : {}), [property.key]: value } }
+        : layer,
+    );
+  }
+  return result;
+}
+
+/** The owner's labels: none, a plain `["get", field]` label, or a custom label only the advanced editor can change. */
+export function featureLabelState(
+  style: MapStyleDocument,
+  owner: MapStyleLayerOwner,
+): { readonly kind: "none" } | { readonly kind: "field"; readonly field: string } | { readonly kind: "custom" } {
+  const label = ownerRenderLayer(style, owner, `${owner.id}__labels`);
+  if (!label) return { kind: "none" };
+  const text = object(label.layout) ? label.layout["text-field"] : undefined;
+  return Array.isArray(text) && text.length === 2 && text[0] === "get" && typeof text[1] === "string"
+    ? { kind: "field", field: text[1] }
+    : { kind: "custom" };
+}
+
+/** Removes the owner's label layer; other layers are untouched. */
+export function withoutFeatureLabels(style: MapStyleDocument, owner: MapStyleLayerOwner): MapStyleDocument {
+  const result = structuredClone(style) as Record<string, unknown>;
+  const labelId = `${owner.id}__labels`;
+  result.layers = (Array.isArray(result.layers) ? result.layers : []).filter(
+    (layer) => !(object(layer) && layer.id === labelId && layer.source === owner.sourceId),
+  );
+  return result;
+}
+
 /** A symbol label on the selected layer's source, using one described field. */
 export function featureLabelStyle(
   style: MapStyleDocument,

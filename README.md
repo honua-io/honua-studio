@@ -58,20 +58,16 @@ workflow qualification remain separate from the producer's fixture checks.
   [Honua Console](https://github.com/honua-io/honua-console)'s `/studio`
   surface is honua-io/honua-console#324, scheduled for 2026.2.
 
-The current visual styling follow-up is under qualification. It adds a pinned
-credential-free Maputnik frame over the same authorized map draft, explicit
-map-local versus shared-catalog save callbacks, host-only navigation/chat,
-and SDK-paged feature preview. When the host supplies authorized layers and
-`getFields`, the editor offers one-to-five explicit thematic categories or
-numeric breaks, entered one per line over an actual described field. It
-preserves category text as entered and validates numeric values before preview.
-The host may call `refreshThematicFields()` after its authorized field context
-changes; an unavailable selected field requires a new explicit choice, and
-refresh does not discard unsaved style edits. The advanced Maputnik editor
-remains available. These source changes do not yet establish browser label
-rendering, shared-symbol publication, actual large-layer coverage, or a new
-production asset receipt. Font/sprite resource transport and the full public
-artifact journey remain unfinished.
+The map style editor opens on the selected layer's common styling: color, opacity, and point
+size, line width or polygon outline width, previewed live on the map, plus a Labels field
+picker. Data-driven expressions stay read-only there and remain editable in the advanced
+Maputnik pane, a pinned credential-free frame over the same authorized map draft. Color by
+field offers one to five explicit categories or numeric breaks over an actual described field,
+with a legend matching the painted classes. Preview never writes; Save map style writes the
+draft, and saving a version and publishing stay separate actions. Active temporary filters
+appear under the map controls in plain language, each with Clear, plus Reset all filters.
+Reset never changes the saved map. Font/sprite resource transport and the full public artifact
+journey remain unfinished.
 
 ## Status
 
@@ -91,12 +87,15 @@ Latest default-branch evidence, at `5ba4acc`:
   passed the container, browser, production Console-assets and Blazor jobs. The browser
   job reported 50 passed. Console assets reported six passed and Blazor reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Latest scheduled demo canary 42909671282](https://github.com/honua-io/honua-studio/actions/runs/42909671282),
-  at `03136c6` (not current main), reported **two passed, three failed**, with retries disabled,
-  in 11.1 seconds. Boot and scripted MCP composition passed. Publication stopped because
+- [Latest scheduled demo canary 43116174020](https://github.com/honua-io/honua-studio/actions/runs/43116174020),
+  at `ee2df06` on 2026-11-11, reported **two passed, three failed**, with retries disabled,
+  in 11.6 seconds. Boot and scripted MCP composition passed. Publication stopped because
   `HONUA_LIVE_CONSOLE_URL` was absent. Both real-model journeys refused invocation before a
   provider call: readiness advertised only a Bedrock adapter, with no allowed Opus 5.5 or Sol
-  provider. This run did not reach an HTTP 400 chat response. The earlier demo HTTP 400 remains
+  provider. The canary has failed nightly since 2026-10-22. The stale immediate-`Published`
+  expectation and the skipped MCP journeys were fixed in [#216](https://github.com/honua-io/honua-studio/pull/216). The remaining failures come from
+  the demo deployment: no Console approval settings and no allowed model provider. Studio code
+  does not cause them. The earlier demo HTTP 400 remains
   [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092).
 
 The candidate qualification workflow prepares the **customer quickstart Compose stack on the

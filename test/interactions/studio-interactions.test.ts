@@ -299,8 +299,20 @@ it("summarizes temporary filters and resets them without changing the authored c
   await flush();
 
   expect(runtime.temporaryFilterSummary()).toEqual([
-    { controlId: "zoning", sourceIds: ["src-parcels"], label: "zoning_code = R-5" },
-    { controlId: "district", sourceIds: ["src-districts"], label: "name = HON" },
+    {
+      controlId: "zoning",
+      title: "Filter",
+      sourceIds: ["src-parcels"],
+      layerIds: ["parcels"],
+      label: "zoning_code is R-5",
+    },
+    {
+      controlId: "district",
+      title: "Filter",
+      sourceIds: ["src-districts"],
+      layerIds: ["districts"],
+      label: "name is HON",
+    },
   ]);
   const saved = canonicalCompositionJson(controller.state);
   const revisions = controller.history.revisions().length;

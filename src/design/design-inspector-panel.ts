@@ -134,7 +134,13 @@ export class DesignInspectorPanel {
       return;
     }
     if (action === "reset") {
-      this.#options.canvas?.interactions?.resetTemporaryFilters();
+      this.#options.canvas?.clearTemporaryFilters();
+      this.refresh();
+      return;
+    }
+    if (action === "clear-temporary" && button.dataset.controlId) {
+      const controlId = button.dataset.controlId;
+      this.#options.canvas?.clearTemporaryFilters((entry) => entry.controlId === controlId);
       this.refresh();
       return;
     }
@@ -196,7 +202,7 @@ export class DesignInspectorPanel {
       ${consumers.length === 0 ? "<p>No components in this draft.</p>" : ""}
       <h3>Connections</h3><p>${connections.filter((entry) => entry.status === "supported").length} of ${connections.length} described connections supported by this runtime. Shared source filters are intrinsic; authored actions execute once per gesture.</p>
       <ul>${connections.map((connection) => `<li data-connection="${escapeHtml(connection.id)}" data-connection-origin="${connection.origin}"><code>${escapeHtml(connection.id)}</code>: ${follow(connection.from, connection.authoredInteractionId, JSON.stringify([connection.origin, connection.id, "from"]))} → <strong>${escapeHtml(connection.event)} → ${escapeHtml(connection.action)}</strong> → ${follow(connection.to, connection.authoredInteractionId, JSON.stringify([connection.origin, connection.id, "to"]))}<br><span>${escapeHtml(connection.behavior)} · ${escapeHtml(connection.status)}: ${escapeHtml(connection.reason)}</span></li>`).join("") || "<li>No authored or source-filter connections.</li>"}</ul>
-      <h3>Temporary exploration filters</h3><ul>${temporary.map((entry) => `<li>${escapeHtml(entry.controlId)}: ${escapeHtml(entry.label)} — sources ${escapeHtml(entry.sourceIds.join(", "))}</li>`).join("") || "<li>No temporary source filters.</li>"}</ul>
+      <h3>Temporary exploration filters</h3><ul>${temporary.map((entry) => `<li>${escapeHtml(entry.title)} (<code>${escapeHtml(entry.controlId)}</code>): ${escapeHtml(entry.label)} — sources ${escapeHtml(entry.sourceIds.join(", "))} <button type="button" data-action="clear-temporary" data-control-id="${escapeHtml(entry.controlId)}" aria-label="Clear ${escapeHtml(entry.title)} filter">Clear</button></li>`).join("") || "<li>No temporary source filters.</li>"}</ul>
       <button type="button" data-action="reset" ${temporary.length ? "" : "disabled"}>Reset temporary filters</button><p>Reset uses the existing exploration reset and preserves authored constraints, controls and interaction bindings. Layer-specific action filters remain local to their layer.</p>
     </section>`;
     for (const details of container.querySelectorAll<HTMLDetailsElement>("details[data-impact]"))
