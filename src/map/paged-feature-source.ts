@@ -3,6 +3,9 @@ import { loadHonuaFeatureServiceGeoJson } from "@honua/sdk-js/map";
 import { type AuthenticatedSourceOptions, trustedSourceUrl } from "./authenticated-source-protocol.js";
 import { parseFeatureResponseBody, readBoundedFeatureBody } from "./bounded-feature-response.js";
 
+const MAX_PREVIEW_PAGES = 32;
+const HTTP_TOO_MANY_REQUESTS = 429;
+
 /** Uses the SDK's canonical feature query/paging and geometry conversion. */
 export async function loadPagedFeatureSource(
   target: URL,
@@ -68,11 +71,9 @@ export async function loadPagedFeatureSource(
           if (attempt === 0 && authority) continue;
           throw new Error("The Studio session cannot authorize this source query.");
         }
-        if (response.status === 429 || body?.error?.code === 429) {
+        if (response.status === HTTP_TOO_MANY_REQUESTS || body?.error?.code === HTTP_TOO_MANY_REQUESTS) {
           rateLimit = { retryAfter: retryAfterSeconds(response, body?.error?.retryAfterSeconds) };
-          if (url.pathname.endsWith("/query") && pages > 0)
-            return new Response(JSON.stringify({ features: [] }), { status: 200 });
-          throw rateLimitError(rateLimit.retryAfter);
+          return endPagingAtRateLimit(url.pathname.endsWith("/query") && pages > 0, rateLimit.retryAfter);
         }
         if (body?.error) throw new Error("The source server refused the SDK query.");
         if (body) {
@@ -97,24 +98,36 @@ export async function loadPagedFeatureSource(
     outFields: (target.searchParams.get("outFields") ?? "*").split(","),
     outSR: 4326,
     pageSize: 2000,
-    maxPages: 32,
+    maxPages: MAX_PREVIEW_PAGES,
     signal,
   });
   signal.throwIfAborted();
   if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
-  if (!metadataObserved) {
-    if (rateLimit) throw rateLimitError(rateLimit.retryAfter);
-    throw new Error("Authorized source metadata could not be loaded.");
-  }
-  if (rateLimit)
-    options.onIncomplete?.(
-      `Showing the first ${source.data.features.length} features; the server is limiting requests, so the rest did not load${rateLimit.retryAfter ? ` (retry in ${rateLimit.retryAfter} seconds)` : ""}.`,
-    );
-  else if (pages >= 32 && incomplete)
-    options.onIncomplete?.(
-      `Showing ${source.data.features.length} features at the 32-page preview limit; additional features remain.`,
-    );
+  if (!metadataObserved)
+    throw rateLimit
+      ? rateLimitError(rateLimit.retryAfter)
+      : new Error("Authorized source metadata could not be loaded.");
+  const notice = incompleteNotice(source.data.features.length, rateLimit, pages >= MAX_PREVIEW_PAGES && incomplete);
+  if (notice) options.onIncomplete?.(notice);
   return source.data as unknown as Record<string, unknown>;
+}
+
+/** Ends SDK paging with an empty page once at least one page loaded; a first refused page fails the source. */
+function endPagingAtRateLimit(pagesLoaded: boolean, retryAfter: number | undefined): Response {
+  if (!pagesLoaded) throw rateLimitError(retryAfter);
+  return new Response(JSON.stringify({ features: [] }), { status: 200 });
+}
+
+function incompleteNotice(
+  featureCount: number,
+  rateLimit: { readonly retryAfter?: number } | undefined,
+  atPageLimit: boolean,
+): string | undefined {
+  if (rateLimit)
+    return `Showing the first ${featureCount} features; the server is limiting requests, so the rest did not load${rateLimit.retryAfter ? ` (retry in ${rateLimit.retryAfter} seconds)` : ""}.`;
+  if (atPageLimit)
+    return `Showing ${featureCount} features at the ${MAX_PREVIEW_PAGES}-page preview limit; additional features remain.`;
+  return undefined;
 }
 
 function retryAfterSeconds(response: Response, declared: unknown): number | undefined {

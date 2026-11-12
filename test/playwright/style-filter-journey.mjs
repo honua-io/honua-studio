@@ -1,19 +1,26 @@
 import { expect, test } from "@playwright/test";
 import { expectNoSeriousAxeViolations } from "./helpers.mjs";
 
+/** The Studio canvas's map view, found through nested shadow roots. */
+async function studioMapView(page) {
+  return page.evaluateHandle(() => {
+    const find = (root) => {
+      for (const element of root.querySelectorAll("*")) {
+        if (element.localName === "honua-studio-canvas") return element;
+        const nested = element.shadowRoot && find(element.shadowRoot);
+        if (nested) return nested;
+      }
+      return undefined;
+    };
+    return find(document)?.mapView;
+  });
+}
+
 /** Rendered features of the composed layer, read from MapLibre after it painted, with each feature's evaluated paint. */
-function renderedLayer(page, layerId, field) {
-  return page.evaluate(
-    ([id, categoryField]) => {
-      const find = (root) => {
-        for (const element of root.querySelectorAll("*")) {
-          if (element.localName === "honua-studio-canvas") return element;
-          const nested = element.shadowRoot && find(element.shadowRoot);
-          if (nested) return nested;
-        }
-        return undefined;
-      };
-      const map = find(document)?.mapView?.map;
+async function renderedLayer(page, layerId, field) {
+  return (await studioMapView(page)).evaluate(
+    (mapView, [id, categoryField]) => {
+      const map = mapView?.map;
       if (!map?.isStyleLoaded()) return undefined;
       const renderLayers = map
         .getStyle()
@@ -42,18 +49,8 @@ function renderedLayer(page, layerId, field) {
 }
 
 /** Where the map looks and what its recipe source holds, for a journey that painted nothing. */
-function mapDiagnostics(page) {
-  return page.evaluate(() => {
-    const app = window.__honuaStudioApp;
-    const find = (root) => {
-      for (const element of root.querySelectorAll("*")) {
-        if (element.localName === "honua-studio-canvas") return element;
-        const nested = element.shadowRoot && find(element.shadowRoot);
-        if (nested) return nested;
-      }
-      return undefined;
-    };
-    const mapView = find(document)?.mapView;
+async function mapDiagnostics(page) {
+  return (await studioMapView(page)).evaluate((mapView) => {
     const map = mapView?.map;
     const layers =
       map
@@ -63,7 +60,7 @@ function mapDiagnostics(page) {
         ) ?? [];
     const sourceId = layers[0]?.source;
     return {
-      authoredView: app?.composition?.state?.view,
+      authoredView: window.__honuaStudioApp?.composition?.state?.view,
       zoom: map?.getZoom(),
       center: map?.getCenter()?.toArray(),
       bounds: map?.getBounds()?.toArray(),
