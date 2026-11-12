@@ -46,8 +46,18 @@ function storedPaint(draft, layerId) {
 /** The first authorized parcels dataset the recipe offers; fixture and live catalogs name it differently. */
 async function parcelsSourceOption(page) {
   const source = page.getByTestId("recipe-source");
-  await expect(source.locator("option[value^='hi-parcels']")).not.toHaveCount(0);
-  return source.locator("option[value^='hi-parcels']").first().getAttribute("value");
+  await expect(page.getByTestId("recipe-status")).not.toHaveText("Loading sources…");
+  const offered = await source
+    .locator("option")
+    .evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent ?? "" })));
+  const parcels =
+    offered.find((option) => option.value.startsWith("hi-parcels")) ??
+    offered.find((option) => option.value && /parcel/i.test(option.label));
+  if (!parcels) {
+    const status = await page.getByTestId("recipe-status").textContent();
+    throw new Error(`No parcels dataset in the recipe catalog. Status: ${status}. Offered: ${JSON.stringify(offered)}`);
+  }
+  return parcels.value;
 }
 
 /**
