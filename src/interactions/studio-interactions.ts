@@ -57,8 +57,14 @@ import { compositionDataSource } from "../composition/source-reference.js";
 
 import type { CompositionController } from "../composition/controller.js";
 import type { CompositionControl, CompositionState, CompositionTarget } from "../composition/model.js";
-import { CONTROL_KIND_EMITS_CHANGE, controlTargetLayers, readControlConfig } from "../controls/control-config.js";
+import {
+  CONTROL_KIND_EMITS_CHANGE,
+  CONTROL_KIND_LABELS,
+  controlTargetLayers,
+  readControlConfig,
+} from "../controls/control-config.js";
 import { type MaplibreFilter, clausesToMaplibreFilter } from "./filter-expression.js";
+import { describeFilterClause } from "./filter-label.js";
 
 /**
  * The pseudo-field an `opacity` control publishes under. It is a field name
@@ -198,8 +204,10 @@ export class StudioInteractionRuntime {
       if (!clause || clause.field === OPACITY_CLAUSE_FIELD || !CONTROL_KIND_EMITS_CHANGE[control.kind]) continue;
       summaries.push({
         controlId: control.id,
+        title: control.title ?? CONTROL_KIND_LABELS[control.kind],
         sourceIds: affectedSourceIds(state, control),
-        label: temporaryFilterLabel(clause),
+        layerIds: controlTargetLayers(state, control.sourceId),
+        label: describeFilterClause(clause),
       });
     }
     return summaries;
@@ -210,9 +218,18 @@ export class StudioInteractionRuntime {
     this.publishControlChange(controlId, undefined);
   }
 
-  /** Clears the active temporary set. Does not apply a composition command. */
+  /** Clears the active temporary filters `matches` selects (all by default) and returns them. Applies no composition command. */
+  public clearTemporaryFilters(
+    matches: (entry: TemporaryFilterSummary) => boolean = () => true,
+  ): readonly TemporaryFilterSummary[] {
+    const cleared = this.temporaryFilterSummary().filter(matches);
+    for (const entry of cleared) this.clearTemporaryFilter(entry.controlId);
+    return cleared;
+  }
+
+  /** Clears the active temporary set. */
   public resetTemporaryFilters(): void {
-    for (const entry of this.temporaryFilterSummary()) this.clearTemporaryFilter(entry.controlId);
+    this.clearTemporaryFilters();
   }
 
   public dispose(): void {
@@ -417,7 +434,12 @@ export class StudioInteractionRuntime {
 
 export interface TemporaryFilterSummary {
   readonly controlId: string;
+  /** The control's authored title, or its kind label. */
+  readonly title: string;
   readonly sourceIds: readonly string[];
+  /** Composed layers whose rendering the filter narrows. */
+  readonly layerIds: readonly string[];
+  /** Plain-language meaning, e.g. `zoning_code is R-5`. */
   readonly label: string;
 }
 
@@ -430,17 +452,6 @@ function affectedSourceIds(state: CompositionState, control: CompositionControl)
     if (sourceId && !sourceIds.includes(sourceId)) sourceIds.push(sourceId);
   }
   return sourceIds;
-}
-
-function temporaryFilterLabel(clause: FilterClause): string {
-  const value = clause.value;
-  if (clause.operator === "between" && Array.isArray(value))
-    return `${clause.field} between ${value[0]} and ${value[1]}`;
-  if ((clause.operator === "in" || clause.operator === "not-in") && Array.isArray(value)) {
-    return `${clause.field} ${clause.operator} ${value.join(", ")}`;
-  }
-  if (clause.operator === "is-null" || clause.operator === "is-not-null") return `${clause.field} ${clause.operator}`;
-  return `${clause.field} ${clause.operator} ${String(value)}`;
 }
 
 /** Layers an `opacity` control drives: its normalized `layerIds`, which already fold in `sourceId`. */

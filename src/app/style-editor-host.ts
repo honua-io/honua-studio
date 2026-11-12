@@ -73,6 +73,7 @@ export class StyleEditorHost {
     const session: EditingSession = { canvas, generation, identity };
     const editor = new MapStyleEditor(this.#editorOptions(session, document, selectedLayerId));
     this.#editor = editor;
+    editor.focus();
     this.#unsubscribe = this.options.composition.subscribe(() => {
       if (editor.dirty) return;
       void canvas

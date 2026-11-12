@@ -617,6 +617,25 @@ it.each(["hi-parcels", "parcels"])(
   },
 );
 
+it("offers the clear action on a filtered-out empty grid and routes it to the host", async () => {
+  const controller = new CompositionController(createEmptyCompositionState());
+  controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
+  const el = mount(controller, loaderFor({ ok: true, rows: PARCEL_ROWS, truncated: false }));
+  controller.apply({ name: "addWidget", widget: { id: "grid", kind: "table", sourceId: "parcels" } });
+  await settle(() => !!query(el, '[data-testid="studio-widget-grid-row"]'));
+  el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "absent" }] };
+  expect(query(el, '[data-testid="studio-widget-clear-filters"]')).toBeNull();
+  const cleared: string[] = [];
+  el.onClearSourceFilters = (sourceId) => cleared.push(sourceId);
+  el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "in", value: ["absent", "gone"] }] };
+  expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toBe(
+    "No loaded rows match the temporary filters: district is one of absent, gone.",
+  );
+  query<HTMLButtonElement>(el, '[data-testid="studio-widget-clear-filters"]')?.click();
+  expect(cleared).toEqual(["hi-parcels"]);
+  el.remove();
+});
+
 it.each([900, undefined])("preserves bounded load counts after filtering (total %s)", async (total) => {
   const controller = new CompositionController(createEmptyCompositionState());
   controller.apply({ name: "addLayer", layer: { id: "parcels", sourceId: "hi-parcels" } });
@@ -638,9 +657,10 @@ it.each([900, undefined])("preserves bounded load counts after filtering (total 
   expect(status()).toContain(`Loaded the first 3${total === undefined ? "" : " of 900"} features`);
   expect(status()).not.toContain("first 2");
   el.sourceFilters = { "hi-parcels": [{ field: "district", operator: "=", value: "absent" }] };
-  expect(query(el, '[data-testid="studio-widget-status"]')?.textContent).toBe(
-    "No loaded rows match the active source filters.",
-  );
+  expect(queryAll(el, '[data-testid="studio-widget-status"]').map((node) => node.textContent)).toEqual([
+    "No loaded rows match the temporary filters: district is absent.",
+    "No loaded rows match the temporary filters: district is absent.",
+  ]);
   expect(status()).toContain("Loaded the first 3");
   const bounded = `0 loaded features match the active source filters. Loaded the first 3${total === undefined ? "" : " of 900"} features — the request is bounded.`;
   const statuses = queryAll(el, '[data-testid="studio-widget-notice"]').map((node) => node.textContent);

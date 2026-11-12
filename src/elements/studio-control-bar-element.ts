@@ -65,10 +65,11 @@ import {
 // Concrete modules, never `../interactions/index.js` — the
 // lazy-chunk rule (see `./studio-canvas-element.ts`'s import block for the
 // double-module-evaluation hazard a barrel round-trip creates under Blazor).
-import type { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
+import type { StudioInteractionRuntime, TemporaryFilterSummary } from "../interactions/studio-interactions.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { baseElementStyles, controlBarStyles } from "./styles.js";
+import { explorationFilterBarHtml } from "./exploration-filter-bar.js";
+import { baseElementStyles, controlBarStyles, explorationFilterStyles } from "./styles.js";
 import type { HonuaStudioControlChangeDetail } from "./types.js";
 
 /** A live camera reading. Structurally identical to `CompositionMapCamera`, declared here so this element never imports the map chunk. */
@@ -216,8 +217,8 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     }
     const root = this.ensureShadowRoot();
     this.listen(root, "click", (event) => this.#onClick(event));
-    this.listen(root, "change", (event) => this.#onChange(event));
-    this.listen(root, "input", (event) => this.#onChange(event));
+    this.listen(root, "change", (event) => this.#onChangeAndSummarize(event));
+    this.listen(root, "input", (event) => this.#onChangeAndSummarize(event));
   }
 
   protected onDisconnect(): void {
@@ -237,11 +238,38 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     const label = this.getAttribute("label") ?? "Controls";
     const cards = controller ? controls.map((control) => this.#renderControl(control)).join("") : "";
     this.setShadowHtml(`
-      <style>${baseElementStyles()}${controlBarStyles()}</style>
+      <style>${baseElementStyles()}${controlBarStyles()}${explorationFilterStyles()}</style>
       <section class="control-bar" part="controls" aria-label="${escapeHtml(label)}" data-testid="studio-control-bar">
         ${cards}
+        <div class="control-exploration-slot" data-exploration-slot>${this.#explorationHtml()}</div>
       </section>
     `);
+  }
+
+  #explorationHtml(): string {
+    const state = this.#composition?.state;
+    return state ? explorationFilterBarHtml(this.#interactions?.temporaryFilterSummary() ?? [], state.layers) : "";
+  }
+
+  /** Repaints the filter summary after a gesture; a standalone bar has no canvas to re-render it. */
+  #paintExploration(): void {
+    const slot = this.shadowRoot?.querySelector<HTMLElement>("[data-exploration-slot]");
+    if (slot) slot.innerHTML = this.#explorationHtml();
+  }
+
+  #clearExploration(matches?: (entry: TemporaryFilterSummary) => boolean): void {
+    const cleared = this.#interactions?.clearTemporaryFilters(matches) ?? [];
+    const controls = this.#composition?.state.controls ?? [];
+    for (const entry of cleared) {
+      const control = controls.find((candidate) => candidate.id === entry.controlId);
+      if (control) this.#announce(control, undefined);
+    }
+    this.render();
+    const root = this.shadowRoot;
+    const next =
+      root?.querySelector<HTMLElement>("[data-testid='studio-exploration-clear']") ??
+      root?.querySelector<HTMLElement>(`[data-control-id="${cssId(cleared[0]?.controlId ?? "")}"] [data-action]`);
+    next?.focus();
   }
 
   #renderControl(control: CompositionControl): string {
@@ -743,10 +771,18 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
       "bookmark",
       "measure-toggle",
       "measure-clear",
+      "exploration-clear",
+      "exploration-reset",
     ]);
     if (!target) return;
     const controlId = target.dataset.controlId ?? "";
     switch (target.dataset.action) {
+      case "exploration-clear":
+        this.#clearExploration((entry) => entry.controlId === controlId);
+        return;
+      case "exploration-reset":
+        this.#clearExploration();
+        return;
       case "zoom-in":
         this.#map?.nudge({ zoomBy: 1 });
         return;
@@ -778,6 +814,11 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
         this.#measure.set(controlId, { active: this.#measure.get(controlId)?.active ?? false, points: [] });
         this.render();
     }
+  }
+
+  #onChangeAndSummarize(event: Event): void {
+    this.#onChange(event);
+    this.#paintExploration();
   }
 
   #onChange(event: Event): void {
