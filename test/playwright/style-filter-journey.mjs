@@ -41,6 +41,41 @@ function renderedLayer(page, layerId, field) {
   );
 }
 
+/** Where the map looks and what its recipe source holds, for a journey that painted nothing. */
+function mapDiagnostics(page) {
+  return page.evaluate(() => {
+    const app = window.__honuaStudioApp;
+    const find = (root) => {
+      for (const element of root.querySelectorAll("*")) {
+        if (element.localName === "honua-studio-canvas") return element;
+        const nested = element.shadowRoot && find(element.shadowRoot);
+        if (nested) return nested;
+      }
+      return undefined;
+    };
+    const mapView = find(document)?.mapView;
+    const map = mapView?.map;
+    const layers =
+      map
+        ?.getStyle()
+        ?.layers.filter(
+          (layer) => layer.metadata?.["honua:compositionLayerId"] === "explore-layer" || layer.id === "explore-layer",
+        ) ?? [];
+    const sourceId = layers[0]?.source;
+    return {
+      authoredView: app?.composition?.state?.view,
+      zoom: map?.getZoom(),
+      center: map?.getCenter()?.toArray(),
+      bounds: map?.getBounds()?.toArray(),
+      styleLoaded: map?.isStyleLoaded(),
+      status: mapView?.status,
+      statusDetail: mapView?.statusDetail,
+      renderLayers: layers.map((layer) => `${layer.id}:${layer.type}`),
+      sourceFeatures: sourceId ? map.querySourceFeatures(sourceId).length : undefined,
+    };
+  });
+}
+
 function storedPaint(draft, layerId) {
   const layers = draft.envelope.body.mapSpec?.layers ?? draft.envelope.body.style?.layers ?? [];
   return layers.find((layer) => layer.id === layerId)?.paint;
@@ -63,7 +98,21 @@ async function parcelsSourceOption(page) {
   return parcels.value;
 }
 
-async function createRecipeMap(page, key, sourceOption) {
+async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text().slice(0, 500));
+  });
+  page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message.slice(0, 500)}`));
+  page.on("response", async (response) => {
+    if (!response.url().includes("/FeatureServer/")) return;
+    const head = await response
+      .text()
+      .then((text) => text.slice(0, 600))
+      .catch(() => "");
+    if (!response.ok() || head.startsWith('{"error"'))
+      browserErrors.push(`${response.status()} ${response.url().slice(0, 220)}: ${head}`);
+  });
   await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
   await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
   await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
@@ -81,7 +130,14 @@ async function createRecipeMap(page, key, sourceOption) {
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
   const pageRows = await page.getByTestId("studio-widget-grid-row").count();
-  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0).toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0, { timeout: firstPaintTimeout })
+    .toBeGreaterThan(0)
+    .catch(async (error) => {
+      throw new Error(
+        `${error.message}\nmap: ${JSON.stringify(await mapDiagnostics(page))}\nbrowser: ${JSON.stringify(browserErrors)}`,
+      );
+    });
   const unfiltered = await renderedLayer(page, "explore-layer", field);
   expect(unfiltered.categories.length).toBeGreaterThan(1);
   return { field, unfiltered, pageRows };
@@ -168,8 +224,12 @@ async function verifyTemporaryFilters(page, info, { key, readDraft, field, unfil
  * Recipe map, then direct styling and temporary filters, asserted on MapLibre's painted features,
  * the grid and the stored draft. `readDraft(key)` returns the server's draft for the key.
  */
-export async function runStyleFilterJourney(page, info, { key, readDraft, sourceOption = parcelsSourceOption }) {
-  const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption));
+export async function runStyleFilterJourney(
+  page,
+  info,
+  { key, readDraft, sourceOption = parcelsSourceOption, firstPaintTimeout = 10_000 },
+) {
+  const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption, firstPaintTimeout));
   await test.step("direct styling", () => verifyDirectStyling(page, info, { key, readDraft, field: recipe.field }));
   await test.step("temporary filters", () => verifyTemporaryFilters(page, info, { key, readDraft, ...recipe }));
 }
