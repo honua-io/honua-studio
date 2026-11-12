@@ -768,7 +768,7 @@ describe("direct common styling", () => {
     );
     select(container, "roads");
     expect(input(container, "Color").disabled).toBe(true);
-    expect(container.textContent).toContain("Uses an advanced expression. Edit it in the advanced editor.");
+    expect(container.textContent).toContain("Uses an advanced expression or function. Edit it in the advanced editor.");
     type(input(container, "Line width (px)"), "5");
     expect(paint(onPreview.mock.lastCall?.[0], "roads")).toEqual({
       "line-color": ["interpolate", ["linear"], ["zoom"], 5, "#000000", 10, "#ffffff"],
@@ -841,5 +841,93 @@ describe("direct common styling", () => {
     });
     expect(legend.hidden).toBe(true);
     expect(input(container, "Color").disabled).toBe(false);
+  });
+});
+
+describe("direct styling keeps what it cannot represent", () => {
+  const geojson = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
+  const owners = [{ id: "parcels", sourceId: "parcels" }];
+  const control = (container: ParentNode, label: string) =>
+    [...container.querySelectorAll("label")]
+      .find((candidate) => candidate.textContent?.trim().startsWith(label))
+      ?.querySelector<HTMLInputElement | HTMLSelectElement>("input, select");
+
+  it("refuses to flatten a legacy function and explains a non-hex color", () => {
+    const { container } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners },
+      {
+        version: 8,
+        sources: { parcels: geojson },
+        layers: [
+          {
+            id: "parcels",
+            type: "fill",
+            source: "parcels",
+            paint: {
+              "fill-color": "rgba(200, 0, 0, 0.5)",
+              "fill-opacity": {
+                stops: [
+                  [10, 0],
+                  [14, 1],
+                ],
+              },
+            },
+          },
+        ],
+      },
+    );
+    expect(control(container, "Opacity")?.disabled).toBe(true);
+    expect(control(container, "Color")?.disabled).toBe(false);
+    expect(container.textContent).toContain("Uses an advanced expression or function.");
+    expect(container.textContent).toContain("Current color rgba(200, 0, 0, 0.5) has no exact swatch");
+  });
+
+  it("keeps the pending-classes guard through a direct edit", () => {
+    const { container, editor } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners, getFields: async () => [{ name: "zoning", type: "string" }] },
+      {
+        version: 8,
+        sources: { parcels: geojson },
+        layers: [{ id: "parcels", type: "fill", source: "parcels", paint: { "fill-color": "#445566" } }],
+      },
+    );
+    const values = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Explicit thematic values, one per line"]',
+    )!;
+    values.value = "R-1";
+    values.dispatchEvent(new Event("input"));
+    const opacity = control(container, "Opacity") as HTMLInputElement;
+    opacity.value = "40";
+    opacity.dispatchEvent(new Event("input"));
+    expect(editor.dirty).toBe(true);
+    const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "Save map style")!;
+    expect(save.disabled).toBe(true);
+    expect(container.textContent).toContain("Apply or discard the pending thematic values.");
+  });
+
+  it("shows a custom label expression as read-only instead of No labels", async () => {
+    const { container, editor } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners, getFields: async () => [{ name: "name", type: "string" }] },
+      {
+        version: 8,
+        sources: { parcels: geojson },
+        layers: [
+          { id: "parcels", type: "fill", source: "parcels" },
+          {
+            id: "parcels__labels",
+            type: "symbol",
+            source: "parcels",
+            layout: { "text-field": ["concat", ["get", "name"], "!"] },
+          },
+        ],
+      },
+    );
+    await editor.refreshThematicFields();
+    const labels = control(container, "Labels") as HTMLSelectElement;
+    expect(labels.disabled).toBe(true);
+    expect(labels.selectedOptions[0]?.textContent).toBe("Custom labels (advanced editor)");
   });
 });

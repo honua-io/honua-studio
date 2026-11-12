@@ -110,8 +110,8 @@ export async function runStyleFilterJourney(page, info, { key, readDraft, source
   const choice = unfiltered.zoning[0];
   await page.getByTestId("studio-control-filter-select").selectOption(choice);
   const summary = page.getByTestId("studio-exploration-filters");
-  await expect(summary.getByTestId("studio-exploration-filter")).toHaveText(
-    new RegExp(`Filter by zoning_code: zoning_code is ${choice}`),
+  await expect(summary.getByTestId("studio-exploration-filter")).toContainText(
+    `Filter by zoning_code: zoning_code is ${choice}`,
   );
   await expect.poll(async () => (await renderedLayer(page, "explore-layer"))?.zoning).toEqual([choice]);
   const filteredRows = await page.getByTestId("studio-widget-grid-row").count();

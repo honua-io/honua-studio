@@ -218,9 +218,18 @@ export class StudioInteractionRuntime {
     this.publishControlChange(controlId, undefined);
   }
 
-  /** Clears the active temporary set. Does not apply a composition command. */
+  /** Clears the active temporary filters `matches` selects (all by default) and returns them. Applies no composition command. */
+  public clearTemporaryFilters(
+    matches: (entry: TemporaryFilterSummary) => boolean = () => true,
+  ): readonly TemporaryFilterSummary[] {
+    const cleared = this.temporaryFilterSummary().filter(matches);
+    for (const entry of cleared) this.clearTemporaryFilter(entry.controlId);
+    return cleared;
+  }
+
+  /** Clears the active temporary set. */
   public resetTemporaryFilters(): void {
-    for (const entry of this.temporaryFilterSummary()) this.clearTemporaryFilter(entry.controlId);
+    this.clearTemporaryFilters();
   }
 
   public dispose(): void {

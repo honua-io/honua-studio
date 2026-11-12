@@ -244,14 +244,14 @@ function appearanceProperty(layer: Record<string, unknown>, key: string): MapSty
     layerId: String(layer.id),
     key,
     value,
-    ...(Array.isArray(value)
-      ? {
+    ...(value === undefined || typeof value === "string" || typeof value === "number"
+      ? {}
+      : {
           refusal:
-            value[0] === "match" || value[0] === "step"
+            Array.isArray(value) && (value[0] === "match" || value[0] === "step")
               ? "Uses field-based classes. Change them under Color by field or in the advanced editor."
-              : "Uses an advanced expression. Edit it in the advanced editor.",
-        }
-      : {}),
+              : "Uses an advanced expression or function. Edit it in the advanced editor.",
+        }),
   };
 }
 
@@ -313,11 +313,17 @@ export function withLayerAppearance(
   return result;
 }
 
-/** The field the owner's label layer reads, when it is a plain `["get", field]` label. */
-export function featureLabelField(style: MapStyleDocument, owner: MapStyleLayerOwner): string | undefined {
+/** The owner's labels: none, a plain `["get", field]` label, or a custom label only the advanced editor can change. */
+export function featureLabelState(
+  style: MapStyleDocument,
+  owner: MapStyleLayerOwner,
+): { readonly kind: "none" } | { readonly kind: "field"; readonly field: string } | { readonly kind: "custom" } {
   const label = ownerRenderLayer(style, owner, `${owner.id}__labels`);
-  const text = object(label?.layout) ? label.layout["text-field"] : undefined;
-  return Array.isArray(text) && text[0] === "get" && typeof text[1] === "string" ? text[1] : undefined;
+  if (!label) return { kind: "none" };
+  const text = object(label.layout) ? label.layout["text-field"] : undefined;
+  return Array.isArray(text) && text.length === 2 && text[0] === "get" && typeof text[1] === "string"
+    ? { kind: "field", field: text[1] }
+    : { kind: "custom" };
 }
 
 /** Removes the owner's label layer; other layers are untouched. */

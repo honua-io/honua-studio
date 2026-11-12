@@ -134,12 +134,13 @@ export class DesignInspectorPanel {
       return;
     }
     if (action === "reset") {
-      this.#options.canvas?.interactions?.resetTemporaryFilters();
+      this.#options.canvas?.clearTemporaryFilters();
       this.refresh();
       return;
     }
     if (action === "clear-temporary" && button.dataset.controlId) {
-      this.#options.canvas?.interactions?.clearTemporaryFilter(button.dataset.controlId);
+      const controlId = button.dataset.controlId;
+      this.#options.canvas?.clearTemporaryFilters((entry) => entry.controlId === controlId);
       this.refresh();
       return;
     }

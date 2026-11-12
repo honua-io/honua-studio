@@ -65,7 +65,7 @@ import {
 // Concrete modules, never `../interactions/index.js` — the
 // lazy-chunk rule (see `./studio-canvas-element.ts`'s import block for the
 // double-module-evaluation hazard a barrel round-trip creates under Blazor).
-import type { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
+import type { StudioInteractionRuntime, TemporaryFilterSummary } from "../interactions/studio-interactions.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import { baseElementStyles, controlBarStyles } from "./styles.js";
@@ -270,26 +270,24 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     </section>`;
   }
 
-  /** Repaints only the filter summary, so a slider being dragged is never replaced mid-gesture. */
+  /** Repaints the filter summary after a gesture; a standalone bar has no canvas to re-render it. */
   #paintExploration(): void {
     const slot = this.shadowRoot?.querySelector<HTMLElement>("[data-exploration-slot]");
     if (slot) slot.innerHTML = this.#explorationHtml();
   }
 
-  #clearExploration(controlIds: readonly string[]): void {
-    const runtime = this.#interactions;
+  #clearExploration(matches?: (entry: TemporaryFilterSummary) => boolean): void {
+    const cleared = this.#interactions?.clearTemporaryFilters(matches) ?? [];
     const controls = this.#composition?.state.controls ?? [];
-    if (!runtime) return;
-    for (const controlId of controlIds) {
-      runtime.clearTemporaryFilter(controlId);
-      const control = controls.find((entry) => entry.id === controlId);
+    for (const entry of cleared) {
+      const control = controls.find((candidate) => candidate.id === entry.controlId);
       if (control) this.#announce(control, undefined);
     }
     this.render();
     const root = this.shadowRoot;
     const next =
       root?.querySelector<HTMLElement>("[data-testid='studio-exploration-clear']") ??
-      root?.querySelector<HTMLElement>(`[data-control-id="${cssId(controlIds[0] ?? "")}"] [data-action]`);
+      root?.querySelector<HTMLElement>(`[data-control-id="${cssId(cleared[0]?.controlId ?? "")}"] [data-action]`);
     next?.focus();
   }
 
@@ -799,10 +797,10 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     const controlId = target.dataset.controlId ?? "";
     switch (target.dataset.action) {
       case "exploration-clear":
-        this.#clearExploration([controlId]);
+        this.#clearExploration((entry) => entry.controlId === controlId);
         return;
       case "exploration-reset":
-        this.#clearExploration(this.#interactions?.temporaryFilterSummary().map((entry) => entry.controlId) ?? []);
+        this.#clearExploration();
         return;
       case "zoom-in":
         this.#map?.nudge({ zoomBy: 1 });

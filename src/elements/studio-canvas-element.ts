@@ -63,7 +63,7 @@ import { type ControlStatus, describeControl } from "../controls/control-config.
 // reads. honua-studio#23 hit exactly this — the Blazor harness's leak probe
 // read a class whose instances were being counted on the other copy.
 import type { LngLat } from "../controls/geodesy.js";
-import type { StudioInteractionRuntime } from "../interactions/studio-interactions.js";
+import type { StudioInteractionRuntime, TemporaryFilterSummary } from "../interactions/studio-interactions.js";
 import type { BasemapStyle } from "../map/basemap.js";
 import type { CompositionMapFactory, CompositionMapView } from "../map/composition-map-view.js";
 import type { UnresolvedCompositionLayer } from "../map/map-package-projection.js";
@@ -88,6 +88,7 @@ import type {
   AuthSession,
   HonuaStudioCanvasResizeDetail,
   HonuaStudioCommandDispatch,
+  HonuaStudioControlChangeDetail,
   HonuaStudioSelectionChangeDetail,
 } from "./types.js";
 
@@ -272,6 +273,21 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** The interaction runtime driving `control:{id}` bindings. `undefined` until a composition declares a control or a binding. */
   public get interactions(): StudioInteractionRuntime | undefined {
     return this.#interactions;
+  }
+
+  /** Clears matching temporary filters and announces each cleared control, as the control bar's own Clear does. */
+  public clearTemporaryFilters(matches?: (entry: TemporaryFilterSummary) => boolean): void {
+    const controls = this.#composition?.state.controls ?? [];
+    for (const entry of this.#interactions?.clearTemporaryFilters(matches) ?? []) {
+      const control = controls.find((candidate) => candidate.id === entry.controlId);
+      if (!control) continue;
+      this.dispatchTypedEvent<HonuaStudioControlChangeDetail>("honua-studio-control-change", {
+        controlId: control.id,
+        kind: control.kind,
+        source: "adapter",
+        value: undefined,
+      });
+    }
   }
 
   public get designMapAvailable(): boolean {
@@ -492,11 +508,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     deck.commandDispatch = this.#commandDispatch;
     deck.composition = this.#composition;
     deck.sourceFilters = this.#interactions?.appearance.sourceFilters ?? {};
-    deck.onClearSourceFilters = (sourceId) => {
-      const runtime = this.#interactions;
-      for (const entry of runtime?.temporaryFilterSummary() ?? [])
-        if (entry.sourceIds.includes(sourceId)) runtime?.clearTemporaryFilter(entry.controlId);
-    };
+    deck.onClearSourceFilters = (sourceId) => this.clearTemporaryFilters((entry) => entry.sourceIds.includes(sourceId));
     deck.unrenderableLayers = (this.#mapView?.projection?.unresolved ?? []).map((entry) => ({
       layerId: entry.layerId,
       reason: entry.reason,

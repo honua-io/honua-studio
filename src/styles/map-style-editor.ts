@@ -8,7 +8,7 @@ import {
   type MapStyleLegendEntry,
   THEMATIC_PALETTE,
   bindNewRenderLayerOwners,
-  featureLabelField,
+  featureLabelState,
   featureLabelStyle,
   isNumericMapStyleField,
   layerAppearance,
@@ -59,6 +59,8 @@ function explicitThematicValues(input: string, numeric: boolean): readonly (stri
     return Number(line);
   });
 }
+
+const PENDING_THEMATIC_VALUES = "Apply or discard the pending thematic values.";
 
 interface AppliedThematicBinding {
   readonly ownerId: string;
@@ -133,6 +135,7 @@ export class MapStyleEditor {
   #appearance: AppearanceControls | undefined;
   #legend: HTMLUListElement | undefined;
   #fieldLoadPending = false;
+  #loadTimer: ReturnType<typeof setTimeout> | undefined;
   #selectedOwner: string | undefined;
   #pendingSave: Promise<void> | undefined;
   #disposed = false;
@@ -208,7 +211,9 @@ export class MapStyleEditor {
   /** Moves keyboard focus to the editor's first control, so an opened editor is where the user is. */
   focus(): void {
     const controls = this.#options.container.querySelectorAll<HTMLElement>("select, input, textarea, button");
-    [...controls].find((control) => !control.matches(":disabled") && control.checkVisibility())?.focus();
+    const visible = (control: HTMLElement) =>
+      typeof control.checkVisibility === "function" ? control.checkVisibility() : control.offsetParent !== null;
+    [...controls].find((control) => !control.matches(":disabled") && visible(control))?.focus();
   }
   observeSavedDocument(style: MapStyleDocument): void {
     if (this.#dirty || this.#busy) return;
@@ -226,6 +231,7 @@ export class MapStyleEditor {
   }
   dispose(): void {
     this.#disposed = true;
+    clearTimeout(this.#loadTimer);
     this.#fieldLoadEpoch++;
     if (this.#flush) {
       clearTimeout(this.#flush.timer);
@@ -353,6 +359,7 @@ export class MapStyleEditor {
         throw new Error("A thematic field is no longer available. Choose a current field and reapply or discard.");
       if (this.#invalid && this.#invalid !== "Finish editing the visual field before saving.")
         throw new Error(this.#invalid);
+      this.#loadNow();
       const style = this.#frameReady || this.#frameAuthored ? await this.#flushFrame() : this.#candidate;
       if (!this.#maySave())
         throw new Error("Shared style editing requires complete authorized impact and edit permission.");
@@ -457,8 +464,7 @@ export class MapStyleEditor {
     container.append(owner, appearance);
     if (this.#options.getFields) {
       const thematic = this.#thematicControls(owner);
-      appearance.append(this.#labelled("Labels", thematic.labelField));
-      container.append(thematic.section);
+      container.append(this.#labelled("Labels", thematic.labelField), thematic.section);
     } else
       owner.addEventListener("change", () => {
         this.#selectedOwner = owner.value;
@@ -501,6 +507,7 @@ export class MapStyleEditor {
         this.#acceptPreview(
           withLayerAppearance(this.#candidate, owner, patch),
           "Unsaved appearance preview. Save map style to keep it.",
+          { keepsPendingThematic: true },
         );
       } catch (error) {
         this.#error(error);
@@ -542,11 +549,10 @@ export class MapStyleEditor {
       input.value = value;
     };
     const color = appearance.color.value;
-    show(
-      controls.color,
-      appearance.color,
-      typeof color === "string" && /^#[a-fA-F0-9]{6}$/.test(color) ? color : "#3182bd",
-    );
+    const hexColor = typeof color === "string" && /^#[a-fA-F0-9]{6}$/i.test(color);
+    show(controls.color, appearance.color, hexColor ? color : "#000000");
+    if (typeof color === "string" && !hexColor)
+      refusals.add(`Current color ${color} has no exact swatch; choosing a color replaces it.`);
     const opacity = typeof appearance.opacity.value === "number" ? appearance.opacity.value : 1;
     show(controls.opacity, appearance.opacity, String(Math.round(opacity * 100)));
     controls.opacityValue.value = `${controls.opacity.value}%`;
@@ -625,7 +631,7 @@ export class MapStyleEditor {
     });
     values.addEventListener("input", () => {
       this.#setDirty(true);
-      this.#invalid = "Apply or discard the pending thematic values.";
+      this.#invalid = PENDING_THEMATIC_VALUES;
       this.#save.disabled = true;
     });
     apply.addEventListener("click", () => {
@@ -650,7 +656,6 @@ export class MapStyleEditor {
   #enableFieldActions(controls: ThematicControls): void {
     const ready = controls.fields.some((actual) => actual.name === controls.field.value);
     controls.apply.disabled = !ready;
-    controls.labelField.disabled = controls.fields.length === 0;
   }
   async #reloadThematicFields(controls: ThematicControls): Promise<void> {
     if (this.#disposed) return;
@@ -676,7 +681,7 @@ export class MapStyleEditor {
         controls.field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
         controls.labelField.add(this.#option(actual.name, actual.name));
       }
-      controls.labelField.value = featureLabelField(this.#candidate, selected) ?? "";
+      this.#syncLabels(controls, selected);
       const binding = this.#appliedThematics.get(selected.id);
       if (binding && binding.sourceId === selected.sourceId) {
         binding.valid = observed.some(
@@ -718,15 +723,28 @@ export class MapStyleEditor {
     if (!selected || !actual) throw new Error("Choose an actual described field.");
     return { owner: selected, field: actual };
   }
-  #acceptPreview(next: MapStyleDocument, status: string): void {
+  #acceptPreview(next: MapStyleDocument, status: string, { keepsPendingThematic = false } = {}): void {
     const errors = validateMapStyleEdit(this.#baseline, next);
     if (errors.length) throw new Error(errors[0]);
     this.#candidate = next;
-    this.#invalid = undefined;
+    if (!(keepsPendingThematic && this.#invalid === PENDING_THEMATIC_VALUES)) this.#invalid = undefined;
     this.#setDirty(true);
+    if (this.#invalid) this.#save.disabled = true;
     this.#options.onPreview(next);
-    this.#load();
-    this.#status.textContent = status;
+    this.#loadSoon();
+    this.#status.textContent = this.#invalid ? `${status} ${this.#invalid}` : status;
+  }
+  /** Direct controls fire on every slider step; the advanced frame reloads once the gesture pauses. */
+  #loadSoon(): void {
+    clearTimeout(this.#loadTimer);
+    this.#syncAppearance();
+    this.#loadTimer = setTimeout(() => this.#loadNow(), 150);
+  }
+  #loadNow(): void {
+    if (this.#loadTimer === undefined) return;
+    clearTimeout(this.#loadTimer);
+    this.#loadTimer = undefined;
+    if (!this.#disposed) this.#load();
   }
   #previewThematic(controls: ThematicControls): void {
     const selected = this.#selectedField(controls);
@@ -747,6 +765,21 @@ export class MapStyleEditor {
       valid: true,
     });
     this.#setDirty(true);
+  }
+  /** A custom label expression stays intact: the picker shows it and only the advanced editor changes it. */
+  #syncLabels(controls: ThematicControls, owner: MapStyleLayerOwner): void {
+    const state = featureLabelState(this.#candidate, owner);
+    controls.labelField.querySelector("option[data-custom]")?.remove();
+    if (state.kind === "custom") {
+      const custom = this.#option("Custom labels (advanced editor)", "");
+      custom.dataset.custom = "";
+      controls.labelField.prepend(custom);
+      controls.labelField.selectedIndex = 0;
+      controls.labelField.disabled = true;
+      return;
+    }
+    controls.labelField.disabled = controls.fields.length === 0;
+    controls.labelField.value = state.kind === "field" ? state.field : "";
   }
   #previewFeatureLabels(controls: ThematicControls): void {
     if (this.#busy || this.#fieldLoadPending) throw new Error("Wait for the current field refresh.");
