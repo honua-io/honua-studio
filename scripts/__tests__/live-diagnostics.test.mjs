@@ -17,7 +17,10 @@ test("sign-in usernames from the environment are redacted, but not the runner ac
     ...options,
     environment: { HONUA_LIVE_APPROVER_USERNAME: "approver-person", USERNAME: "runner" },
   });
-  assert.equal(redact("textbox Username: approver-person in /home/runner"), "textbox Username: [REDACTED] in /home/runner");
+  assert.equal(
+    redact("textbox Username: approver-person in /home/runner"),
+    "textbox Username: [REDACTED] in /home/runner",
+  );
 });
 
 test("escaped JSON credentials are removed in full while error codes remain intact", () => {
