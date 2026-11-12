@@ -5,6 +5,7 @@ import type { CompositionState } from "../composition/model.js";
 import { applyCompositionCommands, isCompositionCommandError } from "../composition/reducer.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
+import { isStudioLifecycleGenerationConflict } from "../lifecycle/lifecycle-errors.js";
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
@@ -242,7 +243,11 @@ export class CompositionEditor {
       const reconcile = !(error instanceof LocallyRefusedEdit);
       if (reconcile && authority.epoch.isCurrent(edit.generation) && edit.binding === drafts.binding)
         drafts.markConflict();
-      return { ok: false, reason: errorMessage(error) };
+      return {
+        ok: false,
+        reason: errorMessage(error),
+        ...(isStudioLifecycleGenerationConflict(error) && { conflict: true }),
+      };
     }
   }
 

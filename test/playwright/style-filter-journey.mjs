@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { expectNoSeriousAxeViolations } from "./helpers.mjs";
+import { verifyAgentRefinement } from "./agent-refinement-journey.mjs";
+import { expectNoSeriousAxeViolations, storedPaint } from "./helpers.mjs";
 
 /** The Studio canvas's map view, found through nested shadow roots. */
 async function studioMapView(page) {
@@ -71,11 +72,6 @@ async function mapDiagnostics(page) {
       sourceFeatures: sourceId ? map.querySourceFeatures(sourceId).length : undefined,
     };
   });
-}
-
-function storedPaint(draft, layerId) {
-  const layers = draft.envelope.body.mapSpec?.layers ?? draft.envelope.body.style?.layers ?? [];
-  return layers.find((layer) => layer.id === layerId)?.paint;
 }
 
 /** The first authorized parcels dataset the recipe offers; fixture and live catalogs name it differently. */
@@ -220,10 +216,23 @@ async function verifyTemporaryFilters(page, info, { key, readDraft, field, unfil
 
 /**
  * Recipe map, then direct styling and temporary filters, asserted on MapLibre's painted features,
- * the grid and the stored draft. `readDraft(key)` returns the server's draft for the key.
+ * the grid and the stored draft. `readDraft(key)` returns the server's draft for the key; `agentCall(tool, args)`,
+ * when given, makes one agent MCP tool call and adds the agent-refinement step.
  */
-export async function runStyleFilterJourney(page, info, { key, readDraft, sourceOption = parcelsSourceOption }) {
+export async function runStyleFilterJourney(
+  page,
+  info,
+  { key, readDraft, agentCall, sourceOption = parcelsSourceOption },
+) {
   const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption));
   await test.step("direct styling", () => verifyDirectStyling(page, info, { key, readDraft, field: recipe.field }));
+  if (agentCall)
+    await test.step("agent refinement and conflicts", () =>
+      verifyAgentRefinement(page, {
+        key,
+        readDraft,
+        agentCall,
+        paintedLayer: () => renderedLayer(page, "explore-layer", recipe.field),
+      }));
   await test.step("temporary filters", () => verifyTemporaryFilters(page, info, { key, readDraft, ...recipe }));
 }

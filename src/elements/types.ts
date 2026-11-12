@@ -211,6 +211,8 @@ export interface HonuaStudioCommandOutcome {
   readonly ok: boolean;
   /** Present only when `ok` is false — the reducer's or the server's own message, never a paraphrase. */
   readonly reason?: string;
+  /** True when the write lost to a newer draft generation; reloading the draft recovers. */
+  readonly conflict?: boolean;
 }
 
 /**
