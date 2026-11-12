@@ -931,3 +931,56 @@ describe("direct styling keeps what it cannot represent", () => {
     expect(labels.selectedOptions[0]?.textContent).toBe("Custom labels (advanced editor)");
   });
 });
+
+it("saves a direct edit made moments before Save even though the frame reload is still debounced", async () => {
+  const geojson = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
+  const { container, editor, frame, onSave } = setup(
+    { kind: "map-local", detachesSharedStyles: false },
+    { layers: [{ id: "parcels", sourceId: "parcels" }] },
+    {
+      version: 8,
+      sources: { parcels: geojson },
+      layers: [{ id: "parcels", type: "fill", source: "parcels", paint: { "fill-opacity": 1 } }],
+    },
+  );
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      source: frame.contentWindow,
+      origin: "null",
+      data: {
+        type: "honua:style-ready",
+        channel: new URLSearchParams(new URL(frame.src).hash.slice(1)).get("channel"),
+      },
+    }),
+  );
+  const opacity = [...container.querySelectorAll("label")]
+    .find((label) => label.textContent?.trim().startsWith("Opacity"))!
+    .querySelector("input")!;
+  opacity.value = "30";
+  opacity.dispatchEvent(new Event("input"));
+  await editor.save();
+  const saved = onSave.mock.calls[0]?.[0] as { layers: { paint: Record<string, unknown> }[] };
+  expect(saved.layers[0].paint["fill-opacity"]).toBe(0.3);
+});
+
+it("a label pick keeps the pending-classes guard", async () => {
+  const geojson = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
+  const { container, editor } = setup(
+    { kind: "map-local", detachesSharedStyles: false },
+    { layers: [{ id: "parcels", sourceId: "parcels" }], getFields: async () => [{ name: "name", type: "string" }] },
+    { version: 8, sources: { parcels: geojson }, layers: [{ id: "parcels", type: "fill", source: "parcels" }] },
+  );
+  await editor.refreshThematicFields();
+  const values = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Explicit thematic values, one per line"]',
+  )!;
+  values.value = "R-1";
+  values.dispatchEvent(new Event("input"));
+  const labels = [...container.querySelectorAll("label")]
+    .find((label) => label.textContent?.startsWith("Labels"))!
+    .querySelector("select")!;
+  labels.value = "name";
+  labels.dispatchEvent(new Event("change"));
+  const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "Save map style")!;
+  expect(save.disabled).toBe(true);
+});

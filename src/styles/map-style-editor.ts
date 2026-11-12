@@ -132,6 +132,7 @@ export class MapStyleEditor {
   #invalid: string | undefined;
   readonly #appliedThematics = new Map<string, AppliedThematicBinding>();
   readonly #legends = new Map<string, ThematicLegend>();
+  #thematic: ThematicControls | undefined;
   #appearance: AppearanceControls | undefined;
   #legend: HTMLUListElement | undefined;
   #fieldLoadPending = false;
@@ -324,7 +325,8 @@ export class MapStyleEditor {
       return;
     }
     const errors = validateMapStyleEdit(this.#baseline, candidate);
-    this.#invalid = errors[0];
+    const pendingThematic = this.#invalid === PENDING_THEMATIC_VALUES;
+    this.#invalid = errors[0] ?? (pendingThematic ? PENDING_THEMATIC_VALUES : undefined);
     if (errors.length) {
       this.#save.disabled = true;
       this.#status.textContent = errors[0];
@@ -333,7 +335,10 @@ export class MapStyleEditor {
     this.#candidate = structuredClone(candidate);
     this.#pruneAppliedThematics();
     this.#syncAppearance();
-    this.#setDirty(canonicalCompositionJson(this.#baseline) !== canonicalCompositionJson(this.#candidate));
+    this.#setDirty(
+      pendingThematic || canonicalCompositionJson(this.#baseline) !== canonicalCompositionJson(this.#candidate),
+    );
+    if (this.#invalid) this.#save.disabled = true;
     this.#status.textContent = this.#dirty
       ? "Unsaved visual edits. Preview only."
       : "Map style matches the saved draft.";
@@ -530,9 +535,10 @@ export class MapStyleEditor {
   }
   /** Shows the selected layer's current common paint; expressions stay read-only here. */
   #syncAppearance(): void {
+    const owner = this.#selectedOwnerLayer();
+    if (this.#thematic && owner && !this.#fieldLoadPending) this.#syncLabels(this.#thematic, owner);
     const controls = this.#appearance;
     if (!controls) return;
-    const owner = this.#selectedOwnerLayer();
     const appearance = owner ? layerAppearance(this.#candidate, owner) : undefined;
     controls.fieldset.disabled = !appearance;
     if (!appearance) {
@@ -619,6 +625,7 @@ export class MapStyleEditor {
     legendList.hidden = true;
     this.#legend = legendList;
     const controls: ThematicControls = { owner, field, mode, values, apply, labelField, fields: [] };
+    this.#thematic = controls;
     const load = () => this.#reloadThematicFields(controls);
     this.#refreshFields = load;
     owner.addEventListener("change", () => {
@@ -786,7 +793,9 @@ export class MapStyleEditor {
     const owner = this.#options.layers?.find((layer) => layer.id === controls.owner.value);
     if (!owner) throw new Error("Choose a map layer.");
     if (controls.labelField.value === "") {
-      this.#acceptPreview(withoutFeatureLabels(this.#candidate, owner), "Unsaved preview without feature labels.");
+      this.#acceptPreview(withoutFeatureLabels(this.#candidate, owner), "Unsaved preview without feature labels.", {
+        keepsPendingThematic: true,
+      });
       return;
     }
     const field = controls.fields.find((item) => item.name === controls.labelField.value);
@@ -794,6 +803,7 @@ export class MapStyleEditor {
     this.#acceptPreview(
       featureLabelStyle(this.#candidate, owner, field),
       "Unsaved feature labels over the selected actual field.",
+      { keepsPendingThematic: true },
     );
   }
   #error(error: unknown): void {
