@@ -8,6 +8,7 @@ import { CompositionEditor, type CompositionEditorOptions } from "../../src/app/
 import { StalenessEpoch } from "../../src/app/staleness-epoch.js";
 import { CompositionController } from "../../src/composition/controller.js";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
+import { StudioLifecycleConflictError } from "../../src/lifecycle/lifecycle-errors.js";
 
 const REMOVE_ROADS = [{ name: "removeLayer", target: { kind: "layer", id: "roads" } }] as const;
 
@@ -58,6 +59,17 @@ describe("an attached-draft edit the reducer refuses", () => {
     const outcome = await editor.dispatch([{ name: "setView", view: { zoom: 4 } }]);
 
     expect(outcome).toEqual({ ok: false, reason: "The draft changed on the server." });
+    expect(drafts.markConflict).toHaveBeenCalledOnce();
+  });
+
+  it("flags a write that lost to a newer draft generation as a conflict", async () => {
+    const { editor, drafts } = editorWith(async () => {
+      throw new StudioLifecycleConflictError("Stale draft generation; refresh and retry.", { status: 409 });
+    });
+
+    const outcome = await editor.dispatch([{ name: "setView", view: { zoom: 4 } }]);
+
+    expect(outcome).toEqual({ ok: false, reason: "Stale draft generation; refresh and retry.", conflict: true });
     expect(drafts.markConflict).toHaveBeenCalledOnce();
   });
 });

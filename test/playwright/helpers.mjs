@@ -183,3 +183,9 @@ export async function expectNoSeriousAxeViolations(page, testInfo, stage) {
   });
   expect(results.violations.filter(({ impact }) => impact === "serious" || impact === "critical")).toEqual([]);
 }
+
+/** The map-local paint of one composition layer in a stored draft envelope. */
+export function storedPaint(draft, layerId) {
+  const layers = draft.envelope.body.mapSpec?.layers ?? draft.envelope.body.style?.layers ?? [];
+  return layers.find((layer) => layer.id === layerId)?.paint;
+}
