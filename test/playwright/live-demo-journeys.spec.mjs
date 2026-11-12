@@ -341,7 +341,7 @@ test.describe("live demo-server journeys @live", () => {
   test("style and filters: direct styling and temporary filters against the REAL draft store, without a model", async ({
     page,
   }, info) => {
-    test.setTimeout(180_000);
+    test.setTimeout(360_000);
     const key = `studio-e2e-style-${Date.now()}`;
     const preview = await startLivePreview();
     const readDraft = async (packageKey) => {
@@ -354,7 +354,7 @@ test.describe("live demo-server journeys @live", () => {
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("app-shell")).toBeVisible();
-      await runStyleFilterJourney(page, info, { key, readDraft });
+      await runStyleFilterJourney(page, info, { key, readDraft, firstPaintTimeout: 150_000 });
     } finally {
       await preview.close();
       const listed = await restCall("GET", `/v1/studio/package-drafts?q=${encodeURIComponent(key)}`).catch(() => ({

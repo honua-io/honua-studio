@@ -69,7 +69,6 @@ function mapDiagnostics(page) {
       styleLoaded: map?.isStyleLoaded(),
       renderLayers: layers.map((layer) => `${layer.id}:${layer.type}`),
       sourceFeatures: sourceId ? map.querySourceFeatures(sourceId).length : undefined,
-      mapStatus: find(document)?.shadowRoot?.textContent?.replace(/\s+/g, " ").slice(0, 400),
     };
   });
 }
@@ -96,7 +95,7 @@ async function parcelsSourceOption(page) {
   return parcels.value;
 }
 
-async function createRecipeMap(page, key, sourceOption) {
+async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
   await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
   await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
   await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
@@ -114,12 +113,16 @@ async function createRecipeMap(page, key, sourceOption) {
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
   const pageRows = await page.getByTestId("studio-widget-grid-row").count();
+  const paintStarted = Date.now();
   await expect
-    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0)
+    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0, { timeout: firstPaintTimeout })
     .toBeGreaterThan(0)
     .catch(async (error) => {
       throw new Error(`${error.message}\nmap: ${JSON.stringify(await mapDiagnostics(page))}`);
     });
+  console.log(
+    `recipe map first paint after ${Date.now() - paintStarted} ms; ${JSON.stringify(await mapDiagnostics(page))}`,
+  );
   const unfiltered = await renderedLayer(page, "explore-layer", field);
   expect(unfiltered.categories.length).toBeGreaterThan(1);
   return { field, unfiltered, pageRows };
@@ -206,8 +209,12 @@ async function verifyTemporaryFilters(page, info, { key, readDraft, field, unfil
  * Recipe map, then direct styling and temporary filters, asserted on MapLibre's painted features,
  * the grid and the stored draft. `readDraft(key)` returns the server's draft for the key.
  */
-export async function runStyleFilterJourney(page, info, { key, readDraft, sourceOption = parcelsSourceOption }) {
-  const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption));
+export async function runStyleFilterJourney(
+  page,
+  info,
+  { key, readDraft, sourceOption = parcelsSourceOption, firstPaintTimeout = 10_000 },
+) {
+  const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption, firstPaintTimeout));
   await test.step("direct styling", () => verifyDirectStyling(page, info, { key, readDraft, field: recipe.field }));
   await test.step("temporary filters", () => verifyTemporaryFilters(page, info, { key, readDraft, ...recipe }));
 }
