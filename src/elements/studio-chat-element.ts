@@ -19,7 +19,7 @@ import {
   type StudioAgentSessionOptions,
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
-import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../workspace-agent.js";
+import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../editor-agent.js";
 
 import {
   type ActivityLog,

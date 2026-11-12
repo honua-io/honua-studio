@@ -7,6 +7,9 @@ import type { HonuaStudioAppElement } from "../elements/studio-app-element.js";
 import { CompositionEditor } from "./composition-editor.js";
 import { DesignInspectorHost } from "./design-inspector-host.js";
 import { hasEditedFormControl } from "./dirty-form.js";
+import { EditorAuthority } from "./editor-authority.js";
+import { EditorDraftSession } from "./editor-draft-session.js";
+import { EditorRelease } from "./editor-release.js";
 import { LiveCompositionController } from "./live-composition-controller.js";
 import { RecipeController } from "./recipe-controller.js";
 import { ShellChrome } from "./shell-chrome.js";
@@ -14,9 +17,6 @@ import { ShellRouter } from "./shell-router.js";
 import { SourceCatalog } from "./source-catalog.js";
 import { StudioAppChildren } from "./studio-app-children.js";
 import { StyleEditorHost } from "./style-editor-host.js";
-import { EditorAuthority } from "./workspace-authority.js";
-import { EditorDraftSession } from "./workspace-draft-session.js";
-import { EditorRelease } from "./workspace-publication.js";
 
 /** The protected `HonuaStudioElementBase` members the shell chrome needs. */
 export interface StudioShellAccess {
@@ -28,7 +28,7 @@ export interface StudioShellAccess {
  * The composition root behind `<honua-studio-app>`: builds every controller, wires the hooks between them
  * and owns the policies that span them, such as revoking a former authority when the session changes.
  */
-export class StudioAppRoot {
+export class StudioEditorRoot {
   readonly composition = new CompositionController(createEmptyCompositionState());
   readonly children: StudioAppChildren;
   readonly authority: EditorAuthority;
@@ -36,7 +36,7 @@ export class StudioAppRoot {
   readonly router: ShellRouter;
   readonly catalog: SourceCatalog;
   readonly drafts: EditorDraftSession;
-  readonly publication: EditorRelease;
+  readonly release: EditorRelease;
   readonly editor: CompositionEditor;
   readonly designInspector: DesignInspectorHost;
   readonly styleEditor: StyleEditorHost;
@@ -54,7 +54,7 @@ export class StudioAppRoot {
     this.router = this.#createRouter();
     this.catalog = this.#createCatalog();
     this.drafts = this.#createDrafts();
-    this.publication = new EditorRelease(this.authority, this.drafts, {
+    this.release = new EditorRelease(this.authority, this.drafts, {
       prepareEditorTurn: () => host.prepareEditorTurn(),
       saveCurrentView: (current) => this.#saveCurrentView(current),
     });

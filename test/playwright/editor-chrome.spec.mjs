@@ -42,7 +42,7 @@ test("Console host contract has one host navigation/composer and only embedded e
     await page.getByTestId("history-undo").click();
     await expect(page.getByTestId("history-status")).toHaveText("Undone");
     await expect(page.getByRole("navigation")).toHaveCount(1);
-    await page.screenshot({ path: ".tmp/workspace-editor-host.png", fullPage: true });
+    await page.screenshot({ path: ".tmp/editor-host.png", fullPage: true });
   } finally {
     await preview.close();
     await mock.close();

@@ -7,7 +7,7 @@ import type {
   LocalSourceFile,
   ProcessImportReceipt,
   PublishedProcessLayer,
-} from "../gp/custom-process-workspace.js";
+} from "../gp/custom-process-editor.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 
 /** Separate Python/.NET source/fixture lane. Every run is a local sandbox snapshot. */

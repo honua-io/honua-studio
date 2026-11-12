@@ -5,13 +5,13 @@ import type { DesignConsumer } from "../design/design-inventory.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import { runtimeMcpBaseUrl } from "../runtime-config.js";
 import type { MapStyleField } from "../styles/map-style-edit.js";
+import type { EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftSession } from "./editor-draft-session.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import type { EditorAuthority } from "./workspace-authority.js";
-import type { EditorDraftSession } from "./workspace-draft-session.js";
 
 export type DesignRelationship = { readonly interactionId: string; readonly ownerRef: string };
 

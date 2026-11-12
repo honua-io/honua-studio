@@ -7,7 +7,7 @@ import {
   ProcessValidationError,
   type ServerProcessEditor,
   validateProcessGraph,
-} from "../gp/process-workspace.js";
+} from "../gp/process-editor.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 
 export interface ProcessSourcePicker {

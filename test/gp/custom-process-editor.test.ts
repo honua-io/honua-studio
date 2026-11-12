@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LocalProcessEditor, type LocalRunReceipt } from "../../src/gp/custom-process-workspace.js";
+import { LocalProcessEditor, type LocalRunReceipt } from "../../src/gp/custom-process-editor.js";
 const options = {
   csrfToken: "csrf",
   environmentId: "env-a",

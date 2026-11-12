@@ -1,9 +1,9 @@
+import type { EditorDraftBinding } from "../lifecycle/editor-draft.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
-import type { EditorDraftBinding } from "../lifecycle/workspace-draft.js";
+import type { EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./editor-draft-session.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import type { EditorAuthority } from "./workspace-authority.js";
-import type { EditorDraftIdentity, EditorDraftSession } from "./workspace-draft-session.js";
 
 type PublishReceipt = ReturnType<StudioLifecycleClient["requestPublish"]>;
 type PublicationReceipt = ReturnType<StudioLifecycleClient["getPublicationRequest"]>;
@@ -31,8 +31,8 @@ const LIFECYCLE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const SESSION_OR_MAP_CHANGED = "The editor session or map changed.";
 
 /**
- * Saved versions of the active draft and their human-gated publication. Publishing requires a review
- * taken in the same workspace session, and nothing here publishes as a side effect.
+ * Saved versions of the active draft and their human-gated release. Releasing requires a review
+ * taken in the same editor session, and nothing here releases a version as a side effect.
  */
 export class EditorRelease {
   #reviews = new WeakMap<StudioContentVersion, PublicationReview>();
@@ -96,7 +96,7 @@ export class EditorRelease {
    * retain it and the exact input after a lost response. Replays use server policy
    * and fresh authorization; a receipt awaiting approval is never completion.
    */
-  async publish(review: StudioContentVersion, request: StudioPublishRequestInput, commandId: string): PublishReceipt {
+  async release(review: StudioContentVersion, request: StudioPublishRequestInput, commandId: string): PublishReceipt {
     const state = this.#reviews.get(review);
     if (!state) throw new Error("Review the saved version in the current editor session before publishing.");
     const requireReview = () => {
@@ -135,7 +135,7 @@ export class EditorRelease {
     }
   }
 
-  async readPublication(versionId: string, requestId: string): PublicationReceipt {
+  async readRelease(versionId: string, requestId: string): PublicationReceipt {
     const binding = this.drafts.binding;
     const generation = this.authority.epoch.current;
     const identity = binding?.identity;
@@ -171,7 +171,7 @@ export class EditorRelease {
     });
   }
 
-  /** A retried publication must reuse its original command ID and settings. */
+  /** A retried release must reuse its original command ID and settings. */
   #pinSubmission(
     state: PublicationReview,
     request: StudioPublishRequestInput,

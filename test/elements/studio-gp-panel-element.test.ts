@@ -280,7 +280,7 @@ describe("<honua-studio-gp-panel> (honua-studio#10)", () => {
     expect(el.shadowRoot?.querySelector('[data-testid="gp-job-outputs"]')?.textContent).toContain("Affected parcels");
   });
 
-  it("clicking Add to composition dispatches honua-studio-gp-add-output with the output's dataset id (REQ-004)", async () => {
+  it("clicking Add to map dispatches honua-studio-gp-add-output with the output's dataset id (REQ-004)", async () => {
     const { el } = mount(new FakeLifecycleClient(), new FakeGpJobClient());
     el.draftId = "gp-draft-1";
     await flush();
@@ -362,7 +362,7 @@ describe("<honua-studio-gp-panel> (honua-studio#10)", () => {
     const diagnostic = el.shadowRoot?.querySelector('[data-testid="gp-job-error"]')?.textContent ?? "";
     expect(diagnostic).toContain("ProcessExecutionFailed");
     expect(diagnostic).toContain("The operation graph failed while running intersect.");
-    // No outputs, no add-to-composition offer for a failed job.
+    // No outputs, no add-to-map offer for a failed job.
     expect(el.shadowRoot?.querySelector('[data-testid="gp-job-outputs"]')).toBeFalsy();
     // Terminal — no further check-status/cancel affordance left dangling.
     expect(el.shadowRoot?.querySelector('[data-testid="gp-job-check-status"]')).toBeFalsy();

@@ -3,14 +3,10 @@ import type { ExploreDatasetMetadata } from "../recipes/explore-dataset.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import { createCatalogWidgetDataLoader } from "../widgets/widget-data.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority, type EditorStyleProviderOptions } from "./editor-authority.js";
 import { recipeSourceIdentity } from "./recipe-source-identity.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import {
-  EDITOR_AUTHORITY_CHANGED,
-  type EditorAuthority,
-  type EditorStyleProviderOptions,
-} from "./workspace-authority.js";
 
 /** The public `<honua-studio-app>` methods recipe discovery goes through; hosts and tests may wrap them. */
 export interface RecipeSourcesHost {

@@ -3,13 +3,13 @@ import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element
 import type { MapStyleDocument, MapStyleField } from "../styles/map-style-edit.js";
 import { MapStyleEditor, type MapStyleEditorOptions } from "../styles/map-style-editor.js";
 import type { CompositionEditor } from "./composition-editor.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./editor-draft-session.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./workspace-authority.js";
-import type { EditorDraftIdentity, EditorDraftSession } from "./workspace-draft-session.js";
 
 /** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
 export interface StyleEditorHostElement extends EventTarget {

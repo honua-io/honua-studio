@@ -10,12 +10,12 @@ import {
 } from "../recipes/explore-dataset.js";
 import { RecipePanel } from "../recipes/recipe-panel.js";
 import { RecipeSubmission } from "../recipes/recipe-submission.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./editor-draft-session.js";
 import { RecipeSourceChoices, type RecipeSourcesHost } from "./recipe-source-choices.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./workspace-authority.js";
-import type { EditorDraftIdentity, EditorDraftSession } from "./workspace-draft-session.js";
 
 /** The public `<honua-studio-app>` methods the recipe picker goes through; hosts and tests may wrap them. */
 export interface RecipeHost extends RecipeSourcesHost {

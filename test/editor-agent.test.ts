@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../mock-server.mjs";
-import { createEditorAgentSession, editorAgentFeatures } from "../src/workspace-agent.js";
+import { createEditorAgentSession, editorAgentFeatures } from "../src/editor-agent.js";
 
 it("sends shared workflow guidance with fresh host context through the real SDK and fixture proxy", async () => {
   const server = await startMockServer({ model: "byom-preview" });

@@ -24,6 +24,30 @@
       "rule": "hosted-layer",
       "line": "  /\\b(workspaces?|packages?|famil(y|ies)|compositions?|web ?maps?|portal items?|hosted layers?|serving targets?|tenants?|content items?)\\b/i;",
       "reason": "The retired-term guard's own pattern lists the retired names it rejects."
+    },
+    {
+      "path": "docs/vocabulary-renames.md",
+      "rule": "content-item",
+      "line": "| Invalid content item page. | Invalid Studio content page. |",
+      "reason": "The rename list quotes the old error message beside its replacement."
+    },
+    {
+      "path": "docs/vocabulary-renames.md",
+      "rule": "content-item",
+      "line": "| Invalid content item identity or state. | Invalid Studio content identity or state. |",
+      "reason": "The rename list quotes the old error message beside its replacement."
+    },
+    {
+      "path": "docs/vocabulary-renames.md",
+      "rule": "content-item",
+      "line": "| Content item pagination repeated a cursor. | Studio content pagination repeated a cursor. |",
+      "reason": "The rename list quotes the old error message beside its replacement."
+    },
+    {
+      "path": "docs/vocabulary-renames.md",
+      "rule": "content-item",
+      "line": "| Content items exceeded the bounded page limit. | Studio content exceeded the bounded page limit. |",
+      "reason": "The rename list quotes the old error message beside its replacement."
     }
   ]
 }

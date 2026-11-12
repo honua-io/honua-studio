@@ -2,7 +2,7 @@
  * `<honua-studio-app>`: the Studio shell. Attribute, property and event contract: docs/element-contract.md;
  * session contract: docs/embed-session.md. A host that supplies its own chat or canvas child wires it itself;
  * this element only uses the public properties and events any embedder could use. Behaviour lives in the
- * controllers `StudioAppRoot` assembles; this class is the public facade and the element lifecycle.
+ * controllers `StudioEditorRoot` assembles; this class is the public facade and the element lifecycle.
  */
 import type { HonuaAgentToolDefinitionLike, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
 import {
@@ -13,15 +13,16 @@ import {
 } from "@honua/sdk-js/studio-agent";
 import { historyShortcutAction } from "../app/composition-editor.js";
 import type { DesignRelationship } from "../app/design-inspector-host.js";
+import type { EditorStyleProviderOptions } from "../app/editor-authority.js";
+import type { EditorDraftIdentity } from "../app/editor-draft-session.js";
+import type { EditorRelease } from "../app/editor-release.js";
 import type { LiveEditingOptions } from "../app/live-composition-controller.js";
 import type { ProcessSourceChoice } from "../app/source-catalog.js";
-import { StudioAppRoot } from "../app/studio-workspace.js";
-import type { EditorStyleProviderOptions } from "../app/workspace-authority.js";
-import type { EditorDraftIdentity } from "../app/workspace-draft-session.js";
-import type { EditorRelease } from "../app/workspace-publication.js";
+import { StudioEditorRoot } from "../app/studio-editor-root.js";
 import type { AuthSession, SessionAdapter } from "../auth/index.js";
 import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../editor-agent.js";
 import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
@@ -29,7 +30,6 @@ import type { ExploreDatasetInput, ExploreDatasetMetadata } from "../recipes/exp
 import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
-import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../workspace-agent.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
@@ -60,7 +60,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public styleEditorAssetsUrl = "/maputnik/index.html";
-  readonly #root = new StudioAppRoot(this, {
+  readonly #root = new StudioEditorRoot(this, {
     setShadowHtml: (html) => this.setShadowHtml(html),
     connectedSignal: () => this.connectedSignal,
   });
@@ -70,7 +70,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   readonly #router = this.#root.router;
   readonly #catalog = this.#root.catalog;
   readonly #drafts = this.#root.drafts;
-  readonly #publication = this.#root.publication;
+  readonly #release = this.#root.release;
   readonly #editor = this.#root.editor;
   readonly #designInspector = this.#root.designInspector;
   readonly #styleEditor = this.#root.styleEditor;
@@ -263,17 +263,17 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** Save the active server draft as an immutable version; never publish it. */
   public saveEditorVersion(): Promise<StudioContentVersion> {
-    return this.#publication.saveVersion();
+    return this.#release.saveVersion();
   }
 
   /** List versions belonging to the active draft's server-owned content item. */
   public listEditorVersions(): Promise<readonly StudioContentVersion[]> {
-    return this.#publication.listVersions();
+    return this.#release.listVersions();
   }
 
-  /** Read the exact saved version for the host's human publication review. Never submits. */
+  /** Read the exact saved version for the host's human release review. Never submits. */
   public reviewEditorRelease(versionId: string): Promise<StudioContentVersion> {
-    return this.#publication.review(versionId);
+    return this.#release.review(versionId);
   }
 
   /** Human host action only; see `EditorRelease.publish` for the retry contract. */
@@ -281,18 +281,18 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     review: StudioContentVersion,
     request: StudioPublishRequestInput,
     commandId: string,
-  ): ReturnType<EditorRelease["publish"]> {
-    return this.#publication.publish(review, request, commandId);
+  ): ReturnType<EditorRelease["release"]> {
+    return this.#release.release(review, request, commandId);
   }
 
-  /** Read an active item's publication receipt without flushing edits or submitting a mutation. */
-  public readEditorRelease(versionId: string, requestId: string): ReturnType<EditorRelease["readPublication"]> {
-    return this.#publication.readPublication(versionId, requestId);
+  /** Read an active item's release receipt without flushing edits or submitting a mutation. */
+  public readEditorRelease(versionId: string, requestId: string): ReturnType<EditorRelease["readRelease"]> {
+    return this.#release.readRelease(versionId, requestId);
   }
 
   /** Reopen a version of the active map as a new draft, preserving the saved version. */
   public reopenEditorVersion(versionId: string): Promise<void> {
-    return this.#publication.reopenVersion(versionId);
+    return this.#release.reopenVersion(versionId);
   }
 
   public get selectedDesignRelationship(): DesignRelationship | undefined {

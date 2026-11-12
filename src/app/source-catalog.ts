@@ -2,9 +2,9 @@ import type { CatalogDataset } from "../client/studio-client.js";
 import { StudioClient } from "../client/studio-client.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./editor-authority.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./workspace-authority.js";
 
 export interface SourceCatalogHooks {
   readonly isConnected: () => boolean;

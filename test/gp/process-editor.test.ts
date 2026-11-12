@@ -5,7 +5,7 @@ import {
   normalizeProcessDiagnostics,
   snapshotProcessGraph,
   validateProcessGraph,
-} from "../../src/gp/process-workspace.js";
+} from "../../src/gp/process-editor.js";
 const registry = {
   registryVersion: "v1",
   nodes: [

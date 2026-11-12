@@ -40,7 +40,7 @@ that relationship focus; attempting to open a different draft closes the panel
 and cancels its metadata while the prospective read runs.
 
 Implementation: `src/elements/studio-app-element.ts` is the public facade over the
-controllers in `src/app/` that `StudioAppRoot` assembles. Composes a header
+controllers in `src/app/` that `StudioEditorRoot` assembles. Composes a header
 (brand, nav, auth status/sign-in-out controls, optional theme switcher), a
 routed view outlet, and a persistent area slotting in `<honua-studio-chat>`
 + `<honua-studio-canvas>` (created automatically unless the host already
@@ -150,8 +150,8 @@ shadow boundary): `honua-studio-ready` (base contract, see below),
 `honua-studio-editing-mode-change` (`{ mode: "fixture" | "live",
 packageKey?, family? }`).
 
-The renamed methods, events and host attribute have no old-name aliases; the
-`CHANGELOG.md` lists the renames. The `packageKey`, `family` and `workspaceId`
+The renamed methods, events and host attribute have no old-name aliases;
+`docs/vocabulary-renames.md` lists the renames. The `packageKey`, `family` and `workspaceId`
 fields are server-owned wire names and are unchanged.
 
 Sign-in/sign-out controls (and any interactive auth affordance at all) only

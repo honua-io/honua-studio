@@ -198,7 +198,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts; source-scoped filter controls filter bounded chart/table rows before aggregation and pagination | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
 | Studio content lifecycle UI — Draft, Version, compare, release, rollback against honua-server's Studio lifecycle REST API | `src/lifecycle/` | #17 |
 | Explore a dataset starter — authorized vector source and actual fields create a canonical map/table/category-filter draft in the existing grid; preview is illustrative | `src/recipes/`, `src/app/recipe-controller.ts` | #135 |
-| Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-workspace.ts`, `src/gp/custom-process-workspace.ts` | #104 |
+| Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-editor.ts`, `src/gp/custom-process-editor.ts` | #104 |
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
@@ -219,8 +219,8 @@ Features or a GeoServices FeatureServer. Anything else resolves to a visible
   server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. The [authoritative style provider](docs/authoritative-styles.md) resolves real server definitions for supported vector layers and accepts actual browser observations for hash-bound semantic verification. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
   follow-up work.
 - **Processes live qualification remains pending.** Console's built-in and custom
-  Processes views use the server-backed adapters in `src/gp/process-workspace.ts`
-  and `src/gp/custom-process-workspace.ts`. Their installed edit/run/debug/output
+  Processes views use the server-backed adapters in `src/gp/process-editor.ts`
+  and `src/gp/custom-process-editor.ts`. Their installed edit/run/debug/output
   journey still needs qualification. The older standalone GP compatibility panel
   (`src/gp/job-client.ts`, [#35](https://github.com/honua-io/honua-studio/issues/35))
   continues to use the fixture job store.

@@ -347,7 +347,7 @@ export interface HonuaStudioGpActivityDetail {
 
 /**
  * `honua-studio-gp-add-output` — dispatched by `<honua-studio-gp-panel>`
- * when a user clicks "Add to composition" on a completed job's output
+ * when a user clicks "Add to map" on a completed job's output
  * (honua-studio#10 REQ-004). A host forwards this into its own
  * `ToolCallOrchestrator` via the SAME `addLayer` composition command a chat
  * tool-call intent would use — see `studio-app-element.ts`'s listener.

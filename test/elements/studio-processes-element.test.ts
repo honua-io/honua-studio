@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioProcessesElement } from "../../src/elements/studio-processes-element.js";
-import type { ProcessGraph, ServerProcessEditor } from "../../src/gp/process-workspace.js";
+import type { ProcessGraph, ServerProcessEditor } from "../../src/gp/process-editor.js";
 registerAllStudioElements();
 afterEach(() => {
   document.body.innerHTML = "";

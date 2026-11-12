@@ -1,5 +1,5 @@
+import type { ContentLifecycleReader } from "../lifecycle/content-lifecycle-reader.js";
 import type { StudioPackageEnvelope } from "../lifecycle/lifecycle-types.js";
-import type { ContentLifecycleReader } from "../lifecycle/workspace-reader.js";
 
 export interface SharedStyleMapConsumerReference {
   readonly itemId: string;

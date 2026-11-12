@@ -1,4 +1,4 @@
-import { editorAgent } from "./workspace-agent.js";
+import { editorAgent } from "./editor-agent.js";
 /**
  * Standalone shell bootstrap (honua-studio#5 REQ-002).
  *

@@ -1,11 +1,11 @@
 import type { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
+import { EditorDraftBinding } from "../lifecycle/editor-draft.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
-import { EditorDraftBinding } from "../lifecycle/workspace-draft.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
+import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./editor-authority.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./workspace-authority.js";
 
 export type EditorDraftIdentity = { draftId: string; generation: number; packageKey: string };
 

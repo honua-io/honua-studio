@@ -1,8 +1,8 @@
 import { afterEach, expect, it } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { createEmptyCompositionState } from "../../src/composition/model.js";
+import { EditorDraftBinding } from "../../src/lifecycle/editor-draft.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
-import { EditorDraftBinding } from "../../src/lifecycle/workspace-draft.js";
 
 let server: Awaited<ReturnType<typeof startMockServer>> | undefined;
 afterEach(async () => {

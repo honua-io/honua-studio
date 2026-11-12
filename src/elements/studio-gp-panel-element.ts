@@ -340,8 +340,8 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
     this.render();
   }
 
-  /** REQ-004: offers add-to-composition — dispatches only, never mutates composition state itself. See the module doc + `studio-app-element.ts`'s listener. */
-  #addOutputToComposition(sourceId: string, title: string | undefined): void {
+  /** REQ-004: offers add-to-map — dispatches only, never mutates map state itself. See the module doc + `studio-app-element.ts`'s listener. */
+  #addOutputToMap(sourceId: string, title: string | undefined): void {
     this.dispatchTypedEvent<HonuaStudioGpAddOutputDetail>("honua-studio-gp-add-output", { sourceId, title });
     this.#actionMessage = `Requested "${title ?? sourceId}" be added to the map.`;
     this.render();
@@ -480,7 +480,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
             (output) => `
               <li class="gp-field-row">
                 <span>${escapeHtml(output.title ?? output.outputId)}</span>
-                <button type="button" class="hn-btn hn-btn--sm" data-testid="gp-add-output" data-source-id="${escapeHtml(output.datasetId)}" data-title="${escapeHtml(output.title ?? output.outputId)}">Add to composition</button>
+                <button type="button" class="hn-btn hn-btn--sm" data-testid="gp-add-output" data-source-id="${escapeHtml(output.datasetId)}" data-title="${escapeHtml(output.title ?? output.outputId)}">Add to map</button>
               </li>
             `,
           )
@@ -546,7 +546,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
         "click",
         () => {
           const sourceId = button.dataset.sourceId;
-          if (sourceId) this.#addOutputToComposition(sourceId, button.dataset.title);
+          if (sourceId) this.#addOutputToMap(sourceId, button.dataset.title);
         },
         { signal },
       );

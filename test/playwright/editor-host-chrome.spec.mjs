@@ -32,7 +32,7 @@ test("host mode leaves one host composer and navigation with canvas and history 
     await expect(page.getByTestId("history-redo")).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Shared workspace message" })).toBeVisible();
     await expect(page.locator("textarea:visible")).toHaveCount(1);
-    await page.screenshot({ path: ".tmp/workspace-host-chrome.png", fullPage: true });
+    await page.screenshot({ path: ".tmp/editor-host-chrome.png", fullPage: true });
     await page.evaluate(() => {
       window.__honuaStudioBareApp.agentSessionAdapter = undefined;
     });

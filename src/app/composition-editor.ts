@@ -5,15 +5,15 @@ import type { CompositionState } from "../composition/model.js";
 import { applyCompositionCommands, isCompositionCommandError } from "../composition/reducer.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
-import type { EditorDraftBinding } from "../lifecycle/workspace-draft.js";
+import type { EditorDraftBinding } from "../lifecycle/editor-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
+import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftSession } from "./editor-draft-session.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./workspace-authority.js";
-import type { EditorDraftSession } from "./workspace-draft-session.js";
 
 type HistoryAction = "undo" | "redo";
 type CommandOptions = { readonly isCurrent?: () => boolean };
@@ -123,7 +123,7 @@ export class CompositionEditor {
     const outcome = resolved.ok ? await this.dispatch([resolved.command]) : resolved;
     if (!outcome.ok)
       this.options.children.chat()?.activityLog.append("assistant_turn_error", {
-        phase: "workspace-command",
+        phase: "editor-command",
         errorMessage: outcome.reason,
       });
   }

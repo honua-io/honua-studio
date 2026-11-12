@@ -3,7 +3,7 @@
  * Keeps retired vocabulary out of Studio's public names and user-facing text. The canonical terms are in
  * honua-server `docs/concepts/domain/README.md`; the shared policy is honua-server
  * `scripts/ci/retired-terms.v1.json`. Studio is unreleased, so renamed public names have no deprecated aliases:
- * the old names below may appear only in CHANGELOG.md and this file. Add an exception only for a server-owned
+ * the old names below may appear only in the files listed in RENAME_RECORDS. Add an exception only for a server-owned
  * wire name, a filesystem/IDE workspace or the internal composition engine, with its reason.
  */
 import { execFileSync } from "node:child_process";
@@ -54,7 +54,7 @@ const RENAMED_MEMBERS = [
   "refreshWorkspaceTask",
 ];
 
-/** Renamed events, host attribute (and its `dataset` spelling), global and activity-log kind. */
+/** Renamed events, host attribute (and its `dataset` spelling), global and activity-log values. */
 const RENAMED_DOM_NAMES = [
   "honua-workspace-draft-change",
   "honua-studio-composition-mode-change",
@@ -62,15 +62,30 @@ const RENAMED_DOM_NAMES = [
   "workspaceHost",
   "HonuaStudioWorkspace",
   "composition_mode_changed",
+  "workspace-command",
 ];
 
 const RENAMED_NAMES = [...RENAMED_EXPORTS, ...RENAMED_MEMBERS, ...RENAMED_DOM_NAMES];
 
-/** The only tracked files that may still name a renamed public name. */
-const RENAME_RECORDS = ["CHANGELOG.md", "test/vocabulary/retired-terms.test.ts"];
+/** The rename list: every old name with its new name. */
+const RENAMES_DOC = "docs/vocabulary-renames.md";
 
-/** The handle on the internal composition engine (`src/composition/`); renaming it would be churn only. */
-const COMPOSITION_ENGINE_MEMBERS = ["composition"];
+/** The only tracked files that may still name a renamed public name, with the reason. */
+const RENAME_RECORDS: ReadonlyArray<{ readonly path: string; readonly reason: string }> = [
+  { path: RENAMES_DOC, reason: "the rename list" },
+  { path: "test/vocabulary/retired-terms.test.ts", reason: "this guard's list of renamed names" },
+  {
+    path: "scripts/__tests__/live-publication.test.mjs",
+    reason: "Console pin 97631d3 contract until the Studio lock bump",
+  },
+];
+
+/** Element members allowed to keep a retired word, with the reason. */
+const ALLOWED_MEMBERS: ReadonlyArray<{ readonly name: string; readonly reason: string }> = [
+  { name: "composition", reason: "the handle on the internal composition engine (`src/composition/`)" },
+  { name: "packageKey", reason: "a server-owned wire name kept by AGENTS.md until the server rename" },
+  { name: "family", reason: "a server-owned wire name kept by AGENTS.md until the server rename" },
+];
 
 /** Directories whose text is model-facing or contributor-facing rather than shown to users. */
 const NOT_USER_FACING = [
@@ -82,12 +97,12 @@ const NOT_USER_FACING = [
 
 const TEXT_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: string; readonly reason: string }> = [
   {
-    path: "src/gp/custom-process-workspace.ts",
+    path: "src/gp/custom-process-editor.ts",
     text: "An actual workspace is required.",
     reason: "names the host's X-Honua-Workspace scope, a server-owned identifier",
   },
   {
-    path: "src/gp/custom-process-workspace.ts",
+    path: "src/gp/custom-process-editor.ts",
     text: "The workspace changed during the request.",
     reason: "names the host's X-Honua-Workspace scope, a server-owned identifier",
   },
@@ -197,13 +212,23 @@ function proseLiterals(line: string): string[] {
     .filter((text) => /[a-z]{2,} [a-z]{2,}/i.test(text));
 }
 
+/** HTML text nodes and labelling attribute values inside template markup, which `proseLiterals` cannot see. */
+function templateTexts(line: string): string[] {
+  if (/^\s*(\/\/|\*|\/\*|import )/.test(line)) return [];
+  const nodes = [...line.matchAll(/>([^<>]+)</g)].map((match) => match[1]);
+  const attributes = [...line.matchAll(/\b(?:aria-label|title|placeholder|alt)="([^"]*)"/g)].map((match) => match[1]);
+  return [...nodes, ...attributes]
+    .map((text) => text.replace(/\$\{[^}]*\}/g, " ").trim())
+    .filter((text) => /^[A-Za-z][^=;{}()]*$/.test(text));
+}
+
 function retiredTextFindings(): string[] {
   const findings: string[] = [];
   for (const path of sourceFiles()) {
     readFileSync(path, "utf8")
       .split("\n")
       .forEach((line, index) => {
-        for (const text of proseLiterals(line)) {
+        for (const text of [...proseLiterals(line), ...templateTexts(line)]) {
           const excepted = TEXT_EXCEPTIONS.some((entry) => entry.path === path && text.includes(entry.text));
           if (RETIRED_TEXT.test(text) && !excepted) findings.push(`${path}:${index + 1}: ${text}`);
         }
@@ -221,7 +246,12 @@ describe("retired vocabulary guard", () => {
   it("keeps retired words out of element tags, attributes and members", () => {
     registerAllStudioElements();
     const names = new Set<string>([...STUDIO_ELEMENT_TAGS, ...STUDIO_ELEMENT_TAGS.flatMap(publicMemberNames)]);
-    expect(retiredNames(names, COMPOSITION_ENGINE_MEMBERS)).toEqual([]);
+    expect(
+      retiredNames(
+        names,
+        ALLOWED_MEMBERS.map((entry) => entry.name),
+      ),
+    ).toEqual([]);
     expect(RENAMED_MEMBERS.filter((name) => names.has(name))).toEqual([]);
   });
 
@@ -231,8 +261,9 @@ describe("retired vocabulary guard", () => {
 
   it("keeps renamed public names out of every tracked file except the rename records", () => {
     const files = gitGrepFiles(RENAMED_NAMES);
-    expect(files.filter((path) => !RENAME_RECORDS.includes(path))).toEqual([]);
-    expect(RENAMED_NAMES.filter((name) => !readFileSync("CHANGELOG.md", "utf8").includes(`\`${name}\``))).toEqual([]);
+    expect(files.filter((path) => !RENAME_RECORDS.some((record) => record.path === path))).toEqual([]);
+    const renames = readFileSync(RENAMES_DOC, "utf8");
+    expect(RENAMED_NAMES.filter((name) => !renames.includes(`\`${name}\``))).toEqual([]);
   });
 
   it("keeps retired words out of user-facing strings except listed exceptions", () => {

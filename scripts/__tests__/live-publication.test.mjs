@@ -37,7 +37,7 @@ test("both lifecycle versions reach the pinned Console viewer's renderer without
         ),
       loadRenderer: async () => ({
         AudienceStyleProvider: class {},
-        createReadOnlyAppView(options) {
+        createReadOnlyCompositionView(options) {
           renderedBody = options.body;
           return { status: "ready", renderedFeatureCount: 0, settled: async () => {}, dispose() {} };
         },

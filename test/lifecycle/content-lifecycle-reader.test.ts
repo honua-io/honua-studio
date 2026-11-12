@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createContentLifecycleReader } from "../../src/lifecycle/workspace-reader.js";
+import { createContentLifecycleReader } from "../../src/lifecycle/content-lifecycle-reader.js";
 
 it("projects actual lifecycle GET readback through the host's captured transport without exposing writes", async () => {
   const draft = { draftId: "draft", itemId: "map", packageKey: "parcels", generation: 7, envelope: { family: "map" } };

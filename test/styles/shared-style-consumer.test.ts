@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import type { ContentLifecycleReader } from "../../src/lifecycle/workspace-reader.js";
+import type { ContentLifecycleReader } from "../../src/lifecycle/content-lifecycle-reader.js";
 import { readSharedStyleMapConsumer } from "../../src/styles/shared-style-consumer.js";
 const hash = "a".repeat(64);
 const draft = {

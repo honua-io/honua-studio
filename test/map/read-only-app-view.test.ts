@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HonuaStudioWidgetDeckElement } from "../../src/elements/studio-widget-deck-element.js";
 import type { CompositionMapFactoryOptions, CompositionMapLike } from "../../src/map/composition-map-view.js";
-import { createReadOnlyAppView } from "../../src/map/read-only-composition-view.js";
+import { createReadOnlyAppView } from "../../src/map/read-only-app-view.js";
 
 const origin = "https://console.test";
 const sourceRoot = `${origin}/api/studio/viewer/data`;

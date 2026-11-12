@@ -10,6 +10,7 @@ import {
 } from "../chat/share-preview.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { EditorAgentSessionAdapter } from "../editor-agent.js";
 import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "../elements/studio-chat-element.js";
 import type { HonuaStudioEditingModeChangeDetail } from "../elements/types.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
@@ -19,7 +20,6 @@ import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import type { AuthoritativeStyleDefinition } from "../styles/authoritative-style-provider.js";
-import type { EditorAgentSessionAdapter } from "../workspace-agent.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";

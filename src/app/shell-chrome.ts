@@ -1,11 +1,11 @@
 import type { AuthSession, AuthStatus } from "../auth/index.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { EditorAgentSessionAdapter } from "../editor-agent.js";
 import { AUTH_STATUS_LABELS } from "../elements/auth-status.js";
 import { appShellStyles, baseElementStyles } from "../elements/styles.js";
 import type { HonuaStudioThemeSwitcherVisibility } from "../elements/types.js";
 import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
-import type { EditorAgentSessionAdapter } from "../workspace-agent.js";
 import { STUDIO_ROUTES } from "./shell-router.js";
 
 /** Package families whose drafts carry a composition body; mirrors the server gate and `mock-server.mjs`. */
