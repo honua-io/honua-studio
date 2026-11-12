@@ -10,7 +10,6 @@ import {
 } from "../chat/share-preview.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import type { CompositionController } from "../composition/controller.js";
-import { dispatchWithDeprecatedAlias } from "../elements/deprecated-aliases.js";
 import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "../elements/studio-chat-element.js";
 import type { HonuaStudioEditingModeChangeDetail } from "../elements/types.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
@@ -248,8 +247,7 @@ export class LiveCompositionController {
   #announceMode(detail: HonuaStudioEditingModeChangeDetail): void {
     this.options.chrome.paintLiveComposition();
     this.options.children.chat()?.activityLog.append("composition_mode_changed", { ...detail });
-    dispatchWithDeprecatedAlias(
-      this.options.host,
+    this.options.host.dispatchEvent(
       new CustomEvent<HonuaStudioEditingModeChangeDetail>("honua-studio-editing-mode-change", {
         bubbles: true,
         composed: true,

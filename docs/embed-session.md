@@ -269,12 +269,8 @@ query, map and publication qualification remains separate.
 
 The Console entry also exports `createEditorAgentSession`, `editorAgentFeatures`,
 `ServerProcessEditor`, `LocalProcessEditor`, `createContentLifecycleReader` and
-`createReadOnlyAppView`. Their former names (`createWorkspaceAgentSession`,
-`workspaceAgentFeatures`, `ServerProcessWorkspace`, `LocalProcessWorkspace`,
-`createWorkspaceLifecycleReader`, `createReadOnlyCompositionView` and the
-`ReadOnlyComposition*` types) remain deprecated aliases for one release
-(`src/console-entry-deprecated.ts`). The standalone shell sets the global
-`HonuaStudioEditor` and, for the same release, `HonuaStudioWorkspace`.
+`createReadOnlyAppView`. The standalone shell sets the global
+`HonuaStudioEditor`.
 
 Before capturing a turn, `await studio.prepareEditorTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching

@@ -9,10 +9,8 @@ import type {
   PublishedProcessLayer,
 } from "../gp/custom-process-workspace.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 
 /** Separate Python/.NET source/fixture lane. Every run is a local sandbox snapshot. */
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
   #client: LocalProcessEditor | undefined;
   #project: LocalProjectIdentity | undefined;
@@ -335,13 +333,3 @@ export class HonuaStudioCustomProcessesElement extends HonuaStudioElementBase {
     }
   }
 }
-
-export interface HonuaStudioCustomProcessesElement {
-  /** @deprecated Use prepareEditorTask. Removed in the next minor. */
-  prepareWorkspaceTask: HonuaStudioCustomProcessesElement["prepareEditorTask"];
-  /** @deprecated Use attachEditorTask. Removed in the next minor. */
-  attachWorkspaceTask: HonuaStudioCustomProcessesElement["attachEditorTask"];
-  /** @deprecated Use refreshEditorTask. Removed in the next minor. */
-  refreshWorkspaceTask: HonuaStudioCustomProcessesElement["refreshEditorTask"];
-}
-defineDeprecatedAliases(HonuaStudioCustomProcessesElement, DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES);

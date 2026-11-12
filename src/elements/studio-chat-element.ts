@@ -43,7 +43,6 @@ import {
 import { runtimeServerBaseUrl } from "../runtime-config.js";
 import { AUTH_STATUS_LABELS } from "./auth-status.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { DEPRECATED_CHAT_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, chatStyles } from "./styles.js";
 import type {
@@ -91,7 +90,6 @@ export interface StudioAgentCertificationOptions {
   readonly transcriptVerifier?: StudioAgentTranscriptVerifier;
 }
 
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioChatElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["label", "placeholder"];
@@ -749,9 +747,3 @@ function renderMessage(message: ChatState["messages"][number]): string {
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
-
-export interface HonuaStudioChatElement {
-  /** @deprecated Use setEditorConversation. Removed in the next minor. */
-  setWorkspaceConversation: HonuaStudioChatElement["setEditorConversation"];
-}
-defineDeprecatedAliases(HonuaStudioChatElement, DEPRECATED_CHAT_ELEMENT_ALIASES);

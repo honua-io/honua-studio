@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Renamed public names ([#217](https://github.com/honua-io/honua-studio/issues/217))
+
+Studio is unreleased, so these names are renamed outright, with no deprecated aliases. Server-owned wire names (`packageKey`, `family`, `workspaceId`, `X-Honua-Workspace`) are unchanged.
+
+| Old | New |
+| --- | --- |
+| `createWorkspaceDraft` / `attachWorkspaceDraft` / `refreshWorkspaceDraft` | `createEditorDraft` / `attachEditorDraft` / `refreshEditorDraft` |
+| `prepareWorkspaceTurn` | `prepareEditorTurn` |
+| `saveWorkspaceVersion` / `listWorkspaceVersions` / `reopenWorkspaceVersion` | `saveEditorVersion` / `listEditorVersions` / `reopenEditorVersion` |
+| `reviewWorkspacePublication` / `publishWorkspaceVersion` / `readWorkspacePublication` | `reviewEditorRelease` / `releaseEditorVersion` / `readEditorRelease` |
+| `setWorkspaceConversation` (app and chat) / `createWorkspaceStyleProvider` | `setEditorConversation` / `createEditorStyleProvider` |
+| `enableLiveComposition` / `disableLiveComposition` | `enableLiveEditing` / `disableLiveEditing` |
+| `prepareWorkspaceTask` / `attachWorkspaceTask` / `refreshWorkspaceTask` (processes elements) | `prepareEditorTask` / `attachEditorTask` / `refreshEditorTask` |
+| event `honua-workspace-draft-change` | `honua-studio-draft-change` |
+| event `honua-studio-composition-mode-change` | `honua-studio-editing-mode-change` |
+| host attribute `data-workspace-host` | `data-editor-host` |
+| `createWorkspaceAgentSession` / `workspaceAgentFeatures` | `createEditorAgentSession` / `editorAgentFeatures` |
+| `ServerProcessWorkspace` / `LocalProcessWorkspace` | `ServerProcessEditor` / `LocalProcessEditor` |
+| `createWorkspaceLifecycleReader` / `WorkspaceLifecycleReader` | `createContentLifecycleReader` / `ContentLifecycleReader` |
+| `createReadOnlyCompositionView` / `ReadOnlyCompositionView` / `ReadOnlyCompositionViewOptions` / `ReadOnlyCompositionDocument` | `createReadOnlyAppView` / `ReadOnlyAppView` / `ReadOnlyAppViewOptions` / `ReadOnlyAppDocument` |
+| `HonuaStudioCompositionModeChangeDetail` / `LiveCompositionOptions` | `HonuaStudioEditingModeChangeDetail` / `LiveEditingOptions` |
+| global `HonuaStudioWorkspace` | `HonuaStudioEditor` |
+
 ## [0.1.3](https://github.com/honua-io/honua-studio/compare/v0.1.2...v0.1.3) (2026-11-10)
 
 

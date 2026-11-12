@@ -52,5 +52,3 @@ export {
   type ReadOnlyAppViewOptions,
   type ReadOnlyAppDocument,
 } from "./map/read-only-composition-view.js";
-
-export * from "./console-entry-deprecated.js";

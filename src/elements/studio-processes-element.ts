@@ -9,7 +9,6 @@ import {
   validateProcessGraph,
 } from "../gp/process-workspace.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { DEPRECATED_PROCESSES_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 
 export interface ProcessSourcePicker {
   list(): Promise<readonly { id: string; title: string }[]>;
@@ -17,7 +16,6 @@ export interface ProcessSourcePicker {
 }
 
 /** Edits the canonical workflow graph; compilation and execution remain server-owned. */
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
   #client: ServerProcessEditor | undefined;
   #sourcePicker: ProcessSourcePicker | undefined;
@@ -635,11 +633,3 @@ export class HonuaStudioProcessesElement extends HonuaStudioElementBase {
     }
   }
 }
-
-export interface HonuaStudioProcessesElement {
-  /** @deprecated Use prepareEditorTask. Removed in the next minor. */
-  prepareWorkspaceTask: HonuaStudioProcessesElement["prepareEditorTask"];
-  /** @deprecated Use attachEditorTask. Removed in the next minor. */
-  attachWorkspaceTask: HonuaStudioProcessesElement["attachEditorTask"];
-}
-defineDeprecatedAliases(HonuaStudioProcessesElement, DEPRECATED_PROCESSES_ELEMENT_ALIASES);

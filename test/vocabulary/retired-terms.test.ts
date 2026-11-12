@@ -2,20 +2,14 @@
 /**
  * Keeps retired vocabulary out of Studio's public names and user-facing text. The canonical terms are in
  * honua-server `docs/concepts/domain/README.md`; the shared policy is honua-server
- * `scripts/ci/retired-terms.v1.json`. Add an exception only for a deprecated alias, a server-owned wire name,
- * a filesystem/IDE workspace or the internal composition engine, with its reason.
+ * `scripts/ci/retired-terms.v1.json`. Studio is unreleased, so renamed public names have no deprecated aliases:
+ * the old names below may appear only in CHANGELOG.md and this file. Add an exception only for a server-owned
+ * wire name, a filesystem/IDE workspace or the internal composition engine, with its reason.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import * as consoleEntryAliases from "../../src/console-entry-deprecated.js";
 import * as consoleEntry from "../../src/console-entry.js";
-import {
-  DEPRECATED_APP_ELEMENT_ALIASES,
-  DEPRECATED_CHAT_ELEMENT_ALIASES,
-  DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES,
-  DEPRECATED_EVENT_ALIASES,
-} from "../../src/elements/deprecated-aliases.js";
 import { STUDIO_ELEMENT_TAGS, registerAllStudioElements } from "../../src/elements/registry.js";
 
 const RETIRED_NAME =
@@ -23,7 +17,8 @@ const RETIRED_NAME =
 const RETIRED_TEXT =
   /\b(workspaces?|packages?|famil(y|ies)|compositions?|web ?maps?|portal items?|hosted layers?|serving targets?|tenants?|content items?)\b/i;
 
-const DEPRECATED_EXPORTS = [
+/** Renamed Console entry exports and types; the CHANGELOG lists their new names. */
+const RENAMED_EXPORTS = [
   "createWorkspaceAgentSession",
   "workspaceAgentFeatures",
   "ServerProcessWorkspace",
@@ -34,9 +29,12 @@ const DEPRECATED_EXPORTS = [
   "ReadOnlyCompositionView",
   "ReadOnlyCompositionViewOptions",
   "ReadOnlyCompositionDocument",
+  "HonuaStudioCompositionModeChangeDetail",
+  "LiveCompositionOptions",
 ];
 
-const DEPRECATED_MEMBERS = [
+/** Renamed element methods. */
+const RENAMED_MEMBERS = [
   "createWorkspaceStyleProvider",
   "setWorkspaceConversation",
   "enableLiveComposition",
@@ -55,6 +53,19 @@ const DEPRECATED_MEMBERS = [
   "attachWorkspaceTask",
   "refreshWorkspaceTask",
 ];
+
+/** Renamed events, host attribute and global. */
+const RENAMED_DOM_NAMES = [
+  "honua-workspace-draft-change",
+  "honua-studio-composition-mode-change",
+  "data-workspace-host",
+  "HonuaStudioWorkspace",
+];
+
+const RENAMED_NAMES = [...RENAMED_EXPORTS, ...RENAMED_MEMBERS, ...RENAMED_DOM_NAMES];
+
+/** The only tracked files that may still name a renamed public name. */
+const RENAME_RECORDS = ["CHANGELOG.md", "test/vocabulary/retired-terms.test.ts"];
 
 /** The handle on the internal composition engine (`src/composition/`); renaming it would be churn only. */
 const COMPOSITION_ENGINE_MEMBERS = ["composition"];
@@ -157,6 +168,19 @@ function publicMemberNames(tag: string): string[] {
   return names;
 }
 
+/** Tracked files that contain any of `names` as a whole word. */
+function gitGrepFiles(names: readonly string[]): string[] {
+  const patterns = names.flatMap((name) => ["-e", name]);
+  try {
+    return execFileSync("git", ["grep", "-l", "-w", "-F", ...patterns, "--", "."], { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean);
+  } catch (error) {
+    if ((error as { status?: number }).status === 1) return [];
+    throw error;
+  }
+}
+
 function sourceFiles(): string[] {
   return execFileSync("git", ["ls-files", "src/*.ts", "src/**/*.ts"], { encoding: "utf8" })
     .split("\n")
@@ -187,39 +211,26 @@ function retiredTextFindings(): string[] {
 }
 
 describe("retired vocabulary guard", () => {
-  it("keeps retired words out of Console entry exports except listed deprecated aliases", () => {
-    const names = [
-      ...Object.keys(consoleEntry),
-      ...exportedTypeNames("src/console-entry.ts"),
-      ...exportedTypeNames("src/console-entry-deprecated.ts"),
-    ];
-    expect(retiredNames(names, DEPRECATED_EXPORTS)).toEqual([]);
+  it("keeps retired words out of Console entry exports", () => {
+    const names = [...Object.keys(consoleEntry), ...exportedTypeNames("src/console-entry.ts")];
+    expect(retiredNames(names, [])).toEqual([]);
   });
 
-  it("keeps retired words out of element tags, attributes and members except listed deprecated aliases", () => {
+  it("keeps retired words out of element tags, attributes and members", () => {
     registerAllStudioElements();
     const names = new Set<string>([...STUDIO_ELEMENT_TAGS, ...STUDIO_ELEMENT_TAGS.flatMap(publicMemberNames)]);
-    expect(retiredNames(names, [...DEPRECATED_MEMBERS, ...COMPOSITION_ENGINE_MEMBERS])).toEqual([]);
+    expect(retiredNames(names, COMPOSITION_ENGINE_MEMBERS)).toEqual([]);
+    expect(RENAMED_MEMBERS.filter((name) => names.has(name))).toEqual([]);
   });
 
-  it("lists exactly the deprecated aliases the elements and Console entry install", () => {
-    const installed = [
-      DEPRECATED_APP_ELEMENT_ALIASES,
-      DEPRECATED_CHAT_ELEMENT_ALIASES,
-      DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES,
-    ].flatMap((aliases) => Object.keys(aliases));
-    expect(new Set(DEPRECATED_MEMBERS)).toEqual(new Set(installed));
-    const exported = [...Object.keys(consoleEntryAliases), ...exportedTypeNames("src/console-entry-deprecated.ts")];
-    expect(new Set(exported)).toEqual(new Set(DEPRECATED_EXPORTS));
-  });
-
-  it("dispatches retired event names only as deprecated aliases of current names", () => {
+  it("keeps retired words out of dispatched event names", () => {
     expect(retiredNames(dispatchedEventNames(), [])).toEqual([]);
-    expect(retiredNames(Object.keys(DEPRECATED_EVENT_ALIASES), [])).toEqual([]);
-    expect(Object.values(DEPRECATED_EVENT_ALIASES)).toEqual([
-      "honua-workspace-draft-change",
-      "honua-studio-composition-mode-change",
-    ]);
+  });
+
+  it("keeps renamed public names out of every tracked file except the rename records", () => {
+    const files = gitGrepFiles(RENAMED_NAMES);
+    expect(files.filter((path) => !RENAME_RECORDS.includes(path))).toEqual([]);
+    expect(RENAMED_NAMES.filter((name) => !readFileSync("CHANGELOG.md", "utf8").includes(`\`${name}\``))).toEqual([]);
   });
 
   it("keeps retired words out of user-facing strings except listed exceptions", () => {

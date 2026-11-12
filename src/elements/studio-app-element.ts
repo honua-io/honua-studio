@@ -31,7 +31,6 @@ import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
 import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../workspace-agent.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { DEPRECATED_APP_ELEMENT_ALIASES, defineDeprecatedAliases } from "./deprecated-aliases.js";
 import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
 import type {
@@ -55,7 +54,6 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the merged interface below declares deprecated aliases that defineDeprecatedAliases installs.
 export class HonuaStudioAppElement extends HonuaStudioElementBase {
   static get observedAttributes(): string[] {
     return ["data-theme-set", "data-theme", "routing-mode", "current-path", "base-path", "theme-switcher"];
@@ -543,35 +541,3 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     });
   }
 }
-
-export interface HonuaStudioAppElement {
-  /** @deprecated Use createEditorStyleProvider. Removed in the next minor. */
-  createWorkspaceStyleProvider: HonuaStudioAppElement["createEditorStyleProvider"];
-  /** @deprecated Use setEditorConversation. Removed in the next minor. */
-  setWorkspaceConversation: HonuaStudioAppElement["setEditorConversation"];
-  /** @deprecated Use enableLiveEditing. Removed in the next minor. */
-  enableLiveComposition: HonuaStudioAppElement["enableLiveEditing"];
-  /** @deprecated Use disableLiveEditing. Removed in the next minor. */
-  disableLiveComposition: HonuaStudioAppElement["disableLiveEditing"];
-  /** @deprecated Use createEditorDraft. Removed in the next minor. */
-  createWorkspaceDraft: HonuaStudioAppElement["createEditorDraft"];
-  /** @deprecated Use attachEditorDraft. Removed in the next minor. */
-  attachWorkspaceDraft: HonuaStudioAppElement["attachEditorDraft"];
-  /** @deprecated Use refreshEditorDraft. Removed in the next minor. */
-  refreshWorkspaceDraft: HonuaStudioAppElement["refreshEditorDraft"];
-  /** @deprecated Use prepareEditorTurn. Removed in the next minor. */
-  prepareWorkspaceTurn: HonuaStudioAppElement["prepareEditorTurn"];
-  /** @deprecated Use saveEditorVersion. Removed in the next minor. */
-  saveWorkspaceVersion: HonuaStudioAppElement["saveEditorVersion"];
-  /** @deprecated Use listEditorVersions. Removed in the next minor. */
-  listWorkspaceVersions: HonuaStudioAppElement["listEditorVersions"];
-  /** @deprecated Use reviewEditorRelease. Removed in the next minor. */
-  reviewWorkspacePublication: HonuaStudioAppElement["reviewEditorRelease"];
-  /** @deprecated Use releaseEditorVersion. Removed in the next minor. */
-  publishWorkspaceVersion: HonuaStudioAppElement["releaseEditorVersion"];
-  /** @deprecated Use readEditorRelease. Removed in the next minor. */
-  readWorkspacePublication: HonuaStudioAppElement["readEditorRelease"];
-  /** @deprecated Use reopenEditorVersion. Removed in the next minor. */
-  reopenWorkspaceVersion: HonuaStudioAppElement["reopenEditorVersion"];
-}
-defineDeprecatedAliases(HonuaStudioAppElement, DEPRECATED_APP_ELEMENT_ALIASES);

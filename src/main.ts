@@ -98,5 +98,4 @@ if (chat) {
   }
 }
 
-/** `HonuaStudioWorkspace` is the deprecated global name, kept for one release. */
-Object.assign(globalThis, { HonuaStudioEditor: editorAgent, HonuaStudioWorkspace: editorAgent });
+Object.assign(globalThis, { HonuaStudioEditor: editorAgent });
