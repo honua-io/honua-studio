@@ -1,13 +1,20 @@
 import { canonicalCompositionJson } from "../composition/model.js";
+import { MapStyleAppearancePanel, ThematicLegendPreview, labelled } from "./map-style-appearance-panel.js";
 import {
+  type MapStyleAppearancePatch,
   type MapStyleDocument,
   type MapStyleField,
   type MapStyleLayerOwner,
+  THEMATIC_PALETTE,
   bindNewRenderLayerOwners,
+  featureLabelState,
   featureLabelStyle,
   isNumericMapStyleField,
+  thematicLegend,
   thematicMapStyle,
   validateMapStyleEdit,
+  withLayerAppearance,
+  withoutFeatureLabels,
 } from "./map-style-edit.js";
 
 export type MapStyleEditorScope =
@@ -51,6 +58,9 @@ function explicitThematicValues(input: string, numeric: boolean): readonly (stri
   });
 }
 
+const FRAME_RELOAD_DEBOUNCE_MS = 150;
+const PENDING_THEMATIC_VALUES = "Apply or discard the pending thematic values.";
+
 interface AppliedThematicBinding {
   readonly ownerId: string;
   readonly sourceId: string;
@@ -66,7 +76,7 @@ interface ThematicControls {
   readonly mode: HTMLSelectElement;
   readonly values: HTMLTextAreaElement;
   readonly apply: HTMLButtonElement;
-  readonly labels: HTMLButtonElement;
+  readonly labelField: HTMLSelectElement;
   fields: readonly MapStyleField[];
   chosenFieldName?: string;
 }
@@ -104,7 +114,11 @@ export class MapStyleEditor {
   #busy = false;
   #invalid: string | undefined;
   readonly #appliedThematics = new Map<string, AppliedThematicBinding>();
+  readonly #legend = new ThematicLegendPreview();
+  #thematic: ThematicControls | undefined;
+  #appearance: MapStyleAppearancePanel | undefined;
   #fieldLoadPending = false;
+  #loadTimer: ReturnType<typeof setTimeout> | undefined;
   #selectedOwner: string | undefined;
   #pendingSave: Promise<void> | undefined;
   #disposed = false;
@@ -156,18 +170,33 @@ export class MapStyleEditor {
     this.#frame.title = "Maputnik visual map style editor";
     this.#frame.setAttribute("sandbox", "allow-scripts");
     this.#frame.referrerPolicy = "no-referrer";
-    this.#frame.style.cssText = "width:100%;height:650px;border:0;display:block";
+    this.#frame.style.cssText = "width:100%;height:min(650px,70vh);min-height:20rem;border:0;display:block";
     const url = new URL(options.assetsUrl, document.baseURI);
     if (url.origin !== location.origin) throw new Error("Maputnik assets must be pinned on the host origin.");
     url.hash = new URLSearchParams({ channel: this.#channel, parentOrigin: location.origin }).toString();
     this.#frame.src = url.href;
-    this.#addThematicControls(controls, { save: this.#save, close, discard });
+    this.#addControls(controls, { save: this.#save, close, discard });
+    const advanced = document.createElement("section");
+    advanced.setAttribute("aria-label", "Advanced style editor");
+    const advancedHeading = document.createElement("h3");
+    advancedHeading.textContent = "Advanced style editor";
+    const advancedNote = document.createElement("p");
+    advancedNote.textContent =
+      "Every render layer, filter, expression and label setting. Edits here share the same unsaved preview and Save.";
+    advanced.append(advancedHeading, advancedNote, this.#frame);
     window.addEventListener("message", this.#listener);
-    options.container.append(notice, controls, this.#frame);
+    options.container.append(notice, controls, advanced);
   }
 
   get dirty(): boolean {
     return this.#dirty;
+  }
+  /** Moves keyboard focus to the editor's first control, so an opened editor is where the user is. */
+  focus(): void {
+    const controls = this.#options.container.querySelectorAll<HTMLElement>("select, input, textarea, button");
+    const visible = (control: HTMLElement) =>
+      typeof control.checkVisibility === "function" ? control.checkVisibility() : control.offsetParent !== null;
+    [...controls].find((control) => !control.matches(":disabled") && visible(control))?.focus();
   }
   observeSavedDocument(style: MapStyleDocument): void {
     if (this.#dirty || this.#busy) return;
@@ -185,6 +214,7 @@ export class MapStyleEditor {
   }
   dispose(): void {
     this.#disposed = true;
+    clearTimeout(this.#loadTimer);
     this.#fieldLoadEpoch++;
     if (this.#flush) {
       clearTimeout(this.#flush.timer);
@@ -230,6 +260,7 @@ export class MapStyleEditor {
     this.#save.disabled = !dirty || this.#busy || !this.#maySave() || this.#thematicBlocked();
   }
   #load(): void {
+    this.#syncAppearance();
     // The scripts-only frame has an opaque origin; exact source + per-frame
     // channel bind this data-only protocol. No credentials or fetch capability.
     this.#frame.contentWindow?.postMessage(
@@ -276,7 +307,8 @@ export class MapStyleEditor {
       return;
     }
     const errors = validateMapStyleEdit(this.#baseline, candidate);
-    this.#invalid = errors[0];
+    const pendingThematic = this.#invalid === PENDING_THEMATIC_VALUES;
+    this.#invalid = errors[0] ?? (pendingThematic ? PENDING_THEMATIC_VALUES : undefined);
     if (errors.length) {
       this.#save.disabled = true;
       this.#status.textContent = errors[0];
@@ -284,7 +316,11 @@ export class MapStyleEditor {
     }
     this.#candidate = structuredClone(candidate);
     this.#pruneAppliedThematics();
-    this.#setDirty(canonicalCompositionJson(this.#baseline) !== canonicalCompositionJson(this.#candidate));
+    this.#syncAppearance();
+    this.#setDirty(
+      pendingThematic || canonicalCompositionJson(this.#baseline) !== canonicalCompositionJson(this.#candidate),
+    );
+    if (this.#invalid) this.#save.disabled = true;
     this.#status.textContent = this.#dirty
       ? "Unsaved visual edits. Preview only."
       : "Map style matches the saved draft.";
@@ -310,6 +346,7 @@ export class MapStyleEditor {
         throw new Error("A thematic field is no longer available. Choose a current field and reapply or discard.");
       if (this.#invalid && this.#invalid !== "Finish editing the visual field before saving.")
         throw new Error(this.#invalid);
+      this.#loadNow();
       const style = this.#frameReady || this.#frameAuthored ? await this.#flushFrame() : this.#candidate;
       if (!this.#maySave())
         throw new Error("Shared style editing requires complete authorized impact and edit permission.");
@@ -384,12 +421,17 @@ export class MapStyleEditor {
     option.value = value;
     return option;
   }
-  #addThematicControls(
+  #selectedOwnerLayer(): MapStyleLayerOwner | undefined {
+    return this.#options.layers?.find((layer) => layer.id === this.#selectedOwner);
+  }
+  #addControls(
     container: HTMLElement,
     chrome: { save: HTMLButtonElement; close: HTMLButtonElement; discard: HTMLButtonElement },
   ): void {
-    if (!this.#options.layers?.length || !this.#options.getFields) {
-      container.append(chrome.save, chrome.close, chrome.discard, this.#status);
+    const actions = document.createElement("div");
+    actions.append(chrome.save, chrome.close, chrome.discard);
+    if (!this.#options.layers?.length) {
+      container.append(actions, this.#status);
       return;
     }
     const owner = document.createElement("select");
@@ -399,6 +441,53 @@ export class MapStyleEditor {
     );
     for (const layer of this.#options.layers) owner.add(this.#option(layer.title ?? layer.id, layer.id));
     owner.value = this.#selectedOwner ?? "";
+    if (this.#options.layers.length === 1) {
+      owner.hidden = true;
+      const only = document.createElement("p");
+      only.textContent = `Layer: ${this.#options.layers[0].title ?? this.#options.layers[0].id}`;
+      container.append(only);
+    }
+    this.#appearance = new MapStyleAppearancePanel((patch) => this.#previewAppearance(patch));
+    container.append(owner, this.#appearance.element);
+    if (this.#options.getFields) {
+      const thematic = this.#thematicControls(owner);
+      container.append(labelled("Labels", thematic.labelField), thematic.section);
+    } else
+      owner.addEventListener("change", () => {
+        this.#selectedOwner = owner.value;
+        this.#options.onSelectLayer?.(owner.value);
+        this.#syncAppearance();
+      });
+    container.append(actions, this.#status);
+    this.#syncAppearance();
+  }
+  #previewAppearance(patch: MapStyleAppearancePatch): void {
+    const owner = this.#selectedOwnerLayer();
+    if (!owner) return;
+    try {
+      this.#acceptPreview(
+        withLayerAppearance(this.#candidate, owner, patch),
+        "Unsaved appearance preview. Save map style to keep it.",
+        { keepsPendingThematic: true },
+      );
+    } catch (error) {
+      this.#error(error);
+    }
+  }
+  /** Shows the selected layer's current styling in the direct controls, labels and legend. */
+  #syncAppearance(): void {
+    const owner = this.#selectedOwnerLayer();
+    if (this.#thematic && owner && !this.#fieldLoadPending) this.#syncLabels(this.#thematic, owner);
+    this.#appearance?.sync(this.#candidate, owner);
+    this.#legend.render(owner?.id, owner && thematicExpression(this.#candidate, owner.id, owner.sourceId));
+  }
+  #thematicControls(owner: HTMLSelectElement): { section: HTMLDetailsElement; labelField: HTMLSelectElement } {
+    const section = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Color by field";
+    const fieldset = document.createElement("fieldset");
+    const legend = document.createElement("legend");
+    legend.textContent = "Classes";
     const field = document.createElement("select");
     field.setAttribute("aria-label", "Actual source field");
     const mode = document.createElement("select");
@@ -415,11 +504,10 @@ export class MapStyleEditor {
     apply.type = "button";
     apply.textContent = "Preview thematic colors";
     apply.disabled = true;
-    const labels = document.createElement("button");
-    labels.type = "button";
-    labels.textContent = "Preview feature labels";
-    labels.disabled = true;
-    const controls: ThematicControls = { owner, field, mode, values, apply, labels, fields: [] };
+    const labelField = document.createElement("select");
+    labelField.disabled = true;
+    const controls: ThematicControls = { owner, field, mode, values, apply, labelField, fields: [] };
+    this.#thematic = controls;
     const load = () => this.#reloadThematicFields(controls);
     this.#refreshFields = load;
     owner.addEventListener("change", () => {
@@ -432,7 +520,7 @@ export class MapStyleEditor {
     });
     values.addEventListener("input", () => {
       this.#setDirty(true);
-      this.#invalid = "Apply or discard the pending thematic values.";
+      this.#invalid = PENDING_THEMATIC_VALUES;
       this.#save.disabled = true;
     });
     apply.addEventListener("click", () => {
@@ -442,42 +530,34 @@ export class MapStyleEditor {
         this.#error(error);
       }
     });
-    labels.addEventListener("click", () => {
+    labelField.addEventListener("change", () => {
       try {
         this.#previewFeatureLabels(controls);
       } catch (error) {
         this.#error(error);
       }
     });
-    container.append(
-      field,
-      labels,
-      chrome.save,
-      chrome.close,
-      owner,
-      mode,
-      values,
-      apply,
-      chrome.discard,
-      this.#status,
-    );
+    fieldset.append(legend, field, mode, values, apply, this.#legend.element);
+    section.append(summary, fieldset);
     void load();
+    return { section, labelField };
   }
   #enableFieldActions(controls: ThematicControls): void {
     const ready = controls.fields.some((actual) => actual.name === controls.field.value);
     controls.apply.disabled = !ready;
-    controls.labels.disabled = !ready;
   }
   async #reloadThematicFields(controls: ThematicControls): Promise<void> {
     if (this.#disposed) return;
     const current = ++this.#fieldLoadEpoch;
     this.#selectedOwner = controls.owner.value;
     this.#options.onSelectLayer?.(controls.owner.value);
+    this.#syncAppearance();
     const selected = this.#options.layers?.find((layer) => layer.id === controls.owner.value);
     controls.field.replaceChildren();
     controls.fields = [];
     controls.apply.disabled = true;
-    controls.labels.disabled = true;
+    controls.labelField.disabled = true;
+    controls.labelField.replaceChildren(this.#option("No labels", ""));
     if (!selected || !this.#options.getFields) return;
     this.#fieldLoadPending = true;
     this.#setDirty(this.#dirty);
@@ -486,7 +566,11 @@ export class MapStyleEditor {
       const observed = await this.#options.getFields(selected.sourceId);
       if (this.#disposed || generation !== this.#fieldLoadEpoch || controls.owner.value !== selected.id) return;
       controls.fields = observed;
-      for (const actual of observed) controls.field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
+      for (const actual of observed) {
+        controls.field.add(this.#option(`${actual.name} (${actual.type})`, actual.name));
+        controls.labelField.add(this.#option(actual.name, actual.name));
+      }
+      this.#syncLabels(controls, selected);
       const binding = this.#appliedThematics.get(selected.id);
       if (binding && binding.sourceId === selected.sourceId) {
         binding.valid = observed.some(
@@ -528,30 +612,39 @@ export class MapStyleEditor {
     if (!selected || !actual) throw new Error("Choose an actual described field.");
     return { owner: selected, field: actual };
   }
-  #acceptPreview(next: MapStyleDocument, status: string): void {
+  #acceptPreview(next: MapStyleDocument, status: string, { keepsPendingThematic = false } = {}): void {
     const errors = validateMapStyleEdit(this.#baseline, next);
     if (errors.length) throw new Error(errors[0]);
     this.#candidate = next;
-    this.#invalid = undefined;
+    if (!(keepsPendingThematic && this.#invalid === PENDING_THEMATIC_VALUES)) this.#invalid = undefined;
     this.#setDirty(true);
+    if (this.#invalid) this.#save.disabled = true;
     this.#options.onPreview(next);
-    this.#load();
-    this.#status.textContent = status;
+    this.#loadSoon();
+    this.#status.textContent = this.#invalid ? `${status} ${this.#invalid}` : status;
+  }
+  /** Direct controls fire on every slider step; the advanced frame reloads once the gesture pauses. */
+  #loadSoon(): void {
+    clearTimeout(this.#loadTimer);
+    this.#syncAppearance();
+    this.#loadTimer = setTimeout(() => this.#loadNow(), FRAME_RELOAD_DEBOUNCE_MS);
+  }
+  #loadNow(): void {
+    if (this.#loadTimer === undefined) return;
+    clearTimeout(this.#loadTimer);
+    this.#loadTimer = undefined;
+    if (!this.#disposed) this.#load();
   }
   #previewThematic(controls: ThematicControls): void {
     const selected = this.#selectedField(controls);
     const numeric = controls.mode.value === "breaks" || isNumericMapStyleField(selected.field);
-    const next = thematicMapStyle(
-      this.#candidate,
-      selected.owner,
-      selected.field,
-      controls.mode.value as "categories" | "breaks",
-      explicitThematicValues(controls.values.value, numeric),
-      ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6", "#3182bd", "#08519c"],
-    );
-    this.#acceptPreview(next, "Unsaved thematic preview over the selected actual field.");
+    const mode = controls.mode.value as "categories" | "breaks";
+    const classes = explicitThematicValues(controls.values.value, numeric);
+    const next = thematicMapStyle(this.#candidate, selected.owner, selected.field, mode, classes, THEMATIC_PALETTE);
     const expression = thematicExpression(next, selected.owner.id, selected.owner.sourceId);
     if (!expression) throw new Error("The selected layer has no thematic expression.");
+    this.#legend.remember(selected.owner.id, expression, thematicLegend(mode, classes));
+    this.#acceptPreview(next, "Unsaved thematic preview over the selected actual field.");
     this.#appliedThematics.set(selected.owner.id, {
       ownerId: selected.owner.id,
       sourceId: selected.owner.sourceId,
@@ -562,11 +655,37 @@ export class MapStyleEditor {
     });
     this.#setDirty(true);
   }
+  /** A custom label expression stays intact: the picker shows it and only the advanced editor changes it. */
+  #syncLabels(controls: ThematicControls, owner: MapStyleLayerOwner): void {
+    const state = featureLabelState(this.#candidate, owner);
+    controls.labelField.querySelector("option[data-custom]")?.remove();
+    if (state.kind === "custom") {
+      const custom = this.#option("Custom labels (advanced editor)", "");
+      custom.dataset.custom = "";
+      controls.labelField.prepend(custom);
+      controls.labelField.selectedIndex = 0;
+      controls.labelField.disabled = true;
+      return;
+    }
+    controls.labelField.disabled = controls.fields.length === 0;
+    controls.labelField.value = state.kind === "field" ? state.field : "";
+  }
   #previewFeatureLabels(controls: ThematicControls): void {
-    const selected = this.#selectedField(controls);
+    if (this.#busy || this.#fieldLoadPending) throw new Error("Wait for the current field refresh.");
+    const owner = this.#options.layers?.find((layer) => layer.id === controls.owner.value);
+    if (!owner) throw new Error("Choose a map layer.");
+    if (controls.labelField.value === "") {
+      this.#acceptPreview(withoutFeatureLabels(this.#candidate, owner), "Unsaved preview without feature labels.", {
+        keepsPendingThematic: true,
+      });
+      return;
+    }
+    const field = controls.fields.find((item) => item.name === controls.labelField.value);
+    if (!field) throw new Error("Choose an actual described field.");
     this.#acceptPreview(
-      featureLabelStyle(this.#candidate, selected.owner, selected.field),
+      featureLabelStyle(this.#candidate, owner, field),
       "Unsaved feature labels over the selected actual field.",
+      { keepsPendingThematic: true },
     );
   }
   #error(error: unknown): void {

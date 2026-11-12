@@ -70,6 +70,7 @@ import { compositionLayerColor } from "../composition/palette.js";
  * fake loader, exactly like `mapFactory` does for the map.
  */
 import { compositionDataSource } from "../composition/source-reference.js";
+import { describeFilterClause } from "../interactions/filter-label.js";
 import type { CompositionSourceDescriptor } from "../map/source-resolution.js";
 import { runtimeServerBaseUrl } from "../runtime-config.js";
 import type { chartSeriesFromSpec } from "../widgets/chart-data.js";
@@ -315,6 +316,9 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   public set commandDispatch(dispatch: HonuaStudioCommandDispatch | undefined) {
     this.#commandDispatch = dispatch;
   }
+
+  /** Clears the temporary exploration filters narrowing one source; the canvas routes it to the interaction runtime. */
+  public onClearSourceFilters: ((sourceId: string) => void) | undefined;
 
   public set sourceFilters(filters: Readonly<Record<string, readonly FilterClause[]>>) {
     if (JSON.stringify(this.#sourceFilters) === JSON.stringify(filters)) return;
@@ -654,10 +658,9 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     const rows = data.result.rows;
     if (rows.length === 0)
       return {
-        html: "",
-        status: this.#sourceFilters[sourceId]?.length
-          ? "No loaded rows match the active source filters."
-          : `${sourceId} returned no features.`,
+        ...(this.#sourceFilters[sourceId]?.length
+          ? this.#filteredOutEmpty(sourceId)
+          : { html: "", status: `${sourceId} returned no features.` }),
         ...(bounded ? { notice: bounded } : {}),
       };
     const columns = config.fields.length > 0 ? config.fields : inferColumns(rows);
@@ -715,6 +718,17 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     };
   }
 
+  /** An empty filtered result names the filters responsible and offers the one action that brings rows back. */
+  #filteredOutEmpty(sourceId: string): { html: string; status: string } {
+    const active = (this.#sourceFilters[sourceId] ?? []).map(describeFilterClause).join("; ");
+    return {
+      html: this.onClearSourceFilters
+        ? `<button type="button" class="hn-btn hn-btn--sm" data-action="clear-source-filters" data-source-id="${escapeHtml(sourceId)}" data-testid="studio-widget-clear-filters">Clear these filters</button>`
+        : "",
+      status: `No loaded rows match the temporary filters: ${active}.`,
+    };
+  }
+
   /** REQ-004: spec from the SDK's converter, series from that spec, SVG from that series. */
   #renderChart(widget: CompositionWidget): { html: string; status?: string; notice?: string } {
     const sourceId = widget.sourceId ? this.#dataSourceId(widget.sourceId) : undefined;
@@ -724,6 +738,9 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (data.status === "loading") return { html: "", status: `Loading ${sourceId}…` };
     if (!data.result.ok) return { html: "", status: data.result.reason };
     if (!pipeline) return { html: "", status: "Preparing the chart…" };
+    const notice = boundedDataStatus(data);
+    if (data.result.rows.length === 0 && this.#sourceFilters[sourceId]?.length)
+      return { ...this.#filteredOutEmpty(sourceId), ...(notice ? { notice } : {}) };
 
     const spec = pipeline.compositionChartSpec(
       widget,
@@ -732,7 +749,6 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
     if (!spec.ok) return { html: "", status: spec.reason };
     const series = pipeline.chartSeriesFromSpec(spec.spec);
     const chart = pipeline.renderChartSvg(spec.spec, series);
-    const notice = boundedDataStatus(data);
     return {
       html: `
         <figure class="widget-chart" data-testid="studio-widget-chart" data-mark="${escapeHtml(markOf(spec.spec))}">
@@ -834,9 +850,12 @@ export class HonuaStudioWidgetDeckElement extends HonuaStudioElementBase {
   }
 
   #onClick(event: Event): void {
-    const target = actionElement(event, ["select-layer", "select-feature", "compare", "page"]);
+    const target = actionElement(event, ["select-layer", "select-feature", "compare", "page", "clear-source-filters"]);
     if (!target) return;
     switch (target.dataset.action) {
+      case "clear-source-filters":
+        if (target.dataset.sourceId) this.onClearSourceFilters?.(target.dataset.sourceId);
+        return;
       case "select-layer":
         if (target.dataset.layerId) this.#select([{ kind: "layer", id: target.dataset.layerId }]);
         return;
