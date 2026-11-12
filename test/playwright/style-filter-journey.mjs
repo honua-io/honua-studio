@@ -81,22 +81,32 @@ function storedPaint(draft, layerId) {
   return layers.find((layer) => layer.id === layerId)?.paint;
 }
 
-/** The first authorized parcels dataset the recipe offers; fixture and live catalogs name it differently. */
-async function parcelsSourceOption(page) {
-  const source = page.getByTestId("recipe-source");
-  await expect(page.getByTestId("recipe-status")).not.toHaveText("Loading sources…");
-  const offered = await source
-    .locator("option")
-    .evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent ?? "" })));
-  const parcels =
-    offered.find((option) => option.value.startsWith("hi-parcels")) ??
-    offered.find((option) => option.value && /parcel/i.test(option.label));
-  if (!parcels) {
-    const status = await page.getByTestId("recipe-status").textContent();
-    throw new Error(`No parcels dataset in the recipe catalog. Status: ${status}. Offered: ${JSON.stringify(offered)}`);
-  }
-  return parcels.value;
+/** Picks the first offered recipe dataset that `matches` an option; fixture and live catalogs name datasets differently. */
+function recipeSourceOption(description, matches) {
+  return async (page) => {
+    await expect(page.getByTestId("recipe-status")).not.toHaveText("Loading sources…");
+    const offered = await page
+      .getByTestId("recipe-source")
+      .locator("option")
+      .evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent ?? "" })));
+    const chosen = offered.find((option) => option.value && matches(option));
+    if (!chosen) {
+      const status = await page.getByTestId("recipe-status").textContent();
+      throw new Error(
+        `No ${description} in the recipe catalog. Status: ${status}. Offered: ${JSON.stringify(offered)}`,
+      );
+    }
+    return chosen.value;
+  };
 }
+
+const parcelsSourceOption = recipeSourceOption(
+  "parcels dataset",
+  (option) => option.value.startsWith("hi-parcels") || /parcel/i.test(option.label),
+);
+
+/** The demo's zoning layer: two feature pages, where its parcels need 26 and exhaust the demo key's rate limit. */
+export const zoningSourceOption = recipeSourceOption("zoning dataset", (option) => /zoning/i.test(option.label));
 
 async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
   const browserErrors = [];
@@ -121,7 +131,7 @@ async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
     .getByTestId("recipe-category")
     .locator("option")
     .evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
-  const field = fields.includes("zoning_code") ? "zoning_code" : fields[0];
+  const field = ["zoning_code", "zone_code"].find((name) => fields.includes(name)) ?? fields[0];
   if (!field) throw new Error("The recipe offered no category field.");
   await page.getByTestId("recipe-category").selectOption(field);
   await page.getByRole("checkbox", { name: field, exact: true }).check();

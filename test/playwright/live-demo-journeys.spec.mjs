@@ -8,7 +8,7 @@ import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
-import { runStyleFilterJourney } from "./style-filter-journey.mjs";
+import { runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const LIVE_API_KEY = process.env.HONUA_LIVE_API_KEY;
@@ -354,7 +354,12 @@ test.describe("live demo-server journeys @live", () => {
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("app-shell")).toBeVisible();
-      await runStyleFilterJourney(page, info, { key, readDraft, firstPaintTimeout: 60_000 });
+      await runStyleFilterJourney(page, info, {
+        key,
+        readDraft,
+        sourceOption: zoningSourceOption,
+        firstPaintTimeout: 30_000,
+      });
     } finally {
       await preview.close();
       const listed = await restCall("GET", `/v1/studio/package-drafts?q=${encodeURIComponent(key)}`).catch(() => ({
