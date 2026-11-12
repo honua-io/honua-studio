@@ -75,4 +75,5 @@ jobs:
           path: |
             .tmp/playwright-output/**/error-context.md
             .tmp/playwright-output/**/*.png
+            .tmp/live-diagnostics/console-approval-error-context.md
           if-no-files-found: ignore
