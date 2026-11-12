@@ -225,6 +225,8 @@ export interface MapStyleAppearance {
   readonly strokeOrSize?: MapStyleAppearanceProperty & { readonly kind: "size" | "stroke" };
 }
 
+export const MAX_STROKE_OR_SIZE_PX = 50;
+
 export interface MapStyleAppearancePatch {
   readonly color?: string;
   readonly opacity?: number;
@@ -296,8 +298,8 @@ export function withLayerAppearance(
   }
   if (patch.strokeOrSize !== undefined) {
     if (!appearance.strokeOrSize) throw new Error("This polygon has no outline to resize.");
-    if (!Number.isFinite(patch.strokeOrSize) || patch.strokeOrSize < 0 || patch.strokeOrSize > 50)
-      throw new Error("Size and stroke width must be between 0 and 50 pixels.");
+    if (!Number.isFinite(patch.strokeOrSize) || patch.strokeOrSize < 0 || patch.strokeOrSize > MAX_STROKE_OR_SIZE_PX)
+      throw new Error(`Size and stroke width must be between 0 and ${MAX_STROKE_OR_SIZE_PX} pixels.`);
     writes.push([appearance.strokeOrSize, patch.strokeOrSize]);
   }
   const result = structuredClone(style) as Record<string, unknown>;

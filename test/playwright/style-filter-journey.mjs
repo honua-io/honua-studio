@@ -63,107 +63,113 @@ async function parcelsSourceOption(page) {
   return parcels.value;
 }
 
+async function createRecipeMap(page, key, sourceOption) {
+  await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
+  await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
+  await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
+  await expect(page.getByTestId("recipe-status")).toContainText("Verified");
+  const fields = await page
+    .getByTestId("recipe-category")
+    .locator("option")
+    .evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
+  const field = fields.includes("zoning_code") ? "zoning_code" : fields[0];
+  if (!field) throw new Error("The recipe offered no category field.");
+  await page.getByTestId("recipe-category").selectOption(field);
+  await page.getByRole("checkbox", { name: field, exact: true }).check();
+  await page.getByRole("button", { name: "Create editable draft", exact: true }).click();
+  await expect(page.getByTestId("recipe-status")).toContainText("Created draft");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
+  const pageRows = await page.getByTestId("studio-widget-grid-row").count();
+  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0).toBeGreaterThan(0);
+  const unfiltered = await renderedLayer(page, "explore-layer", field);
+  expect(unfiltered.categories.length).toBeGreaterThan(1);
+  return { field, unfiltered, pageRows };
+}
+
+/** Direct styling previews on the painted map without a write; Save writes exactly that paint. */
+async function verifyDirectStyling(page, info, { key, readDraft, field }) {
+  await page.getByRole("link", { name: "Content", exact: true }).click();
+  await page
+    .getByTestId("draft-row")
+    .filter({ hasText: key })
+    .getByRole("button", { name: "Open", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Edit map style", exact: true }).click();
+  const editor = page.getByRole("region", { name: "Map style editor", exact: true });
+  await expect(editor.getByRole("group", { name: "Appearance" })).toBeVisible();
+  const before = storedPaint(await readDraft(key), "explore-layer");
+  await editor.getByLabel("Color", { exact: true }).fill("#d94801");
+  await editor.getByLabel("Opacity").fill("60");
+  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.colors).toEqual(["#d94801"]);
+  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.opacity).toEqual([0.6]);
+  expect(storedPaint(await readDraft(key), "explore-layer")).toEqual(before);
+
+  const width = editor.getByLabel("Outline width (px)");
+  await width.fill("500");
+  await expect(editor.getByRole("status")).toContainText("between 0 and 50 pixels");
+  await width.fill("2");
+  await expectNoSeriousAxeViolations(page, info, "direct-style");
+  await editor.getByRole("button", { name: "Save map style", exact: true }).press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Map style saved to the authorized draft.");
+  const saved = storedPaint(await readDraft(key), "explore-layer");
+  expect(saved).toMatchObject({ "fill-color": "#d94801", "fill-opacity": 0.6 });
+
+  await editor.getByLabel("Color", { exact: true }).fill("#000000");
+  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.colors).toEqual(["#000000"]);
+  await editor.getByRole("button", { name: "Discard visual edits", exact: true }).click();
+  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.colors).toEqual(["#d94801"]);
+  expect(storedPaint(await readDraft(key), "explore-layer")).toEqual(saved);
+  await editor.getByRole("button", { name: "Close style editor", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+}
+
+/** A temporary filter shows where it was applied, narrows map and grid, and clears without a write. */
+async function verifyTemporaryFilters(page, info, { key, readDraft, field, unfiltered, pageRows }) {
+  const draftBeforeFilter = await readDraft(key);
+  const choice = await page
+    .getByTestId("studio-control-filter-select")
+    .locator("option")
+    .evaluateAll((options) => options.map((option) => option.value).find(Boolean));
+  await page.getByTestId("studio-control-filter-select").selectOption(choice);
+  const summary = page.getByTestId("studio-exploration-filters");
+  await expect(summary.getByTestId("studio-exploration-filter")).toContainText(
+    `Filter by ${field}: ${field} is ${choice}`,
+  );
+  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.categories).toEqual([choice]);
+  const filteredRows = await page.getByTestId("studio-widget-grid-row").count();
+  expect(filteredRows).toBeGreaterThan(0);
+  expect(filteredRows).toBeLessThanOrEqual(pageRows);
+  await expectNoSeriousAxeViolations(page, info, "temporary-filter");
+
+  await summary.getByRole("button", { name: `Clear Filter by ${field} filter` }).focus();
+  await page.keyboard.press("Enter");
+  await expect(summary).toHaveCount(0);
+  await expect(page.getByTestId("studio-control-filter-select")).toHaveValue("");
+  await expect(page.getByTestId("studio-control-filter-select")).toBeFocused();
+  await expect
+    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.categories)
+    .toEqual(unfiltered.categories);
+  await expect(page.getByTestId("studio-widget-grid-row")).toHaveCount(pageRows);
+
+  await page.getByTestId("studio-control-filter-select").selectOption(choice);
+  await expect(summary).toBeVisible();
+  await summary.getByRole("button", { name: "Reset all filters", exact: true }).click();
+  await expect(summary).toHaveCount(0);
+  await expect(page.getByTestId("studio-widget-grid-row")).toHaveCount(pageRows);
+  const draftAfterReset = await readDraft(key);
+  expect(draftAfterReset.envelope).toEqual(draftBeforeFilter.envelope);
+  expect(draftAfterReset.generation ?? draftAfterReset.revision).toEqual(
+    draftBeforeFilter.generation ?? draftBeforeFilter.revision,
+  );
+}
+
 /**
- * Recipe map, then #129 direct styling and #130 temporary filters, asserted on MapLibre's painted
- * features, the grid and the stored draft. `readDraft(key)` returns the server's draft for the key.
+ * Recipe map, then direct styling and temporary filters, asserted on MapLibre's painted features,
+ * the grid and the stored draft. `readDraft(key)` returns the server's draft for the key.
  */
 export async function runStyleFilterJourney(page, info, { key, readDraft, sourceOption = parcelsSourceOption }) {
-  const { field, unfiltered, pageRows } = await test.step("recipe map", async () => {
-    await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
-    await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
-    await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
-    await expect(page.getByTestId("recipe-status")).toContainText("Verified");
-    const fields = await page
-      .getByTestId("recipe-category")
-      .locator("option")
-      .evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
-    const field = fields.includes("zoning_code") ? "zoning_code" : fields[0];
-    if (!field) throw new Error("The recipe offered no category field.");
-    await page.getByTestId("recipe-category").selectOption(field);
-    await page.getByRole("checkbox", { name: field, exact: true }).check();
-    await page.getByRole("button", { name: "Create editable draft", exact: true }).click();
-    await expect(page.getByTestId("recipe-status")).toContainText("Created draft");
-    await page.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
-    const pageRows = await page.getByTestId("studio-widget-grid-row").count();
-    await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0).toBeGreaterThan(0);
-    const unfiltered = await renderedLayer(page, "explore-layer", field);
-    expect(unfiltered.categories.length).toBeGreaterThan(1);
-    return { field, unfiltered, pageRows };
-  });
-  await test.step("direct styling", async () => {
-    // #129: direct styling previews on the painted map without a write; Save writes exactly that paint.
-    await page.getByRole("link", { name: "Content", exact: true }).click();
-    await page
-      .getByTestId("draft-row")
-      .filter({ hasText: key })
-      .getByRole("button", { name: "Open", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Edit map style", exact: true }).click();
-    const editor = page.getByRole("region", { name: "Map style editor", exact: true });
-    await expect(editor.getByRole("group", { name: "Appearance" })).toBeVisible();
-    const before = storedPaint(await readDraft(key), "explore-layer");
-    await editor.getByLabel("Color", { exact: true }).fill("#d94801");
-    await editor.getByLabel("Opacity").fill("60");
-    await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.colors).toEqual(["#d94801"]);
-    await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.opacity).toEqual([0.6]);
-    expect(storedPaint(await readDraft(key), "explore-layer")).toEqual(before);
-
-    const width = editor.getByLabel("Outline width (px)");
-    await width.fill("500");
-    await expect(editor.getByRole("status")).toContainText("between 0 and 50 pixels");
-    await width.fill("2");
-    await expectNoSeriousAxeViolations(page, info, "direct-style");
-    await editor.getByRole("button", { name: "Save map style", exact: true }).press("Enter");
-    await expect(editor.getByRole("status")).toHaveText("Map style saved to the authorized draft.");
-    const saved = storedPaint(await readDraft(key), "explore-layer");
-    expect(saved).toMatchObject({ "fill-color": "#d94801", "fill-opacity": 0.6 });
-
-    await editor.getByLabel("Color", { exact: true }).fill("#000000");
-    await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.colors).toEqual(["#000000"]);
-    await editor.getByRole("button", { name: "Discard visual edits", exact: true }).click();
-    await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.colors).toEqual(["#d94801"]);
-    expect(storedPaint(await readDraft(key), "explore-layer")).toEqual(saved);
-    await editor.getByRole("button", { name: "Close style editor", exact: true }).click();
-    await expect(editor).toHaveCount(0);
-  });
-  await test.step("temporary filters", async () => {
-    // #130: a temporary filter is visible where it was applied, narrows map and grid, and clears without a write.
-    const draftBeforeFilter = await readDraft(key);
-    const choice = await page
-      .getByTestId("studio-control-filter-select")
-      .locator("option")
-      .evaluateAll((options) => options.map((option) => option.value).find(Boolean));
-    await page.getByTestId("studio-control-filter-select").selectOption(choice);
-    const summary = page.getByTestId("studio-exploration-filters");
-    await expect(summary.getByTestId("studio-exploration-filter")).toContainText(
-      `Filter by ${field}: ${field} is ${choice}`,
-    );
-    await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.categories).toEqual([choice]);
-    const filteredRows = await page.getByTestId("studio-widget-grid-row").count();
-    expect(filteredRows).toBeGreaterThan(0);
-    expect(filteredRows).toBeLessThanOrEqual(pageRows);
-    await expectNoSeriousAxeViolations(page, info, "temporary-filter");
-
-    await summary.getByRole("button", { name: `Clear Filter by ${field} filter` }).focus();
-    await page.keyboard.press("Enter");
-    await expect(summary).toHaveCount(0);
-    await expect(page.getByTestId("studio-control-filter-select")).toHaveValue("");
-    await expect(page.getByTestId("studio-control-filter-select")).toBeFocused();
-    await expect
-      .poll(async () => (await renderedLayer(page, "explore-layer", field))?.categories)
-      .toEqual(unfiltered.categories);
-    await expect(page.getByTestId("studio-widget-grid-row")).toHaveCount(pageRows);
-
-    await page.getByTestId("studio-control-filter-select").selectOption(choice);
-    await expect(summary).toBeVisible();
-    await summary.getByRole("button", { name: "Reset all filters", exact: true }).click();
-    await expect(summary).toHaveCount(0);
-    await expect(page.getByTestId("studio-widget-grid-row")).toHaveCount(pageRows);
-    const draftAfterReset = await readDraft(key);
-    expect(draftAfterReset.envelope).toEqual(draftBeforeFilter.envelope);
-    expect(draftAfterReset.generation ?? draftAfterReset.revision).toEqual(
-      draftBeforeFilter.generation ?? draftBeforeFilter.revision,
-    );
-  });
+  const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption));
+  await test.step("direct styling", () => verifyDirectStyling(page, info, { key, readDraft, field: recipe.field }));
+  await test.step("temporary filters", () => verifyTemporaryFilters(page, info, { key, readDraft, ...recipe }));
 }

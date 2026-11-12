@@ -1,17 +1,15 @@
 import { canonicalCompositionJson } from "../composition/model.js";
+import { MapStyleAppearancePanel, ThematicLegendPreview, labelled } from "./map-style-appearance-panel.js";
 import {
   type MapStyleAppearancePatch,
-  type MapStyleAppearanceProperty,
   type MapStyleDocument,
   type MapStyleField,
   type MapStyleLayerOwner,
-  type MapStyleLegendEntry,
   THEMATIC_PALETTE,
   bindNewRenderLayerOwners,
   featureLabelState,
   featureLabelStyle,
   isNumericMapStyleField,
-  layerAppearance,
   thematicLegend,
   thematicMapStyle,
   validateMapStyleEdit,
@@ -60,6 +58,7 @@ function explicitThematicValues(input: string, numeric: boolean): readonly (stri
   });
 }
 
+const FRAME_RELOAD_DEBOUNCE_MS = 150;
 const PENDING_THEMATIC_VALUES = "Apply or discard the pending thematic values.";
 
 interface AppliedThematicBinding {
@@ -69,22 +68,6 @@ interface AppliedThematicBinding {
   readonly fieldType: string;
   readonly expression: string;
   valid: boolean;
-}
-
-interface AppearanceControls {
-  readonly fieldset: HTMLFieldSetElement;
-  readonly color: HTMLInputElement;
-  readonly opacity: HTMLInputElement;
-  readonly opacityValue: HTMLOutputElement;
-  readonly size: HTMLInputElement;
-  readonly sizeLabel: HTMLLabelElement;
-  readonly sizeText: HTMLSpanElement;
-  readonly hint: HTMLParagraphElement;
-}
-
-interface ThematicLegend {
-  readonly expression: string;
-  readonly entries: readonly MapStyleLegendEntry[];
 }
 
 interface ThematicControls {
@@ -131,10 +114,9 @@ export class MapStyleEditor {
   #busy = false;
   #invalid: string | undefined;
   readonly #appliedThematics = new Map<string, AppliedThematicBinding>();
-  readonly #legends = new Map<string, ThematicLegend>();
+  readonly #legend = new ThematicLegendPreview();
   #thematic: ThematicControls | undefined;
-  #appearance: AppearanceControls | undefined;
-  #legend: HTMLUListElement | undefined;
+  #appearance: MapStyleAppearancePanel | undefined;
   #fieldLoadPending = false;
   #loadTimer: ReturnType<typeof setTimeout> | undefined;
   #selectedOwner: string | undefined;
@@ -465,11 +447,11 @@ export class MapStyleEditor {
       only.textContent = `Layer: ${this.#options.layers[0].title ?? this.#options.layers[0].id}`;
       container.append(only);
     }
-    const appearance = this.#appearanceControls();
-    container.append(owner, appearance);
+    this.#appearance = new MapStyleAppearancePanel((patch) => this.#previewAppearance(patch));
+    container.append(owner, this.#appearance.element);
     if (this.#options.getFields) {
       const thematic = this.#thematicControls(owner);
-      container.append(this.#labelled("Labels", thematic.labelField), thematic.section);
+      container.append(labelled("Labels", thematic.labelField), thematic.section);
     } else
       owner.addEventListener("change", () => {
         this.#selectedOwner = owner.value;
@@ -479,120 +461,25 @@ export class MapStyleEditor {
     container.append(actions, this.#status);
     this.#syncAppearance();
   }
-  #labelled(text: string | HTMLElement, control: HTMLElement): HTMLLabelElement {
-    const label = document.createElement("label");
-    label.append(text, " ", control);
-    return label;
+  #previewAppearance(patch: MapStyleAppearancePatch): void {
+    const owner = this.#selectedOwnerLayer();
+    if (!owner) return;
+    try {
+      this.#acceptPreview(
+        withLayerAppearance(this.#candidate, owner, patch),
+        "Unsaved appearance preview. Save map style to keep it.",
+        { keepsPendingThematic: true },
+      );
+    } catch (error) {
+      this.#error(error);
+    }
   }
-  #appearanceControls(): HTMLFieldSetElement {
-    const fieldset = document.createElement("fieldset");
-    const legend = document.createElement("legend");
-    legend.textContent = "Appearance";
-    const color = document.createElement("input");
-    color.type = "color";
-    const opacity = document.createElement("input");
-    opacity.type = "range";
-    opacity.min = "0";
-    opacity.max = "100";
-    opacity.step = "5";
-    const opacityValue = document.createElement("output");
-    opacityValue.setAttribute("aria-hidden", "true");
-    const size = document.createElement("input");
-    size.type = "number";
-    size.min = "0";
-    size.max = "50";
-    size.step = "0.5";
-    const sizeText = document.createElement("span");
-    const sizeLabel = this.#labelled(sizeText, size);
-    const hint = document.createElement("p");
-    const preview = (patch: MapStyleAppearancePatch) => {
-      const owner = this.#selectedOwnerLayer();
-      if (!owner) return;
-      try {
-        this.#acceptPreview(
-          withLayerAppearance(this.#candidate, owner, patch),
-          "Unsaved appearance preview. Save map style to keep it.",
-          { keepsPendingThematic: true },
-        );
-      } catch (error) {
-        this.#error(error);
-      }
-    };
-    color.addEventListener("input", () => preview({ color: color.value }));
-    opacity.addEventListener("input", () => {
-      opacityValue.value = `${opacity.value}%`;
-      opacity.setAttribute("aria-valuetext", opacityValue.value);
-      preview({ opacity: Number(opacity.value) / 100 });
-    });
-    size.addEventListener("input", () => {
-      if (size.value.trim() !== "") preview({ strokeOrSize: Number(size.value) });
-    });
-    const opacityLabel = this.#labelled("Opacity", opacity);
-    opacityLabel.append(" ", opacityValue);
-    fieldset.append(legend, this.#labelled("Color", color), opacityLabel, sizeLabel, hint);
-    this.#appearance = { fieldset, color, opacity, opacityValue, size, sizeLabel, sizeText, hint };
-    return fieldset;
-  }
-  /** Shows the selected layer's current common paint; expressions stay read-only here. */
+  /** Shows the selected layer's current styling in the direct controls, labels and legend. */
   #syncAppearance(): void {
     const owner = this.#selectedOwnerLayer();
     if (this.#thematic && owner && !this.#fieldLoadPending) this.#syncLabels(this.#thematic, owner);
-    const controls = this.#appearance;
-    if (!controls) return;
-    const appearance = owner ? layerAppearance(this.#candidate, owner) : undefined;
-    controls.fieldset.disabled = !appearance;
-    if (!appearance) {
-      controls.hint.textContent =
-        "This layer has no point, line or polygon render layer. Add one in the advanced editor.";
-      this.#renderLegend();
-      return;
-    }
-    const refusals = new Set<string>();
-    const show = (input: HTMLInputElement, property: MapStyleAppearanceProperty | undefined, value: string) => {
-      input.disabled = !property || Boolean(property.refusal);
-      if (property?.refusal) refusals.add(property.refusal);
-      if (input.matches(":focus")) return;
-      input.value = value;
-    };
-    const color = appearance.color.value;
-    const hexColor = typeof color === "string" && /^#[a-fA-F0-9]{6}$/i.test(color);
-    show(controls.color, appearance.color, hexColor ? color : "#000000");
-    if (typeof color === "string" && !hexColor)
-      refusals.add(`Current color ${color} has no exact swatch; choosing a color replaces it.`);
-    const opacity = typeof appearance.opacity.value === "number" ? appearance.opacity.value : 1;
-    show(controls.opacity, appearance.opacity, String(Math.round(opacity * 100)));
-    controls.opacityValue.value = `${controls.opacity.value}%`;
-    controls.opacity.setAttribute("aria-valuetext", controls.opacityValue.value);
-    const stroke = appearance.strokeOrSize;
-    controls.sizeText.textContent =
-      appearance.geometry === "circle"
-        ? "Point size (px)"
-        : appearance.geometry === "line"
-          ? "Line width (px)"
-          : "Outline width (px)";
-    controls.sizeLabel.hidden = !stroke;
-    show(controls.size, stroke, typeof stroke?.value === "number" ? String(stroke.value) : "");
-    controls.hint.textContent = [...refusals].join(" ");
-    this.#renderLegend();
-  }
-  #renderLegend(): void {
-    const list = this.#legend;
-    if (!list) return;
-    const owner = this.#selectedOwnerLayer();
-    const legend = owner ? this.#legends.get(owner.id) : undefined;
-    const current = owner ? thematicExpression(this.#candidate, owner.id, owner.sourceId) : undefined;
-    list.replaceChildren();
-    list.hidden = !legend || legend.expression !== current;
-    if (list.hidden || !legend) return;
-    for (const entry of legend.entries) {
-      const item = document.createElement("li");
-      const swatch = document.createElement("span");
-      swatch.setAttribute("aria-hidden", "true");
-      swatch.style.cssText = `display:inline-block;width:1em;height:1em;margin-inline-end:.4em;vertical-align:middle;border:1px solid #0003;background:${entry.color}`;
-      item.dataset.color = entry.color;
-      item.append(swatch, entry.label);
-      list.append(item);
-    }
+    this.#appearance?.sync(this.#candidate, owner);
+    this.#legend.render(owner?.id, owner && thematicExpression(this.#candidate, owner.id, owner.sourceId));
   }
   #thematicControls(owner: HTMLSelectElement): { section: HTMLDetailsElement; labelField: HTMLSelectElement } {
     const section = document.createElement("details");
@@ -619,11 +506,6 @@ export class MapStyleEditor {
     apply.disabled = true;
     const labelField = document.createElement("select");
     labelField.disabled = true;
-    const legendList = document.createElement("ul");
-    legendList.setAttribute("aria-label", "Legend preview");
-    legendList.dataset.testid = "map-style-legend";
-    legendList.hidden = true;
-    this.#legend = legendList;
     const controls: ThematicControls = { owner, field, mode, values, apply, labelField, fields: [] };
     this.#thematic = controls;
     const load = () => this.#reloadThematicFields(controls);
@@ -655,7 +537,7 @@ export class MapStyleEditor {
         this.#error(error);
       }
     });
-    fieldset.append(legend, field, mode, values, apply, legendList);
+    fieldset.append(legend, field, mode, values, apply, this.#legend.element);
     section.append(summary, fieldset);
     void load();
     return { section, labelField };
@@ -745,7 +627,7 @@ export class MapStyleEditor {
   #loadSoon(): void {
     clearTimeout(this.#loadTimer);
     this.#syncAppearance();
-    this.#loadTimer = setTimeout(() => this.#loadNow(), 150);
+    this.#loadTimer = setTimeout(() => this.#loadNow(), FRAME_RELOAD_DEBOUNCE_MS);
   }
   #loadNow(): void {
     if (this.#loadTimer === undefined) return;
@@ -761,7 +643,7 @@ export class MapStyleEditor {
     const next = thematicMapStyle(this.#candidate, selected.owner, selected.field, mode, classes, THEMATIC_PALETTE);
     const expression = thematicExpression(next, selected.owner.id, selected.owner.sourceId);
     if (!expression) throw new Error("The selected layer has no thematic expression.");
-    this.#legends.set(selected.owner.id, { expression, entries: thematicLegend(mode, classes) });
+    this.#legend.remember(selected.owner.id, expression, thematicLegend(mode, classes));
     this.#acceptPreview(next, "Unsaved thematic preview over the selected actual field.");
     this.#appliedThematics.set(selected.owner.id, {
       ownerId: selected.owner.id,

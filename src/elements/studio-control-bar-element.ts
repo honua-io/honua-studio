@@ -68,7 +68,8 @@ import {
 import type { StudioInteractionRuntime, TemporaryFilterSummary } from "../interactions/studio-interactions.js";
 import type { WidgetDataLoader } from "../widgets/widget-data.js";
 import { HonuaStudioElementBase } from "./base-element.js";
-import { baseElementStyles, controlBarStyles } from "./styles.js";
+import { explorationFilterBarHtml } from "./exploration-filter-bar.js";
+import { baseElementStyles, controlBarStyles, explorationFilterStyles } from "./styles.js";
 import type { HonuaStudioControlChangeDetail } from "./types.js";
 
 /** A live camera reading. Structurally identical to `CompositionMapCamera`, declared here so this element never imports the map chunk. */
@@ -237,7 +238,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     const label = this.getAttribute("label") ?? "Controls";
     const cards = controller ? controls.map((control) => this.#renderControl(control)).join("") : "";
     this.setShadowHtml(`
-      <style>${baseElementStyles()}${controlBarStyles()}</style>
+      <style>${baseElementStyles()}${controlBarStyles()}${explorationFilterStyles()}</style>
       <section class="control-bar" part="controls" aria-label="${escapeHtml(label)}" data-testid="studio-control-bar">
         ${cards}
         <div class="control-exploration-slot" data-exploration-slot>${this.#explorationHtml()}</div>
@@ -245,29 +246,9 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
     `);
   }
 
-  /** Active temporary filters, each with its own Clear, so a user always sees what narrows the map and widgets. */
   #explorationHtml(): string {
-    const runtime = this.#interactions;
     const state = this.#composition?.state;
-    const active = runtime?.temporaryFilterSummary() ?? [];
-    if (!state || active.length === 0) return "";
-    const layerTitle = (layerId: string) => state.layers.find((layer) => layer.id === layerId)?.title ?? layerId;
-    const rows = active
-      .map((entry) => {
-        const layers = entry.layerIds.map(layerTitle);
-        const scope = layers.length ? layers.join(", ") : entry.sourceIds.join(", ");
-        return `<li class="control-exploration-filter" data-testid="studio-exploration-filter" data-control-id="${escapeHtml(entry.controlId)}">
-          <span><strong>${escapeHtml(entry.title)}</strong>: ${escapeHtml(entry.label)}<span class="hn-muted"> · ${escapeHtml(scope)}</span></span>
-          <button type="button" class="hn-btn hn-btn--sm" data-action="exploration-clear" data-control-id="${escapeHtml(entry.controlId)}"
-            data-testid="studio-exploration-clear" aria-label="Clear ${escapeHtml(entry.title)} filter">Clear</button>
-        </li>`;
-      })
-      .join("");
-    return `<section class="control-exploration" aria-label="Active exploration filters" data-testid="studio-exploration-filters">
-      <p class="control-exploration-note">Exploring with ${active.length === 1 ? "1 temporary filter" : `${active.length} temporary filters`}. They are not saved with the map.</p>
-      <ul class="control-exploration-list">${rows}</ul>
-      <button type="button" class="hn-btn hn-btn--sm" data-action="exploration-reset" data-testid="studio-exploration-reset">Reset all filters</button>
-    </section>`;
+    return state ? explorationFilterBarHtml(this.#interactions?.temporaryFilterSummary() ?? [], state.layers) : "";
   }
 
   /** Repaints the filter summary after a gesture; a standalone bar has no canvas to re-render it. */
