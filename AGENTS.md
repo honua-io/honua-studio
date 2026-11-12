@@ -33,10 +33,11 @@ passed typecheck, style, build, 1,797 Vitest tests in 147 files and 52 Node live
 contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42947074965) passed
 all four jobs; the browser job reported 50 passed, Console assets six passed and Blazor six passed.
 These are fixture and packaging receipts.
-The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/42909671282)
-at `03136c6`, which is not current main, had 2 passes and 3 failures, retries disabled, in 11.1 seconds.
+The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43116174020)
+at `ee2df06` had 2 passes and 3 failures, retries disabled, in 11.6 seconds.
 Boot and scripted MCP passed. Publication stopped because `HONUA_LIVE_CONSOLE_URL` was absent.
-Both model journeys refused the demo's Bedrock-only provider before a call. This run did not reach
+Both model journeys refused the demo's Bedrock-only provider before a call. These failures are
+demo deployment settings, not Studio code. This run did not reach
 the HTTP 400 chat tracked in [server#7092](https://github.com/honua-io/honua-server/issues/7092).
 The [latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
 is branch head `1521734`, not current main. It used server/executor `9d2169cc` and Console
