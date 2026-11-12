@@ -41,6 +41,39 @@ function renderedLayer(page, layerId, field) {
   );
 }
 
+/** Where the map looks and what its recipe source holds, for a journey that painted nothing. */
+function mapDiagnostics(page) {
+  return page.evaluate(() => {
+    const app = window.__honuaStudioApp;
+    const find = (root) => {
+      for (const element of root.querySelectorAll("*")) {
+        if (element.localName === "honua-studio-canvas") return element;
+        const nested = element.shadowRoot && find(element.shadowRoot);
+        if (nested) return nested;
+      }
+      return undefined;
+    };
+    const map = find(document)?.mapView?.map;
+    const layers =
+      map
+        ?.getStyle()
+        ?.layers.filter(
+          (layer) => layer.metadata?.["honua:compositionLayerId"] === "explore-layer" || layer.id === "explore-layer",
+        ) ?? [];
+    const sourceId = layers[0]?.source;
+    return {
+      authoredView: app?.composition?.state?.view,
+      zoom: map?.getZoom(),
+      center: map?.getCenter()?.toArray(),
+      bounds: map?.getBounds()?.toArray(),
+      styleLoaded: map?.isStyleLoaded(),
+      renderLayers: layers.map((layer) => `${layer.id}:${layer.type}`),
+      sourceFeatures: sourceId ? map.querySourceFeatures(sourceId).length : undefined,
+      mapStatus: find(document)?.shadowRoot?.textContent?.replace(/\s+/g, " ").slice(0, 400),
+    };
+  });
+}
+
 function storedPaint(draft, layerId) {
   const layers = draft.envelope.body.mapSpec?.layers ?? draft.envelope.body.style?.layers ?? [];
   return layers.find((layer) => layer.id === layerId)?.paint;
@@ -81,7 +114,12 @@ async function createRecipeMap(page, key, sourceOption) {
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
   const pageRows = await page.getByTestId("studio-widget-grid-row").count();
-  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0).toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0)
+    .toBeGreaterThan(0)
+    .catch(async (error) => {
+      throw new Error(`${error.message}\nmap: ${JSON.stringify(await mapDiagnostics(page))}`);
+    });
   const unfiltered = await renderedLayer(page, "explore-layer", field);
   expect(unfiltered.categories.length).toBeGreaterThan(1);
   return { field, unfiltered, pageRows };
