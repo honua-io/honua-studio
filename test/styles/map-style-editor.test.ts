@@ -640,19 +640,25 @@ it("saves host-authored feature labels when the visual frame never becomes ready
   );
   vi.mocked(frame.contentWindow!.postMessage).mockImplementation(() => {});
   await editor.refreshThematicFields();
-  const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
-  field.value = "name";
-  field.dispatchEvent(new Event("change"));
-  const labels = [...container.querySelectorAll("button")].find(
-    (button) => button.textContent === "Preview feature labels",
-  )!;
+  const labels = [...container.querySelectorAll("label")]
+    .find((label) => label.textContent?.startsWith("Labels"))!
+    .querySelector("select")!;
   expect(labels.disabled).toBe(false);
-  labels.click();
+  expect([...labels.options].map((option) => option.value)).toEqual(["", "name"]);
+  labels.value = "name";
+  labels.dispatchEvent(new Event("change"));
   expect(onPreview).toHaveBeenLastCalledWith(
     expect.objectContaining({
       layers: expect.arrayContaining([expect.objectContaining({ id: "roads__labels", type: "symbol" })]),
     }),
   );
+  labels.value = "";
+  labels.dispatchEvent(new Event("change"));
+  expect((onPreview.mock.lastCall?.[0] as { layers: { id: string }[] }).layers.map((layer) => layer.id)).toEqual([
+    "roads",
+  ]);
+  labels.value = "name";
+  labels.dispatchEvent(new Event("change"));
   await editor.save();
   expect(onSave).toHaveBeenCalledOnce();
   expect(editor.dirty).toBe(false);
@@ -681,4 +687,159 @@ it("ignores unsolicited flush acknowledgments without an active matching request
   expect(editor.dirty).toBe(false);
   expect(onSave).not.toHaveBeenCalled();
   expect(onPreview).not.toHaveBeenCalled();
+});
+
+describe("direct common styling", () => {
+  const owners = [
+    { id: "stops", sourceId: "stops", title: "Bus stops" },
+    { id: "roads", sourceId: "roads", title: "Roads" },
+    { id: "parcels", sourceId: "parcels", title: "Parcels" },
+  ];
+  const geojson = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
+  const mixed = {
+    version: 8,
+    sources: { stops: geojson, roads: geojson, parcels: geojson },
+    layers: [
+      { id: "stops", type: "circle", source: "stops", paint: { "circle-color": "#112233", "circle-radius": 4 } },
+      {
+        id: "roads",
+        type: "line",
+        source: "roads",
+        paint: { "line-color": ["interpolate", ["linear"], ["zoom"], 5, "#000000", 10, "#ffffff"], "line-width": 2 },
+      },
+      { id: "parcels", type: "fill", source: "parcels", paint: { "fill-color": "#445566", "fill-opacity": 0.5 } },
+      { id: "parcels__outline", type: "line", source: "parcels", paint: { "line-color": "#000000", "line-width": 1 } },
+    ],
+  };
+  const input = (container: ParentNode, label: string) => {
+    const element = [...container.querySelectorAll("label")]
+      .find((candidate) => candidate.textContent?.trim().startsWith(label))
+      ?.querySelector("input");
+    if (!element) throw new Error(`missing ${label}`);
+    return element;
+  };
+  const type = (element: HTMLInputElement, value: string) => {
+    element.value = value;
+    element.dispatchEvent(new Event("input"));
+  };
+  const paint = (candidate: unknown, id: string) =>
+    ((candidate as typeof mixed).layers.find((layer) => layer.id === id) as { paint: Record<string, unknown> }).paint;
+  const owner = (container: ParentNode) =>
+    container.querySelector<HTMLSelectElement>('select[aria-label="Map layer for styling"]')!;
+  const select = (container: ParentNode, layerId: string) => {
+    owner(container).value = layerId;
+    owner(container).dispatchEvent(new Event("change"));
+  };
+
+  it("previews point, line and polygon color, opacity and size without JSON or a write until Save", async () => {
+    const { container, editor, onPreview, onSave } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners },
+      mixed,
+    );
+    expect(input(container, "Point size (px)").value).toBe("4");
+    type(input(container, "Color"), "#ff8800");
+    type(input(container, "Point size (px)"), "9");
+    expect(paint(onPreview.mock.lastCall?.[0], "stops")).toEqual({ "circle-color": "#ff8800", "circle-radius": 9 });
+
+    select(container, "parcels");
+    expect(input(container, "Color").value).toBe("#445566");
+    expect(input(container, "Opacity").value).toBe("50");
+    type(input(container, "Opacity"), "80");
+    type(input(container, "Outline width (px)"), "3");
+    const previewed = onPreview.mock.lastCall?.[0];
+    expect(paint(previewed, "parcels")).toEqual({ "fill-color": "#445566", "fill-opacity": 0.8 });
+    expect(paint(previewed, "parcels__outline")).toEqual({ "line-color": "#000000", "line-width": 3 });
+    expect(paint(previewed, "stops")).toEqual({ "circle-color": "#ff8800", "circle-radius": 9 });
+    expect(onSave).not.toHaveBeenCalled();
+    expect(editor.dirty).toBe(true);
+
+    await editor.save();
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(paint(onSave.mock.calls[0][0], "parcels")["fill-opacity"]).toBe(0.8);
+    expect(container.textContent).toContain("Map style saved to the authorized draft.");
+  });
+
+  it("keeps an expression read-only and preserves it through an unrelated direct edit", () => {
+    const { container, onPreview } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners, selectedLayerId: "roads" } as Pick<MapStyleEditorOptions, "layers">,
+      mixed,
+    );
+    select(container, "roads");
+    expect(input(container, "Color").disabled).toBe(true);
+    expect(container.textContent).toContain("Uses an advanced expression. Edit it in the advanced editor.");
+    type(input(container, "Line width (px)"), "5");
+    expect(paint(onPreview.mock.lastCall?.[0], "roads")).toEqual({
+      "line-color": ["interpolate", ["linear"], ["zoom"], 5, "#000000", 10, "#ffffff"],
+      "line-width": 5,
+    });
+    type(input(container, "Line width (px)"), "500");
+    expect(container.textContent).toContain("between 0 and 50 pixels");
+    expect(paint(onPreview.mock.lastCall?.[0], "roads")["line-width"]).toBe(5);
+  });
+
+  it("switching layer shows that layer's paint and never retargets the pending edit", () => {
+    const { container, onPreview } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners },
+      mixed,
+    );
+    type(input(container, "Color"), "#ff8800");
+    select(container, "parcels");
+    expect(input(container, "Color").value).toBe("#445566");
+    expect(paint(onPreview.mock.lastCall?.[0], "parcels")["fill-color"]).toBe("#445566");
+    expect(paint(onPreview.mock.lastCall?.[0], "stops")["circle-color"]).toBe("#ff8800");
+  });
+
+  it("discard restores the accepted style and clears the preview without a write", async () => {
+    const { container, editor, onPreview, onSave } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners },
+      mixed,
+    );
+    type(input(container, "Color"), "#ff8800");
+    await editor.discard();
+    expect(onPreview).toHaveBeenLastCalledWith(undefined);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(input(container, "Color").value).toBe("#112233");
+    expect(editor.dirty).toBe(false);
+  });
+
+  it("shows a legend that matches the painted classes and hides it once the expression is replaced", async () => {
+    const { container, editor, send } = setup(
+      { kind: "map-local", detachesSharedStyles: false },
+      { layers: owners, getFields: async () => [{ name: "zoning", type: "string" }] },
+      mixed,
+    );
+    select(container, "parcels");
+    await editor.refreshThematicFields();
+    const values = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Explicit thematic values, one per line"]',
+    )!;
+    const field = container.querySelector<HTMLSelectElement>('select[aria-label="Actual source field"]')!;
+    field.value = "zoning";
+    field.dispatchEvent(new Event("change"));
+    values.value = "R-1\nB-2";
+    [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Preview thematic colors")!
+      .click();
+    const legend = container.querySelector<HTMLUListElement>('[data-testid="map-style-legend"]')!;
+    expect(legend.hidden).toBe(false);
+    expect([...legend.querySelectorAll("li")].map((item) => [item.textContent, item.dataset.color])).toEqual([
+      ["R-1", "#eff3ff"],
+      ["B-2", "#c6dbef"],
+      ["Other", "#9ecae1"],
+    ]);
+    expect(input(container, "Color").disabled).toBe(true);
+    expect(container.textContent).toContain("Uses field-based classes.");
+    send({
+      ...mixed,
+      layers: mixed.layers.map((layer) =>
+        layer.id === "parcels" ? { ...layer, paint: { "fill-color": "#000000" } } : layer,
+      ),
+    });
+    expect(legend.hidden).toBe(true);
+    expect(input(container, "Color").disabled).toBe(false);
+  });
 });

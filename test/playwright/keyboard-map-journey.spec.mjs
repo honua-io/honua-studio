@@ -84,13 +84,11 @@ for (const themeSet of ["standalone", "console"]) {
         await expect(draft).toHaveCount(1);
         await keyboard.activate(draft.getByRole("button", { name: "Open", exact: true }));
         await keyboard.activate(page.getByRole("button", { name: "Edit map style", exact: true }));
-        const labelField = page.getByRole("combobox", { name: "Actual source field", exact: true });
-        await expect(labelField.locator("option")).not.toHaveCount(0);
+        const labelField = page.getByRole("combobox", { name: "Labels", exact: true });
+        await expect(labelField.locator("option")).not.toHaveCount(1);
         await keyboard.focusByKeyboard(labelField);
         await keyboard.press("z");
-        await keyboard.press("Tab");
         await expect(labelField).toHaveValue("zoning_code");
-        await keyboard.activate(page.getByRole("button", { name: "Preview feature labels", exact: true }));
         await keyboard.activate(page.getByRole("button", { name: "Save map style", exact: true }));
         await expect(
           page.getByRole("status").filter({ hasText: "Map style saved to the authorized draft." }),
