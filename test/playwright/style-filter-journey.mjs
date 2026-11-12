@@ -1,19 +1,26 @@
 import { expect, test } from "@playwright/test";
 import { expectNoSeriousAxeViolations } from "./helpers.mjs";
 
+/** The Studio canvas's map view, found through nested shadow roots. */
+async function studioMapView(page) {
+  return page.evaluateHandle(() => {
+    const find = (root) => {
+      for (const element of root.querySelectorAll("*")) {
+        if (element.localName === "honua-studio-canvas") return element;
+        const nested = element.shadowRoot && find(element.shadowRoot);
+        if (nested) return nested;
+      }
+      return undefined;
+    };
+    return find(document)?.mapView;
+  });
+}
+
 /** Rendered features of the composed layer, read from MapLibre after it painted, with each feature's evaluated paint. */
-function renderedLayer(page, layerId, field) {
-  return page.evaluate(
-    ([id, categoryField]) => {
-      const find = (root) => {
-        for (const element of root.querySelectorAll("*")) {
-          if (element.localName === "honua-studio-canvas") return element;
-          const nested = element.shadowRoot && find(element.shadowRoot);
-          if (nested) return nested;
-        }
-        return undefined;
-      };
-      const map = find(document)?.mapView?.map;
+async function renderedLayer(page, layerId, field) {
+  return (await studioMapView(page)).evaluate(
+    (mapView, [id, categoryField]) => {
+      const map = mapView?.map;
       if (!map?.isStyleLoaded()) return undefined;
       const renderLayers = map
         .getStyle()
@@ -41,6 +48,31 @@ function renderedLayer(page, layerId, field) {
   );
 }
 
+/** Where the map looks and what its recipe source holds, for a journey that painted nothing. */
+async function mapDiagnostics(page) {
+  return (await studioMapView(page)).evaluate((mapView) => {
+    const map = mapView?.map;
+    const layers =
+      map
+        ?.getStyle()
+        ?.layers.filter(
+          (layer) => layer.metadata?.["honua:compositionLayerId"] === "explore-layer" || layer.id === "explore-layer",
+        ) ?? [];
+    const sourceId = layers[0]?.source;
+    return {
+      authoredView: window.__honuaStudioApp?.composition?.state?.view,
+      zoom: map?.getZoom(),
+      center: map?.getCenter()?.toArray(),
+      bounds: map?.getBounds()?.toArray(),
+      styleLoaded: map?.isStyleLoaded(),
+      status: mapView?.status,
+      statusDetail: mapView?.statusDetail,
+      renderLayers: layers.map((layer) => `${layer.id}:${layer.type}`),
+      sourceFeatures: sourceId ? map.querySourceFeatures(sourceId).length : undefined,
+    };
+  });
+}
+
 function storedPaint(draft, layerId) {
   const layers = draft.envelope.body.mapSpec?.layers ?? draft.envelope.body.style?.layers ?? [];
   return layers.find((layer) => layer.id === layerId)?.paint;
@@ -64,6 +96,21 @@ async function parcelsSourceOption(page) {
 }
 
 async function createRecipeMap(page, key, sourceOption) {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text().slice(0, 500));
+  });
+  page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message.slice(0, 500)}`));
+  page.on("response", async (response) => {
+    if (!response.url().includes("/FeatureServer/")) return;
+    if (response.ok() && !(Number(response.headers()["content-length"]) < 4096)) return;
+    const head = await response
+      .text()
+      .then((text) => text.slice(0, 600))
+      .catch(() => "");
+    if (!response.ok() || head.startsWith('{"error"'))
+      browserErrors.push(`${response.status()} ${response.url().slice(0, 220)}: ${head}`);
+  });
   await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
   await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
   await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
@@ -81,7 +128,14 @@ async function createRecipeMap(page, key, sourceOption) {
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
   const pageRows = await page.getByTestId("studio-widget-grid-row").count();
-  await expect.poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0).toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0)
+    .toBeGreaterThan(0)
+    .catch(async (error) => {
+      throw new Error(
+        `${error.message}\nmap: ${JSON.stringify(await mapDiagnostics(page))}\nbrowser: ${JSON.stringify(browserErrors)}`,
+      );
+    });
   const unfiltered = await renderedLayer(page, "explore-layer", field);
   expect(unfiltered.categories.length).toBeGreaterThan(1);
   return { field, unfiltered, pageRows };
