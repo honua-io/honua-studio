@@ -11,6 +11,8 @@ import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
 
+const NEWER_DRAFT_SAVED = "Another edit saved this map first. Discard visual edits to load it, then reapply yours.";
+
 /** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
 export interface StyleEditorHostElement extends EventTarget {
   readonly styleEditorAssetsUrl: string;
@@ -228,8 +230,9 @@ export class StyleEditorHost {
     if (!authority.epoch.isCurrent(session.generation) || session.identity.draftId !== drafts.identity?.draftId)
       throw new Error(`${EDITOR_AUTHORITY_CHANGED} Reopen the visual editor.`);
     const result = await this.options.editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
-    if (!result.ok) throw new Error(result.reason);
     authority.epoch.assertCurrent(session.generation, EDITOR_AUTHORITY_CHANGED);
+    if (result.conflict) throw new Error(NEWER_DRAFT_SAVED);
+    if (!result.ok) throw new Error(result.reason);
     return session.canvas.editableMapStyle();
   }
 
