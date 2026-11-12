@@ -66,3 +66,13 @@ jobs:
             .tmp/live-readiness.json
             .tmp/live-studio-report.json
           if-no-files-found: error
+
+      - name: Upload failed journey screenshots and page snapshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: demo-studio-canary-failures
+          path: |
+            .tmp/playwright-output/**/error-context.md
+            .tmp/playwright-output/**/*.png
+          if-no-files-found: ignore
