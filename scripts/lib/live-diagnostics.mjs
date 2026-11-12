@@ -6,7 +6,7 @@ export const approvalObserverOrigin = `http://qualification-host:${approvalObser
 
 export function diagnosticRedactor({ root = ".tmp/live-compose", environment = process.env, extraValues = [] } = {}) {
   const secrets = Object.entries(environment)
-    .filter(([name, value]) => value && /(?:PASSWORD|SECRET|TOKEN|API_KEY)$/.test(name))
+    .filter(([name, value]) => value && /(?:PASSWORD|SECRET|TOKEN|API_KEY|_USERNAME)$/.test(name))
     .map(([, value]) => value)
     .concat(extraValues);
   const directory = join(root, "secrets");
