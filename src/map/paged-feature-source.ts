@@ -19,7 +19,7 @@ export async function loadPagedFeatureSource(
   let pages = 0;
   let incomplete = false;
   let metadataObserved = false;
-  let rateLimited: number | false | undefined;
+  let rateLimit: { readonly retryAfter?: number } | undefined;
   const client = new HonuaClient({
     baseUrl: root,
     preferBinary: false,
@@ -69,14 +69,10 @@ export async function loadPagedFeatureSource(
           throw new Error("The Studio session cannot authorize this source query.");
         }
         if (response.status === 429 || body?.error?.code === 429) {
-          const retryAfter = retryAfterSeconds(response, body?.error?.retryAfterSeconds);
-          if (url.pathname.endsWith("/query") && pages > 0) {
-            rateLimited = retryAfter;
+          rateLimit = { retryAfter: retryAfterSeconds(response, body?.error?.retryAfterSeconds) };
+          if (url.pathname.endsWith("/query") && pages > 0)
             return new Response(JSON.stringify({ features: [] }), { status: 200 });
-          }
-          throw new Error(
-            `The server is limiting requests for this source; try again${retryAfter ? ` in ${retryAfter} seconds` : " shortly"}.`,
-          );
+          throw rateLimitError(rateLimit.retryAfter);
         }
         if (body?.error) throw new Error("The source server refused the SDK query.");
         if (body) {
@@ -106,10 +102,13 @@ export async function loadPagedFeatureSource(
   });
   signal.throwIfAborted();
   if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
-  if (!metadataObserved) throw new Error("Authorized source metadata could not be loaded.");
-  if (rateLimited !== undefined)
+  if (!metadataObserved) {
+    if (rateLimit) throw rateLimitError(rateLimit.retryAfter);
+    throw new Error("Authorized source metadata could not be loaded.");
+  }
+  if (rateLimit)
     options.onIncomplete?.(
-      `Showing the first ${source.data.features.length} features; the server is limiting requests, so the rest did not load${rateLimited ? ` (retry in ${rateLimited} seconds)` : ""}.`,
+      `Showing the first ${source.data.features.length} features; the server is limiting requests, so the rest did not load${rateLimit.retryAfter ? ` (retry in ${rateLimit.retryAfter} seconds)` : ""}.`,
     );
   else if (pages >= 32 && incomplete)
     options.onIncomplete?.(
@@ -118,7 +117,13 @@ export async function loadPagedFeatureSource(
   return source.data as unknown as Record<string, unknown>;
 }
 
-function retryAfterSeconds(response: Response, declared: unknown): number | false {
+function retryAfterSeconds(response: Response, declared: unknown): number | undefined {
   const seconds = typeof declared === "number" ? declared : Number(response.headers.get("retry-after"));
-  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : false;
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
+function rateLimitError(retryAfter: number | undefined): Error {
+  return new Error(
+    `The server is limiting requests for this source; try again${retryAfter ? ` in ${retryAfter} seconds` : " shortly"}.`,
+  );
 }

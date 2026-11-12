@@ -106,6 +106,7 @@ async function createRecipeMap(page, key, sourceOption) {
   page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message.slice(0, 500)}`));
   page.on("response", async (response) => {
     if (!response.url().includes("/FeatureServer/")) return;
+    if (response.ok() && !(Number(response.headers()["content-length"]) < 4096)) return;
     const head = await response
       .text()
       .then((text) => text.slice(0, 600))
