@@ -159,8 +159,12 @@ packageKey?, family? }`).
 (`src/elements/deprecated-aliases.ts`). The events
 `honua-workspace-draft-change` and `honua-studio-composition-mode-change` are
 still dispatched, with the same detail, after `honua-studio-draft-change` and
-`honua-studio-editing-mode-change`. The `packageKey`, `family` and
-`workspaceId` fields are server-owned wire names and are unchanged.
+`honua-studio-editing-mode-change`; nested announcements keep the same
+order for both names. The host attribute `data-workspace-host` is set
+alongside `data-editor-host`. The aliases cover direct calls only: Studio's
+own flows call the current names, so wrap or override those. The
+`packageKey`, `family` and `workspaceId` fields are server-owned wire names
+and are unchanged.
 
 Sign-in/sign-out controls (and any interactive auth affordance at all) only
 render when `auth.mode === "standalone"` — REQ-003 (honua-studio#4): in

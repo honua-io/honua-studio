@@ -8,8 +8,14 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import * as consoleEntryAliases from "../../src/console-entry-deprecated.js";
 import * as consoleEntry from "../../src/console-entry.js";
-import { DEPRECATED_EVENT_ALIASES } from "../../src/elements/deprecated-aliases.js";
+import {
+  DEPRECATED_APP_ELEMENT_ALIASES,
+  DEPRECATED_CHAT_ELEMENT_ALIASES,
+  DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES,
+  DEPRECATED_EVENT_ALIASES,
+} from "../../src/elements/deprecated-aliases.js";
 import { STUDIO_ELEMENT_TAGS, registerAllStudioElements } from "../../src/elements/registry.js";
 
 const RETIRED_NAME =
@@ -115,9 +121,40 @@ function retiredNames(names: Iterable<string>, allowed: readonly string[]): stri
 
 function exportedTypeNames(path: string): string[] {
   const source = readFileSync(path, "utf8");
-  return [...source.matchAll(/export (?:type|interface) (\w+)|\btype (\w+)[,\s}]/g)].map(
-    (match) => match[1] ?? match[2],
+  const declared = [...source.matchAll(/export (?:type|interface) (\w+)/g)].map((match) => match[1]);
+  const listed = [...source.matchAll(/export (?:type )?\{([^}]*)\}/g)].flatMap((match) =>
+    match[1]
+      .split(",")
+      .map(
+        (entry) =>
+          entry
+            .replace(/^\s*type\s+/, "")
+            .split(/\s+as\s+/)
+            .pop()
+            ?.trim() ?? "",
+      )
+      .filter(Boolean),
   );
+  return [...declared, ...listed];
+}
+
+function dispatchedEventNames(): string[] {
+  const names = new Set<string>();
+  for (const path of sourceFiles()) {
+    const source = readFileSync(path, "utf8");
+    for (const match of source.matchAll(/(?:CustomEvent|dispatchTypedEvent)(?:<[^>(]*>)?\(\s*"([\w-]+)"/g))
+      names.add(match[1]);
+  }
+  return [...names];
+}
+
+function publicMemberNames(tag: string): string[] {
+  const element = customElements.get(tag) as (CustomElementConstructor & { observedAttributes?: string[] }) | undefined;
+  if (!element) return [];
+  const names = [...(element.observedAttributes ?? []), ...Object.keys(document.createElement(tag))];
+  for (let proto = element.prototype; proto && proto !== HTMLElement.prototype; proto = Object.getPrototypeOf(proto))
+    names.push(...Object.getOwnPropertyNames(proto));
+  return names;
 }
 
 function sourceFiles(): string[] {
@@ -161,20 +198,24 @@ describe("retired vocabulary guard", () => {
 
   it("keeps retired words out of element tags, attributes and members except listed deprecated aliases", () => {
     registerAllStudioElements();
-    const names = new Set<string>(STUDIO_ELEMENT_TAGS);
-    for (const tag of STUDIO_ELEMENT_TAGS) {
-      const element = customElements.get(tag) as
-        | (CustomElementConstructor & { observedAttributes?: string[] })
-        | undefined;
-      for (const attribute of element?.observedAttributes ?? []) names.add(attribute);
-      for (const member of Object.getOwnPropertyNames(element?.prototype ?? {})) names.add(member);
-    }
+    const names = new Set<string>([...STUDIO_ELEMENT_TAGS, ...STUDIO_ELEMENT_TAGS.flatMap(publicMemberNames)]);
     expect(retiredNames(names, [...DEPRECATED_MEMBERS, ...COMPOSITION_ENGINE_MEMBERS])).toEqual([]);
   });
 
+  it("lists exactly the deprecated aliases the elements and Console entry install", () => {
+    const installed = [
+      DEPRECATED_APP_ELEMENT_ALIASES,
+      DEPRECATED_CHAT_ELEMENT_ALIASES,
+      DEPRECATED_CUSTOM_PROCESSES_ELEMENT_ALIASES,
+    ].flatMap((aliases) => Object.keys(aliases));
+    expect(new Set(DEPRECATED_MEMBERS)).toEqual(new Set(installed));
+    const exported = [...Object.keys(consoleEntryAliases), ...exportedTypeNames("src/console-entry-deprecated.ts")];
+    expect(new Set(exported)).toEqual(new Set(DEPRECATED_EXPORTS));
+  });
+
   it("dispatches retired event names only as deprecated aliases of current names", () => {
-    const current = Object.keys(DEPRECATED_EVENT_ALIASES);
-    expect(retiredNames(current, [])).toEqual([]);
+    expect(retiredNames(dispatchedEventNames(), [])).toEqual([]);
+    expect(retiredNames(Object.keys(DEPRECATED_EVENT_ALIASES), [])).toEqual([]);
     expect(Object.values(DEPRECATED_EVENT_ALIASES)).toEqual([
       "honua-workspace-draft-change",
       "honua-studio-composition-mode-change",

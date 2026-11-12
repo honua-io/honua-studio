@@ -3,7 +3,7 @@ import type { SessionAdapter } from "../auth/index.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
-import { dispatchWithDeprecatedAlias } from "../elements/deprecated-aliases.js";
+import { DEPRECATED_EDITOR_HOST_ATTRIBUTE, dispatchWithDeprecatedAlias } from "../elements/deprecated-aliases.js";
 import type { HonuaStudioAppElement } from "../elements/studio-app-element.js";
 import { CompositionEditor } from "./composition-editor.js";
 import { DesignInspectorHost } from "./design-inspector-host.js";
@@ -88,9 +88,10 @@ export class StudioAppRoot {
   }
 
   syncHostMode(): void {
-    const workspaceHost = this.isEditorHost();
-    this.host.toggleAttribute("data-editor-host", workspaceHost);
-    if (workspaceHost) this.router.stop();
+    const editorHost = this.isEditorHost();
+    this.host.toggleAttribute("data-editor-host", editorHost);
+    this.host.toggleAttribute(DEPRECATED_EDITOR_HOST_ATTRIBUTE, editorHost);
+    if (editorHost) this.router.stop();
     if (this.host.isConnected) this.router.render();
   }
 

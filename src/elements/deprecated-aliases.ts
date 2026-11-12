@@ -51,14 +51,35 @@ export function defineDeprecatedAliases<T extends object>(
   }
 }
 
-/** Dispatches `event` and, when its type has a deprecated name, a copy under that name. */
+/** Set alongside `data-editor-host` for one release. */
+export const DEPRECATED_EDITOR_HOST_ATTRIBUTE = "data-workspace-host";
+
+const pendingAliasDispatches: Array<{ dispatch?: () => void }> = [];
+let dispatchDepth = 0;
+
+/**
+ * Dispatches `event` and, when its type has a deprecated name, a copy under that name. Copies are queued until
+ * the outermost dispatch returns, so listeners of either name see nested announcements in the same order.
+ */
 export function dispatchWithDeprecatedAlias<D>(target: EventTarget, event: CustomEvent<D>): boolean {
-  const accepted = target.dispatchEvent(event);
   const deprecated = DEPRECATED_EVENT_ALIASES[event.type as keyof typeof DEPRECATED_EVENT_ALIASES];
+  const pending: { dispatch?: () => void } = {};
+  if (deprecated) pendingAliasDispatches.push(pending);
+  dispatchDepth += 1;
+  let accepted: boolean;
+  try {
+    accepted = target.dispatchEvent(event);
+  } finally {
+    dispatchDepth -= 1;
+  }
   if (deprecated) {
-    target.dispatchEvent(
-      new CustomEvent<D>(deprecated, { bubbles: event.bubbles, composed: event.composed, detail: event.detail }),
-    );
+    pending.dispatch = () =>
+      target.dispatchEvent(
+        new CustomEvent<D>(deprecated, { bubbles: event.bubbles, composed: event.composed, detail: event.detail }),
+      );
+  }
+  if (dispatchDepth === 0) {
+    for (let next = pendingAliasDispatches.shift(); next; next = pendingAliasDispatches.shift()) next.dispatch?.();
   }
   return accepted;
 }
