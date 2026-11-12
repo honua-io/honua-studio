@@ -118,6 +118,14 @@ BLOCKING:
 - N1 names that hide intent; F1 more than 3 parameters; F2 output arguments; F3 boolean flag arguments.
 - Over budget with no reason in the PR: functions ~40 lines or 2 nesting levels; classes, files ~400 lines.
 
+VOCABULARY (BLOCKING): user-facing text, docs and public names follow the Honua glossary
+(honua-server `docs/concepts/domain/README.md`) and the shared policy (honua-server
+`scripts/ci/retired-terms.v1.json` and `retired-terms.md`). Studio content is a Map or App with a Draft,
+Version and Released state, named by its kind; never a package, family or composition, and the editor is
+not a workspace. Keep server-owned wire names (`packageKey`, `family`, `workspaceId`) and the internal composition
+engine (`src/composition/`). `test/vocabulary/retired-terms.test.ts` enforces this; every new exception
+there needs a reason.
+
 WARNING: the rubric's other smells (N2-N7, G6-G36, T1-T9), e.g. G25 magic numbers or G12
 single-implementation interfaces.
 

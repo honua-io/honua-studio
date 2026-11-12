@@ -117,7 +117,7 @@ interface LoadSubject {
 }
 
 const CATALOG_SUBJECT: LoadSubject = { testIdPrefix: "catalog", label: "the catalog" };
-const PACKAGES_SUBJECT: LoadSubject = { testIdPrefix: "packages", label: "Studio packages" };
+const PACKAGES_SUBJECT: LoadSubject = { testIdPrefix: "packages", label: "Studio content" };
 
 function renderLoadError(list: HTMLElement, { testIdPrefix, label }: LoadSubject, error: unknown): void {
   list.innerHTML =

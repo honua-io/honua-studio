@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": "test/vocabulary/retired-terms.test.ts",
+      "rule": "api-key",
+      "line": "  /workspace|package|famil(y|ies)|composition|web_?map|portal_?item|hosted_?layer|serving_?target|tenant|content_?item|honuaapitoken/i;",
+      "reason": "The retired-term guard's own pattern lists the retired names it rejects."
+    },
+    {
+      "path": "test/vocabulary/retired-terms.test.ts",
+      "rule": "serving-target",
+      "line": "  /\\b(workspaces?|packages?|famil(y|ies)|compositions?|web ?maps?|portal items?|hosted layers?|serving targets?|tenants?|content items?)\\b/i;",
+      "reason": "The retired-term guard's own pattern lists the retired names it rejects."
+    },
+    {
+      "path": "test/vocabulary/retired-terms.test.ts",
+      "rule": "content-item",
+      "line": "  /\\b(workspaces?|packages?|famil(y|ies)|compositions?|web ?maps?|portal items?|hosted layers?|serving targets?|tenants?|content items?)\\b/i;",
+      "reason": "The retired-term guard's own pattern lists the retired names it rejects."
+    },
+    {
+      "path": "test/vocabulary/retired-terms.test.ts",
+      "rule": "hosted-layer",
+      "line": "  /\\b(workspaces?|packages?|famil(y|ies)|compositions?|web ?maps?|portal items?|hosted layers?|serving targets?|tenants?|content items?)\\b/i;",
+      "reason": "The retired-term guard's own pattern lists the retired names it rejects."
+    }
+  ]
+}
