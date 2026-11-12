@@ -107,8 +107,15 @@ async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
   page.on("requestfailed", (request) =>
     browserErrors.push(`requestfailed: ${request.url().slice(0, 200)} ${request.failure()?.errorText}`),
   );
-  page.on("response", (response) => {
+  page.on("response", async (response) => {
     if (response.status() >= 400) browserErrors.push(`${response.status()}: ${response.url().slice(0, 200)}`);
+    if (!response.url().includes("/FeatureServer/")) return;
+    const head = await response
+      .text()
+      .then((text) => text.slice(0, 600))
+      .catch(() => "");
+    if (head.startsWith('{"error"'))
+      browserErrors.push(`refused ${response.status()} ${response.url().slice(0, 220)}: ${head}`);
   });
   await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
   await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
