@@ -213,3 +213,54 @@ it("cancels an oversized SDK feature page before the SDK parses it", async () =>
   ).rejects.toThrow("16 MiB");
   expect(cancel).toHaveBeenCalledTimes(1);
 });
+
+/** Pages of 2000 points until `limitedAt`, where the server answers with its rate-limit refusal. */
+function rateLimitedServer(limitedAt: number, refusal: () => Response) {
+  const offsets: number[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    if (!url.pathname.endsWith("/query")) return Response.json(layerMetadata);
+    const offset = Number(url.searchParams.get("resultOffset") ?? 0);
+    offsets.push(offset);
+    if (offset >= limitedAt) return refusal();
+    return Response.json({
+      ...featurePage,
+      features: Array.from({ length: 2000 }, (_, n) => ({ attributes: { id: offset + n }, geometry: { x: 1, y: 1 } })),
+      exceededTransferLimit: true,
+    });
+  };
+  return { offsets, fetchImpl };
+}
+
+const esriRateLimit = () =>
+  Response.json({ error: { code: 429, message: "Too Many Requests", retryable: true, retryAfterSeconds: 60 } });
+
+it.each([
+  ["an error body", esriRateLimit],
+  ["HTTP 429", () => new Response(null, { status: 429, headers: { "retry-after": "30" } })],
+])("keeps the loaded pages and says so when the server rate-limits a later page with %s", async (_, refusal) => {
+  const { offsets, fetchImpl } = rateLimitedServer(4000, refusal);
+  const onIncomplete = vi.fn();
+  const result = await loadPagedFeatureSource(
+    renewalTarget,
+    { sourceBaseUrl: "", documentUrl: "https://host.test/", getAuth: () => undefined, fetchImpl, onIncomplete },
+    new AbortController().signal,
+  );
+  expect(result.features).toHaveLength(4000);
+  expect(offsets).toEqual([0, 2000, 4000]);
+  expect(onIncomplete).toHaveBeenCalledOnce();
+  expect(onIncomplete.mock.calls[0]![0]).toMatch(
+    /^Showing the first 4000 features; the server is limiting requests, so the rest did not load \(retry in (60|30) seconds\)\.$/,
+  );
+});
+
+it("names the rate limit when the first page is refused", async () => {
+  const { fetchImpl } = rateLimitedServer(0, esriRateLimit);
+  await expect(
+    loadPagedFeatureSource(
+      renewalTarget,
+      { sourceBaseUrl: "", documentUrl: "https://host.test/", getAuth: () => undefined, fetchImpl },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("The server is limiting requests for this source; try again in 60 seconds.");
+});

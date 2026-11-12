@@ -19,6 +19,7 @@ export async function loadPagedFeatureSource(
   let pages = 0;
   let incomplete = false;
   let metadataObserved = false;
+  let rateLimited: number | false | undefined;
   const client = new HonuaClient({
     baseUrl: root,
     preferBinary: false,
@@ -56,7 +57,7 @@ export async function loadPagedFeatureSource(
         const bytes = await readBoundedFeatureBody(response, signal, () => authority === options.getAuth());
         const body = response.ok
           ? (parseFeatureResponseBody(bytes) as {
-              error?: { code?: unknown };
+              error?: { code?: unknown; retryAfterSeconds?: unknown };
               exceededTransferLimit?: boolean;
               features?: unknown[];
             })
@@ -66,6 +67,16 @@ export async function loadPagedFeatureSource(
         if (response.status === 401 || body?.error?.code === 499) {
           if (attempt === 0 && authority) continue;
           throw new Error("The Studio session cannot authorize this source query.");
+        }
+        if (response.status === 429 || body?.error?.code === 429) {
+          const retryAfter = retryAfterSeconds(response, body?.error?.retryAfterSeconds);
+          if (url.pathname.endsWith("/query") && pages > 0) {
+            rateLimited = retryAfter;
+            return new Response(JSON.stringify({ features: [] }), { status: 200 });
+          }
+          throw new Error(
+            `The server is limiting requests for this source; try again${retryAfter ? ` in ${retryAfter} seconds` : " shortly"}.`,
+          );
         }
         if (body?.error) throw new Error("The source server refused the SDK query.");
         if (body) {
@@ -96,9 +107,18 @@ export async function loadPagedFeatureSource(
   signal.throwIfAborted();
   if (authority !== options.getAuth()) throw new Error("The Studio source authority changed.");
   if (!metadataObserved) throw new Error("Authorized source metadata could not be loaded.");
-  if (pages >= 32 && incomplete)
+  if (rateLimited !== undefined)
+    options.onIncomplete?.(
+      `Showing the first ${source.data.features.length} features; the server is limiting requests, so the rest did not load${rateLimited ? ` (retry in ${rateLimited} seconds)` : ""}.`,
+    );
+  else if (pages >= 32 && incomplete)
     options.onIncomplete?.(
       `Showing ${source.data.features.length} features at the 32-page preview limit; additional features remain.`,
     );
   return source.data as unknown as Record<string, unknown>;
+}
+
+function retryAfterSeconds(response: Response, declared: unknown): number | false {
+  const seconds = typeof declared === "number" ? declared : Number(response.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : false;
 }
