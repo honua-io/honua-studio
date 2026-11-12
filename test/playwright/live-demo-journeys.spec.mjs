@@ -354,7 +354,7 @@ test.describe("live demo-server journeys @live", () => {
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("app-shell")).toBeVisible();
-      await runStyleFilterJourney(page, info, { key, readDraft, firstPaintTimeout: 150_000 });
+      await runStyleFilterJourney(page, info, { key, readDraft, firstPaintTimeout: 60_000 });
     } finally {
       await preview.close();
       const listed = await restCall("GET", `/v1/studio/package-drafts?q=${encodeURIComponent(key)}`).catch(() => ({

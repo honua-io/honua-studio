@@ -67,6 +67,8 @@ function mapDiagnostics(page) {
       center: map?.getCenter()?.toArray(),
       bounds: map?.getBounds()?.toArray(),
       styleLoaded: map?.isStyleLoaded(),
+      status: mapView?.status,
+      statusDetail: mapView?.statusDetail,
       renderLayers: layers.map((layer) => `${layer.id}:${layer.type}`),
       sourceFeatures: sourceId ? map.querySourceFeatures(sourceId).length : undefined,
     };
@@ -96,6 +98,17 @@ async function parcelsSourceOption(page) {
 }
 
 async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) browserErrors.push(message.text().slice(0, 500));
+  });
+  page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message.slice(0, 500)}`));
+  page.on("requestfailed", (request) =>
+    browserErrors.push(`requestfailed: ${request.url().slice(0, 200)} ${request.failure()?.errorText}`),
+  );
+  page.on("response", (response) => {
+    if (response.status() >= 400) browserErrors.push(`${response.status()}: ${response.url().slice(0, 200)}`);
+  });
   await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
   await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
   await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
@@ -118,7 +131,9 @@ async function createRecipeMap(page, key, sourceOption, firstPaintTimeout) {
     .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0, { timeout: firstPaintTimeout })
     .toBeGreaterThan(0)
     .catch(async (error) => {
-      throw new Error(`${error.message}\nmap: ${JSON.stringify(await mapDiagnostics(page))}`);
+      throw new Error(
+        `${error.message}\nmap: ${JSON.stringify(await mapDiagnostics(page))}\nbrowser: ${JSON.stringify(browserErrors)}`,
+      );
     });
   console.log(
     `recipe map first paint after ${Date.now() - paintStarted} ms; ${JSON.stringify(await mapDiagnostics(page))}`,
