@@ -246,7 +246,7 @@ export class LiveCompositionController {
 
   #announceMode(detail: HonuaStudioEditingModeChangeDetail): void {
     this.options.chrome.paintLiveComposition();
-    this.options.children.chat()?.activityLog.append("composition_mode_changed", { ...detail });
+    this.options.children.chat()?.activityLog.append("editing_mode_changed", { ...detail });
     this.options.host.dispatchEvent(
       new CustomEvent<HonuaStudioEditingModeChangeDetail>("honua-studio-editing-mode-change", {
         bubbles: true,

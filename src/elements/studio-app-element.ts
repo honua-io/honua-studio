@@ -60,24 +60,24 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public styleEditorAssetsUrl = "/maputnik/index.html";
-  readonly #workspace = new StudioAppRoot(this, {
+  readonly #root = new StudioAppRoot(this, {
     setShadowHtml: (html) => this.setShadowHtml(html),
     connectedSignal: () => this.connectedSignal,
   });
-  readonly #authority = this.#workspace.authority;
-  readonly #children = this.#workspace.children;
-  readonly #chrome = this.#workspace.chrome;
-  readonly #router = this.#workspace.router;
-  readonly #catalog = this.#workspace.catalog;
-  readonly #drafts = this.#workspace.drafts;
-  readonly #publication = this.#workspace.publication;
-  readonly #editor = this.#workspace.editor;
-  readonly #designInspector = this.#workspace.designInspector;
-  readonly #styleEditor = this.#workspace.styleEditor;
-  readonly #recipes = this.#workspace.recipes;
-  readonly #live = this.#workspace.live;
-  #workspaceAgentAdapter: EditorAgentSessionAdapter | undefined;
-  #workspaceConversation: readonly EditorConversationMessage[] = [];
+  readonly #authority = this.#root.authority;
+  readonly #children = this.#root.children;
+  readonly #chrome = this.#root.chrome;
+  readonly #router = this.#root.router;
+  readonly #catalog = this.#root.catalog;
+  readonly #drafts = this.#root.drafts;
+  readonly #publication = this.#root.publication;
+  readonly #editor = this.#root.editor;
+  readonly #designInspector = this.#root.designInspector;
+  readonly #styleEditor = this.#root.styleEditor;
+  readonly #recipes = this.#root.recipes;
+  readonly #live = this.#root.live;
+  #editorAgentAdapter: EditorAgentSessionAdapter | undefined;
+  #editorConversation: readonly EditorConversationMessage[] = [];
   #themeLoader: ThemeLoader | undefined;
 
   /**
@@ -90,7 +90,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public set session(session: SessionAdapter | undefined) {
-    this.#workspace.replaceSession(session);
+    this.#root.replaceSession(session);
   }
 
   /** The resolved `AuthSession` this element and its descendants (`resolveInjectedAuth`) use; built lazily. */
@@ -113,15 +113,15 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#authority.createEditorStyleProvider(options);
   }
 
-  /** Workspace-host agent transport; while set, the host's own composer replaces the chat slot. */
+  /** Editor-host agent transport; while set, the host's own composer replaces the chat slot. */
   public get agentSessionAdapter(): EditorAgentSessionAdapter | undefined {
-    return this.#workspaceAgentAdapter;
+    return this.#editorAgentAdapter;
   }
 
   public set agentSessionAdapter(adapter: EditorAgentSessionAdapter | undefined) {
-    const previous = this.#workspaceAgentAdapter;
-    this.#workspaceAgentAdapter = adapter;
-    this.#workspace.syncHostMode();
+    const previous = this.#editorAgentAdapter;
+    this.#editorAgentAdapter = adapter;
+    this.#root.syncHostMode();
     const chat = this.#children.chat();
     if (chat && (previous !== adapter || chat.agentSessionAdapter !== adapter)) {
       chat.detachAgentSession();
@@ -132,13 +132,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public setEditorConversation(messages: readonly EditorConversationMessage[]): boolean {
-    this.#workspaceConversation = messages.map((message) => ({ ...message }));
-    return this.#children.chat()?.setEditorConversation(this.#workspaceConversation) ?? true;
+    this.#editorConversation = messages.map((message) => ({ ...message }));
+    return this.#children.chat()?.setEditorConversation(this.#editorConversation) ?? true;
   }
 
   /** Composition state the canvas renders; it survives reconnection. */
   public get composition(): CompositionController {
-    return this.#workspace.composition;
+    return this.#root.composition;
   }
 
   /**
@@ -408,21 +408,21 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.routingMode === "hash") this.#router.startHashRouting();
     else this.#router.followHostPath(this.getAttribute("current-path"));
     this.#children.ensureDefaults();
-    if (this.#workspaceAgentAdapter) this.agentSessionAdapter = this.#workspaceAgentAdapter;
-    this.#workspace.connectCanvas();
+    if (this.#editorAgentAdapter) this.agentSessionAdapter = this.#editorAgentAdapter;
+    this.#root.connectCanvas();
     // Construct the orchestrator while the chat child is resolvable for its activity log.
     void this.toolCallOrchestrator;
     void this.#live.resumeSharePreview();
     this.#listenForChildActivity();
-    this.agentSessionAdapter = this.#workspaceAgentAdapter;
-    if (this.#workspaceConversation.length) this.setEditorConversation(this.#workspaceConversation);
+    this.agentSessionAdapter = this.#editorAgentAdapter;
+    if (this.#editorConversation.length) this.setEditorConversation(this.#editorConversation);
   }
 
   protected onDisconnect(): void {
     this.closeDesignInspector();
     this.#recipes.dispose();
     this.#chrome.dispose();
-    if (!this.#workspaceAgentAdapter) this.#children.chat()?.detachAgentSession();
+    if (!this.#editorAgentAdapter) this.#children.chat()?.detachAgentSession();
     this.#live.cancelAgentSetup();
     this.#router.stop();
     this.#authority.disposeAuth();

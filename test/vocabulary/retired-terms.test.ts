@@ -54,12 +54,14 @@ const RENAMED_MEMBERS = [
   "refreshWorkspaceTask",
 ];
 
-/** Renamed events, host attribute and global. */
+/** Renamed events, host attribute (and its `dataset` spelling), global and activity-log kind. */
 const RENAMED_DOM_NAMES = [
   "honua-workspace-draft-change",
   "honua-studio-composition-mode-change",
   "data-workspace-host",
+  "workspaceHost",
   "HonuaStudioWorkspace",
+  "composition_mode_changed",
 ];
 
 const RENAMED_NAMES = [...RENAMED_EXPORTS, ...RENAMED_MEMBERS, ...RENAMED_DOM_NAMES];

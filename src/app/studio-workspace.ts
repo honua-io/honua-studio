@@ -81,7 +81,7 @@ export class StudioAppRoot {
     });
   }
 
-  /** A workspace host (agent adapter or cookie session) owns navigation and the composer. */
+  /** An editor host (agent adapter or cookie session) owns navigation and the composer. */
   isEditorHost(): boolean {
     return Boolean(this.host.agentSessionAdapter) || this.authority.hasCookieSession;
   }

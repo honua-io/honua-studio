@@ -180,7 +180,7 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
     const element = mount();
     await goLive(element, "pkg-live-1", "map");
     const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat");
-    const entries = chat?.activityLog.entries().filter((entry) => entry.type === "composition_mode_changed") ?? [];
+    const entries = chat?.activityLog.entries().filter((entry) => entry.type === "editing_mode_changed") ?? [];
     expect(entries).toHaveLength(1);
     expect(entries[0]?.detail).toMatchObject({ mode: "live", packageKey: "pkg-live-1" });
   });

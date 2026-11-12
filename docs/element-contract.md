@@ -57,6 +57,7 @@ supplied its own light-DOM children with those tag names — see
 | `theme-switcher` | `themeSwitcherVisibility` | `"visible" \| "hidden"` | `"visible"` | Hides the built-in theme-set/mode buttons; the element still themes correctly when a host drives theming externally. |
 | `data-theme-set` | `themeSet` | `"standalone" \| "console"` | `"standalone"` | See "Theming". |
 | `data-theme` | `themeMode` | `"light" \| "dark"` (absent = auto) | unset (auto) | See "Theming". |
+| `data-editor-host` | — | boolean (presence) | unset | Read-only; Studio sets it while an agent session adapter or cookie session makes the host the editor host (the host owns navigation and the composer). |
 | — | `session` | `SessionAdapter \| undefined` | unset | The embed session injection surface (primary path) — see `docs/embed-session.md`. Reassigning after connection switches auth mode live. |
 | — | `auth` | `AuthSession` (read-only) | resolved lazily | The live session `.session` resolves to (standalone OIDC or a host-adapter wrapping `.session`) — what the shell (and, by inheritance, `<honua-studio-chat>`/`<honua-studio-canvas>`) actually renders from. |
 | — | `studioClient` | `StudioClient` | a default instance reading `/api`, bearer-attached via `.auth` | Override for fixtures/tests. |
@@ -145,6 +146,7 @@ shadow boundary): `honua-studio-ready` (base contract, see below),
 *request*, never applied by the element itself), `honua-studio-theme-change`
 (`{ themeSet, mode }`), `honua-studio-session-required` (`{ reason }`),
 `honua-studio-error` (`{ message, error? }`),
+`honua-studio-draft-change` (`{ draftId, generation, packageKey }`),
 `honua-studio-editing-mode-change` (`{ mode: "fixture" | "live",
 packageKey?, family? }`).
 

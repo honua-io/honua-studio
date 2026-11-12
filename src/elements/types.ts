@@ -264,7 +264,7 @@ export interface HonuaStudioControlChangeDetail {
 
 /**
  * `honua-studio-editing-mode-change` — dispatched by
- * `<honua-studio-app>` when composition switches between fixture/offline
+ * `<honua-studio-app>` when editing switches between fixture/offline
  * mode and the live server-draft path (honua-studio#23 REQ-004). Before #23
  * the only way to make that switch was `window.__honuaStudioApp`, a test
  * hook; the shell now owns a real control and announces the result, so an
@@ -272,7 +272,7 @@ export interface HonuaStudioControlChangeDetail {
  */
 export interface HonuaStudioEditingModeChangeDetail {
   readonly mode: "fixture" | "live";
-  /** The Studio package the live session writes to. Present only for `"live"`. */
+  /** The server `packageKey` of the Map or App Draft the live session writes to. Present only for `"live"`. */
   readonly packageKey?: string;
   readonly family?: string;
 }
