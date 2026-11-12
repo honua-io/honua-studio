@@ -17,7 +17,7 @@ const RETIRED_NAME =
 const RETIRED_TEXT =
   /\b(workspaces?|packages?|famil(y|ies)|compositions?|web ?maps?|portal items?|hosted layers?|serving targets?|tenants?|content items?)\b/i;
 
-/** Renamed Console entry exports and types; the CHANGELOG lists their new names. */
+/** Renamed Console entry exports and types; docs/vocabulary-renames.md lists their new names. */
 const RENAMED_EXPORTS = [
   "createWorkspaceAgentSession",
   "workspaceAgentFeatures",

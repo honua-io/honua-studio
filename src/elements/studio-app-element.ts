@@ -276,7 +276,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#release.review(versionId);
   }
 
-  /** Human host action only; see `EditorRelease.publish` for the retry contract. */
+  /** Human host action only; see `EditorRelease.release` for the retry contract. */
   public releaseEditorVersion(
     review: StudioContentVersion,
     request: StudioPublishRequestInput,
