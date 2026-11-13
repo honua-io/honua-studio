@@ -1,6 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { HostAdapterAuthSession, isSameCookiePrincipal } from "../../src/auth/host-session.js";
 import type { CookieSessionAdapter } from "../../src/auth/types.js";
+
+let server: Awaited<ReturnType<typeof startMockServer>>;
+beforeAll(async () => {
+  server = await startMockServer();
+});
+afterAll(async () => {
+  await server.close();
+});
+
+function fixtureTransport() {
+  const networkFetch = globalThis.fetch;
+  const token = mintFixtureAccessToken();
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${token}`);
+    return networkFetch(`${server.url}/${input}`, { ...init, headers });
+  });
+}
 
 const sessions: HostAdapterAuthSession[] = [];
 afterEach(() => {
@@ -25,6 +44,61 @@ function session(cookie: CookieSessionAdapter) {
   return auth;
 }
 describe("native captured host session", () => {
+  it("creates and reads a real REST draft through the captured transport", async () => {
+    const captured = fixtureTransport();
+    const auth = session(adapter(captured));
+    const created = await auth.fetchRequest!("/deployment/api/v1/studio/package-drafts", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "must-be-stripped" },
+      body: JSON.stringify({ packageKey: "native-capture", envelope: { family: "map", schemaVersion: "1.0" } }),
+    });
+    expect(created.status).toBe(201);
+    const draft = (await created.json()).data;
+    const read = await auth.fetchRequest!(`/api/v1/studio/package-drafts/${draft.draftId}`);
+    expect(read.status).toBe(200);
+    expect((await read.json()).data).toMatchObject({ draftId: draft.draftId, packageKey: "native-capture" });
+    expect(new Headers(captured.mock.calls[0]![1]?.headers).has("authorization")).toBe(false);
+  });
+
+  it("streams the fixture chat and reads a real FeatureServer page", async () => {
+    const auth = session(adapter(fixtureTransport()));
+    const chat = await auth.fetchRequest!("/deployment/api/v1/studio/ai/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "Compose a map" }] }),
+    });
+    expect(chat.status).toBe(200);
+    expect(chat.headers.get("content-type")).toContain("text/event-stream");
+    expect(await chat.text()).toContain("event: message_stop");
+    const page = await auth.fetchRequest!("/deployment/rest/services/hi-parcels/FeatureServer/0/query?f=json");
+    expect(page.status).toBe(200);
+    expect((await page.json()).features.length).toBeGreaterThan(0);
+  });
+
+  it("uses the fixture MCP session for catalog discovery", async () => {
+    const auth = session(adapter(fixtureTransport()));
+    const initialized = await auth.fetchRequest!("/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+    });
+    expect(initialized.status).toBe(200);
+    expect((await initialized.json()).result).toHaveProperty("protocolVersion");
+    const sessionId = initialized.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+    const layers = await auth.fetchRequest!("/mcp", {
+      method: "POST",
+      headers: { "Mcp-Session-Id": sessionId! },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "honua_list_layers", arguments: {} },
+      }),
+    });
+    expect(layers.status).toBe(200);
+    expect((await layers.json()).result.structuredContent.layers.length).toBeGreaterThan(0);
+  });
+
   it.each([
     ["/api/v1/studio/package-drafts", "api/v1/studio/package-drafts", "POST"],
     ["/deployment/api/v1/studio/ai/chat", "api/v1/studio/ai/chat", "POST"],

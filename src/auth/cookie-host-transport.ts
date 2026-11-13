@@ -48,46 +48,52 @@ export function sendCookieRequest(
   return fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
 }
 
+function allowedCatalogTool(tool: string | undefined, args: Record<string, unknown>): boolean {
+  const layerList =
+    tool === "honua_list_layers" &&
+    Object.keys(args).every((key) => key === "offset" || key === "limit") &&
+    Number.isSafeInteger(args.offset ?? 0) &&
+    Number(args.offset ?? 0) >= 0 &&
+    Number.isSafeInteger(args.limit ?? 100) &&
+    Number(args.limit ?? 100) > 0 &&
+    Number(args.limit ?? 100) <= 100;
+  const styleRead =
+    tool === "honua_get_style" &&
+    Object.keys(args).every((key) => key === "styleId" || key === "includeStylesheet" || key === "encoding") &&
+    (args.styleId === undefined || (typeof args.styleId === "string" && args.styleId.length <= 256)) &&
+    (args.includeStylesheet === undefined || args.includeStylesheet === true) &&
+    (args.encoding === undefined || args.encoding === "mapbox-style");
+  const describe =
+    tool === "honua_describe_layer" &&
+    Object.keys(args).every((key) => key === "serviceId" || key === "layerId") &&
+    typeof args.serviceId === "string" &&
+    args.serviceId.length > 0 &&
+    args.serviceId.length <= 256 &&
+    Number.isSafeInteger(args.layerId) &&
+    Number(args.layerId) >= 0;
+  return layerList || styleRead || describe;
+}
+
+function requireCatalogRequest(init?: RequestInit): void {
+  const request = JSON.parse(String(init?.body ?? "{}")) as {
+    method?: string;
+    params?: { name?: string; arguments?: Record<string, unknown> };
+  };
+  if (
+    request.method !== "initialize" &&
+    request.method !== "notifications/initialized" &&
+    !(request.method === "tools/call" && allowedCatalogTool(request.params?.name, request.params?.arguments ?? {}))
+  )
+    throw new Error("The human catalog transport only permits layer discovery and style readback.");
+}
+
 export function cookieRequestTarget(path: string, init?: RequestInit): string {
   const pathname = path.split("?")[0]!;
   if (/[^\x20-\x7e]|[\\#]/.test(path) || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split("/").includes(".."))
     throw new Error("Cookie host transport rejected an unbounded URL.");
   let target: string;
   if (pathname === "/mcp" || pathname === "/api/mcp") {
-    const request = JSON.parse(String(init?.body ?? "{}")) as {
-      method?: string;
-      params?: { name?: string; arguments?: Record<string, unknown> };
-    };
-    const args = request.params?.arguments ?? {};
-    const tool = request.params?.name;
-    const layerList =
-      tool === "honua_list_layers" &&
-      Object.keys(args).every((key) => key === "offset" || key === "limit") &&
-      Number.isSafeInteger(args.offset ?? 0) &&
-      Number(args.offset ?? 0) >= 0 &&
-      Number.isSafeInteger(args.limit ?? 100) &&
-      Number(args.limit ?? 100) > 0 &&
-      Number(args.limit ?? 100) <= 100;
-    const styleRead =
-      tool === "honua_get_style" &&
-      Object.keys(args).every((key) => key === "styleId" || key === "includeStylesheet" || key === "encoding") &&
-      (args.styleId === undefined || (typeof args.styleId === "string" && args.styleId.length <= 256)) &&
-      (args.includeStylesheet === undefined || args.includeStylesheet === true) &&
-      (args.encoding === undefined || args.encoding === "mapbox-style");
-    const describe =
-      tool === "honua_describe_layer" &&
-      Object.keys(args).every((key) => key === "serviceId" || key === "layerId") &&
-      typeof args.serviceId === "string" &&
-      args.serviceId.length > 0 &&
-      args.serviceId.length <= 256 &&
-      Number.isSafeInteger(args.layerId) &&
-      Number(args.layerId) >= 0;
-    if (
-      request.method !== "initialize" &&
-      request.method !== "notifications/initialized" &&
-      !(request.method === "tools/call" && (layerList || styleRead || describe))
-    )
-      throw new Error("The human catalog transport only permits layer discovery and style readback.");
+    requireCatalogRequest(init);
     target = "/api/studio/catalog-mcp";
   } else if (
     (/^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+(?:\/query)?$/.test(pathname) ||
