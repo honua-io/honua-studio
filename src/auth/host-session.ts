@@ -87,20 +87,21 @@ export class HostAdapterAuthSession implements AuthSession {
           if (url.origin !== location.origin) throw new Error("Cookie transport requires the host origin.");
           path = url.pathname + url.search;
         }
-        let target: string;
-        try {
-          target = cookieRequestTarget(path, init);
-        } catch (error) {
-          if (
-            !sourcePathBase ||
-            !path.startsWith(`${sourcePathBase}/`) ||
-            (cookie.baseUrl !== "/api/v1/studio" &&
-              !path.startsWith(`${sourcePathBase}/rest/`) &&
-              path !== `${sourcePathBase}/mcp`)
-          )
-            throw error;
-          target = cookieRequestTarget(path.slice(sourcePathBase.length), init);
+        let target: string | undefined;
+        if (
+          sourcePathBase &&
+          path.startsWith(`${sourcePathBase}/`) &&
+          (cookie.baseUrl === "/api/v1/studio" ||
+            path.startsWith(`${sourcePathBase}/rest/`) ||
+            path === `${sourcePathBase}/mcp`)
+        ) {
+          try {
+            target = cookieRequestTarget(path.slice(sourcePathBase.length), init);
+          } catch {
+            // Canonical routes can share a deployment prefix without containing it.
+          }
         }
+        target ??= cookieRequestTarget(path, init);
         const method = (init?.method ?? "GET").toUpperCase();
         const safeRead = ["GET", "HEAD", "OPTIONS"].includes(method) || target === "/api/studio/catalog-mcp";
         let response: Response | undefined;
