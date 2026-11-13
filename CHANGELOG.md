@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/honua-io/honua-studio/compare/v0.2.0...v0.2.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **smoke:** stabilize release camera and keyboard journeys ([#250](https://github.com/honua-io/honua-studio/issues/250)) ([3dc1268](https://github.com/honua-io/honua-studio/commit/3dc126824204f86fa016adf50d79470a17df4e54))
+
 ## [0.2.0](https://github.com/honua-io/honua-studio/compare/v0.1.3...v0.2.0) (2026-11-13)
 
 
