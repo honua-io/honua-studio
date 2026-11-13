@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { applyTheme, expectNoSeriousAxeViolations, startPreviewServer, waitForSignedInMap } from "./helpers.mjs";
 
+test.use({ trace: "retain-on-failure" });
+
 const KEYBOARD_ACTION_BUDGET = 100;
 
 class KeyboardJourney {
@@ -58,6 +60,7 @@ for (const themeSet of ["standalone", "console"]) {
         await waitForSignedInMap(page);
         await keyboard.activate(page.getByRole("button", { name: "Start from a recipe", exact: true }));
         await keyboard.enterText(page.getByRole("textbox", { name: "Package key", exact: true }), key);
+        await expect(page.getByTestId("recipe-source").locator('option[value="hi-parcels/0"]')).toHaveCount(1);
         await keyboard.focusByKeyboard(page.getByRole("combobox", { name: "Authorized dataset", exact: true }));
         await keyboard.press("Home");
         await keyboard.press("ArrowDown");
