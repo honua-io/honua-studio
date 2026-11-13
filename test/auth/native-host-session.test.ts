@@ -106,6 +106,52 @@ describe("native captured host session", () => {
     expect(() => auth.renewCookie({ ...cookie, baseUrl: "/api/studio", csrfToken: "csrf" })).toThrow("authority");
   });
 
+  it.each(["/api", "/rest", "/ogc"])("preserves canonical and prefixed routes under %s", async (sourcePathBase) => {
+    const captured = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}")));
+    const auth = session({ ...adapter(captured), sourcePathBase });
+    for (const route of [
+      "/api/v1/studio/package-drafts",
+      "/api/health",
+      "/rest/services/demo/FeatureServer/0/query",
+      "/ogc/features/collections/demo/items",
+    ]) {
+      await auth.fetchRequest!(route);
+      expect(captured.mock.lastCall![0]).toBe(route.slice(1));
+      await auth.fetchRequest!(`${sourcePathBase}${route}`);
+      expect(captured.mock.lastCall![0]).toBe(route.slice(1));
+    }
+  });
+
+  it.each(["GET", "POST", "ABORT"])("handles a rejected old capture with %s semantics", async (kind) => {
+    let reject!: (reason: Error) => void;
+    const old = vi.fn(
+      () =>
+        new Promise<Response>((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const cookie = adapter(old);
+    const auth = session(cookie);
+    const controller = new AbortController();
+    const pending = auth.fetchRequest!("/api/v1/studio/package-drafts", {
+      method: kind === "POST" ? "POST" : "GET",
+      signal: controller.signal,
+    });
+    const renewed = vi.fn().mockResolvedValue(new Response("renewed"));
+    auth.renewCookie({ ...cookie, fetchRequest: renewed });
+    if (kind === "ABORT") controller.abort();
+    const error = new Error("Console capture revision changed");
+    reject(error);
+    if (kind === "GET") {
+      expect(await (await pending).text()).toBe("renewed");
+      expect(renewed).toHaveBeenCalledOnce();
+    } else {
+      await expect(pending).rejects.toBe(error);
+      expect(renewed).not.toHaveBeenCalled();
+    }
+    expect(auth.getState().status).toBe("fresh");
+  });
+
   it("does not replay writes after renewal and blocks requests after disposal", async () => {
     let finish!: (response: Response) => void;
     const old = vi.fn(
