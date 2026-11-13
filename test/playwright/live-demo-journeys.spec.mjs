@@ -341,6 +341,10 @@ test.describe("live demo-server journeys @live", () => {
   test("style and filters: direct styling and temporary filters against the REAL draft store, without a model", async ({
     page,
   }, info) => {
+    test.skip(
+      !LIVE_BASE_URL || new URL(LIVE_BASE_URL).hostname !== "demo.honua.io",
+      "The style/filter journey requires the seeded demo zoning catalog.",
+    );
     test.setTimeout(360_000);
     const key = `studio-e2e-style-${Date.now()}`;
     const preview = await startLivePreview();
