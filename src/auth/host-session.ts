@@ -8,7 +8,7 @@
  * calls a token endpoint. See docs/embed-session.md for the full contract
  * and rationale (including the REQ-011 admin-only note for Phase 0/1).
  */
-import { sendCookieRequest, validCookieTransport } from "./cookie-host-transport.js";
+import { cookieRequestTarget, sendCookieRequest, validCookieTransport } from "./cookie-host-transport.js";
 import { type AuthTransitionEvent, INITIAL_AUTH_STATE, reduceAuthState } from "./state-machine.js";
 import type {
   AuthSession,
@@ -87,79 +87,38 @@ export class HostAdapterAuthSession implements AuthSession {
           if (url.origin !== location.origin) throw new Error("Cookie transport requires the host origin.");
           path = url.pathname + url.search;
         }
-        if (
-          sourcePathBase &&
-          path.startsWith(`${sourcePathBase}/`) &&
-          (cookie.baseUrl === "/api/v1/studio" ||
-            path.startsWith(`${sourcePathBase}/rest/`) ||
-            path === `${sourcePathBase}/mcp`)
-        )
-          path = path.slice(sourcePathBase.length);
-        const pathname = path.split("?")[0]!;
-        if (/[^\x20-\x7e]|[\\#]/.test(path) || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split("/").includes(".."))
-          throw new Error("Cookie host transport rejected an unbounded URL.");
         let target: string;
-        if (pathname === "/mcp" || pathname === "/api/mcp") {
-          const request = JSON.parse(String(init?.body ?? "{}")) as {
-            method?: string;
-            params?: { name?: string; arguments?: Record<string, unknown> };
-          };
-          const args = request.params?.arguments ?? {};
-          const tool = request.params?.name;
-          const layerList =
-            tool === "honua_list_layers" &&
-            Object.keys(args).every((key) => key === "offset" || key === "limit") &&
-            Number.isSafeInteger(args.offset ?? 0) &&
-            Number(args.offset ?? 0) >= 0 &&
-            Number.isSafeInteger(args.limit ?? 100) &&
-            Number(args.limit ?? 100) > 0 &&
-            Number(args.limit ?? 100) <= 100;
-          const styleRead =
-            tool === "honua_get_style" &&
-            Object.keys(args).every((key) => key === "styleId" || key === "includeStylesheet" || key === "encoding") &&
-            (args.styleId === undefined || (typeof args.styleId === "string" && args.styleId.length <= 256)) &&
-            (args.includeStylesheet === undefined || args.includeStylesheet === true) &&
-            (args.encoding === undefined || args.encoding === "mapbox-style");
-          const describe =
-            tool === "honua_describe_layer" &&
-            Object.keys(args).every((key) => key === "serviceId" || key === "layerId") &&
-            typeof args.serviceId === "string" &&
-            args.serviceId.length > 0 &&
-            args.serviceId.length <= 256 &&
-            Number.isSafeInteger(args.layerId) &&
-            Number(args.layerId) >= 0;
+        try {
+          target = cookieRequestTarget(path, init);
+        } catch (error) {
           if (
-            request.method !== "initialize" &&
-            request.method !== "notifications/initialized" &&
-            !(request.method === "tools/call" && (layerList || styleRead || describe))
+            !sourcePathBase ||
+            !path.startsWith(`${sourcePathBase}/`) ||
+            (cookie.baseUrl !== "/api/v1/studio" &&
+              !path.startsWith(`${sourcePathBase}/rest/`) &&
+              path !== `${sourcePathBase}/mcp`)
           )
-            throw new Error("The human catalog transport only permits layer discovery and style readback.");
-          target = "/api/studio/catalog-mcp";
-        } else if (
-          (/^\/rest\/services\/(?:[^/]+\/)+FeatureServer\/\d+(?:\/query)?$/.test(pathname) ||
-            /^\/ogc\/features\/collections\/[^/]+\/items$/.test(pathname)) &&
-          (init?.method ?? "GET") === "GET"
-        ) {
-          target = `/api/studio/data${path}`;
-        } else if (/^\/api\/v1\/admin\/metadata\/layers\/(0|[1-9]\d{0,8})\/suggest-style$/.test(pathname)) {
-          const suggest = /^\/api\/v1\/admin\/metadata\/layers\/(0|[1-9]\d{0,8})\/suggest-style$/.exec(pathname);
-          if ((init?.method ?? "GET").toUpperCase() !== "POST" || path !== pathname || !suggest) {
-            throw new Error("Cookie host transport only permits bounded Studio requests.");
-          }
-          target = `/api/studio/layers/${suggest[1]}/suggest-style`;
-        } else {
-          if (
-            !pathname.startsWith("/api/v1/studio/") &&
-            !pathname.startsWith("/api/studio/v1/studio/") &&
-            pathname !== "/api/health"
-          )
-            throw new Error("Cookie host transport only permits bounded Studio requests.");
-          target = path.startsWith("/api/studio/") ? path : `/api/studio${path.slice(4)}`;
+            throw error;
+          target = cookieRequestTarget(path.slice(sourcePathBase.length), init);
         }
-        let response = await sendCookieRequest(cookie, target, init);
-        let responseLease = cookie;
         const method = (init?.method ?? "GET").toUpperCase();
         const safeRead = ["GET", "HEAD", "OPTIONS"].includes(method) || target === "/api/studio/catalog-mcp";
+        let response: Response | undefined;
+        let responseLease = cookie;
+        try {
+          response = await sendCookieRequest(cookie, target, init);
+        } catch (error) {
+          if (
+            !safeRead ||
+            init?.signal?.aborted ||
+            this.adapter === cookie ||
+            this.disposed ||
+            this.getState().status !== "fresh"
+          )
+            throw error;
+          // A captured Console transport rejects stale responses after a lease replacement.
+          // Only a safe read may recover through the replacement capture below.
+        }
         // A write is never replayed. renewCookie admits only a lease of the same principal, environment and
         // source path, so a write that crossed a renewal keeps its outcome; any other authority change
         // disposes this session.
@@ -169,10 +128,12 @@ export class HostAdapterAuthSession implements AuthSession {
           const renewed = this.adapter;
           if (!isCookieSession(renewed) || this.getState().status !== "fresh")
             throw new Error("The host session changed.");
+          init?.signal?.throwIfAborted();
           response = await sendCookieRequest(renewed, target, init);
           if (this.adapter !== renewed) throw new Error("The session renewed again during this read. Retry it.");
           responseLease = renewed;
         }
+        if (!response) throw new Error("The host session changed.");
         if (response.status === 401 && this.adapter === responseLease)
           this.dispatch({ type: "refresh-failed", error: "The host session expired." });
         if (!response.body) return response;
