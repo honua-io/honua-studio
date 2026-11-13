@@ -106,21 +106,24 @@ describe("native captured host session", () => {
     expect(() => auth.renewCookie({ ...cookie, baseUrl: "/api/studio", csrfToken: "csrf" })).toThrow("authority");
   });
 
-  it.each(["/api", "/rest", "/ogc", "/rest/services/tenant"])("preserves canonical and prefixed routes under %s", async (sourcePathBase) => {
-    const captured = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}")));
-    const auth = session({ ...adapter(captured), sourcePathBase });
-    for (const route of [
-      "/api/v1/studio/package-drafts",
-      "/api/health",
-      "/rest/services/demo/FeatureServer/0/query",
-      "/ogc/features/collections/demo/items",
-    ]) {
-      await auth.fetchRequest!(route);
-      expect(captured.mock.lastCall![0]).toBe(route.slice(1));
-      await auth.fetchRequest!(`${sourcePathBase}${route}`);
-      expect(captured.mock.lastCall![0]).toBe(route.slice(1));
-    }
-  });
+  it.each(["/api", "/rest", "/ogc", "/rest/services/tenant"])(
+    "preserves canonical and prefixed routes under %s",
+    async (sourcePathBase) => {
+      const captured = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}")));
+      const auth = session({ ...adapter(captured), sourcePathBase });
+      for (const route of [
+        "/api/v1/studio/package-drafts",
+        "/api/health",
+        "/rest/services/demo/FeatureServer/0/query",
+        "/ogc/features/collections/demo/items",
+      ]) {
+        await auth.fetchRequest!(route);
+        expect(captured.mock.lastCall![0]).toBe(route.slice(1));
+        await auth.fetchRequest!(`${sourcePathBase}${route}`);
+        expect(captured.mock.lastCall![0]).toBe(route.slice(1));
+      }
+    },
+  );
 
   it.each(["GET", "POST", "ABORT"])("handles a rejected old capture with %s semantics", async (kind) => {
     let reject!: (reason: Error) => void;
