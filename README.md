@@ -208,11 +208,17 @@ the first flagship deployment is the statewide Hawaii demo
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
 | Candidate journeys record one row per source SHA and stay switched off until `HONUA_CANDIDATE_JOURNEYS` is `on` and the pinned server revision is that SHA. No schedule. | `.github/workflows/live-candidate-journeys.yml` | #228 |
+| The demo-only model-free live style/filter journey uses the seeded zoning layer and checks painted styles, temporary filters, and saved draft state. Restoration awaits a new live receipt; fixture evidence alone does not qualify the demo. | `test/playwright/live-demo-journeys.spec.mjs` | #238 |
 | `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43116174020) at `ee2df06` (not current main): 2 passed, 3 failed before a model turn (demo deployment settings, see [Status](#status)) | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
 "unrenderable" note with a reason rather than a blank map.
+
+The demo canary's manual `journeys` input defaults to `all`, as scheduled runs do.
+Select `model-free` to run only boot, direct style/filter and scripted MCP journeys
+using the existing demo credential, without model calls or publication. This focused
+receipt does not qualify the full live suite.
 
 ### In progress
 
@@ -421,7 +427,7 @@ Other commands:
 | `npm run test:console-assets` | Builds production Console assets, then runs six public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
 | `npm run test:self-hosted-preview` | Browser BYOM preview receipt against the built `honua-studio:ci` image; needs that image and Playwright chromium. The container smoke builds the image, then runs this. Uses no demo credential |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
-| `npm run test:browser:live` | Builds and runs all five `@live` journeys when `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set. The qualification workflow starts the locked customer Compose stack, creates a dedicated OIDC test person and supplies private per-run credentials. Publication asserts pending and an unchanged pointer, clicks Approve through Console in a fresh browser context, then independently verifies the accepted request and exact published version. Direct Anthropic Opus 5.5 uses `HONUA_LIVE_ANTHROPIC_API_KEY`; automatic retries are disabled. The separate demo canary uses the external Console URL/profile/IdP variables and approver username/password secrets described in AGENTS.md. |
+| `npm run test:browser:live` | Builds and runs the `@live` journeys when `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set. The style/filter journey requires the seeded demo catalog and is excluded from fresh Compose stacks. The qualification workflow starts the locked customer Compose stack, creates a dedicated OIDC test person and supplies private per-run credentials. Publication asserts pending and an unchanged pointer, clicks Approve through Console in a fresh browser context, then independently verifies the accepted request and exact published version. Direct Anthropic Opus 5.5 uses `HONUA_LIVE_ANTHROPIC_API_KEY`; automatic retries are disabled. The separate demo canary uses the external Console URL/profile/IdP variables and approver username/password secrets described in AGENTS.md. |
 
 Design tokens live in `src/theme/`: `tokens.css` holds the structural
 spacing/type/radius/elevation scale, and `theme-standalone.css` /

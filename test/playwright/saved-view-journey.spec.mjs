@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
+test.use({ trace: "retain-on-failure" });
+
 async function camera(page) {
   return page.evaluate(() => {
     const map = document.querySelector("honua-studio-canvas").mapView.map;
@@ -72,11 +74,17 @@ for (const initialView of [{}, { bbox: [-158.3, 21.2, -157.6, 21.8] }]) {
       });
       expect(savedView.bbox).toBeUndefined();
       expectCamera(savedView, expected);
-      await page.evaluate(async () => {
+      await page.evaluate(() => {
         document
           .querySelector("honua-studio-canvas")
           .mapView.map.jumpTo({ center: [0, 0], zoom: 1, bearing: 0, pitch: 0 });
-        await window.__honuaStudioApp.reopenEditorVersion(window.__savedCameraVersion);
+        // Keep a browser-side root while CDP awaits the promise across the map reset.
+        // Otherwise Chromium can collect it and Playwright reports a navigation error.
+        window.__cameraReopenPromise = window.__honuaStudioApp.reopenEditorVersion(window.__savedCameraVersion);
+        return window.__cameraReopenPromise;
+      });
+      await page.evaluate(() => {
+        window.__cameraReopenPromise = undefined;
       });
       await expect.poll(async () => (await camera(page)).center[0]).toBeCloseTo(expected.center[0], 5);
       expectCamera(await camera(page), expected);
