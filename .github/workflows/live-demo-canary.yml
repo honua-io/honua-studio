@@ -3,7 +3,15 @@ name: Demo Studio canary
 on:
   schedule:
     - cron: "41 16 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      journeys:
+        description: Journeys to run (model-free excludes model calls and publication)
+        type: choice
+        default: all
+        options:
+          - all
+          - model-free
 
 permissions:
   contents: read
@@ -55,7 +63,13 @@ jobs:
           HONUA_LIVE_APPROVER_USERNAME: ${{ secrets.HONUA_LIVE_APPROVER_USERNAME }}
           HONUA_LIVE_APPROVER_PASSWORD: ${{ secrets.HONUA_LIVE_APPROVER_PASSWORD }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
-        run: npm run test:browser:live -- --reporter=list,json --retries=0
+          LIVE_JOURNEYS: ${{ inputs.journeys || 'all' }}
+        run: |
+          args=(--reporter=list,json --retries=0)
+          if [[ "$LIVE_JOURNEYS" == "model-free" ]]; then
+            args+=(--grep 'live demo-server journeys @live.*(boot:|style and filters:|MCP compose:)')
+          fi
+          npm run test:browser:live -- "${args[@]}"
 
       - name: Upload live browser evidence
         if: always()
