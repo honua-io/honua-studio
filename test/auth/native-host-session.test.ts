@@ -106,7 +106,7 @@ describe("native captured host session", () => {
     expect(() => auth.renewCookie({ ...cookie, baseUrl: "/api/studio", csrfToken: "csrf" })).toThrow("authority");
   });
 
-  it.each(["/api", "/rest", "/ogc"])("preserves canonical and prefixed routes under %s", async (sourcePathBase) => {
+  it.each(["/api", "/rest", "/ogc", "/rest/services/tenant"])("preserves canonical and prefixed routes under %s", async (sourcePathBase) => {
     const captured = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}")));
     const auth = session({ ...adapter(captured), sourcePathBase });
     for (const route of [
