@@ -215,6 +215,11 @@ Layer rendering currently covers **vector sources only**, reached over OGC API
 Features or a GeoServices FeatureServer. Anything else resolves to a visible
 "unrenderable" note with a reason rather than a blank map.
 
+The demo canary's manual `journeys` input defaults to `all`, as scheduled runs do.
+Select `model-free` to run only boot, direct style/filter and scripted MCP journeys
+using the existing demo credential, without model calls or publication. This focused
+receipt does not qualify the full live suite.
+
 ### In progress
 
 - **Live model quality is not a release gate yet.** The full chat → tool call
