@@ -53,7 +53,10 @@ export interface CookieSessionAdapter {
   readonly kind: "cookie";
   readonly baseUrl: string;
   readonly expiresAt: string;
-  readonly csrfToken: string;
+  /** Required for the legacy BFF; native hosts own CSRF inside fetchRequest. */
+  readonly csrfToken?: string;
+  /** Captured host transport, required with baseUrl /api/v1/studio. */
+  readonly fetchRequest?: typeof fetch;
   readonly environmentId: string;
   readonly principalId: string;
   /** Verified active deployment path only; never an upstream origin. */

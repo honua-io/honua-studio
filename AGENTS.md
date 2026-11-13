@@ -33,6 +33,11 @@ passed typecheck, style, build, 1,797 Vitest tests in 147 files and 52 Node live
 contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42947074965) passed
 all four jobs; the browser job reported 50 passed, Console assets six passed and Blazor six passed.
 These are fixture and packaging receipts.
+
+Native `/api/v1/studio` host sessions require Console's captured `fetchRequest`;
+legacy `/api/studio` sessions retain the BFF CSRF contract. Focused native adapter
+coverage is in `test/auth/native-host-session.test.ts`; deployed K3 qualification
+remains separate from these transport fixtures.
 The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43116174020)
 at `ee2df06` had 2 passes and 3 failures, retries disabled, in 11.6 seconds.
 Boot and scripted MCP passed. Publication stopped because `HONUA_LIVE_CONSOLE_URL` was absent.
