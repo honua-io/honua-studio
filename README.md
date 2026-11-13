@@ -13,6 +13,12 @@ The standalone shell and embed harnesses are compatibility and development
 surfaces, not a separate product. Repository consolidation is still pending;
 Console currently depends on the qualified editor bundle from this repository.
 
+Embedded authentication accepts the legacy `/api/studio` BFF and native
+`/api/v1/studio` sessions backed by Console's captured transport. The native
+adapter retains bounded human routes and delegates credential selection to
+Console; see [the host-session contract](docs/embed-session.md#console-cookie-host-session).
+Fixture validation does not establish deployed Console readiness.
+
 The Console bundle also exposes the canonical SDK clients for dataset
 tasks, uploads, submission status, and bounded file hashing. Its browser packaging
 check is `npm run test:console-assets`; see [the public SDK setup](docs/embed-session.md).
