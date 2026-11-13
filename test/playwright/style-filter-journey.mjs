@@ -74,24 +74,34 @@ async function mapDiagnostics(page) {
   });
 }
 
-/** The first authorized parcels dataset the recipe offers; fixture and live catalogs name it differently. */
-async function parcelsSourceOption(page) {
-  const source = page.getByTestId("recipe-source");
-  await expect(page.getByTestId("recipe-status")).not.toHaveText("Loading sources…");
-  const offered = await source
-    .locator("option")
-    .evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent ?? "" })));
-  const parcels =
-    offered.find((option) => option.value.startsWith("hi-parcels")) ??
-    offered.find((option) => option.value && /parcel/i.test(option.label));
-  if (!parcels) {
-    const status = await page.getByTestId("recipe-status").textContent();
-    throw new Error(`No parcels dataset in the recipe catalog. Status: ${status}. Offered: ${JSON.stringify(offered)}`);
-  }
-  return parcels.value;
+/** Picks the first offered recipe dataset that `matches` an option; fixture and live catalogs name datasets differently. */
+function recipeSourceOption(description, matches) {
+  return async (page) => {
+    await expect(page.getByTestId("recipe-status")).not.toHaveText("Loading sources…");
+    const offered = await page
+      .getByTestId("recipe-source")
+      .locator("option")
+      .evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent ?? "" })));
+    const chosen = offered.find((option) => option.value && matches(option));
+    if (!chosen) {
+      const status = await page.getByTestId("recipe-status").textContent();
+      throw new Error(
+        `No ${description} in the recipe catalog. Status: ${status}. Offered: ${JSON.stringify(offered)}`,
+      );
+    }
+    return chosen.value;
+  };
 }
 
-async function createRecipeMap(page, key, sourceOption) {
+const parcelsSourceOption = recipeSourceOption(
+  "parcels dataset",
+  (option) => option.value.startsWith("hi-parcels") || /parcel/i.test(option.label),
+);
+
+/** The demo's zoning layer keeps feature pagination bounded alongside the MCP journey. */
+export const zoningSourceOption = recipeSourceOption("zoning dataset", (option) => /zoning/i.test(option.label));
+
+async function createRecipeMap(page, { key, sourceOption, firstPaintTimeout }) {
   const browserErrors = [];
   page.on("console", (message) => {
     if (message.type() === "error") browserErrors.push(message.text().slice(0, 500));
@@ -115,7 +125,7 @@ async function createRecipeMap(page, key, sourceOption) {
     .getByTestId("recipe-category")
     .locator("option")
     .evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
-  const field = fields.includes("zoning_code") ? "zoning_code" : fields[0];
+  const field = ["zoning_code", "zone_code"].find((name) => fields.includes(name)) ?? fields[0];
   if (!field) throw new Error("The recipe offered no category field.");
   await page.getByTestId("recipe-category").selectOption(field);
   await page.getByRole("checkbox", { name: field, exact: true }).check();
@@ -125,7 +135,7 @@ async function createRecipeMap(page, key, sourceOption) {
   await expect(page.getByTestId("studio-widget-grid-row")).not.toHaveCount(0);
   const pageRows = await page.getByTestId("studio-widget-grid-row").count();
   await expect
-    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0)
+    .poll(async () => (await renderedLayer(page, "explore-layer", field))?.count ?? 0, { timeout: firstPaintTimeout })
     .toBeGreaterThan(0)
     .catch(async (error) => {
       throw new Error(
@@ -222,9 +232,9 @@ async function verifyTemporaryFilters(page, info, { key, readDraft, field, unfil
 export async function runStyleFilterJourney(
   page,
   info,
-  { key, readDraft, agentCall, sourceOption = parcelsSourceOption },
+  { key, readDraft, agentCall, sourceOption = parcelsSourceOption, firstPaintTimeout = 10_000 },
 ) {
-  const recipe = await test.step("recipe map", () => createRecipeMap(page, key, sourceOption));
+  const recipe = await test.step("recipe map", () => createRecipeMap(page, { key, sourceOption, firstPaintTimeout }));
   await test.step("direct styling", () => verifyDirectStyling(page, info, { key, readDraft, field: recipe.field }));
   if (agentCall)
     await test.step("agent refinement and conflicts", () =>
