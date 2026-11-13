@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.0](https://github.com/honua-io/honua-studio/compare/v0.1.3...v0.2.0) (2026-11-13)
+
+
+### Features
+
+* **exploration:** show and clear temporary filters where they are applied ([#130](https://github.com/honua-io/honua-studio/issues/130)) ([22e05f5](https://github.com/honua-io/honua-studio/commit/22e05f5dbfd6a143f481dfb6da422d80d587d2db))
+* **lifecycle:** save keyboard feature labels on the open draft ([#227](https://github.com/honua-io/honua-studio/issues/227)) ([7e8f311](https://github.com/honua-io/honua-studio/commit/7e8f3111d198efc5ccbff5635f4b6cece951b328))
+* **studio:** direct map styling, visible temporary filters, canary status (T1) ([faef3f1](https://github.com/honua-io/honua-studio/commit/faef3f1a24e714a22fd539cb96b750d2a11687cf))
+* **style:** direct color, opacity, size and labels in the map style editor ([#129](https://github.com/honua-io/honua-studio/issues/129)) ([6984a5b](https://github.com/honua-io/honua-studio/commit/6984a5bd668512efea52846873d7df1b6d049c0f))
+
+
+### Bug Fixes
+
+* **auth:** support captured native Console host sessions ([#246](https://github.com/honua-io/honua-studio/issues/246)) ([65e5fbd](https://github.com/honua-io/honua-studio/commit/65e5fbd8e6cbb6e51e8ee63cb8c2c84a2bfdc303))
+* **ci:** assert the worded temporary-filter label in the console-assets inspector spec ([#239](https://github.com/honua-io/honua-studio/issues/239)) ([f4b80ad](https://github.com/honua-io/honua-studio/commit/f4b80ad5d38a17e43a78a45be7246cd6619713ba))
+* **ci:** open the release pull request when the bot app is not installed ([#234](https://github.com/honua-io/honua-studio/issues/234)) ([ee2df06](https://github.com/honua-io/honua-studio/commit/ee2df0655c3f533bb043afb4290139f68142bd85))
+* **ci:** require App token for release PRs ([#247](https://github.com/honua-io/honua-studio/issues/247)) ([#248](https://github.com/honua-io/honua-studio/issues/248)) ([b345db0](https://github.com/honua-io/honua-studio/commit/b345db0f37f5390f8d3ae70dedbfd8026137c3f0))
+* **map:** keep loaded pages when the server rate-limits a large map source ([#238](https://github.com/honua-io/honua-studio/issues/238)) ([ddf5f1c](https://github.com/honua-io/honua-studio/commit/ddf5f1c7ea16df398a4c4ec1dd696eb7beba921a))
+* **map:** keep loaded pages when the server rate-limits a large map source ([#238](https://github.com/honua-io/honua-studio/issues/238)) ([42777d9](https://github.com/honua-io/honua-studio/commit/42777d9c198bd52ccc1eb913e6f926244f37f152))
+* **map:** name a rate-limited metadata request too, and read only small feature bodies in the journey ([#238](https://github.com/honua-io/honua-studio/issues/238)) ([e2bf690](https://github.com/honua-io/honua-studio/commit/e2bf690e2c017284921a392a98c7444c2e15a973))
+* **style, exploration:** keep unrepresentable styling intact and share filter clears ([#129](https://github.com/honua-io/honua-studio/issues/129), [#130](https://github.com/honua-io/honua-studio/issues/130)) ([9e16df6](https://github.com/honua-io/honua-studio/commit/9e16df60347aae2172c22f0289b6faa95e9c10fd))
+* **style:** keep a host-opened style editor visible ([#231](https://github.com/honua-io/honua-studio/issues/231)) ([5ba4acc](https://github.com/honua-io/honua-studio/commit/5ba4accddeb0345e08662f5f9b1fc93b572d0e71))
+* **style:** keep the pending-classes guard and the Labels picker current ([#129](https://github.com/honua-io/honua-studio/issues/129)) ([cdb10f4](https://github.com/honua-io/honua-studio/commit/cdb10f45ad6ff90c1e22c5d52e5d8e17ef59bbea))
+
 ## [0.1.3](https://github.com/honua-io/honua-studio/compare/v0.1.2...v0.1.3) (2026-11-10)
 
 
