@@ -42,25 +42,9 @@ jobs:
           TAG: ${{ steps.release.outputs.tag_name }}
         run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$TAG"
 
-      - name: Detect bot App credentials
-        id: creds
-        env:
-          BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
-          BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-        run: |
-          if [ -n "$BOT_APP_ID" ] && [ -n "$BOT_APP_PRIVATE_KEY" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::BOT_APP_ID/BOT_APP_PRIVATE_KEY are not set, so GITHUB_TOKEN opens the release pull request; its required checks wait for a maintainer to approve the workflow runs on the pull request."
-          fi
-
-      # A release pull request the App opens starts its required checks at once;
-      # one opened with GITHUB_TOKEN gets approval-required runs instead.
-      # A 404 here means the app is not installed. That must not skip the pull request.
-      - name: Mint the release pull request token
+      # App-authored release PRs trigger their required checks.
+      - name: Mint release automation token
         id: app-token
-        if: steps.creds.outputs.available == 'true'
-        continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
@@ -69,14 +53,10 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      - name: Warn when the bot app cannot open the pull request
-        if: steps.creds.outputs.available == 'true' && steps.app-token.outcome == 'failure'
-        run: echo "::warning::The bot app could not mint a token for this repository, so GITHUB_TOKEN opens the release pull request. Required checks on that pull request wait for a maintainer to approve the workflow runs."
-
       - name: Open or update the release pull request
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           skip-github-release: true
