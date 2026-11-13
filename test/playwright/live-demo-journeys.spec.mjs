@@ -8,6 +8,7 @@ import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
+import { runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const LIVE_API_KEY = process.env.HONUA_LIVE_API_KEY;
@@ -334,6 +335,38 @@ test.describe("live demo-server journeys @live", () => {
     } finally {
       if (draftId) await restCall("DELETE", `/v1/studio/package-drafts/${draftId}`).catch(() => {});
       await preview.close();
+    }
+  });
+
+  test("style and filters: direct styling and temporary filters against the REAL draft store, without a model", async ({
+    page,
+  }, info) => {
+    test.setTimeout(360_000);
+    const key = `studio-e2e-style-${Date.now()}`;
+    const preview = await startLivePreview();
+    const readDraft = async (packageKey) => {
+      const listed = await restCall("GET", `/v1/studio/package-drafts?q=${encodeURIComponent(packageKey)}`);
+      expect(listed.items).toHaveLength(1);
+      return restCall("GET", `/v1/studio/package-drafts/${listed.items[0].draftId}`);
+    };
+    try {
+      page.setDefaultTimeout(30_000);
+      await injectHostSession(page);
+      await page.goto(preview.url);
+      await expect(page.getByTestId("app-shell")).toBeVisible();
+      await runStyleFilterJourney(page, info, {
+        key,
+        readDraft,
+        sourceOption: zoningSourceOption,
+        firstPaintTimeout: 30_000,
+      });
+    } finally {
+      await preview.close();
+      const listed = await restCall("GET", `/v1/studio/package-drafts?q=${encodeURIComponent(key)}`).catch(() => ({
+        items: [],
+      }));
+      for (const draft of listed.items ?? [])
+        await restCall("DELETE", `/v1/studio/package-drafts/${draft.draftId}`).catch(() => {});
     }
   });
 
