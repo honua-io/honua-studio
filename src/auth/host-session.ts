@@ -8,6 +8,7 @@
  * calls a token endpoint. See docs/embed-session.md for the full contract
  * and rationale (including the REQ-011 admin-only note for Phase 0/1).
  */
+import { sendCookieRequest, validCookieTransport } from "./cookie-host-transport.js";
 import { type AuthTransitionEvent, INITIAL_AUTH_STATE, reduceAuthState } from "./state-machine.js";
 import type {
   AuthSession,
@@ -29,6 +30,7 @@ export function isSameCookiePrincipal(previous: SessionAdapter | undefined, next
     isCookieSession(previous) &&
     isCookieSession(next) &&
     Boolean(previous.principalId) &&
+    previous.baseUrl === next.baseUrl &&
     previous.principalId === next.principalId &&
     previous.environmentId === next.environmentId &&
     verifiedSourcePathBase(previous.sourcePathBase) === verifiedSourcePathBase(next.sourcePathBase)
@@ -54,6 +56,10 @@ export class HostAdapterAuthSession implements AuthSession {
   readonly fetchRequest?: typeof fetch;
 
   constructor(private adapter: SessionAdapter) {
+    if (isCookieSession(adapter)) {
+      verifiedSourcePathBase(adapter.sourcePathBase);
+      if (!validCookieTransport(adapter)) throw new Error("Invalid cookie host session.");
+    }
     const generation = this.expiryGeneration;
     this.unsubscribeExpired = this.adapter.onExpired(() => {
       if (generation === this.expiryGeneration)
@@ -68,15 +74,6 @@ export class HostAdapterAuthSession implements AuthSession {
       const cookie = Object.freeze({ ...adapter });
       this.adapter = cookie;
       const sourcePathBase = verifiedSourcePathBase(cookie.sourcePathBase);
-      if (
-        cookie.baseUrl !== "/api/studio" ||
-        !cookie.environmentId ||
-        !/^[A-Za-z0-9._:-]{1,256}$/.test(cookie.principalId ?? "") ||
-        !cookie.csrfToken ||
-        !Number.isFinite(Date.parse(cookie.expiresAt))
-      ) {
-        throw new Error("Invalid cookie host session.");
-      }
       this.fetchRequest = async (input, init) => {
         const cookie = this.adapter;
         if (!isCookieSession(cookie)) throw new Error("The host session changed.");
@@ -90,7 +87,13 @@ export class HostAdapterAuthSession implements AuthSession {
           if (url.origin !== location.origin) throw new Error("Cookie transport requires the host origin.");
           path = url.pathname + url.search;
         }
-        if (sourcePathBase && (path.startsWith(`${sourcePathBase}/rest/`) || path === `${sourcePathBase}/mcp`))
+        if (
+          sourcePathBase &&
+          path.startsWith(`${sourcePathBase}/`) &&
+          (cookie.baseUrl === "/api/v1/studio" ||
+            path.startsWith(`${sourcePathBase}/rest/`) ||
+            path === `${sourcePathBase}/mcp`)
+        )
           path = path.slice(sourcePathBase.length);
         const pathname = path.split("?")[0]!;
         if (/[^\x20-\x7e]|[\\#]/.test(path) || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split("/").includes(".."))
@@ -153,14 +156,7 @@ export class HostAdapterAuthSession implements AuthSession {
             throw new Error("Cookie host transport only permits bounded Studio requests.");
           target = path.startsWith("/api/studio/") ? path : `/api/studio${path.slice(4)}`;
         }
-        const headers = new Headers(init?.headers);
-        headers.delete("authorization");
-        headers.delete("x-api-key");
-        headers.set("X-Honua-Environment", cookie.environmentId);
-        headers.set("X-Honua-Session-Partition", cookie.principalId);
-        if (!["GET", "HEAD", "OPTIONS"].includes((init?.method ?? "GET").toUpperCase()))
-          headers.set("X-CSRF-Token", cookie.csrfToken);
-        let response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
+        let response = await sendCookieRequest(cookie, target, init);
         let responseLease = cookie;
         const method = (init?.method ?? "GET").toUpperCase();
         const safeRead = ["GET", "HEAD", "OPTIONS"].includes(method) || target === "/api/studio/catalog-mcp";
@@ -173,8 +169,7 @@ export class HostAdapterAuthSession implements AuthSession {
           const renewed = this.adapter;
           if (!isCookieSession(renewed) || this.getState().status !== "fresh")
             throw new Error("The host session changed.");
-          if (target === "/api/studio/catalog-mcp") headers.set("X-CSRF-Token", renewed.csrfToken);
-          response = await fetch(target, { ...init, headers, credentials: "same-origin", redirect: "error" });
+          response = await sendCookieRequest(renewed, target, init);
           if (this.adapter !== renewed) throw new Error("The session renewed again during this read. Retry it.");
           responseLease = renewed;
         }
@@ -233,9 +228,8 @@ export class HostAdapterAuthSession implements AuthSession {
       previous.principalId !== adapter.principalId ||
       previous.environmentId !== adapter.environmentId ||
       verifiedSourcePathBase(previous.sourcePathBase) !== verifiedSourcePathBase(adapter.sourcePathBase) ||
-      adapter.baseUrl !== "/api/studio" ||
-      !adapter.csrfToken ||
-      !Number.isFinite(Date.parse(adapter.expiresAt))
+      previous.baseUrl !== adapter.baseUrl ||
+      !validCookieTransport(adapter)
     )
       throw new Error("Cookie lease renewal changed the session authority.");
     const cookie = Object.freeze({ ...adapter });

@@ -204,6 +204,17 @@ and bound every route. Cookie transport permits Studio REST, read-only layer
 catalog MCP discovery, and bounded feature queries. It never lends human
 credentials to the model's canonical tools.
 
+For native server routes, use `baseUrl: "/api/v1/studio"` and supply
+`fetchRequest: session.transport.fetch` from Console's captured browser session.
+This transport receives relative routes such as `api/v1/studio/package-drafts`
+and `mcp`; Console owns the API origin, bearer selection, CSRF and session checks.
+`csrfToken` is optional in this mode. Studio strips supplied credential headers,
+retains its bounded route allowlist and expires the adapter when its lease ends.
+`sourcePathBase` may contain the verified deployment prefix; the captured host
+transport applies that prefix once. Renewals must retain the same base URL,
+principal, environment and deployment prefix. Switching between native and BFF
+routes requires a new session.
+
 `principalId` is the host's stable opaque user partition, not a credential. Pass
 the same partition to `ServerProcessWorkspace`; run submission requires it.
 Pending process commands and accepted receipts are retained separately for each
