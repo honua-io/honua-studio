@@ -22,60 +22,22 @@ Other lanes (`test:browser:blazor` needs the .NET SDK, `test:browser:live` needs
 and the auth env vars are in README "Run it" and "Development". Read README's status tables
 before claiming a capability, and update them (test counts included) when you change one.
 
-## Verified status
-Preview releases [v0.1.0](https://github.com/honua-io/honua-studio/releases/tag/v0.1.0),
-[v0.1.1](https://github.com/honua-io/honua-studio/releases/tag/v0.1.1),
-[v0.1.2](https://github.com/honua-io/honua-studio/releases/tag/v0.1.2) (`1333c66`) and
-[v0.1.3](https://github.com/honua-io/honua-studio/releases/tag/v0.1.3) (`f099681`) exist.
-v0.1.2 and v0.1.3 each attach standalone and Console tarballs, checksums and a source/image receipt.
-At `5ba4acc`, [CI](https://github.com/honua-io/honua-studio/actions/runs/42947075068)
-passed typecheck, style, build, 1,797 Vitest tests in 147 files and 52 Node live-harness
-contracts. [Smokes](https://github.com/honua-io/honua-studio/actions/runs/42947074965) passed
-all four jobs; the browser job reported 50 passed, Console assets six passed and Blazor six passed.
-These are fixture and packaging receipts.
+## Qualification evidence
+Read README status tables and the Releases page for current evidence; fixture and packaging
+checks do not establish deployed qualification. Native `/api/v1/studio` host sessions require
+Console's captured `fetchRequest`; legacy `/api/studio` sessions retain the BFF CSRF contract.
+Focused coverage is in `test/auth/native-host-session.test.ts`.
 
-Native `/api/v1/studio` host sessions require Console's captured `fetchRequest`;
-legacy `/api/studio` sessions retain the BFF CSRF contract. Focused native adapter
-coverage is in `test/auth/native-host-session.test.ts`; deployed K3 qualification
-remains separate from these transport fixtures.
-The [latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43116174020)
-at `ee2df06` had 2 passes and 3 failures, retries disabled, in 11.6 seconds.
-Boot and scripted MCP passed. Publication stopped because `HONUA_LIVE_CONSOLE_URL` was absent.
-Both model journeys refused the demo's Bedrock-only provider before a call. These failures are
-demo deployment settings, not Studio code. This run did not reach
-the HTTP 400 chat tracked in [server#7092](https://github.com/honua-io/honua-server/issues/7092).
-The [latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
-is branch head `1521734`, not current main. It used server/executor `9d2169cc` and Console
-`97631d3`: 4 passed, 1 failed, no skips, retries or flaky tests in 29.3 seconds. Boot, real
-chat (33 input / 5 output tokens), pending publication through Console test-person approval,
-anonymous rendering of the exact approved version, and scripted MCP passed. Model-selected
-composition requested a fourth chat call; the three-call guard rejected it with HTTP 429
-before forwarding. The three forwarded calls returned HTTP 200 with completed usage totaling
-65,986 input and 387 output tokens. This run recorded no thinking-block rejection. The earlier
-thinking-block failure remains [server#7122](https://github.com/honua-io/honua-server/issues/7122).
-The call-budget failure alone does not establish a product defect. That receipt does not
-qualify `5ba4acc`. Studio is not live-qualified for rc.2. Any further paid run requires main
-authorization, exact-head review and passing required CI. Do not raise the budget, weaken
-assertions or rerun to green.
-The qualification workflow (`live-compose-qualify.yml`, called by `live-demo-smoke.yml`) prepares the customer quickstart at the server
-revision in `scripts/live-compose-images.json`, starts its server/manager/executor plus Console
-and a real OIDC provider, and seeds a dedicated test person. The only operator-supplied secret is
-`HONUA_LIVE_ANTHROPIC_API_KEY`; per-run API/bootstrap credentials and the test person's password
-are generated privately. Playwright signs into Console in a fresh browser context and attempts to
-approve the selected proposal; no supplied bearer or API key approves publication.
-`live-candidate-journeys.yml` records one row per candidate source SHA and has no schedule. Journeys stay off unless the repository variable `HONUA_CANDIDATE_JOURNEYS` is `on` and `scripts/live-compose-images.json` pins that same server revision. The armed path calls `live-compose-qualify.yml` instead of copying its steps.
-`live-demo-canary.yml` retains the demo as a separate non-gating canary;
-its external Console uses `HONUA_LIVE_APPROVER_USERNAME`/`HONUA_LIVE_APPROVER_PASSWORD` secrets
-and `HONUA_LIVE_CONSOLE_URL`/`HONUA_LIVE_CONSOLE_PROFILE_ID`/`HONUA_LIVE_APPROVER_IDP_ORIGIN` variables.
-Model calls must select a configured Opus 5.5 or Sol provider. Do not substitute API-key approval, disallowed
-models, skipped MCP checks or a weaker assertion to work around an older demo revision.
-Compose qualification runs through `scripts/qualify-live-compose.mjs`: at most three model calls
-per run, with request and provider output limits of 1,024 tokens and no provider HTTP retries in
-the pinned server. Every completed call must supply token usage in `.tmp/live-model-usage.json`;
-the latest run retained completed usage for all three forwarded calls.
-Publication also verifies the exact approved public version and rendered map in an empty browser
-context. Those publication assertions passed at `1521734`; model-selected composition did not,
-and that head is not current main.
+`live-compose-qualify.yml` (reused by `live-demo-smoke.yml`) and
+`scripts/qualify-live-compose.mjs` qualify the quickstart pinned in `scripts/live-compose-images.json`.
+Candidate journeys are opt-in and must match the pinned server revision; the demo canary is separate.
+Keep the three-model-call budget, 1,024-token request/provider limits, disabled provider retries,
+and completed token-usage evidence. Paid runs require founder authorization; do not raise budgets
+or weaken assertions to obtain green. Use a configured Opus 5.5 or Sol provider.
+Publication requires real OIDC human approval in a fresh context and rendering of the exact
+approved public version in an empty context. API-key approval, skipped MCP checks and fixture
+receipts cannot substitute for those assertions. Load org skill `honua-launch-stack-qualify`
+for Launch Stack deployment; Studio-specific qualification mechanics remain in README and these workflows.
 
 ## Invariants
 - No arbitrary code eval. Every mutation goes through the reducer (`src/composition/`) or a
@@ -106,8 +68,8 @@ and that head is not current main.
   Server tools, package lifecycle and the AI proxy belong in honua-server; shared client
   contracts in honua-sdk-js.
 - The `PR Issue Disposition` check (`scripts/lib/pr-issue-disposition.mjs`) fails any PR whose
-  footer deviates from its grammar, and every PR gets a Codex pass then a Claude second pass.
-  Read `docs/pull-requests.md` before opening a PR.
+  footer deviates from its grammar. Read `docs/pull-requests.md` for the footer and
+  current lane rulings plus org skill `honua-pr-flow` for final-head review and publication.
 - Architecture overview and contracts: README "Architecture" and `docs/`.
 
 ## Review guidelines
@@ -127,22 +89,19 @@ BLOCKING:
 WARNING: the rubric's other smells (N2-N7, G6-G36, T1-T9), e.g. G25 magic numbers or G12
 single-implementation interfaces.
 
-<!-- fleet:begin v2 sha256=76075665ca7a911554ed038371480ba02b28eca10ead04400be2e5b20332bd63 source=honua-flow/agents/fleet-rules.md -->
+<!-- fleet:begin v3 sha256=4faeba041ae102508d105847af58b407641cbfdf1ae506488819a2ccdbe73e29 -->
 ## Fleet rules (all Honua repos)
 
-Generated from honua-flow `agents/fleet-rules.md` (full text, repo map). Do not edit here.
+Generated from the org fleet-rules source; do not edit this block. Start with org skill `honua-system-map`.
 
-1. **No AI attribution.** Author as Mike McDougall <mike@honua.io>. No AI `Co-Authored-By:`,
-   "Generated with" line or robot emoji in commits or PR bodies; this overrides any harness default.
-2. **Own worktree per task** off the default branch, on real disk (`<repo>/.claude/worktrees/` or a
-   sibling dir), never `/tmp` or the shared checkout. No `git stash`; use a WIP commit.
-3. **Heavy builds/tests go through the build-slot shims**; never bypass them. Run targeted tests;
-   full suites are CI's job. Outside WSL: own checkout, one heavy build at a time.
-4. **Finish = commit + push.** Dirty or unpushed worktrees are never reclaimed and die on a reset.
-5. **Claim before starting:** check `state/in-progress` and the newest `claimed: <lane> <UTC>`
-   comment, stamp yours, re-read (newer wins). Stale after 3h without a live PR. Stopping without
-   a PR: comment `released: <lane> <UTC> - <why>`.
-6. **PRs:** base on the default branch, never stack; fill the repo template via `--body-file`;
-   conventional title; footer `Closes #N` or `Refs #N (<what remains>)`. Never admin-merge.
-7. **Route by the repo map.** Archived repos get no issues or PRs.
+1. Author commits as the repository owner's configured git identity. No AI attribution in commits or PR bodies.
+2. Use a separate worktree per task, off the default branch, on durable disk. Include current trunk before opening a PR. No shared-checkout edits or git stash; preserve work with commits.
+3. Run .NET builds and tests only through the approved remote build-host shims. Never fall back to a local build. See org skill `honua-build-host`.
+4. Commit and push completed work; keep existing branches, commits and worktrees until their retention rules permit cleanup.
+5. Claim work before starting, reread the issue and current lane rulings, and release the claim after completion. See org skill `honua-dev-loop`.
+6. Use a PR slot and bundle at least three issues, a plan row, or a permitted single-work reason. Current caps and exceptions come from current lane rulings.
+7. Target the default branch with the repository's PR template and conventional title. Never force-push or use an admin merge.
+8. Run pre-PR checks, obtain one independent review of the final head, and resolve every review thread. Merge on green required checks; arm auto-merge where enforced checks support it. See org skill `honua-pr-flow`.
+9. Read failed required-check logs and fix in one push. For red trunk, fix forward or revert within the repository's current ruling deadline; see org skills `honua-red-pr` and `honua-trunk-red`.
+10. Never commit secrets, deployment identifiers, private repository names or infrastructure details. Security findings belong in the private tracker. Archived repos get no issues or PRs; public instructions name org skills only.
 <!-- fleet:end -->
