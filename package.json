@@ -34,7 +34,8 @@
   },
   "dependencies": {
     "@honua/sdk-js": "0.2.7",
-    "maplibre-gl": "6.11.2"
+    "maplibre-gl": "6.11.2",
+    "pmtiles": "4.4.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

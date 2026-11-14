@@ -139,41 +139,44 @@ export class CompositionHistory {
     return [...this.#undoStack];
   }
 
-  /** Applies `input` through the reducer, pushes the resulting revision, and returns the diff. Throws {@link CompositionCommandError} on rejection — the stack is untouched on failure. */
-  public apply(input: CompositionCommand | unknown): CompositionDiff {
+  /** An optional authoritative accepted state belongs to the same command revision.
+   * Applies `input` through the reducer, pushes the resulting revision, and returns the diff. Throws {@link CompositionCommandError} on rejection — the stack is untouched on failure. */
+  public apply(input: CompositionCommand | unknown, acceptedState?: CompositionState): CompositionDiff {
     this.#assertNotReconciling();
     const result: CompositionApplyResult = applyCompositionCommand(this.current, input);
     this.#redoStack = [];
     this.#pushRevision({
-      state: result.state,
+      state: acceptedState ?? result.state,
       command: result.diff.command,
       diff: result.diff,
       timestamp: this.#now(),
     });
-    this.#sync(result.state);
+    this.#sync(acceptedState ?? result.state);
     return result.diff;
   }
 
   /** Moves one revision back, syncing the restored state to the draft. Returns the restored state, or `undefined` if already at the initial revision. */
-  public undo(): CompositionState | undefined {
+  public undo(acceptedState?: CompositionState): CompositionState | undefined {
     this.#assertNotReconciling();
     if (!this.canUndo()) return undefined;
     const revision = this.#undoStack.pop();
     if (!revision) return undefined;
     this.#redoStack.push(revision);
+    if (acceptedState) this.#acceptCurrent(acceptedState);
     const restored = this.current;
     this.#sync(restored);
     return restored;
   }
 
   /** Moves one revision forward. Returns the restored state, or `undefined` if there is nothing to redo. */
-  public redo(): CompositionState | undefined {
+  public redo(acceptedState?: CompositionState): CompositionState | undefined {
     this.#assertNotReconciling();
     const revision = this.#redoStack.pop();
     if (!revision) return undefined;
     this.#undoStack.push(revision);
-    this.#sync(revision.state);
-    return revision.state;
+    if (acceptedState) this.#acceptCurrent(acceptedState);
+    this.#sync(this.current);
+    return this.current;
   }
 
   /** Resolves once every `DraftSync.apply()` call fired by `apply()`/`undo()`/`redo()` so far has settled (fulfilled or rejected) — awaits the batching queue, does not throw. */
@@ -211,6 +214,10 @@ export class CompositionHistory {
     const revision = this.#undoStack[this.#undoStack.length - 1];
     if (!revision) throw new Error("CompositionHistory: undo stack is unexpectedly empty");
     return revision;
+  }
+
+  #acceptCurrent(state: CompositionState): void {
+    this.#undoStack[this.#undoStack.length - 1] = { ...this.#currentRevision(), state };
   }
 
   #assertNotReconciling(): void {

@@ -211,9 +211,26 @@ the first flagship deployment is the statewide Hawaii demo
 | The demo-only model-free live style/filter journey uses the seeded zoning layer and checks painted styles, temporary filters, and saved draft state. Restoration awaits a new live receipt; fixture evidence alone does not qualify the demo. | `test/playwright/live-demo-journeys.spec.mjs` | #238 |
 | `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43116174020) at `ee2df06` (not current main): 2 passed, 3 failed before a model turn (demo deployment settings, see [Status](#status)) | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
-Layer rendering currently covers **vector sources only**, reached over OGC API
-Features or a GeoServices FeatureServer. Anything else resolves to a visible
-"unrenderable" note with a reason rather than a blank map.
+Layer rendering supports public **PMTiles vector and raster archives**, plus
+vector sources reached over OGC API Features or a GeoServices FeatureServer.
+Other catalog sources resolve to a visible "unrenderable" note with a reason.
+
+For PMTiles, the catalog descriptor uses `protocol: "pmtiles"` and
+`locator: { url: "https://…/archive.pmtiles", sourceType: "vector" }` (or
+`"raster"`). Vector layers must name `metadata.honua.sourceLayer`, matching a
+layer inside the archive, and use a compatible `fill`, `line` or `circle` type.
+Raster layers use `type: "raster"`. Draft projection saves the native source
+binding and map style through the existing approval-controlled lifecycle;
+published audiences read the same archive anonymously. The archive server must
+support CORS and HTTP 206 byte ranges (expose `Content-Range` and a strong `ETag`
+on every response), without
+cookies, bearer credentials or redirects. Each requested range is limited to
+16 MiB, including each decoded gzip directory, metadata block and tile. Uncompressed
+and gzip archives are supported; each map holds at most 64 archives. These are reader capabilities;
+archive creation and live deployment qualification remain separate work.
+
+COG rendering awaits a supported public SDK decoder ([#254](https://github.com/honua-io/honua-studio/issues/254)).
+The native-file direction follows [ADR-0087](https://github.com/honua-io/honua-server/blob/main/docs/internal/contributor/adr/0087-native-client-protocols.md).
 
 The demo canary's manual `journeys` input defaults to `all`, as scheduled runs do.
 Select `model-free` to run only boot, direct style/filter and scripted MCP journeys

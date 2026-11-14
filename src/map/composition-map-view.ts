@@ -55,6 +55,7 @@ import {
   compositionToMapPackage,
   isBasemapLayerId,
 } from "./map-package-projection.js";
+import { installPmtilesMapResourceProtocol } from "./pmtiles-map-resource-protocol.js";
 import {
   findCompositionSourceDescriptor,
   hasCompositionSourceOverride,
@@ -185,10 +186,7 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
     throw new Error("maplibre-gl did not export a Map constructor.");
   }
   const registry = namespace as unknown as SourceProtocolRegistry;
-  if (
-    (options.getAuth || options.anonymousStyleResources || options.authorizedFeatureUrls) &&
-    (typeof registry.addProtocol !== "function" || typeof registry.removeProtocol !== "function")
-  ) {
+  if (typeof registry.addProtocol !== "function" || typeof registry.removeProtocol !== "function") {
     throw new Error("maplibre-gl did not export the source protocol registry.");
   }
   const normalizeUrl = (url: string): string | undefined => {
@@ -234,6 +232,10 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
           onError: options.onSourceError,
         })
       : undefined;
+  const pmtiles = installPmtilesMapResourceProtocol(registry, {
+    onError: options.onSourceError,
+    deniedResourceUrls: catalogFeatureUrls,
+  });
   try {
     const map = new MapConstructor({
       container: options.container,
@@ -241,9 +243,11 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
       center: [...options.center],
       zoom: options.zoom,
       attributionControl: { compact: false, customAttribution: options.attributionText },
-      ...(transport || anonymous
+      ...(transport || anonymous || pmtiles
         ? {
             transformRequest: (url: string, type: import("maplibre-gl").ResourceType) => {
+              const archive = pmtiles.transformRequest(url);
+              if (archive) return archive;
               const authenticated = transport?.transformRequest(url, type);
               if (authenticated && authenticated.url !== url) return authenticated;
               // A catalog feature source rejected by the trusted endpoint
@@ -256,10 +260,12 @@ export const defaultCompositionMapFactory: CompositionMapFactory = async (option
           }
         : {}),
     });
+    map.on("remove", () => pmtiles.dispose());
     if (transport) map.on("remove", () => transport.dispose());
     if (anonymous) map.on("remove", () => anonymous.dispose());
     return map;
   } catch (error) {
+    pmtiles.dispose();
     transport?.dispose();
     anonymous?.dispose();
     throw error;

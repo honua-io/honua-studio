@@ -86,8 +86,8 @@ and that head is not current main.
   wire-conversion seam.
 - Never persist credentials (no `localStorage`/`sessionStorage` tokens) and keep API keys out
   of client code; live keys reach the server only through the Vite proxy.
-- Catalog rendering is vector-only (OGC API Features, GeoServices FeatureServer); other sources
-  show a visible "unrenderable" note. Raster is #36, 3D is #37-#39.
+- Catalog rendering supports OGC API Features, GeoServices FeatureServer and public PMTiles
+  vector/raster archives. Other sources show a visible "unrenderable" note; COG is #254, 3D is #37-#39.
 
 ## Gotchas
 - Biome `files.include` in `biome.json` is an allow-list: a new top-level directory is invisible
