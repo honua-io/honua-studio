@@ -61,8 +61,9 @@ workflow qualification remain separate from the producer's fixture checks.
   client for it yet.
 - **A platform capability, not a client feature** — Maps and Apps live in
   honua-server, so any host can read them. Embedding Studio itself in
-  [Honua Console](https://github.com/honua-io/honua-console)'s `/studio`
-  surface is honua-io/honua-console#324, scheduled for 2026.2.
+  [Honua Console](https://github.com/honua-io/honua-console) uses this repository's
+  editor bundle. Installed Console authentication, approval and audience journeys
+  still require live qualification against the release candidate.
 
 The map style editor opens on the selected layer's common styling: color, opacity, and point
 size, line width or polygon outline width, previewed live on the map, plus a Labels field
@@ -91,7 +92,7 @@ configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are separate from those packaging gates; rc.2 requires live proof. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-Latest default-branch evidence, at `5ba4acc`:
+Recorded default-branch fixture evidence, at `5ba4acc` (historical, not candidate qualification):
 
 - [CI run 42947075068](https://github.com/honua-io/honua-studio/actions/runs/42947075068)
   passed typecheck, style, build, 1,797 Vitest tests across 147 files, and 52 Node
@@ -100,9 +101,9 @@ Latest default-branch evidence, at `5ba4acc`:
   passed the container, browser, production Console-assets and Blazor jobs. The browser
   job reported 50 passed. Console assets reported six passed and Blazor reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Latest scheduled demo canary 43116174020](https://github.com/honua-io/honua-studio/actions/runs/43116174020),
-  at `ee2df06` on 2026-11-11, reported **two passed, three failed**, with retries disabled,
-  in 11.6 seconds. Boot and scripted MCP composition passed. Publication stopped because
+- [Demo canary 43639924006](https://github.com/honua-io/honua-studio/actions/runs/43639924006),
+  at `ab7eb254` on 2026-11-14, reported **three passed, three failed**, with retries disabled,
+  in 41.8 seconds. Boot and scripted MCP composition passed. Publication stopped because
   `HONUA_LIVE_CONSOLE_URL` was absent. Both real-model journeys refused invocation before a
   provider call: readiness advertised only a Bedrock adapter, with no allowed Opus 5.5 or Sol
   provider. The canary has failed nightly since 2026-10-22. The stale immediate-`Published`
@@ -120,7 +121,7 @@ approval of the pending publication through Console. Direct Anthropic Opus 5.5 u
 admission remain enforced. Setup does not invoke a model. The demo remains a separate, non-gating
 scheduled canary.
 
-The [latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
+The [recorded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
 ran on branch head `1521734`, which is not current main. It used server/executor `9d2169cc`
 from [candidate build 42665713376](https://github.com/honua-io/honua-server/actions/runs/42665713376)
 and Console `97631d3`. It recorded **four passed, one failed, zero skipped, zero retries and
@@ -327,9 +328,6 @@ native model and visual workflow qualification remains pending.
   [#39](https://github.com/honua-io/honua-studio/issues/39)).
 - Dual-mode visual style editor
   ([#22](https://github.com/honua-io/honua-studio/issues/22)).
-- Console embed at `/studio`
-  ([honua-io/honua-console#324](https://github.com/honua-io/honua-console/issues/324),
-  2026.2).
 
 ## Run it
 
