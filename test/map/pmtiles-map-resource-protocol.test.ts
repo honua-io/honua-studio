@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import type { AddProtocolAction } from "maplibre-gl";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -176,6 +177,103 @@ describe("anonymous PMTiles", () => {
     release();
     await rejected;
     expect((await active).data).toHaveProperty("tiles");
+    protocol.dispose();
+  });
+
+  it("aborts abandoned metadata when the remaining tile consumer completes", async () => {
+    const network = registry();
+    const bytes = archive(1);
+    const serve = transport(bytes);
+    let metadataSignal: AbortSignal | undefined;
+    let started!: () => void;
+    const metadataStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (new Headers(init?.headers).get("Range")?.startsWith("bytes=132-")) {
+        metadataSignal = init?.signal ?? undefined;
+        started();
+        return new Promise<Response>((_resolve, reject) => {
+          metadataSignal?.addEventListener("abort", () => reject(metadataSignal?.reason), { once: true });
+        });
+      }
+      return serve(input, init);
+    });
+    const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl });
+    const request = protocol.transformRequest(`pmtiles://${url}`)!;
+    const controller = new AbortController();
+    const cancelled = network.run(request.url, "json", controller);
+    const rejected = expect(cancelled).rejects.toThrow();
+    await metadataStarted;
+    const active = network.run(protocol.transformRequest(`pmtiles://${url}/0/0/0.mvt`)!.url);
+    controller.abort();
+    expect(metadataSignal?.aborted).toBe(false);
+    await active;
+    await rejected;
+    expect(metadataSignal?.aborted).toBe(true);
+    protocol.dispose();
+  });
+
+  it.each(["directory", "metadata", "tile"])("bounds gzip expansion of %s", async (part) => {
+    const original = archive(1);
+    const metadata = original.slice(132, original.length - 3);
+    const expanded = new Uint8Array(16 * 1024 * 1024 + 1);
+    const root = gzipSync(part === "directory" ? expanded : original.slice(127, 132));
+    const json = gzipSync(part === "metadata" ? expanded : metadata);
+    const tile = part === "tile" ? gzipSync(expanded) : original.slice(-3);
+    const bytes = new Uint8Array(127 + root.length + json.length + tile.length);
+    bytes.set(original.slice(0, 127));
+    const header = new DataView(bytes.buffer);
+    for (const [offset, value] of [
+      [16, root.length],
+      [24, 127 + root.length],
+      [32, json.length],
+      [40, 127 + root.length + json.length],
+      [56, 127 + root.length + json.length],
+      [64, tile.length],
+    ])
+      header.setBigUint64(offset, BigInt(value), true);
+    bytes[97] = 2;
+    bytes[98] = part === "tile" ? 2 : 1;
+    // The tile entry must address the compressed tile's complete byte range.
+    if (part === "tile") {
+      const length = tile.length;
+      const encoded: number[] = [];
+      let value = length;
+      do {
+        const byte = value % 128;
+        value = Math.floor(value / 128);
+        encoded.push(byte | (value ? 128 : 0));
+      } while (value);
+      const tileRoot = gzipSync(new Uint8Array([1, 0, 1, ...encoded, 1]));
+      // Keep the root length stable by constructing the tile fixture separately below.
+      const resized = new Uint8Array(127 + tileRoot.length + json.length + tile.length);
+      resized.set(bytes.slice(0, 127));
+      const view = new DataView(resized.buffer);
+      for (const [offset, number] of [
+        [16, tileRoot.length],
+        [24, 127 + tileRoot.length],
+        [40, 127 + tileRoot.length + json.length],
+        [56, 127 + tileRoot.length + json.length],
+      ])
+        view.setBigUint64(offset, BigInt(number), true);
+      resized.set(tileRoot, 127);
+      resized.set(json, 127 + tileRoot.length);
+      resized.set(tile, resized.length - tile.length);
+      const network = registry();
+      const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl: transport(resized) });
+      await expect(network.run(protocol.transformRequest(`pmtiles://${url}/0/0/0.mvt`)!.url)).rejects.toThrow(
+        "size limit",
+      );
+      protocol.dispose();
+      return;
+    }
+    bytes.set(root, 127);
+    bytes.set(json, 127 + root.length);
+    bytes.set(tile, bytes.length - tile.length);
+    const network = registry();
+    const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl: transport(bytes) });
+    await expect(network.run(protocol.transformRequest(`pmtiles://${url}`)!.url, "json")).rejects.toThrow("size limit");
     protocol.dispose();
   });
 
