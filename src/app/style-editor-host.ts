@@ -2,6 +2,7 @@ import type { CompositionController } from "../composition/controller.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { MapStyleDocument, MapStyleField } from "../styles/map-style-edit.js";
 import { MapStyleEditor, type MapStyleEditorOptions } from "../styles/map-style-editor.js";
+import { StyleSuggestionPanel } from "../styles/style-suggestion-panel.js";
 import type { CompositionEditor } from "./composition-editor.js";
 import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./editor-authority.js";
 import type { EditorDraftIdentity, EditorDraftSession } from "./editor-draft-session.js";
@@ -12,6 +13,7 @@ import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
 
 const NEWER_DRAFT_SAVED = "Another edit saved this map first. Discard visual edits to load it, then reapply yours.";
+const SUGGESTION_BLOCKED_BY_EDITS = "Save or discard visual style edits before requesting a style suggestion.";
 
 /** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
 export interface StyleEditorHostElement extends EventTarget {
@@ -41,6 +43,7 @@ interface EditingSession {
 /** The visual map-style editor docked beside the map; edits stay local until saved to the draft. */
 export class StyleEditorHost {
   #editor: MapStyleEditor | undefined;
+  #suggestions: StyleSuggestionPanel | undefined;
   #panel: HTMLElement | undefined;
   #unsubscribe: (() => void) | undefined;
 
@@ -55,7 +58,7 @@ export class StyleEditorHost {
   }
 
   contains(element: Element): boolean {
-    return this.#panel?.contains(element) ?? false;
+    return (this.#panel?.contains(element) || this.#suggestions?.element.contains(element)) ?? false;
   }
 
   async open(selectedLayerId: string | undefined): Promise<void> {
@@ -75,8 +78,10 @@ export class StyleEditorHost {
     const session: EditingSession = { canvas, generation, identity };
     const editor = new MapStyleEditor(this.#editorOptions(session, document, selectedLayerId));
     this.#editor = editor;
+    this.#mountSuggestions(session, editor, selectedLayerId);
     editor.focus();
     this.#unsubscribe = this.options.composition.subscribe(() => {
+      this.#suggestions?.refresh();
       if (editor.dirty) return;
       void canvas
         .editableMapStyle()
@@ -111,6 +116,8 @@ export class StyleEditorHost {
   dispose(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
+    this.#suggestions?.dispose();
+    this.#suggestions = undefined;
     this.#editor?.dispose();
     this.#editor = undefined;
     this.#panel?.remove();
@@ -156,6 +163,35 @@ export class StyleEditorHost {
     return panel;
   }
 
+  /** Authorized style suggestions for the editor's selected layer, saved through the same draft dispatch. */
+  #mountSuggestions(session: EditingSession, editor: MapStyleEditor, selectedLayerId: string | undefined): void {
+    const panel = this.#panel;
+    if (!panel) return;
+    const { authority, catalog, composition } = this.options;
+    const suggestions = new StyleSuggestionPanel({
+      controller: composition,
+      catalog: () => catalog.catalog ?? [],
+      host: { session: () => authority.session, auth: () => authority.resolvedAuth },
+      layerId: selectedLayerId ?? composition.state.layers[0]?.id,
+      dispatch: async (command) => {
+        if (
+          !authority.epoch.isCurrent(session.generation) ||
+          session.identity.draftId !== this.options.drafts.identity?.draftId
+        )
+          return { ok: false, reason: `${EDITOR_AUTHORITY_CHANGED} Reopen the visual editor.` };
+        return this.options.editor.dispatch([command]);
+      },
+      onPreview: (style) => {
+        session.canvas.stylePreview = style;
+      },
+      blockedReason: () => (editor.dirty ? SUGGESTION_BLOCKED_BY_EDITS : undefined),
+    });
+    this.#suggestions = suggestions;
+    // A sibling region keeps the editor's own status the only live region inside "Map style editor".
+    if (panel.slot) suggestions.element.slot = panel.slot;
+    panel.after(suggestions.element);
+  }
+
   #lifecycleDisplaysDraft(lifecycle: HTMLElement, draftId: string): boolean {
     return (
       lifecycle.getAttribute("draft-id") === draftId &&
@@ -195,10 +231,17 @@ export class StyleEditorHost {
       layers: state.layers.map((layer) => ({ id: layer.id, sourceId: layer.sourceId, title: layer.title })),
       selectedLayerId,
       getFields: (sourceId) => this.#describeFields(session, sourceId),
+      onSelectLayer: (layerId) => this.#suggestions?.retarget(layerId),
       onPreview: (style) => {
+        // A visual edit supersedes a suggestion preview; a clean editor leaves a displayed suggestion alone.
+        if (this.#suggestions?.previewing) {
+          if (style === undefined) return;
+          this.#suggestions.discard();
+        }
         session.canvas.stylePreview = style;
       },
       onDirty: (dirty) => {
+        this.#suggestions?.refresh();
         this.options.chrome.paintHistory();
         this.#announceDirtyChange({ dirty });
       },

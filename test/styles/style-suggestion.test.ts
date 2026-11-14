@@ -5,7 +5,7 @@ import { CompositionController } from "../../src/composition/controller.js";
 import { canonicalCompositionJson, createEmptyCompositionState } from "../../src/composition/model.js";
 import type { CompositionSourceDescriptor } from "../../src/map/source-resolution.js";
 import type { MapStyleDocument } from "../../src/styles/map-style-edit.js";
-import { LayerStyleSuggestion } from "../../src/styles/style-suggestion.js";
+import { LayerStyleSuggestion, type StyleSuggestionDispatch } from "../../src/styles/style-suggestion.js";
 
 const PRINCIPAL = "principal-a";
 const ENVIRONMENT = "env-a";
@@ -425,5 +425,74 @@ describe("authorized style suggestion", () => {
       reason: "This source is not an authorized catalog layer.",
     });
     expect(blocked).not.toHaveBeenCalled();
+  });
+});
+
+describe("style suggestion applied through the host draft dispatch", () => {
+  function mountWithDispatch(controller: CompositionController, dispatch: StyleSuggestionDispatch) {
+    const onPreview = vi.fn();
+    const suggestion = new LayerStyleSuggestion({
+      controller,
+      catalog: () => catalog(),
+      principalId: PRINCIPAL,
+      environmentId: ENVIRONMENT,
+      transport: async () => jsonResponse(envelope(canonicalCompositionJson(controller.state), geometrySuggestion())),
+      onPreview,
+      layerId: "parcels",
+      dispatch,
+    });
+    return { suggestion, onPreview };
+  }
+
+  it("writes setLayerStyleRef through dispatch instead of the local controller", async () => {
+    const controller = controllerFor();
+    const local = vi.spyOn(controller, "apply");
+    const dispatch = vi.fn<StyleSuggestionDispatch>(async () => ({ ok: true }));
+    const { suggestion, onPreview } = mountWithDispatch(controller, dispatch);
+    expect((await suggestion.request()).ok).toBe(true);
+    expect(suggestion.pending).toBe(true);
+    expect(await suggestion.apply()).toEqual({ ok: true });
+    expect(local).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+      name: "setLayerStyleRef",
+      target: { kind: "layer", id: "parcels" },
+      styleBody: { parcels: { paint: { "fill-color": "#0b7285", "fill-opacity": 0.8 } } },
+    });
+    expect(suggestion.pending).toBe(false);
+    expect(onPreview).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("keeps the preview and reports the draft's reason when the write is refused", async () => {
+    const controller = controllerFor();
+    const dispatch = vi.fn(async () => ({
+      ok: false,
+      reason: "Save or discard visual style edits before changing the map.",
+    }));
+    const { suggestion, onPreview } = mountWithDispatch(controller, dispatch);
+    expect((await suggestion.request()).ok).toBe(true);
+    expect(await suggestion.apply()).toEqual({
+      ok: false,
+      reason: "Save or discard visual style edits before changing the map.",
+    });
+    expect(suggestion.pending).toBe(true);
+    expect(onPreview).not.toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("reads the catalog when the request is made, not when the controller was built", async () => {
+    const controller = controllerFor();
+    let current: readonly CompositionSourceDescriptor[] = [];
+    const suggestion = new LayerStyleSuggestion({
+      controller,
+      catalog: () => current,
+      principalId: PRINCIPAL,
+      environmentId: ENVIRONMENT,
+      transport: async () => jsonResponse(envelope(canonicalCompositionJson(controller.state), geometrySuggestion())),
+      layerId: "parcels",
+    });
+    expect(suggestion.eligibility()).toEqual({ ok: false, reason: "This source is not an authorized catalog layer." });
+    current = catalog();
+    expect(suggestion.eligibility()).toEqual({ ok: true, canonicalLayerId: CANONICAL_LAYER_ID });
+    expect((await suggestion.request()).ok).toBe(true);
   });
 });
