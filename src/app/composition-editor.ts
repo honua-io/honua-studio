@@ -278,8 +278,19 @@ export class CompositionEditor {
     authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     // The accepted style response establishes one authoritative revision;
     // replaying it against the older source anchor would reject valid additions.
-    if (!styleCommand) for (const command of commands) composition.apply(command);
-    composition.replaceState(observed);
+    if (styleCommand) composition.replaceState(observed);
+    else {
+      for (const [index, command] of commands.entries()) {
+        const accepted =
+          index === commands.length - 1
+            ? observed
+            : bindNativeAuthoringSources(
+                locallyValidatedTarget(composition.state, [command]),
+                this.options.catalog?.catalog,
+              );
+        composition.apply(command, accepted);
+      }
+    }
     drafts.announce();
   }
 

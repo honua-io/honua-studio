@@ -54,8 +54,8 @@ export class CompositionController {
   }
 
   /** Applies a command through the underlying history. Throws {@link CompositionCommandError} on rejection — the controller does not swallow it, so a host can surface the failure. */
-  public apply(input: CompositionCommand | unknown): CompositionDiff {
-    const diff = this.#history.apply(input);
+  public apply(input: CompositionCommand | unknown, acceptedState?: CompositionState): CompositionDiff {
+    const diff = this.#history.apply(input, acceptedState);
     this.#notify();
     return diff;
   }

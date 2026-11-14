@@ -222,7 +222,8 @@ layer inside the archive, and use a compatible `fill`, `line` or `circle` type.
 Raster layers use `type: "raster"`. Draft projection saves the native source
 binding and map style through the existing approval-controlled lifecycle;
 published audiences read the same archive anonymously. The archive server must
-support CORS and HTTP 206 byte ranges (expose `Content-Range` and `ETag`), without
+support CORS and HTTP 206 byte ranges (expose `Content-Range` and a strong `ETag`
+on every response), without
 cookies, bearer credentials or redirects. Each requested range is limited to
 16 MiB; each map holds at most 64 archives. These are reader capabilities;
 archive creation and live deployment qualification remain separate work.

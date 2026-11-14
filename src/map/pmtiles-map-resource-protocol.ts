@@ -68,6 +68,10 @@ export function createAnonymousPmtilesSource(
         throw new Error("PMTiles server did not return the requested byte range.");
       }
       const responseEtag = response.headers.get("etag") ?? undefined;
+      if (!responseEtag || !/^"[\x21\x23-\x7e\x80-\xff]*"$/.test(responseEtag)) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("Public PMTiles archives require a strong ETag on every range response.");
+      }
       // Fail closed on a replaced archive; never combine directories and tile data from different versions.
       if (etag && responseEtag !== etag) {
         await response.body?.cancel().catch(() => undefined);
@@ -85,6 +89,40 @@ export function createAnonymousPmtilesSource(
   };
 }
 
+interface ArchiveRequests {
+  readonly controller: AbortController;
+  readonly consumers: Set<AbortController>;
+}
+
+/** PMTiles discovery caches share promises; cancel the underlying read only after its last consumer leaves. */
+async function consumeArchive<T>(
+  entry: ArchiveRequests,
+  consumer: AbortController,
+  evict: () => void,
+  read: () => Promise<T>,
+): Promise<T> {
+  entry.consumers.add(consumer);
+  let cancel!: () => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    cancel = () => {
+      entry.consumers.delete(consumer);
+      if (entry.consumers.size === 0) {
+        entry.controller.abort();
+        evict();
+      }
+      reject(consumer.signal.reason);
+    };
+    consumer.signal.addEventListener("abort", cancel, { once: true });
+  });
+  try {
+    consumer.signal.throwIfAborted();
+    return await Promise.race([read(), aborted]);
+  } finally {
+    consumer.signal.removeEventListener("abort", cancel);
+    entry.consumers.delete(consumer);
+  }
+}
+
 /** Per-map registration isolates caches and aborts all archive reads when the map is removed. */
 export function installPmtilesMapResourceProtocol(
   registry: SourceProtocolRegistry,
@@ -94,6 +132,7 @@ export function installPmtilesMapResourceProtocol(
   const prefix = `${scheme}://`;
   const lifetime = new AbortController();
   const protocol = new Protocol({ metadata: true });
+  const archives = new Map<string, ArchiveRequests>();
   let registered = false;
   const handler: AddProtocolAction = async (request, controller) => {
     try {
@@ -107,9 +146,22 @@ export function installPmtilesMapResourceProtocol(
       if (!archive) throw new Error("Invalid PMTiles tile URL.");
       if (!protocol.get(archive)) {
         if (protocol.tiles.size >= MAX_ARCHIVES) throw new Error("Too many PMTiles archives in one map.");
-        protocol.add(new PMTiles(createAnonymousPmtilesSource(archive, lifetime.signal, options)));
+        const controller = new AbortController();
+        archives.set(archive, { controller, consumers: new Set() });
+        const signal = AbortSignal.any([lifetime.signal, controller.signal]);
+        protocol.add(new PMTiles(createAnonymousPmtilesSource(archive, signal, options)));
       }
-      const result = await protocol.tilev4({ url: canonical, type: request.type }, controller);
+      const entry = archives.get(archive);
+      if (!entry) throw new Error("Missing PMTiles archive transport.");
+      const result = await consumeArchive(
+        entry,
+        controller,
+        () => {
+          protocol.tiles.delete(archive);
+          archives.delete(archive);
+        },
+        () => protocol.tilev4({ url: canonical, type: request.type }, controller),
+      );
       lifetime.signal.throwIfAborted();
       // Keep derived tile requests on this map's transport even if MapLibre bypasses transformRequest.
       if (request.type === "json") {
@@ -139,6 +191,7 @@ export function installPmtilesMapResourceProtocol(
     dispose() {
       lifetime.abort();
       protocol.tiles.clear();
+      archives.clear();
       if (registered) registry.removeProtocol(scheme);
       registered = false;
     },

@@ -139,18 +139,19 @@ export class CompositionHistory {
     return [...this.#undoStack];
   }
 
-  /** Applies `input` through the reducer, pushes the resulting revision, and returns the diff. Throws {@link CompositionCommandError} on rejection — the stack is untouched on failure. */
-  public apply(input: CompositionCommand | unknown): CompositionDiff {
+  /** An optional authoritative accepted state belongs to the same command revision.
+   * Applies `input` through the reducer, pushes the resulting revision, and returns the diff. Throws {@link CompositionCommandError} on rejection — the stack is untouched on failure. */
+  public apply(input: CompositionCommand | unknown, acceptedState?: CompositionState): CompositionDiff {
     this.#assertNotReconciling();
     const result: CompositionApplyResult = applyCompositionCommand(this.current, input);
     this.#redoStack = [];
     this.#pushRevision({
-      state: result.state,
+      state: acceptedState ?? result.state,
       command: result.diff.command,
       diff: result.diff,
       timestamp: this.#now(),
     });
-    this.#sync(result.state);
+    this.#sync(acceptedState ?? result.state);
     return result.diff;
   }
 

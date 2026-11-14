@@ -150,6 +150,7 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
         ],
         view: { center: [0, 0], zoom: 0 },
       };
+      window.pmtilesFixtureBody = body;
       window.pmtilesFixture = runtime.createReadOnlyCompositionView({
         container: document.querySelector("#map"),
         widgetContainer: document.querySelector("#widgets"),
@@ -172,6 +173,39 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
           ],
       ),
     ).toBe("land");
+    const rasterOffset = Number(archive(true).readBigUInt64LE(56));
+    expect(
+      requests.some(
+        (request) => request.path === "/raster.pmtiles" && request.range?.startsWith(`bytes=${rasterOffset}-`),
+      ),
+    ).toBe(true);
+    // Isolate the raster layer so vector features cannot satisfy the visible-pixel assertion.
+    await page.evaluate(async () => {
+      window.pmtilesFixture.dispose();
+      const runtime = await import("/console.js");
+      window.pmtilesFixture = runtime.createReadOnlyCompositionView({
+        container: document.querySelector("#map"),
+        widgetContainer: document.querySelector("#widgets"),
+        body: { ...window.pmtilesFixtureBody, layers: [window.pmtilesFixtureBody.layers[0]] },
+        documentUrl: location.href,
+      });
+      await window.pmtilesFixture.settled();
+    });
+    await expect
+      .poll(async () => {
+        const png = await page.locator("#map canvas").screenshot();
+        return page.evaluate(async (encoded) => {
+          const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${encoded}`)).blob());
+          const canvas = new OffscreenCanvas(image.width, image.height);
+          const context = canvas.getContext("2d");
+          context.drawImage(image, 0, 0);
+          image.close();
+          return Array.from(
+            context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data,
+          );
+        }, png.toString("base64"));
+      })
+      .toEqual([0, 255, 0, 255]);
     expect(errors).toEqual([]);
     expect(requests.length).toBeGreaterThan(1);
     expect(requests.every((request) => request.range && !request.cookie && !request.auth)).toBe(true);
