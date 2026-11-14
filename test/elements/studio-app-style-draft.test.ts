@@ -94,22 +94,22 @@ function markStyleDirty(app: HonuaStudioAppElement) {
   return frame;
 }
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.reject(new Error("network disabled in unit tests"))),
+  );
+});
+
+afterEach(() => {
+  document.body.innerHTML = "";
+  window.location.hash = "";
+  window.localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
 describe("style editor follows the lifecycle panel draft", () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("network disabled in unit tests"))),
-    );
-  });
-
-  afterEach(() => {
-    document.body.innerHTML = "";
-    window.location.hash = "";
-    window.localStorage.clear();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
   it("keeps a host-opened style editor visible while the content browser hides the lifecycle panel", async () => {
     vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
       draftEnvelope(draftId, styleFor("#aaaaaa")),
