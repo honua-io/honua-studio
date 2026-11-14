@@ -162,7 +162,8 @@ export function appShellStyles(): string {
     .recipe-preview-map { min-height: 60px; background: var(--hn-surface-sunken, #e9ede9); padding: 12px; }
     .recipe-preview figcaption { font-size: 0.875rem; }
     .app-slots[data-style-mode] { display: grid; grid-template-columns: minmax(520px, 3fr) minmax(300px, 2fr); align-items: start; }
-    .app-slots[data-style-mode] > section, .app-slots[data-style-mode] > slot { min-width: 0; }
+    .app-slots[data-style-mode] > section, .app-slots[data-style-mode] > slot, .app-slots[data-style-mode] > .style-editor-column { min-width: 0; }
+    .style-editor-column { display: flex; flex-direction: column; gap: var(--hn-space-4, 16px); min-width: 0; }
     @media (max-width: 1000px) { .app-slots[data-style-mode] { display: flex; } }
     /* honua-studio#23 REQ-004 — the live-composition control group. */
     .app-composition-mode {

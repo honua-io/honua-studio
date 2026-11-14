@@ -7,6 +7,8 @@ import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-
 import type { SessionAdapter } from "../../src/elements/types.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 
+import { StyleSuggestionPanel } from "../../src/styles/style-suggestion-panel.js";
+
 registerAllStudioElements();
 
 function fixtureSession(): SessionAdapter {
@@ -94,22 +96,22 @@ function markStyleDirty(app: HonuaStudioAppElement) {
   return frame;
 }
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.reject(new Error("network disabled in unit tests"))),
+  );
+});
+
+afterEach(() => {
+  document.body.innerHTML = "";
+  window.location.hash = "";
+  window.localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
 describe("style editor follows the lifecycle panel draft", () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("network disabled in unit tests"))),
-    );
-  });
-
-  afterEach(() => {
-    document.body.innerHTML = "";
-    window.location.hash = "";
-    window.localStorage.clear();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
   it("keeps a host-opened style editor visible while the content browser hides the lifecycle panel", async () => {
     vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
       draftEnvelope(draftId, styleFor("#aaaaaa")),
@@ -131,6 +133,11 @@ describe("style editor follows the lifecycle panel draft", () => {
     expect(panelSlot.contains(editor ?? null)).toBe(false);
     expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.contains(editor ?? null)).toBe(true);
     expect(editor?.querySelector("iframe")?.isConnected).toBe(true);
+    // Editor and suggestions share one grid cell, so the canvas keeps the second column.
+    const column = app.shadowRoot?.querySelector("[data-testid='app-slots']")?.firstElementChild;
+    expect(column?.classList.contains("style-editor-column")).toBe(true);
+    expect(column?.contains(editor ?? null)).toBe(true);
+    expect(column?.querySelector("[data-testid='style-suggestion']")).toBeTruthy();
   });
 
   it("mounts the style editor in the lifecycle panel that is showing the open draft", async () => {
@@ -149,7 +156,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     await app.openStyleEditor();
     const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
     expect(panel.contains(editor ?? null)).toBe(true);
-    expect(editor?.getAttribute("slot")).toBe("style-editor");
+    expect(editor?.parentElement?.getAttribute("slot")).toBe("style-editor");
     expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.hasAttribute("data-style-mode")).toBe(false);
   });
 
@@ -369,3 +376,43 @@ function savedVersion() {
     envelope: { family: "map", schemaVersion: "1.0", body: { layers: [] } },
   } as Awaited<ReturnType<StudioLifecycleClient["listVersions"]>>["versions"][number];
 }
+
+it("mounts the style suggestion region beside the style editor and removes it on close", async () => {
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+    draftEnvelope(draftId, styleFor("#aaaaaa")),
+  );
+  vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+  const app = await mountedContentApp();
+  await app.attachEditorDraft("draft-a");
+  const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+  vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+  await app.openStyleEditor();
+  const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
+  const surface = editor?.nextElementSibling as HTMLElement | null | undefined;
+  expect(surface?.getAttribute("data-testid")).toBe("style-suggestion");
+  expect(surface?.getAttribute("aria-label")).toBe("Style suggestion");
+  expect(editor?.querySelectorAll("[role='status']")).toHaveLength(1);
+  // The fixture signs in with a bearer token, so the action is replaced by its reason.
+  expect(surface?.querySelector<HTMLElement>("[data-testid='style-suggestion-request']")?.hidden).toBe(true);
+  expect(surface?.querySelector("[data-testid='style-suggestion-status']")?.textContent).toBe(
+    "Style suggestions need a signed-in Console session.",
+  );
+  await app.closeStyleEditor();
+  expect(surface?.isConnected).toBe(false);
+});
+
+it("discards the suggestion state when reloading visual edits", async () => {
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+    draftEnvelope(draftId, styleFor("#aaaaaa")),
+  );
+  const app = await mountedContentApp();
+  await app.attachEditorDraft("draft-a");
+  const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+  vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+  await app.openStyleEditor();
+  const discard = vi.spyOn(StyleSuggestionPanel.prototype, "discard");
+  canvas.stylePreview = styleFor("#bbbbbb");
+  await app.discardStyleChanges();
+  expect(discard).toHaveBeenCalledOnce();
+  expect(canvas.stylePreview).toBeUndefined();
+});

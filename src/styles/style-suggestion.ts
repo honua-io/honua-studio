@@ -2,8 +2,10 @@
  * Authorized style-suggestion preview. The host transport calls the caller's
  * existing suggest-style route; this module never holds an administrator
  * credential. Preview patches a clone of the current map. Apply writes only
- * `setLayerStyleRef` for the selected composed layer.
+ * `setLayerStyleRef` for the selected composed layer, through the host's draft
+ * dispatch when one is supplied.
  */
+import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import { type CompositionLayer, canonicalCompositionJson } from "../composition/model.js";
 import { type CompositionSourceDescriptor, hasCompositionSourceOverride } from "../map/source-resolution.js";
@@ -19,9 +21,16 @@ export type CanonicalLayerResolution =
   | { readonly ok: true; readonly canonicalLayerId: number }
   | { readonly ok: false; readonly reason: string };
 
+/** Writes one command to the map's draft; a shared server draft persists it before it resolves. */
+export type StyleSuggestionDispatch = (
+  command: CompositionCommand,
+  options?: { readonly isCurrent: () => boolean },
+) => Promise<{ readonly ok: boolean; readonly reason?: string }>;
+
 export interface LayerStyleSuggestionOptions {
   readonly controller: CompositionController;
-  readonly catalog: readonly CompositionSourceDescriptor[];
+  /** The authorized catalog, or a reader of the current one. */
+  readonly catalog: readonly CompositionSourceDescriptor[] | (() => readonly CompositionSourceDescriptor[]);
   readonly principalId: string;
   readonly environmentId: string;
   readonly transport: (
@@ -31,6 +40,8 @@ export interface LayerStyleSuggestionOptions {
   readonly onPreview?: (style: MapStyleDocument | undefined) => void;
   readonly container?: HTMLElement;
   readonly layerId: string;
+  /** Without one, Apply edits the local composition only. */
+  readonly dispatch?: StyleSuggestionDispatch;
 }
 
 interface SuggestionView {
@@ -73,12 +84,13 @@ export function resolveCanonicalMetadataLayer(
 
 export class LayerStyleSuggestion {
   readonly #controller: CompositionController;
-  readonly #catalog: readonly CompositionSourceDescriptor[];
+  readonly #catalog: () => readonly CompositionSourceDescriptor[];
   readonly #principalId: string;
   readonly #environmentId: string;
   readonly #transport: LayerStyleSuggestionOptions["transport"];
   readonly #onPreview: LayerStyleSuggestionOptions["onPreview"];
   readonly #container: HTMLElement | undefined;
+  readonly #dispatch: StyleSuggestionDispatch | undefined;
   #layerId: string;
   #generation = 0;
   #abort: AbortController | undefined;
@@ -88,18 +100,43 @@ export class LayerStyleSuggestion {
 
   public constructor(options: LayerStyleSuggestionOptions) {
     this.#controller = options.controller;
-    this.#catalog = options.catalog;
+    const catalog = options.catalog;
+    this.#catalog = typeof catalog === "function" ? catalog : () => catalog;
     this.#principalId = options.principalId;
     this.#environmentId = options.environmentId;
     this.#transport = options.transport;
     this.#onPreview = options.onPreview;
     this.#container = options.container;
     this.#layerId = options.layerId;
+    this.#dispatch = options.dispatch;
+  }
+
+  /** The composed layer suggestions are requested for. */
+  public get layerId(): string {
+    return this.#layerId;
+  }
+
+  /** True while a suggestion preview is displayed and not yet applied or discarded. */
+  public get pending(): boolean {
+    return this.#pending !== undefined;
+  }
+
+  /** False once the map or selection moved past the displayed suggestion; true when nothing is displayed. */
+  public isCurrent(): boolean {
+    return !this.#pending || this.#applyRefusal(this.#pending) === undefined;
+  }
+
+  /** Whether the current target can request a suggestion, and the reason when it cannot. */
+  public eligibility(): CanonicalLayerResolution {
+    return resolveCanonicalMetadataLayer(
+      this.#controller.state.layers.find((entry) => entry.id === this.#layerId),
+      this.#catalog(),
+    );
   }
 
   public async request(): Promise<StyleSuggestionResult> {
     const layer = this.#controller.state.layers.find((entry) => entry.id === this.#layerId);
-    const resolved = resolveCanonicalMetadataLayer(layer, this.#catalog);
+    const resolved = resolveCanonicalMetadataLayer(layer, this.#catalog());
     if (!resolved.ok) return resolved;
     const mapSpec = this.#controller.state.mapSpec;
     if (!mapSpec) return { ok: false, reason: "The suggestion could not be read." };
@@ -166,8 +203,38 @@ export class LayerStyleSuggestion {
     return { ok: true };
   }
 
-  public apply(): StyleSuggestionResult {
+  public async apply(): Promise<StyleSuggestionResult> {
     const pending = this.#pending;
+    const refused = this.#applyRefusal(pending);
+    if (refused || !pending) return refused ?? { ok: false, reason: "There is no style suggestion to apply." };
+    const command: CompositionCommand = {
+      name: "setLayerStyleRef",
+      target: { kind: "layer", id: pending.layerId },
+      styleBody: pending.styleBody,
+    };
+    if (this.#dispatch) {
+      let outcome: { readonly ok: boolean; readonly reason?: string };
+      try {
+        outcome = await this.#dispatch(command, {
+          isCurrent: () => this.#pending === pending && this.#applyRefusal(pending) === undefined,
+        });
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : "The suggestion could not be saved." };
+      }
+      if (!outcome.ok) return { ok: false, reason: outcome.reason ?? "The suggestion could not be saved." };
+      if (this.#pending === pending) this.#clearDisplayedPreview();
+      return { ok: true };
+    }
+    try {
+      this.#controller.apply(command);
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : "The suggestion could not be read." };
+    }
+    this.#clearDisplayedPreview();
+    return { ok: true };
+  }
+
+  #applyRefusal(pending: PendingSuggestion | undefined): StyleSuggestionResult | undefined {
     if (!pending || pending.layerId !== this.#layerId) {
       return { ok: false, reason: "There is no style suggestion to apply." };
     }
@@ -177,17 +244,7 @@ export class LayerStyleSuggestion {
     if (canonicalCompositionJson(this.#controller.state) !== pending.revision) {
       return { ok: false, reason: "The map changed since the suggestion." };
     }
-    try {
-      this.#controller.apply({
-        name: "setLayerStyleRef",
-        target: { kind: "layer", id: pending.layerId },
-        styleBody: pending.styleBody,
-      });
-    } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : "The suggestion could not be read." };
-    }
-    this.#clearDisplayedPreview();
-    return { ok: true };
+    return undefined;
   }
 
   public discard(): void {
