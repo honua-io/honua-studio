@@ -67,6 +67,7 @@ it.each(["vector", "raster"])(
       ).toEqual({ ok: true });
       expect(await editor.applyHistory("undo")).toBe(true);
       expect(composition.state.layers).toEqual([]);
+      expect(composition.state.sourceBindings).toBeUndefined();
       expect(await editor.applyHistory("redo")).toBe(true);
       expect(composition.history.revisions()).toHaveLength(2);
       // This is the actual serialized server response, without injecting render projection fields.

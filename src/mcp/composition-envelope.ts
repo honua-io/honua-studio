@@ -18,7 +18,7 @@ export function toCompositionDraftBody(
 ): Record<string, unknown> {
   const body = { ...previous };
   // Omitted optional composition blocks mean removal, not retention.
-  for (const key of ["layers", "view", "widgets", "controls", "interactions"]) delete body[key];
+  for (const key of ["layers", "view", "widgets", "controls", "interactions", "sourceBindings"]) delete body[key];
   return {
     ...(family === "map" ? { mapPackageId: packageKey, format } : {}),
     ...body,
