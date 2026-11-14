@@ -34,6 +34,7 @@ export class StyleSuggestionPanel {
   readonly #suggestion: LayerStyleSuggestion | undefined;
   readonly #unavailable: string | undefined;
   #busy = false;
+  #applying = false;
   #guidance = false;
   /** Bumped by every discard or retarget, so an in-flight request's late outcome cannot overwrite it. */
   #epoch = 0;
@@ -112,12 +113,14 @@ export class StyleSuggestionPanel {
   async apply(): Promise<void> {
     const suggestion = this.#suggestion;
     if (!suggestion || this.#busy || this.#disposed) return;
+    this.#applying = true;
     this.#setBusy(true);
     try {
       const result = await suggestion.apply();
       if (this.#disposed) return;
       this.#say(result.ok ? "Applied the suggestion to the map draft." : result.reason);
     } finally {
+      this.#applying = false;
       this.#setBusy(false);
     }
   }
@@ -151,13 +154,14 @@ export class StyleSuggestionPanel {
       this.#say(this.#unavailable ?? "", true);
       return;
     }
-    if (this.#busy) return;
-    if (this.previewing && !this.#suggestion.isCurrent()) {
+    // Apply clears its own preview; any other time a preview the map has moved past is dropped at once.
+    if (!this.#applying && this.previewing && !this.#suggestion.isCurrent()) {
       this.#epoch += 1;
       this.#suggestion.discard();
       this.#actions.hidden = true;
       this.#say(MAP_CHANGED);
     }
+    if (this.#busy) return;
     const eligibility = this.#suggestion.layerId
       ? this.#suggestion.eligibility()
       : ({ ok: false, reason: NO_LAYER } as const);
@@ -178,13 +182,30 @@ export class StyleSuggestionPanel {
 
   /** Apply and Discard hide their own buttons; keep keyboard focus in the surface. */
   #restoreFocus(): void {
-    if (this.#disposed || !this.#actions.hidden) return;
+    if (this.#disposed || !this.#focusLost()) return;
+    if (!this.#actions.hidden) {
+      this.#apply.focus();
+      return;
+    }
     if (!this.#request.hidden && !this.#request.disabled) {
       this.#request.focus();
       return;
     }
     this.#status.tabIndex = -1;
     this.#status.focus();
+  }
+
+  /** Focus is ours to move only when it sits in this surface or fell to the page (a disabled or hidden control). */
+  #focusLost(): boolean {
+    const root = this.element.getRootNode();
+    const idle = (element: Element | null) => element === null || element === document.body;
+    if (root instanceof ShadowRoot) {
+      const active = root.activeElement;
+      if (active) return this.element.contains(active);
+      return idle(document.activeElement) || document.activeElement === root.host;
+    }
+    const active = document.activeElement;
+    return idle(active) || (active !== null && this.element.contains(active));
   }
 
   #setBusy(busy: boolean): void {

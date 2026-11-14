@@ -192,4 +192,47 @@ describe("style suggestion panel", () => {
     q("style-suggestion-apply").click();
     await vi.waitFor(() => expect(document.activeElement).toBe(q("style-suggestion-request")));
   });
+
+  it("returns focus to Apply after a refused write, and leaves focus alone once the user moved on", async () => {
+    const refused = mount({
+      dispatch: vi.fn<StyleSuggestionDispatch>(async () => ({ ok: false, reason: "Conflict." })),
+    });
+    await refused.panel.request();
+    refused.q("style-suggestion-apply").click();
+    (document.activeElement as HTMLElement | null)?.blur();
+    await vi.waitFor(() => expect(refused.q("style-suggestion-status").textContent).toBe("Conflict."));
+    await vi.waitFor(() => expect(document.activeElement).toBe(refused.q("style-suggestion-apply")));
+    refused.panel.dispose();
+
+    let release: (() => void) | undefined;
+    const slow = mount({
+      dispatch: vi.fn<StyleSuggestionDispatch>(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true });
+          }),
+      ),
+    });
+    const elsewhere = document.createElement("input");
+    document.body.append(elsewhere);
+    await slow.panel.request();
+    slow.q("style-suggestion-apply").click();
+    elsewhere.focus();
+    release?.();
+    await vi.waitFor(() =>
+      expect(slow.q("style-suggestion-status").textContent).toBe("Applied the suggestion to the map draft."),
+    );
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("drops a stale preview at once even while a newer request is in flight", async () => {
+    const { panel, controller } = mount();
+    await panel.request();
+    const second = panel.request();
+    controller.apply({ name: "setVisibility", target: { kind: "layer", id: "sketch" }, visible: false });
+    panel.refresh();
+    expect(panel.previewing).toBe(false);
+    await second;
+    expect(panel.previewing).toBe(false);
+  });
 });
