@@ -225,7 +225,8 @@ published audiences read the same archive anonymously. The archive server must
 support CORS and HTTP 206 byte ranges (expose `Content-Range` and a strong `ETag`
 on every response), without
 cookies, bearer credentials or redirects. Each requested range is limited to
-16 MiB; each map holds at most 64 archives. These are reader capabilities;
+16 MiB, including each decoded gzip directory, metadata block and tile. Uncompressed
+and gzip archives are supported; each map holds at most 64 archives. These are reader capabilities;
 archive creation and live deployment qualification remain separate work.
 
 COG rendering awaits a supported public SDK decoder ([#254](https://github.com/honua-io/honua-studio/issues/254)).

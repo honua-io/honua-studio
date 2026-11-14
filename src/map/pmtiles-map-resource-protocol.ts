@@ -1,5 +1,5 @@
 import type { AddProtocolAction, RequestParameters } from "maplibre-gl";
-import { PMTiles, Protocol, type Source } from "pmtiles";
+import { Compression, type DecompressFunc, PMTiles, Protocol, SharedPromiseCache, type Source } from "pmtiles";
 import { readBoundedMapAssetBody } from "./anonymous-map-resource-protocol.js";
 import type { SourceProtocolRegistry } from "./authenticated-source-protocol.js";
 
@@ -92,6 +92,7 @@ export function createAnonymousPmtilesSource(
 interface ArchiveRequests {
   readonly controller: AbortController;
   readonly consumers: Set<AbortController>;
+  abandoned: boolean;
 }
 
 /** PMTiles discovery caches share promises; cancel the underlying read only after its last consumer leaves. */
@@ -102,14 +103,18 @@ async function consumeArchive<T>(
   read: () => Promise<T>,
 ): Promise<T> {
   entry.consumers.add(consumer);
+  const leave = () => {
+    entry.consumers.delete(consumer);
+    if (entry.abandoned && entry.consumers.size === 0 && !entry.controller.signal.aborted) {
+      entry.controller.abort();
+      evict();
+    }
+  };
   let cancel!: () => void;
   const aborted = new Promise<never>((_resolve, reject) => {
     cancel = () => {
-      entry.consumers.delete(consumer);
-      if (entry.consumers.size === 0) {
-        entry.controller.abort();
-        evict();
-      }
+      entry.abandoned = true;
+      leave();
       reject(consumer.signal.reason);
     };
     consumer.signal.addEventListener("abort", cancel, { once: true });
@@ -119,8 +124,19 @@ async function consumeArchive<T>(
     return await Promise.race([read(), aborted]);
   } finally {
     consumer.signal.removeEventListener("abort", cancel);
-    entry.consumers.delete(consumer);
+    leave();
   }
+}
+
+function boundedDecompressor(signal: AbortSignal): DecompressFunc {
+  return async (buffer, compression) => {
+    signal.throwIfAborted();
+    if (buffer.byteLength > MAX_RANGE_BYTES) throw new Error("PMTiles data exceeds the size limit.");
+    if (compression === Compression.None) return buffer;
+    if (compression !== Compression.Gzip) throw new Error("Unsupported PMTiles compression.");
+    const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return readBoundedMapAssetBody(new Response(stream), signal, MAX_RANGE_BYTES);
+  };
 }
 
 /** Per-map registration isolates caches and aborts all archive reads when the map is removed. */
@@ -147,9 +163,16 @@ export function installPmtilesMapResourceProtocol(
       if (!protocol.get(archive)) {
         if (protocol.tiles.size >= MAX_ARCHIVES) throw new Error("Too many PMTiles archives in one map.");
         const controller = new AbortController();
-        archives.set(archive, { controller, consumers: new Set() });
+        archives.set(archive, { controller, consumers: new Set(), abandoned: false });
         const signal = AbortSignal.any([lifetime.signal, controller.signal]);
-        protocol.add(new PMTiles(createAnonymousPmtilesSource(archive, signal, options)));
+        const decompress = boundedDecompressor(signal);
+        protocol.add(
+          new PMTiles(
+            createAnonymousPmtilesSource(archive, signal, options),
+            new SharedPromiseCache(100, false, decompress),
+            decompress,
+          ),
+        );
       }
       const entry = archives.get(archive);
       if (!entry) throw new Error("Missing PMTiles archive transport.");

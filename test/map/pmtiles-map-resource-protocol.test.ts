@@ -218,6 +218,10 @@ describe("anonymous PMTiles", () => {
     const original = archive(1);
     const metadata = original.slice(132, original.length - 3);
     const expanded = new Uint8Array(16 * 1024 * 1024 + 1);
+    if (part === "metadata") {
+      expanded.fill(32);
+      expanded.set(new TextEncoder().encode("{}"), expanded.length - 2);
+    }
     const root = gzipSync(part === "directory" ? expanded : original.slice(127, 132));
     const json = gzipSync(part === "metadata" ? expanded : metadata);
     const tile = part === "tile" ? gzipSync(expanded) : original.slice(-3);
