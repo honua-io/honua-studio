@@ -49,6 +49,8 @@ it.each(["vector", "raster"])(
             },
           ],
         },
+        chrome: { paintHistory: () => {}, setHistoryStatus: () => {} },
+        orchestrator: () => ({}),
         hasUnsavedStyleChanges: () => false,
       } as unknown as CompositionEditorOptions);
       expect(
@@ -63,6 +65,10 @@ it.each(["vector", "raster"])(
           },
         ]),
       ).toEqual({ ok: true });
+      expect(await editor.applyHistory("undo")).toBe(true);
+      expect(composition.state.layers).toEqual([]);
+      expect(await editor.applyHistory("redo")).toBe(true);
+      expect(composition.history.revisions()).toHaveLength(2);
       // This is the actual serialized server response, without injecting render projection fields.
       const saved = await client.getDraft(draft.draftId);
       const reopened = applyStudioDraftBody(JSON.parse(JSON.stringify(saved.envelope.body)));

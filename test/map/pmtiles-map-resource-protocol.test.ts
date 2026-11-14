@@ -59,10 +59,10 @@ function registry() {
   return {
     addProtocol: (scheme: string, handler: AddProtocolAction) => handlers.set(scheme, handler),
     removeProtocol: vi.fn((scheme: string) => handlers.delete(scheme)),
-    run: (url: string, type?: Parameters<AddProtocolAction>[0]["type"]) => {
+    run: (url: string, type?: Parameters<AddProtocolAction>[0]["type"], controller = new AbortController()) => {
       const handler = handlers.get(url.split("://")[0]);
       if (!handler) throw new Error("Missing protocol");
-      return handler({ url, type }, new AbortController());
+      return handler({ url, type }, controller);
     },
   };
 }
@@ -116,6 +116,67 @@ describe("anonymous PMTiles", () => {
     await expect(source.getBytes(0, 16 * 1024 * 1024 + 1)).rejects.toThrow("size limit");
     await expect(source.getBytes(Number.MAX_SAFE_INTEGER, 10)).rejects.toThrow("size limit");
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each([null, 'W/"v1"'])("rejects archives without a strong version validator: %s", async (etag) => {
+    const source = createAnonymousPmtilesSource(url, new AbortController().signal, {
+      fetchImpl: async () =>
+        new Response(new Uint8Array([1]), {
+          status: 206,
+          headers: { "content-range": "bytes 0-0/1", ...(etag ? { etag } : {}) },
+        }),
+    });
+    await expect(source.getBytes(0, 1)).rejects.toThrow("strong ETag");
+  });
+
+  it("cancels discovery when its last request is cancelled and allows a fresh read", async () => {
+    const network = registry();
+    let signal: AbortSignal | undefined;
+    const fetchImpl = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          signal = init?.signal ?? undefined;
+          signal?.addEventListener("abort", () => reject(signal?.reason), { once: true });
+        }),
+    );
+    const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl });
+    const request = protocol.transformRequest(`pmtiles://${url}`)!;
+    const controller = new AbortController();
+    const pending = network.run(request.url, "json", controller);
+    const rejected = expect(pending).rejects.toThrow();
+    controller.abort();
+    expect(signal?.aborted).toBe(true);
+    await rejected;
+    fetchImpl.mockImplementation(transport(archive(1)));
+    expect((await network.run(request.url, "json")).data).toHaveProperty("tiles");
+    protocol.dispose();
+  });
+
+  it("preserves shared discovery while another request still needs it", async () => {
+    const network = registry();
+    let signal: AbortSignal | undefined;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const serve = transport(archive(1));
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      await ready;
+      return serve(input, init);
+    });
+    const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl });
+    const request = protocol.transformRequest(`pmtiles://${url}`)!;
+    const controller = new AbortController();
+    const cancelled = network.run(request.url, "json", controller);
+    const rejected = expect(cancelled).rejects.toThrow();
+    const active = network.run(request.url, "json");
+    controller.abort();
+    expect(signal?.aborted).toBe(false);
+    release();
+    await rejected;
+    expect((await active).data).toHaveProperty("tiles");
+    protocol.dispose();
   });
 
   it("refuses credentials, non-HTTP URLs and denied feature endpoints", () => {
