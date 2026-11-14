@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/honua-io/honua-studio/compare/v0.2.1...v0.3.0) (2026-11-14)
+
+
+### Features
+
+* **studio:** render and save public PMTiles sources ([#255](https://github.com/honua-io/honua-studio/issues/255)) ([10188cb](https://github.com/honua-io/honua-studio/commit/10188cb5690fd760ea36ed19212f60eac0a264a6))
+
 ## [0.2.1](https://github.com/honua-io/honua-studio/compare/v0.2.0...v0.2.1) (2026-11-13)
 
 
