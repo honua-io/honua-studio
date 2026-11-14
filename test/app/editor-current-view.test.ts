@@ -78,7 +78,9 @@ describe("workspace saved camera", () => {
         detail: expect.objectContaining({ commandInput: { name: "setView", view: camera }, generation: 2 }),
       }),
     );
-    const accepted = chat.activityLog.entries().find((entry) => entry.type === "composition_command_applied");
+    const commands = chat.activityLog.entries().filter((entry) => entry.type === "composition_command_applied");
+    expect(commands).toHaveLength(1);
+    const accepted = commands[0];
     expect(applyCompositionCommand(before, accepted!.detail.commandInput).state.view).toEqual(camera);
     expect(await app.prepareEditorTurn()).toMatchObject({ generation: 2 });
   });
@@ -155,4 +157,32 @@ describe("workspace saved camera", () => {
     expect(save).not.toHaveBeenCalled();
     expect(app.composition.state.view).toEqual({});
   });
+});
+
+function manualElementForm() {
+  app.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="manual-elements-toggle"]')!.click();
+  return app.shadowRoot!.querySelector<HTMLFormElement>("#manual-elements-panel form")!;
+}
+
+it("keeps manual element forms editable after refreshing the same draft", async () => {
+  const form = manualElementForm();
+  await app.attachEditorDraft("original");
+  const kind = form.querySelector<HTMLSelectElement>('[name="kind"]')!;
+  kind.value = "legend";
+  kind.dispatchEvent(new Event("change", { bubbles: true }));
+  form.dispatchEvent(new Event("submit", { cancelable: true }));
+  await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(app.composition.state.widgets[0]?.kind).toBe("legend"));
+});
+
+it("preserves unsaved manual input when a different draft attach is refused", async () => {
+  const form = manualElementForm();
+  const title = form.querySelector<HTMLInputElement>('[name="title"]')!;
+  title.value = "Unsaved chart";
+  title.dispatchEvent(new Event("input", { bubbles: true }));
+  await expect(app.attachEditorDraft("other")).rejects.toThrow("Save pending Studio edits");
+  expect(form.isConnected).toBe(true);
+  expect(title.value).toBe("Unsaved chart");
+  expect(app.shadowRoot!.querySelector("#manual-elements-panel form")).toBe(form);
+  expect(replace).not.toHaveBeenCalled();
 });

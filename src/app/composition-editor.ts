@@ -234,6 +234,7 @@ export class CompositionEditor {
       return { ok: false, reason: "The initiating view changed before the edit began." };
     try {
       await this.#applyToDraft(edit);
+      this.#recordAcceptedCommands(edit.commands);
       return { ok: true };
     } catch (error) {
       const reconcile = !(error instanceof LocallyRefusedEdit);
@@ -244,6 +245,18 @@ export class CompositionEditor {
         reason: errorMessage(error),
         ...(isStudioLifecycleGenerationConflict(error) && { conflict: true }),
       };
+    }
+  }
+
+  #recordAcceptedCommands(commands: readonly CompositionCommand[]): void {
+    for (const command of commands) {
+      this.options.children.chat()?.activityLog.append("composition_command_applied", {
+        toolName: command.name,
+        mode: "workspace",
+        command: command.name,
+        commandInput: structuredClone(command),
+        ...this.options.drafts.identity,
+      });
     }
   }
 

@@ -4,7 +4,8 @@ import { applyTheme, expectNoSeriousAxeViolations, startPreviewServer, waitForSi
 
 test.use({ trace: "retain-on-failure" });
 
-const KEYBOARD_ACTION_BUDGET = 100;
+// The widget/control toolbar stop is crossed four times in this journey.
+const KEYBOARD_ACTION_BUDGET = 100 + 4;
 
 class KeyboardJourney {
   actions = [];

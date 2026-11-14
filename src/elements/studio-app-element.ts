@@ -419,6 +419,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   protected onDisconnect(): void {
+    this.#root.manualElements.close();
     this.closeDesignInspector();
     this.#recipes.dispose();
     this.#chrome.dispose();

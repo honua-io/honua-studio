@@ -44,6 +44,7 @@ export interface ShellChromeOptions {
   readonly connectedSignal: () => AbortSignal | undefined;
   readonly authStatus: () => AuthStatus;
   readonly isDesignInspectorOpen: () => boolean;
+  readonly onToggleManualElements?: () => void;
   readonly isHistoryBusy: () => boolean;
   readonly liveStatus: () => { readonly live: boolean; readonly packageKey?: string };
   readonly onNavigate: (path: string, event: Event) => void;
@@ -259,6 +260,7 @@ export class ShellChrome {
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="design-inspector-toggle" aria-expanded="false" aria-controls="design-inspector-panel">Inspect data and interactions</button>
+            <button type="button" class="hn-btn hn-btn--sm" data-testid="manual-elements-toggle" aria-expanded="false" aria-controls="manual-elements-panel">Add widgets and controls</button>
             <span class="hn-muted" data-testid="history-status" role="status"></span>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="recipe-toggle" aria-expanded="false" aria-controls="recipe-outlet">Start from a recipe</button>
             <button
@@ -315,6 +317,7 @@ export class ShellChrome {
       if (this.recipeOutlet()?.hidden) host.openRecipePicker();
       else host.closeRecipePicker();
     });
+    this.#on(this.#control("manual-elements-toggle"), "click", () => this.options.onToggleManualElements?.());
     this.#bindThemeControls();
     for (const link of this.#root?.querySelectorAll<HTMLAnchorElement>("[data-path]") ?? []) {
       this.#on(link, "click", (event) => {

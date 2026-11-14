@@ -75,6 +75,13 @@ appear under the map controls in plain language, each with Clear, plus Reset all
 Reset never changes the saved map. Font/sprite resource transport and the full public artifact
 journey remain unfinished.
 
+The **Add widgets and controls** form authors data tables, category charts, legends,
+layer lists and map controls through the same authorized draft commands as the agent.
+Accepted edits enter Undo/Redo history; persistence failures retain the form values.
+This is a bounded manual-authoring increment for
+[honua-studio#213](https://github.com/honua-io/honua-studio/issues/213).
+Configuration forms for every agent action and the installed Build journey remain unfinished.
+
 ## Status
 
 **v0.1 preview — self-hosted, bring your own model. Run it from source.**
