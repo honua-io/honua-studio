@@ -35,6 +35,10 @@ describe("PMTiles source projection", () => {
       expect(projected.mapPackage.sourceBindings).toEqual([
         { sourceId: "native", protocol: "pmtiles", locator: { url, sourceType } },
       ]);
+      if (sourceType === "vector")
+        expect(projected.mapPackage.mapSpec.layers.find((item) => item.id === "land__outline")).toMatchObject({
+          "source-layer": "land",
+        });
       const body = toStudioCompositionBody({
         ...state,
         sourceBindings: projected.mapPackage.sourceBindings,

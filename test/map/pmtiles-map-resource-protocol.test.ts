@@ -86,6 +86,16 @@ describe("anonymous PMTiles", () => {
     expect(() => protocol.transformRequest(`pmtiles://${url}`)).toThrow("disposed");
   });
 
+  it("treats sparse raster coverage as an empty tile without reporting an error", async () => {
+    const network = registry();
+    const onError = vi.fn();
+    const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl: transport(archive(2)), onError });
+    const request = protocol.transformRequest(`pmtiles://${url}/1/1/1.png`)!;
+    expect((await network.run(request.url)).data).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+    protocol.dispose();
+  });
+
   it.each([
     new Response(new Uint8Array([1]), { status: 200 }),
     new Response(new Uint8Array([1, 2]), { status: 206, headers: { "content-range": "bytes 0-1/2.png" } }),
