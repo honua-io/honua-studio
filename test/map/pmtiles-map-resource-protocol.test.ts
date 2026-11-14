@@ -59,7 +59,7 @@ function registry() {
   return {
     addProtocol: (scheme: string, handler: AddProtocolAction) => handlers.set(scheme, handler),
     removeProtocol: vi.fn((scheme: string) => handlers.delete(scheme)),
-    run: (url: string, type?: string) => {
+    run: (url: string, type?: Parameters<AddProtocolAction>[0]["type"]) => {
       const handler = handlers.get(url.split("://")[0]);
       if (!handler) throw new Error("Missing protocol");
       return handler({ url, type }, new AbortController());

@@ -116,7 +116,8 @@ export function installPmtilesMapResourceProtocol(
         const data = result.data as { tiles?: string[] };
         return { ...result, data: { ...data, tiles: data.tiles?.map((url) => url.replace(/^pmtiles:\/\//, prefix)) } };
       }
-      return result;
+      if (!(result.data instanceof Uint8Array)) throw new Error("Invalid PMTiles tile data.");
+      return { ...result, data: new Uint8Array(result.data).buffer };
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       if (!controller.signal.aborted && !lifetime.signal.aborted) options.onError?.(failure);

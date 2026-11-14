@@ -38,7 +38,7 @@ describe("PMTiles source projection", () => {
       const body = toStudioCompositionBody({
         ...state,
         sourceBindings: projected.mapPackage.sourceBindings,
-        mapSpec: projected.mapPackage.mapSpec,
+        mapSpec: { ...projected.mapPackage.mapSpec },
       });
       const reopened = applyStudioDraftBody(JSON.parse(JSON.stringify(body)));
       expect(reopened.sourceBindings).toEqual(projected.mapPackage.sourceBindings);
