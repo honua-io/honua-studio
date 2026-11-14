@@ -4,8 +4,10 @@ import { CompositionEditor, type CompositionEditorOptions } from "../../src/app/
 import { ManualElementsHost } from "../../src/app/manual-elements-host.js";
 import { ManualElementsPanel } from "../../src/app/manual-elements-panel.js";
 import { StalenessEpoch } from "../../src/app/staleness-epoch.js";
+import { createActivityLog } from "../../src/chat/activity-log.js";
 import { CompositionController } from "../../src/composition/controller.js";
 import { type CompositionState, createEmptyCompositionState } from "../../src/composition/model.js";
+import { applyCompositionCommand } from "../../src/composition/reducer.js";
 
 function setup(write: (state: CompositionState) => Promise<CompositionState> = async (state) => state) {
   const composition = new CompositionController({
@@ -20,7 +22,9 @@ function setup(write: (state: CompositionState) => Promise<CompositionState> = a
     announce: vi.fn(),
     markConflict: vi.fn(),
   };
+  const activityLog = createActivityLog();
   const editor = new CompositionEditor({
+    children: { chat: () => ({ activityLog }) },
     authority,
     drafts,
     composition,
@@ -39,7 +43,7 @@ function setup(write: (state: CompositionState) => Promise<CompositionState> = a
     element.dispatchEvent(new Event("change", { bubbles: true }));
   };
   const submit = () => container.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
-  return { container, panel, input, submit, composition, drafts, editor, authority };
+  return { container, panel, input, submit, composition, drafts, editor, authority, activityLog };
 }
 
 afterEach(() => document.body.replaceChildren());
@@ -69,7 +73,7 @@ it("persists a source-bound table before exposing it and keeps undo history", as
 });
 
 it("shows a rejected server save and preserves entered values", async () => {
-  const { input, submit, container, composition, panel } = setup(async () => {
+  const { input, submit, container, composition, panel, activityLog } = setup(async () => {
     throw new Error("Refresh this draft before editing.");
   });
   input("source", "parcels");
@@ -80,6 +84,7 @@ it("shows a rejected server save and preserves entered values", async () => {
   expect(composition.state.widgets).toHaveLength(0);
   expect(container.querySelector<HTMLSelectElement>('[name="source"]')?.value).toBe("parcels");
   expect(panel.hasPendingChanges).toBe(true);
+  expect(activityLog.entries()).toHaveLength(0);
 });
 
 it("requires a category field and uses it in the persisted chart", async () => {
@@ -168,4 +173,27 @@ it.each(["session", "draft", "closed"])("refuses queued edits when the %s change
   expect(composition.state.widgets).toHaveLength(0);
   host.close();
   expect(document.querySelector("#manual-elements-panel")).toBeNull();
+});
+
+it("records each accepted manual edit once with replayable command input", async () => {
+  let accept!: () => void;
+  const { input, submit, composition, activityLog, drafts } = setup(
+    (state) =>
+      new Promise((resolve) => {
+        accept = () => resolve(state);
+      }),
+  );
+  const before = composition.state;
+  input("kind", "scale");
+  submit();
+  await vi.waitFor(() => expect(drafts.binding.replace).toHaveBeenCalledOnce());
+  expect(activityLog.entries()).toHaveLength(0);
+  accept();
+  await vi.waitFor(() => expect(activityLog.entries()).toHaveLength(1));
+  const accepted = activityLog.entries()[0]!;
+  expect(accepted).toMatchObject({
+    type: "composition_command_applied",
+    detail: { command: "addControl", mode: "workspace" },
+  });
+  expect(applyCompositionCommand(before, accepted.detail.commandInput).state).toEqual(composition.state);
 });

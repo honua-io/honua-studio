@@ -196,13 +196,6 @@ export class StudioEditorRoot {
     const outcome = await this.editor.applyQueuedDraftCommands([command]);
     if (!outcome.ok) throw new Error(outcome.reason);
     current();
-    this.children.chat()?.activityLog.append("composition_command_applied", {
-      toolName: command.name,
-      mode: "workspace",
-      command: command.name,
-      commandInput: structuredClone(command),
-      ...this.drafts.identity,
-    });
   }
 
   #editingParts() {

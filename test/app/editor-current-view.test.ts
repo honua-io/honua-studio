@@ -78,7 +78,9 @@ describe("workspace saved camera", () => {
         detail: expect.objectContaining({ commandInput: { name: "setView", view: camera }, generation: 2 }),
       }),
     );
-    const accepted = chat.activityLog.entries().find((entry) => entry.type === "composition_command_applied");
+    const commands = chat.activityLog.entries().filter((entry) => entry.type === "composition_command_applied");
+    expect(commands).toHaveLength(1);
+    const accepted = commands[0];
     expect(applyCompositionCommand(before, accepted!.detail.commandInput).state.view).toEqual(camera);
     expect(await app.prepareEditorTurn()).toMatchObject({ generation: 2 });
   });
