@@ -147,6 +147,12 @@ export function appShellStyles(): string {
     .entity-list li:last-child { border-bottom: none; padding-bottom: 0; }
     slot[name="chat"][hidden] { display: none; }
     .app-slots { display: flex; flex-direction: column; gap: var(--hn-space-5, 24px); }
+    .manual-elements-panel { padding: 20px; display: grid; gap: 12px; }
+    .manual-elements-panel form { display: grid; gap: 12px; }
+    .manual-elements-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .manual-elements-panel label[hidden] { display: none; }
+    .manual-elements-panel input, .manual-elements-panel select { max-width: 100%; padding: 8px; }
+    .manual-elements-panel ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
     .recipe-panel { padding: 20px; display: grid; gap: 12px; }
     .recipe-panel form { display: grid; gap: 12px; }
     .recipe-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

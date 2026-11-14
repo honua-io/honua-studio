@@ -11,6 +11,7 @@ import { EditorAuthority } from "./editor-authority.js";
 import { EditorDraftSession } from "./editor-draft-session.js";
 import { EditorRelease } from "./editor-release.js";
 import { LiveCompositionController } from "./live-composition-controller.js";
+import { ManualElementsHost } from "./manual-elements-host.js";
 import { RecipeController } from "./recipe-controller.js";
 import { ShellChrome } from "./shell-chrome.js";
 import { ShellRouter } from "./shell-router.js";
@@ -39,6 +40,7 @@ export class StudioEditorRoot {
   readonly release: EditorRelease;
   readonly editor: CompositionEditor;
   readonly designInspector: DesignInspectorHost;
+  readonly manualElements: ManualElementsHost;
   readonly styleEditor: StyleEditorHost;
   readonly recipes: RecipeController;
   readonly live: LiveCompositionController;
@@ -59,6 +61,11 @@ export class StudioEditorRoot {
       saveCurrentView: (current) => this.#saveCurrentView(current),
     });
     this.editor = this.#createEditor();
+    this.manualElements = new ManualElementsHost({
+      ...this.#editingParts(),
+      editor: this.editor,
+      isConnected: () => host.isConnected,
+    });
     this.designInspector = new DesignInspectorHost({ host, ...this.#editingParts(), children: this.children });
     this.styleEditor = new StyleEditorHost({
       host,
@@ -137,9 +144,11 @@ export class StudioEditorRoot {
   }
 
   hasDirtyForm(): boolean {
-    if (this.host.hasUnsavedStyleChanges) return true;
+    if (this.host.hasUnsavedStyleChanges || this.manualElements.hasPendingChanges) return true;
     const isIgnored = (element: Element) =>
-      this.styleEditor.contains(element) || Boolean(this.chrome.recipeOutlet()?.contains(element));
+      this.styleEditor.contains(element) ||
+      this.manualElements.contains(element) ||
+      Boolean(this.chrome.recipeOutlet()?.contains(element));
     const { shadowRoot } = this.host;
     return (
       hasEditedFormControl(this.host, isIgnored) || Boolean(shadowRoot && hasEditedFormControl(shadowRoot, isIgnored))
@@ -150,6 +159,7 @@ export class StudioEditorRoot {
   #revokeAuthority(): void {
     const hadAuthority = this.authority.holdsSession || Boolean(this.drafts.binding);
     this.host.closeDesignInspector();
+    this.manualElements.close();
     this.recipes.resetAuthority();
     this.styleEditor.dispose();
     this.authority.epoch.next();
@@ -172,7 +182,10 @@ export class StudioEditorRoot {
     if (status === this.#lastAuthStatus) return;
     this.#lastAuthStatus = status;
     if (status === "expired" || status === "signed-out") this.host.closeDesignInspector();
-    if (status === "signed-out" || status === "expired") this.recipes.resetAuthority();
+    if (status === "signed-out" || status === "expired") {
+      this.recipes.resetAuthority();
+      this.manualElements.close();
+    }
     if (status !== "fresh" || this.catalog.catalog !== undefined) return;
     this.catalog.refresh();
   }
@@ -225,6 +238,7 @@ export class StudioEditorRoot {
       ...shell,
       authStatus: () => this.authority.resolvedAuth?.getState().status ?? "signed-out",
       isDesignInspectorOpen: () => this.designInspector.isOpen,
+      onToggleManualElements: () => this.manualElements.toggle(),
       isHistoryBusy: () => this.drafts.historyBusy,
       liveStatus: () => ({ live: this.live.isLive, packageKey: this.live.packageKey }),
       onNavigate: (path, event) => this.router.requestNavigation(path, event),
@@ -248,6 +262,7 @@ export class StudioEditorRoot {
       isConnected: () => this.host.isConnected,
       onCatalogReplacing: () => {
         this.host.closeDesignInspector();
+        this.manualElements.close();
         this.recipes.onCatalogReplaced();
       },
       onCatalogApplied: (catalog) => {
@@ -267,9 +282,13 @@ export class StudioEditorRoot {
       attachEditorDraft: (draftId) => host.attachEditorDraft(draftId),
       hasDirtyForm: () => this.hasDirtyForm(),
       settleStyleEdits: () => this.styleEditor.settled(),
-      onDraftRequested: () => host.closeDesignInspector(),
+      onDraftRequested: () => {
+        host.closeDesignInspector();
+        this.manualElements.close();
+      },
       beforeMapSwitch: (draftId) => {
         host.closeDesignInspector();
+        this.manualElements.close();
         if (!this.recipes.isAttaching(draftId)) this.recipes.dispose();
       },
       afterMapSwitch: () => this.children.canvas()?.resetExploration(),
