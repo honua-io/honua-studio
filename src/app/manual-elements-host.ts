@@ -41,7 +41,7 @@ export class ManualElementsHost {
     if (!this.options.isConnected()) return;
     const { authority, drafts, chrome, composition, editor } = this.options;
     const generation = authority.epoch.current;
-    const binding = drafts.binding;
+    const activeMap = drafts.activeMap.current;
     const container = document.createElement("section");
     container.id = "manual-elements-panel";
     chrome.appSlots()?.before(container);
@@ -50,7 +50,7 @@ export class ManualElementsHost {
       this.#container === container &&
       this.options.isConnected() &&
       authority.epoch.isCurrent(generation) &&
-      drafts.binding === binding;
+      drafts.activeMap.isCurrent(activeMap);
     this.#panel = new ManualElementsPanel(container, {
       state: () => composition.state,
       dispatch: (commands) => editor.dispatch(commands, { isCurrent }),

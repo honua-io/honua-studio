@@ -156,3 +156,31 @@ describe("workspace saved camera", () => {
     expect(app.composition.state.view).toEqual({});
   });
 });
+
+function manualElementForm() {
+  app.querySelector<HTMLButtonElement>('[data-testid="manual-elements-toggle"]')!.click();
+  return app.querySelector<HTMLFormElement>("#manual-elements-panel form")!;
+}
+
+it("keeps manual element forms editable after refreshing the same draft", async () => {
+  const form = manualElementForm();
+  await app.attachEditorDraft("original");
+  const kind = form.querySelector<HTMLSelectElement>('[name="kind"]')!;
+  kind.value = "legend";
+  kind.dispatchEvent(new Event("change", { bubbles: true }));
+  form.dispatchEvent(new Event("submit", { cancelable: true }));
+  await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(app.composition.state.widgets[0]?.kind).toBe("legend"));
+});
+
+it("preserves unsaved manual input when a different draft attach is refused", async () => {
+  const form = manualElementForm();
+  const title = form.querySelector<HTMLInputElement>('[name="title"]')!;
+  title.value = "Unsaved chart";
+  title.dispatchEvent(new Event("input", { bubbles: true }));
+  await expect(app.attachEditorDraft("other")).rejects.toThrow("Save pending Studio edits");
+  expect(form.isConnected).toBe(true);
+  expect(title.value).toBe("Unsaved chart");
+  expect(app.querySelector("#manual-elements-panel form")).toBe(form);
+  expect(replace).not.toHaveBeenCalled();
+});

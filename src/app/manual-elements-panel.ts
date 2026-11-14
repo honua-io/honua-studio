@@ -100,8 +100,10 @@ export class ManualElementsPanel {
     for (const layer of state.layers) this.#source.add(new Option(layer.title ?? layer.id, layer.id));
     this.#source.value = selected;
     const data = this.#kind.value === "table" || this.#kind.value === "chart";
-    this.#show(this.#source, data);
-    this.#show(this.#field, this.#kind.value === "chart");
+    this.#source.parentElement!.hidden = !data;
+    this.#source.disabled = !data || this.#busy;
+    this.#field.parentElement!.hidden = this.#kind.value !== "chart";
+    this.#field.disabled = this.#kind.value !== "chart" || this.#busy;
     this.#source.required = data;
     this.#field.required = this.#kind.value === "chart";
     this.#submit.disabled = this.#busy;
@@ -121,11 +123,6 @@ export class ManualElementsPanel {
     const label = document.createElement("label");
     label.append(document.createTextNode(text), input);
     return label;
-  }
-
-  #show(input: HTMLElement, visible: boolean): void {
-    input.parentElement!.hidden = !visible;
-    (input as HTMLInputElement | HTMLSelectElement).disabled = !visible || this.#busy;
   }
 
   #item(

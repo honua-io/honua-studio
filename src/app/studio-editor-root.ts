@@ -61,11 +61,7 @@ export class StudioEditorRoot {
       saveCurrentView: (current) => this.#saveCurrentView(current),
     });
     this.editor = this.#createEditor();
-    this.manualElements = new ManualElementsHost({
-      ...this.#editingParts(),
-      editor: this.editor,
-      isConnected: () => host.isConnected,
-    });
+    this.manualElements = this.#createManualElements();
     this.designInspector = new DesignInspectorHost({ host, ...this.#editingParts(), children: this.children });
     this.styleEditor = new StyleEditorHost({
       host,
@@ -282,10 +278,7 @@ export class StudioEditorRoot {
       attachEditorDraft: (draftId) => host.attachEditorDraft(draftId),
       hasDirtyForm: () => this.hasDirtyForm(),
       settleStyleEdits: () => this.styleEditor.settled(),
-      onDraftRequested: () => {
-        host.closeDesignInspector();
-        this.manualElements.close();
-      },
+      onDraftRequested: () => host.closeDesignInspector(),
       beforeMapSwitch: (draftId) => {
         host.closeDesignInspector();
         this.manualElements.close();
@@ -296,6 +289,14 @@ export class StudioEditorRoot {
         host.dispatchEvent(
           new CustomEvent("honua-studio-draft-change", { bubbles: true, composed: true, detail: identity }),
         ),
+    });
+  }
+
+  #createManualElements(): ManualElementsHost {
+    return new ManualElementsHost({
+      ...this.#editingParts(),
+      editor: this.editor,
+      isConnected: () => this.host.isConnected,
     });
   }
 
