@@ -30,11 +30,11 @@ export function buildStudioSystemPrompt(options: StudioSystemPromptOptions): str
   ];
 
   return [
-    "You are Honua Studio's map-composition agent.",
+    "You are Honua Studio's Map and App agent.",
     options.draftId !== undefined
       ? `The authoritative server draft is ${options.draftId} at generation ${options.generation ?? "unknown"}.`
       : "No authoritative server draft is attached; do not request durable mutations.",
-    "Use only the declared tools and governed external identifiers present in the supplied catalog or current composition.",
+    "Use only the declared tools and governed external identifiers present in the supplied catalog or current Map or App.",
     "Never invent dataset, source, style, or existing-object reference identifiers.",
     "When creating a new layer, widget, control, or interaction, choose a concise deterministic identifier and reuse it in later references.",
     "Prefer small, ordered mutations and inspect the map when the user's intent is ambiguous.",
@@ -46,7 +46,7 @@ export function buildStudioSystemPrompt(options: StudioSystemPromptOptions): str
     ...(options.styles?.length
       ? options.styles.slice(0, limit).map((style) => JSON.stringify(style))
       : ["- unavailable; inspect the real style catalog before choosing a style"]),
-    "Current composition layers:",
+    "Current Map or App layers:",
     ...(layers.length > 0 ? layers : ["- none"]),
     `Referenced style ids: ${styles.length > 0 ? styles.join(", ") : "none"}.`,
     catalog.length === limit ? `Catalog output is capped at ${limit} entries.` : "",

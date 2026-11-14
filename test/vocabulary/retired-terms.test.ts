@@ -87,13 +87,8 @@ const ALLOWED_MEMBERS: ReadonlyArray<{ readonly name: string; readonly reason: s
   { name: "family", reason: "a server-owned wire name kept by AGENTS.md until the server rename" },
 ];
 
-/** Directories whose text is model-facing or contributor-facing rather than shown to users. */
-const NOT_USER_FACING = [
-  /^src\/evals\//,
-  /\/fixtures\//,
-  /^src\/chat\/system-prompt\.ts$/,
-  /^src\/mcp\/composition-authoring-contract\.ts$/,
-];
+/** Evaluation fixtures are contributor-facing rather than live user or model instructions. */
+const NOT_USER_FACING = [/^src\/evals\//, /\/fixtures\//];
 
 const TEXT_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: string; readonly reason: string }> = [
   {
