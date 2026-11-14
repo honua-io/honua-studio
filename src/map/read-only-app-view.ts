@@ -26,7 +26,7 @@ const WIDGET_TAG = "honua-studio-widget-deck";
 const WIDGET_FEATURE_LIMIT = 500;
 const WIDGET_RESPONSE_BYTES_LIMIT = 16 * 1024 * 1024;
 
-export interface ReadOnlyCompositionDocument {
+export interface ReadOnlyAppDocument {
   readonly body: unknown;
   readonly projection?: CompositionMapProjectionOptions;
 }
@@ -37,7 +37,7 @@ export interface AudienceFeatureTransport {
 }
 
 /** The host supplies current-reader source descriptors and a bounded GET transport. */
-export interface ReadOnlyCompositionViewOptions extends Omit<ReadOnlyMapCanvasOptions, "getAuth" | "onChange"> {
+export interface ReadOnlyAppViewOptions extends Omit<ReadOnlyMapCanvasOptions, "getAuth" | "onChange"> {
   readonly widgetContainer: HTMLElement;
   readonly documentUrl?: string;
   /**
@@ -45,17 +45,17 @@ export interface ReadOnlyCompositionViewOptions extends Omit<ReadOnlyMapCanvasOp
    * and target; return a new object and reload or dispose when either changes.
    */
   readonly getAudienceTransport: () => AudienceFeatureTransport | undefined;
-  readonly onChange?: (view: ReadOnlyCompositionView) => void;
+  readonly onChange?: (view: ReadOnlyAppView) => void;
 }
 
 /** One private map/widget state. Recreate with its style provider when the reader catalog changes. */
-export interface ReadOnlyCompositionView {
+export interface ReadOnlyAppView {
   readonly status: CompositionMapStatus;
   readonly statusDetail: string | undefined;
   readonly projection: CompositionMapProjection | undefined;
   readonly renderedFeatureCount: number;
   /** Replace composition using the same reader/catalog epoch; new catalogs require a new view and style provider. */
-  reload(document: ReadOnlyCompositionDocument): Promise<void>;
+  reload(document: ReadOnlyAppDocument): Promise<void>;
   settled(): Promise<void>;
   resize(): void;
   dispose(): void;
@@ -125,7 +125,7 @@ async function boundedWidgetResponse(
 function audienceWidgetDataLoader(
   state: CompositionState,
   projection: CompositionMapProjectionOptions | undefined,
-  options: ReadOnlyCompositionViewOptions,
+  options: ReadOnlyAppViewOptions,
   signal: AbortSignal,
 ): WidgetDataLoader {
   const catalog = projection?.catalog ?? [];
@@ -240,7 +240,7 @@ function audienceWidgetDataLoader(
 }
 
 /** Mounts audience exploration controls and widgets; no editor or writer elements are registered. */
-export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOptions): ReadOnlyCompositionView {
+export function createReadOnlyAppView(options: ReadOnlyAppViewOptions): ReadOnlyAppView {
   let generation = 0;
   let disposed = false;
   let current:
@@ -293,7 +293,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
     }
     current = undefined;
   };
-  const view: ReadOnlyCompositionView = Object.freeze({
+  const view: ReadOnlyAppView = Object.freeze({
     get status() {
       return failure ? "unavailable" : (current?.canvas.status ?? "idle");
     },
@@ -306,7 +306,7 @@ export function createReadOnlyCompositionView(options: ReadOnlyCompositionViewOp
     get renderedFeatureCount() {
       return current?.canvas.renderedFeatureCount ?? 0;
     },
-    reload(document: ReadOnlyCompositionDocument) {
+    reload(document: ReadOnlyAppDocument) {
       if (disposed) return Promise.reject(new Error("The published view was disposed."));
       const selected = ++generation;
       const work = (async () => {

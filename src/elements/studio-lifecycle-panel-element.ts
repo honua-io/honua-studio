@@ -569,13 +569,13 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
       <div class="lifecycle-confirm" data-testid="lifecycle-confirm-dialog" role="alertdialog" aria-label="${escapeHtml(title)}">
         <p><strong>${escapeHtml(title)}</strong></p>
         <p class="hn-muted">
-          This action is irreversible except by a further rollback. Type the package key
+          This action is irreversible except by a further rollback. Type the content key
           <strong data-testid="lifecycle-confirm-expected-key">${escapeHtml(expectedKey)}</strong> to confirm.
         </p>
         <input
           type="text"
           data-testid="lifecycle-confirm-input"
-          aria-label="Confirm package key"
+          aria-label="Confirm content key"
           autocomplete="off"
           value="${escapeHtml(this.#confirmText)}"
           placeholder="${escapeHtml(expectedKey)}"

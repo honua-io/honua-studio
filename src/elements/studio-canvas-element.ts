@@ -436,7 +436,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
         ${
           kind === "placeholder"
             ? `<div class="canvas-surface" data-testid="studio-canvas-surface" tabindex="0">
-                 <span>Composition canvas placeholder — honua-studio#8.</span>
+                 <span>Map canvas placeholder — honua-studio#8.</span>
                </div>`
             : `<honua-studio-control-bar
                  class="canvas-controls"
@@ -447,7 +447,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
                  class="canvas-map"
                  data-testid="studio-canvas-map"
                  role="region"
-                 aria-label="Composition map"
+                 aria-label="Map canvas"
                  aria-describedby="composition-readout"
                ></div>
                <p class="canvas-map-status hn-muted" data-testid="studio-canvas-map-status" role="status"></p>
@@ -456,7 +456,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
                  data-testid="studio-canvas-widget-deck"
                  label="Composed widgets"
                ></honua-studio-widget-deck>
-               <div class="composition-readout" id="composition-readout" data-testid="studio-canvas-readout" tabindex="0" role="region" aria-label="Composition details"></div>`
+               <div class="composition-readout" id="composition-readout" data-testid="studio-canvas-readout" tabindex="0" role="region" aria-label="Map details"></div>`
         }
       </section>
     `);
@@ -700,9 +700,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
     const view = this.#mapView;
     if (!view || view.status === "idle" || view.status === "starting") return "Preparing the map…";
     if (view.status === "unavailable") {
-      return `Map unavailable — showing the composition details instead.${
-        view.statusDetail ? ` (${view.statusDetail})` : ""
-      }`;
+      return `Map unavailable — showing the map details instead.${view.statusDetail ? ` (${view.statusDetail})` : ""}`;
     }
     const unresolved = view.projection?.unresolved ?? [];
     if (unresolved.length > 0) return unresolvedSummary(unresolved);
@@ -790,7 +788,7 @@ export class HonuaStudioCanvasElement extends HonuaStudioElementBase {
   /** Records an unavailable map without a `CompositionMapView` to hold the state — the import itself may be what failed. */
   #setMapUnavailable(detail: string): void {
     const status = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-map-status"]');
-    if (status) status.textContent = `Map unavailable — showing the composition details instead. (${detail})`;
+    if (status) status.textContent = `Map unavailable — showing the map details instead. (${detail})`;
     const map = this.shadowRoot?.querySelector<HTMLElement>('[data-testid="studio-canvas-map"]');
     if (map) map.hidden = true;
     this.shadowRoot?.querySelector<HTMLElement>(".canvas")?.setAttribute("data-surface", "details");

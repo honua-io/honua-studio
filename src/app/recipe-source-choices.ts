@@ -3,24 +3,20 @@ import type { ExploreDatasetMetadata } from "../recipes/explore-dataset.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import { createCatalogWidgetDataLoader } from "../widgets/widget-data.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority, type EditorStyleProviderOptions } from "./editor-authority.js";
 import { recipeSourceIdentity } from "./recipe-source-identity.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken, StalenessEpoch } from "./staleness-epoch.js";
-import {
-  WORKSPACE_AUTHORITY_CHANGED,
-  type WorkspaceAuthority,
-  type WorkspaceStyleProviderOptions,
-} from "./workspace-authority.js";
 
 /** The public `<honua-studio-app>` methods recipe discovery goes through; hosts and tests may wrap them. */
 export interface RecipeSourcesHost {
   listRecipeSources(signal: AbortSignal): Promise<readonly CatalogDataset[]>;
-  createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions): AuthoritativeStyleProvider;
+  createEditorStyleProvider(options: EditorStyleProviderOptions): AuthoritativeStyleProvider;
 }
 
 export interface RecipeSourceChoicesOptions {
   readonly host: RecipeSourcesHost;
-  readonly authority: WorkspaceAuthority;
+  readonly authority: EditorAuthority;
   readonly catalog: SourceCatalog;
   readonly recipeAuthority: StalenessEpoch;
 }
@@ -83,7 +79,7 @@ export class RecipeSourceChoices {
     const published = await client.listCatalog();
     signal.throwIfAborted();
     if (!recipeAuthority.isCurrent(generation) || auth !== authority.auth || !authority.lease.isCurrent(lease))
-      throw new Error(WORKSPACE_AUTHORITY_CHANGED);
+      throw new Error(EDITOR_AUTHORITY_CHANGED);
     let choices: readonly CatalogDataset[] = published;
     if (hostOwnsCatalog) {
       if (!catalog.fromHost || hostCatalog !== catalog.catalog) throw new Error(HOST_CHOICES_CHANGED);
@@ -107,7 +103,7 @@ export class RecipeSourceChoices {
     };
     if (source.protocol !== "geoservices-feature-service")
       throw new Error("Choose a published Honua vector FeatureServer source.");
-    const provider = this.options.host.createWorkspaceStyleProvider({
+    const provider = this.options.host.createEditorStyleProvider({
       signal,
       getAuthority: () => this.options.recipeAuthority.current,
     });
@@ -120,7 +116,7 @@ export class RecipeSourceChoices {
       throw new Error("Choose a point, line or polygon vector source.");
     const result = await this.#readSampleRows(resolution, source, provider.serverRoot);
     signal.throwIfAborted();
-    this.options.recipeAuthority.assertCurrent(resolution.generation, WORKSPACE_AUTHORITY_CHANGED);
+    this.options.recipeAuthority.assertCurrent(resolution.generation, EDITOR_AUTHORITY_CHANGED);
     requireSameChoices();
     if (!result.ok) throw new Error(`Readable feature queries are required. ${result.reason}`);
     return {
@@ -206,7 +202,7 @@ export class RecipeSourceChoices {
       documentUrl: document.baseURI,
       featureLimit: 100,
       getAuth: () => {
-        recipeAuthority.assertCurrent(generation, WORKSPACE_AUTHORITY_CHANGED);
+        recipeAuthority.assertCurrent(generation, EDITOR_AUTHORITY_CHANGED);
         return authority.auth;
       },
       fetchImpl: (input, init) => (auth.fetchRequest ?? fetch)(input, { ...init, signal }),

@@ -7,6 +7,9 @@ import type { HonuaStudioAppElement } from "../elements/studio-app-element.js";
 import { CompositionEditor } from "./composition-editor.js";
 import { DesignInspectorHost } from "./design-inspector-host.js";
 import { hasEditedFormControl } from "./dirty-form.js";
+import { EditorAuthority } from "./editor-authority.js";
+import { EditorDraftSession } from "./editor-draft-session.js";
+import { EditorRelease } from "./editor-release.js";
 import { LiveCompositionController } from "./live-composition-controller.js";
 import { RecipeController } from "./recipe-controller.js";
 import { ShellChrome } from "./shell-chrome.js";
@@ -14,9 +17,6 @@ import { ShellRouter } from "./shell-router.js";
 import { SourceCatalog } from "./source-catalog.js";
 import { StudioAppChildren } from "./studio-app-children.js";
 import { StyleEditorHost } from "./style-editor-host.js";
-import { WorkspaceAuthority } from "./workspace-authority.js";
-import { WorkspaceDraftSession } from "./workspace-draft-session.js";
-import { WorkspacePublication } from "./workspace-publication.js";
 
 /** The protected `HonuaStudioElementBase` members the shell chrome needs. */
 export interface StudioShellAccess {
@@ -28,15 +28,15 @@ export interface StudioShellAccess {
  * The composition root behind `<honua-studio-app>`: builds every controller, wires the hooks between them
  * and owns the policies that span them, such as revoking a former authority when the session changes.
  */
-export class StudioWorkspace {
+export class StudioEditorRoot {
   readonly composition = new CompositionController(createEmptyCompositionState());
   readonly children: StudioAppChildren;
-  readonly authority: WorkspaceAuthority;
+  readonly authority: EditorAuthority;
   readonly chrome: ShellChrome;
   readonly router: ShellRouter;
   readonly catalog: SourceCatalog;
-  readonly drafts: WorkspaceDraftSession;
-  readonly publication: WorkspacePublication;
+  readonly drafts: EditorDraftSession;
+  readonly release: EditorRelease;
   readonly editor: CompositionEditor;
   readonly designInspector: DesignInspectorHost;
   readonly styleEditor: StyleEditorHost;
@@ -54,8 +54,8 @@ export class StudioWorkspace {
     this.router = this.#createRouter();
     this.catalog = this.#createCatalog();
     this.drafts = this.#createDrafts();
-    this.publication = new WorkspacePublication(this.authority, this.drafts, {
-      prepareWorkspaceTurn: () => host.prepareWorkspaceTurn(),
+    this.release = new EditorRelease(this.authority, this.drafts, {
+      prepareEditorTurn: () => host.prepareEditorTurn(),
       saveCurrentView: (current) => this.#saveCurrentView(current),
     });
     this.editor = this.#createEditor();
@@ -81,15 +81,15 @@ export class StudioWorkspace {
     });
   }
 
-  /** A workspace host (agent adapter or cookie session) owns navigation and the composer. */
-  isWorkspaceHost(): boolean {
+  /** An editor host (agent adapter or cookie session) owns navigation and the composer. */
+  isEditorHost(): boolean {
     return Boolean(this.host.agentSessionAdapter) || this.authority.hasCookieSession;
   }
 
   syncHostMode(): void {
-    const workspaceHost = this.isWorkspaceHost();
-    this.host.toggleAttribute("data-workspace-host", workspaceHost);
-    if (workspaceHost) this.router.stop();
+    const editorHost = this.isEditorHost();
+    this.host.toggleAttribute("data-editor-host", editorHost);
+    if (editorHost) this.router.stop();
     if (this.host.isConnected) this.router.render();
   }
 
@@ -206,8 +206,8 @@ export class StudioWorkspace {
     };
   }
 
-  #createAuthority(): WorkspaceAuthority {
-    return new WorkspaceAuthority({
+  #createAuthority(): EditorAuthority {
+    return new EditorAuthority({
       isConnected: () => this.host.isConnected,
       onAuthReplaced: () => this.drafts.rebind(this.authority.lifecycleClient()),
       // Never render routes from this listener: every getAccessToken() dispatches a state change and the
@@ -237,7 +237,7 @@ export class StudioWorkspace {
       hasView: () => this.chrome.hasView(),
       viewRoot: () => this.chrome.viewRoot(),
       onRouteRendered: () => this.chrome.syncNav(),
-      isWorkspaceHost: () => this.isWorkspaceHost(),
+      isEditorHost: () => this.isEditorHost(),
       addCatalogSource: (dataset) => this.editor.addCatalogSource(dataset),
       releaseView: () => this.styleEditor.releaseForNavigation(),
     });
@@ -260,11 +260,11 @@ export class StudioWorkspace {
     });
   }
 
-  #createDrafts(): WorkspaceDraftSession {
+  #createDrafts(): EditorDraftSession {
     const { host } = this;
-    return new WorkspaceDraftSession(this.authority, this.composition, {
-      prepareWorkspaceTurn: () => host.prepareWorkspaceTurn(),
-      attachWorkspaceDraft: (draftId) => host.attachWorkspaceDraft(draftId),
+    return new EditorDraftSession(this.authority, this.composition, {
+      prepareEditorTurn: () => host.prepareEditorTurn(),
+      attachEditorDraft: (draftId) => host.attachEditorDraft(draftId),
       hasDirtyForm: () => this.hasDirtyForm(),
       settleStyleEdits: () => this.styleEditor.settled(),
       onDraftRequested: () => host.closeDesignInspector(),
@@ -275,7 +275,7 @@ export class StudioWorkspace {
       afterMapSwitch: () => this.children.canvas()?.resetExploration(),
       onDraftChange: (identity) =>
         host.dispatchEvent(
-          new CustomEvent("honua-workspace-draft-change", { bubbles: true, composed: true, detail: identity }),
+          new CustomEvent("honua-studio-draft-change", { bubbles: true, composed: true, detail: identity }),
         ),
     });
   }

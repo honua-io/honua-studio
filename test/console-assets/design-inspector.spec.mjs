@@ -131,7 +131,7 @@ test("built shared editor inspects actual data, follows exact owners, and fences
         }),
       });
       const created = await response.json();
-      await app.attachWorkspaceDraft(created.data.draftId);
+      await app.attachEditorDraft(created.data.draftId);
       window.__designApp = app;
     }, mintFixtureAccessToken());
     await expect
@@ -183,7 +183,7 @@ test("built shared editor inspects actual data, follows exact owners, and fences
     await panel.getByRole("button", { name: "Reset temporary filters" }).click();
     await expect(panel).toContainText("No temporary source filters");
     expect(await page.evaluate(() => window.__designApp.composition.state.interactions.length)).toBe(2);
-    await page.evaluate(() => window.__designApp.createWorkspaceDraft("next-inspector-draft"));
+    await page.evaluate(() => window.__designApp.createEditorDraft("next-inspector-draft"));
     await expect(panel).toHaveCount(0);
     await page.getByTestId("design-inspector-toggle").click();
     await expect(panel).toContainText("No components in this draft");

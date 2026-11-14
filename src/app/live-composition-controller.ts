@@ -10,8 +10,9 @@ import {
 } from "../chat/share-preview.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { EditorAgentSessionAdapter } from "../editor-agent.js";
 import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "../elements/studio-chat-element.js";
-import type { HonuaStudioCompositionModeChangeDetail } from "../elements/types.js";
+import type { HonuaStudioEditingModeChangeDetail } from "../elements/types.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
@@ -19,7 +20,6 @@ import { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import type { StudioMcpDraft, StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import { runtimeMcpBaseUrl, runtimeServerBaseUrl } from "../runtime-config.js";
 import type { AuthoritativeStyleDefinition } from "../styles/authoritative-style-provider.js";
-import type { WorkspaceAgentSessionAdapter } from "../workspace-agent.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
@@ -30,25 +30,25 @@ type AgentToolDefinitions = (kit: HonuaAiMapKit) => ReadonlyArray<HonuaAgentTool
 type AgentSessionOptions = Parameters<HonuaStudioChatElement["attachAgentSession"]>[0];
 type ForwardedToolCall = { readonly name: string; readonly args?: Readonly<Record<string, unknown>> };
 
-export interface LiveCompositionOptions {
+export interface LiveEditingOptions {
   readonly baseUrl?: string;
   readonly packageKey: string;
   readonly family?: StudioPackageFamilyWire;
   readonly schemaVersion?: string;
 }
 
-type ResolvedLiveOptions = LiveCompositionOptions & { readonly baseUrl: string };
+type ResolvedLiveOptions = LiveEditingOptions & { readonly baseUrl: string };
 
 /** The public `<honua-studio-app>` surface live composition reads; hosts and tests may replace these. */
 export interface LiveCompositionHost extends EventTarget {
   readonly isConnected: boolean;
   readonly auth: AuthSession;
   readonly composition: CompositionController;
-  readonly agentSessionAdapter: WorkspaceAgentSessionAdapter | undefined;
+  readonly agentSessionAdapter: EditorAgentSessionAdapter | undefined;
   readonly toolCallOrchestrator: ToolCallOrchestrator;
   readonly aiMapKit: HonuaAiMapKit;
   readonly agentToolDefinitions: AgentToolDefinitions;
-  disableLiveComposition(): void;
+  disableLiveEditing(): void;
 }
 
 export interface LiveCompositionControllerOptions {
@@ -158,7 +158,7 @@ export class LiveCompositionController {
     if (this.isLive) this.scheduleAgentSession();
   }
 
-  enable(options: LiveCompositionOptions): void {
+  enable(options: LiveEditingOptions): void {
     const liveOptions: ResolvedLiveOptions = {
       baseUrl: options.baseUrl ?? runtimeMcpBaseUrl(),
       packageKey: options.packageKey,
@@ -196,7 +196,7 @@ export class LiveCompositionController {
     const generation = this.#agentSetup.current;
     void setup.catch((error) => {
       if (!this.#agentSetup.isCurrent(generation)) return;
-      this.options.host.disableLiveComposition();
+      this.options.host.disableLiveEditing();
       this.options.children.chat()?.activityLog.append("assistant_turn_error", {
         errorMessage: error instanceof Error ? error.message : String(error),
         phase: "agent-session-setup",
@@ -244,11 +244,11 @@ export class LiveCompositionController {
     this.scheduleAgentSession();
   }
 
-  #announceMode(detail: HonuaStudioCompositionModeChangeDetail): void {
+  #announceMode(detail: HonuaStudioEditingModeChangeDetail): void {
     this.options.chrome.paintLiveComposition();
-    this.options.children.chat()?.activityLog.append("composition_mode_changed", { ...detail });
+    this.options.children.chat()?.activityLog.append("editing_mode_changed", { ...detail });
     this.options.host.dispatchEvent(
-      new CustomEvent<HonuaStudioCompositionModeChangeDetail>("honua-studio-composition-mode-change", {
+      new CustomEvent<HonuaStudioEditingModeChangeDetail>("honua-studio-editing-mode-change", {
         bubbles: true,
         composed: true,
         detail,

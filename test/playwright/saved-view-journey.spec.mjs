@@ -55,7 +55,7 @@ for (const initialView of [{}, { bbox: [-158.3, 21.2, -157.6, 21.8] }]) {
     try {
       await boot(page, preview);
       await page.evaluate(async (view) => {
-        await window.__honuaStudioApp.createWorkspaceDraft("saved-camera");
+        await window.__honuaStudioApp.createEditorDraft("saved-camera");
         await document.querySelector("honua-studio-canvas").commandDispatch([{ name: "setView", view }]);
       }, initialView);
       await page.evaluate(() => {
@@ -68,7 +68,7 @@ for (const initialView of [{}, { bbox: [-158.3, 21.2, -157.6, 21.8] }]) {
       });
       const expected = await panCamera(page);
       const savedView = await page.evaluate(async () => {
-        const version = await window.__honuaStudioApp.saveWorkspaceVersion();
+        const version = await window.__honuaStudioApp.saveEditorVersion();
         window.__savedCameraVersion = version.versionId;
         return version.envelope.body.view;
       });
@@ -80,7 +80,7 @@ for (const initialView of [{}, { bbox: [-158.3, 21.2, -157.6, 21.8] }]) {
           .mapView.map.jumpTo({ center: [0, 0], zoom: 1, bearing: 0, pitch: 0 });
         // Keep a browser-side root while CDP awaits the promise across the map reset.
         // Otherwise Chromium can collect it and Playwright reports a navigation error.
-        window.__cameraReopenPromise = window.__honuaStudioApp.reopenWorkspaceVersion(window.__savedCameraVersion);
+        window.__cameraReopenPromise = window.__honuaStudioApp.reopenEditorVersion(window.__savedCameraVersion);
         return window.__cameraReopenPromise;
       });
       await page.evaluate(() => {
@@ -104,9 +104,9 @@ test("saving immediately after an authored view retains its target", async ({ pa
     const savedView = await page.evaluate(async (view) => {
       const app = window.__honuaStudioApp;
       const canvas = document.querySelector("honua-studio-canvas");
-      await app.createWorkspaceDraft("authored-camera");
+      await app.createEditorDraft("authored-camera");
       await canvas.commandDispatch([{ name: "setView", view }]);
-      const version = await app.saveWorkspaceVersion();
+      const version = await app.saveEditorVersion();
       return version.envelope.body.view;
     }, target);
     expectCamera(savedView, target);

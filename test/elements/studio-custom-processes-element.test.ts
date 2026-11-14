@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioCustomProcessesElement } from "../../src/elements/studio-custom-processes-element.js";
-import type { LocalProcessWorkspace } from "../../src/gp/custom-process-workspace.js";
+import type { LocalProcessEditor } from "../../src/gp/custom-process-editor.js";
 registerAllStudioElements();
 afterEach(() => {
   document.body.innerHTML = "";
@@ -26,7 +26,7 @@ function mount(save = vi.fn()) {
     project: async () => project,
     identity: async () => identity,
     save,
-  } as unknown as LocalProcessWorkspace;
+  } as unknown as LocalProcessEditor;
   document.body.appendChild(element);
   return element;
 }
@@ -39,7 +39,7 @@ it("projects only actual project references and preserves dirty source during ta
   element.addEventListener("honua-local-process-task-change", (event) => tasks.push((event as CustomEvent).detail));
   click(element, "load");
   await vi.waitFor(() => expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("original source"));
-  expect(await element.prepareWorkspaceTask()).toEqual({
+  expect(await element.prepareEditorTask()).toEqual({
     projectId: identity.projectId,
     revision: 1,
     sourceDigest: identity.sourceDigest,
@@ -49,8 +49,8 @@ it("projects only actual project references and preserves dirty source during ta
   editor.value = "unsaved edit";
   editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   expect(tasks.at(-1)).toBeNull();
-  await expect(element.prepareWorkspaceTask()).rejects.toThrow("save source");
-  expect(await element.attachWorkspaceTask(identity)).toBe(false);
+  await expect(element.prepareEditorTask()).rejects.toThrow("save source");
+  expect(await element.attachEditorTask(identity)).toBe(false);
   expect(editor.value).toBe("unsaved edit");
 });
 it("does not acknowledge newer typing as the source accepted by an in-flight save", async () => {
@@ -80,7 +80,7 @@ it("does not acknowledge newer typing as the source accepted by an in-flight sav
   });
   await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("Source saved"));
   expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("second edit");
-  await expect(element.prepareWorkspaceTask()).rejects.toThrow("save source");
+  await expect(element.prepareEditorTask()).rejects.toThrow("save source");
 });
 
 it("refreshes accepted agent source changes only when clean and exposes conflicts without replacing dirty text", async () => {
@@ -95,13 +95,13 @@ it("refreshes accepted agent source changes only when clean and exposes conflict
   };
   element.client!.identity = async () => changed;
   element.client!.project = async () => changed;
-  expect(await element.refreshWorkspaceTask()).toBe(true);
+  expect(await element.refreshEditorTask()).toBe(true);
   expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("agent correction");
   const editor = element.shadowRoot!.querySelector("textarea")!;
   editor.value = "human unsaved correction";
   editor.dispatchEvent(new Event("input", { bubbles: true }));
   element.client!.identity = async () => ({ ...changed, revision: 3, sourceDigest: "1".repeat(64) });
-  expect(await element.refreshWorkspaceTask()).toBe(false);
+  expect(await element.refreshEditorTask()).toBe(false);
   expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("human unsaved correction");
   expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("changed outside this editor");
 });
@@ -116,7 +116,7 @@ it("keeps pending imports separate from publishable datasets and resumes only ca
       jobId: "job-1",
       dataset: { tableName: "canonical", physicalTableName: "physical_42", schema: "honua_data" },
     });
-  element.client = { resumeImport } as unknown as LocalProcessWorkspace;
+  element.client = { resumeImport } as unknown as LocalProcessEditor;
   document.body.append(element);
   click(element, "resume-import");
   await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("Import pending"));
@@ -139,10 +139,10 @@ it("does not adopt an old client's delayed import result after authority replace
       new Promise((resolve) => {
         release = resolve;
       }),
-  } as unknown as LocalProcessWorkspace;
+  } as unknown as LocalProcessEditor;
   document.body.append(element);
   click(element, "resume-import");
-  element.client = { resumeImport: async () => undefined } as unknown as LocalProcessWorkspace;
+  element.client = { resumeImport: async () => undefined } as unknown as LocalProcessEditor;
   release({
     status: "completed",
     jobId: "old",
@@ -155,7 +155,7 @@ it("does not adopt an old client's delayed import result after authority replace
 it("preserves source editor DOM, focus and typing during automatic import polling", async () => {
   const element = document.createElement("honua-studio-custom-processes") as HonuaStudioCustomProcessesElement;
   const resumeImport = vi.fn().mockResolvedValue({ status: "pending", jobId: "job-1" });
-  element.client = { resumeImport } as unknown as LocalProcessWorkspace;
+  element.client = { resumeImport } as unknown as LocalProcessEditor;
   document.body.append(element);
   click(element, "resume-import");
   await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("Import pending"));
@@ -184,7 +184,7 @@ it("shows large fixture metadata read-only without placing fixture bytes in the 
     bind: async () => identity,
     project: async () => ({ ...project, readOnlyFiles: [file] }),
     identity: async () => identity,
-  } as unknown as LocalProcessWorkspace;
+  } as unknown as LocalProcessEditor;
   document.body.append(element);
   click(element, "load");
   await vi.waitFor(() => expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("original source"));
@@ -196,6 +196,6 @@ it("shows large fixture metadata read-only without placing fixture bytes in the 
   expect(list.textContent).toContain("Read-only");
   expect(list.querySelector("textarea,input,button")).toBeNull();
   expect(element.shadowRoot!.querySelector('select[aria-label="Source file"]')!.textContent).not.toContain(file.path);
-  element.client = {} as LocalProcessWorkspace;
+  element.client = {} as LocalProcessEditor;
   expect(element.shadowRoot!.textContent).not.toContain(file.path);
 });

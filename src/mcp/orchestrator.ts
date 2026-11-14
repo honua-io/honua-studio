@@ -172,7 +172,7 @@ export class ToolCallOrchestrator {
 
   /** Creates or resolves the authoritative draft before a model turn begins. */
   public async ensureLiveDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
-    if (!this.#live) throw new Error("No live Studio composition session is attached.");
+    if (!this.#live) throw new Error("No live Studio editing session is attached.");
     return this.#ensureDraft();
   }
 
@@ -430,7 +430,7 @@ export class ToolCallOrchestrator {
         })
         .then((draft) => {
           if (setupGeneration !== this.#draftSetupGeneration || this.#live !== live) {
-            throw new Error("Live Studio composition session changed while its draft was being created.");
+            throw new Error("Live Studio editing session changed while its draft was being created.");
           }
           this.#draftId = draft.draftId;
           this.#generation = draft.generation;

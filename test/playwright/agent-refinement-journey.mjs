@@ -38,9 +38,9 @@ function untargetedState(page) {
   });
 }
 
-function prepareWorkspaceTurn(page) {
+function prepareEditorTurn(page) {
   return page.evaluate(() =>
-    window.__honuaStudioApp.prepareWorkspaceTurn().then(
+    window.__honuaStudioApp.prepareEditorTurn().then(
       (identity) => ({ identity }),
       (error) => ({ refused: error.message }),
     ),
@@ -56,7 +56,7 @@ export async function verifyAgentRefinement(page, { key, readDraft, agentCall, p
   const editor = page.getByRole("region", { name: "Map style editor", exact: true });
   await page.getByRole("button", { name: "Edit map style", exact: true }).click();
   await editor.getByLabel("Color", { exact: true }).fill("#2171b5");
-  expect((await prepareWorkspaceTurn(page)).refused).toContain("Save or explicitly reload");
+  expect((await prepareEditorTurn(page)).refused).toContain("Save or explicitly reload");
   await editor.getByRole("button", { name: "Discard visual edits", exact: true }).click();
   await expect.poll(async () => (await paintedLayer())?.colors).toEqual(["#d94801"]);
 
@@ -64,12 +64,12 @@ export async function verifyAgentRefinement(page, { key, readDraft, agentCall, p
   const untargeted = await untargetedState(page);
   expect(untargeted.pins).toEqual([pinned]);
   const saved = await readDraft(key);
-  const { identity } = await prepareWorkspaceTurn(page);
+  const { identity } = await prepareEditorTurn(page);
   expect(identity).toMatchObject({ draftId: saved.draftId, generation: saved.generation });
 
   const refined = await agentPaintWrite(agentCall, saved, identity.generation, { "fill-opacity": 0.9 });
   expect(refined.isError).toBeFalsy();
-  expect(await page.evaluate(() => window.__honuaStudioApp.refreshWorkspaceDraft())).toBe(true);
+  expect(await page.evaluate(() => window.__honuaStudioApp.refreshEditorDraft())).toBe(true);
   await expect.poll(async () => (await paintedLayer())?.opacity).toEqual([0.9]);
   expect((await paintedLayer()).colors).toEqual(["#d94801"]);
   expect(await untargetedState(page)).toEqual(untargeted);

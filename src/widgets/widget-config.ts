@@ -369,7 +369,7 @@ export function readTimeConfig(widget: CompositionWidget): WidgetConfigResult<Co
     return {
       ok: false,
       reason: field
-        ? `Time "${widget.id}" filters on "${field}", but the composition vocabulary has no filter command yet — author it as config.steps: [{ label, layerId }] to drive layer visibility instead.`
+        ? `Time "${widget.id}" filters on "${field}", but the map command vocabulary has no filter command yet — author it as config.steps: [{ label, layerId }] to drive layer visibility instead.`
         : `Time "${widget.id}" has no config.steps: [{ label, layerId }] to step through.`,
     };
   }

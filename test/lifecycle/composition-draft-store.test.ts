@@ -353,7 +353,7 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
         packageKey: "foreign-render-only",
         envelope: { body: createEmptyCompositionState() },
       }),
-    ).rejects.toThrow(/not a Studio composition body/);
+    ).rejects.toThrow(/not an editable Studio map body/);
     expect(writes).toEqual([]);
     expect((await storedEnvelope(draftId)).body).toEqual({
       mapPackageId: "foreign",
@@ -375,13 +375,13 @@ describe("lifecycle/composition-draft-store — DraftSync over the SDK lifecycle
       initialView: { bbox: [-160.6, 18.7, -154.5, 22.5], crs: "EPSG:4326" },
     });
 
-    await expect(store().get(draftId)).rejects.toThrow(/not a Studio composition body/);
+    await expect(store().get(draftId)).rejects.toThrow(/not an editable Studio map body/);
     await expect(store().get(draftId)).rejects.toThrow(/honua_map_package\.v1/);
   });
 
   it("refuses a body that is not an object at all", async () => {
     server = await startMockServer();
     const draftId = await seedDraft("sdk-adapter-foreign", undefined);
-    await expect(store().get(draftId)).rejects.toThrow(/no composition body/);
+    await expect(store().get(draftId)).rejects.toThrow(/no map body/);
   });
 });

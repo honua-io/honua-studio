@@ -153,7 +153,7 @@ async function assertAudienceView(page, mount) {
         view: { center: [-157.843, 21.301], zoom: 13 },
       };
       const durable = JSON.stringify(body);
-      const view = runtime.createReadOnlyCompositionView({
+      const view = runtime.createReadOnlyAppView({
         container: document.querySelector("#map"),
         widgetContainer: document.querySelector("#widgets"),
         body,

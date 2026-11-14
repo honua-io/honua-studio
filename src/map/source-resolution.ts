@@ -245,7 +245,7 @@ export function resolveCompositionSource(
     !(authoredType === "raster" && (isPlainObject(inlineSource) || descriptor?.protocol === "pmtiles"))
   ) {
     return {
-      reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the composition map cannot render yet.`,
+      reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the map cannot render yet.`,
       scope: "layer",
     };
   }
@@ -306,7 +306,7 @@ export function resolveCompositionSource(
   const geometryLayerType = layerTypeForGeometry(descriptor.geometryType);
   if (geometryLayerType === "raster") {
     return {
-      reason: `Source "${layer.sourceId}" is raster (${descriptor.geometryType}); the composition map renders vector sources only so far.`,
+      reason: `Source "${layer.sourceId}" is raster (${descriptor.geometryType}); the map renders vector sources only so far.`,
       scope: "layer",
     };
   }
@@ -370,7 +370,7 @@ export function resolveCompositionSource(
   }
 
   return {
-    reason: `Source "${layer.sourceId}" advertises protocol "${protocol ?? "unknown"}", which the composition map cannot render yet.`,
+    reason: `Source "${layer.sourceId}" advertises protocol "${protocol ?? "unknown"}", which the map cannot render yet.`,
   };
 }
 

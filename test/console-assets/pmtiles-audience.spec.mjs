@@ -151,7 +151,7 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
         view: { center: [0, 0], zoom: 0 },
       };
       window.pmtilesFixtureBody = body;
-      window.pmtilesFixture = runtime.createReadOnlyCompositionView({
+      window.pmtilesFixture = runtime.createReadOnlyAppView({
         container: document.querySelector("#map"),
         widgetContainer: document.querySelector("#widgets"),
         body,
@@ -183,7 +183,7 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
     await page.evaluate(async () => {
       window.pmtilesFixture.dispose();
       const runtime = await import("/console.js");
-      window.pmtilesFixture = runtime.createReadOnlyCompositionView({
+      window.pmtilesFixture = runtime.createReadOnlyAppView({
         container: document.querySelector("#map"),
         widgetContainer: document.querySelector("#widgets"),
         body: { ...window.pmtilesFixtureBody, layers: [window.pmtilesFixtureBody.layers[0]] },

@@ -3,27 +3,27 @@ import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element
 import type { MapStyleDocument, MapStyleField } from "../styles/map-style-edit.js";
 import { MapStyleEditor, type MapStyleEditorOptions } from "../styles/map-style-editor.js";
 import type { CompositionEditor } from "./composition-editor.js";
+import { EDITOR_AUTHORITY_CHANGED, type EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./editor-draft-session.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import { WORKSPACE_AUTHORITY_CHANGED, type WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
 
 const NEWER_DRAFT_SAVED = "Another edit saved this map first. Discard visual edits to load it, then reapply yours.";
 
 /** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
 export interface StyleEditorHostElement extends EventTarget {
   readonly styleEditorAssetsUrl: string;
-  prepareWorkspaceTurn(): Promise<unknown>;
-  attachWorkspaceDraft(draftId: string): Promise<void>;
+  prepareEditorTurn(): Promise<unknown>;
+  attachEditorDraft(draftId: string): Promise<void>;
 }
 
 export interface StyleEditorHostOptions {
   readonly host: StyleEditorHostElement;
-  readonly authority: WorkspaceAuthority;
-  readonly drafts: WorkspaceDraftSession;
+  readonly authority: EditorAuthority;
+  readonly drafts: EditorDraftSession;
   readonly catalog: SourceCatalog;
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;
@@ -35,7 +35,7 @@ export interface StyleEditorHostOptions {
 interface EditingSession {
   readonly canvas: HonuaStudioCanvasElement;
   readonly generation: EpochToken;
-  readonly identity: WorkspaceDraftIdentity;
+  readonly identity: EditorDraftIdentity;
 }
 
 /** The visual map-style editor docked beside the map; edits stay local until saved to the draft. */
@@ -61,17 +61,17 @@ export class StyleEditorHost {
   async open(selectedLayerId: string | undefined): Promise<void> {
     if (this.#editor) return;
     const { authority, drafts } = this.options;
-    await this.options.host.prepareWorkspaceTurn();
+    await this.options.host.prepareEditorTurn();
     if (!drafts.binding) throw new Error("Attach an authorized map draft before editing its style.");
     const canvas = this.options.children.canvas();
     if (!canvas) throw new Error("Open the map canvas before its style editor.");
     if (!this.options.composition.state.mapSpec) await this.#initializeDraftStyle(canvas);
     const generation = authority.epoch.current;
     const identity = drafts.identity;
-    if (!identity) throw new Error("The workspace draft is unavailable.");
+    if (!identity) throw new Error("The editor draft is unavailable.");
     const document = await canvas.editableMapStyle();
     if (!authority.epoch.isCurrent(generation) || identity.draftId !== drafts.identity?.draftId)
-      throw new Error("The workspace draft changed while opening the style editor.");
+      throw new Error("The editor draft changed while opening the style editor.");
     const session: EditingSession = { canvas, generation, identity };
     const editor = new MapStyleEditor(this.#editorOptions(session, document, selectedLayerId));
     this.#editor = editor;
@@ -129,9 +129,9 @@ export class StyleEditorHost {
     const epoch = authority.epoch.current;
     await drafts.enqueue(async () => {
       const style = await canvas.editableMapStyle();
-      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
+      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(EDITOR_AUTHORITY_CHANGED);
       const observed = await binding.initializeStyle(style);
-      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
+      if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(EDITOR_AUTHORITY_CHANGED);
       composition.resetBaseline({
         ...observed,
         pins: composition.state.pins,
@@ -221,16 +221,16 @@ export class StyleEditorHost {
       signal: AbortSignal.timeout(8000),
     });
     const fields = await provider.describeSource(source);
-    authority.epoch.assertCurrent(session.generation, WORKSPACE_AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(session.generation, EDITOR_AUTHORITY_CHANGED);
     return fields;
   }
 
   async #save(session: EditingSession, style: MapStyleDocument): Promise<MapStyleDocument> {
     const { authority, drafts } = this.options;
     if (!authority.epoch.isCurrent(session.generation) || session.identity.draftId !== drafts.identity?.draftId)
-      throw new Error(`${WORKSPACE_AUTHORITY_CHANGED} Reopen the visual editor.`);
+      throw new Error(`${EDITOR_AUTHORITY_CHANGED} Reopen the visual editor.`);
     const result = await this.options.editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
-    authority.epoch.assertCurrent(session.generation, WORKSPACE_AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(session.generation, EDITOR_AUTHORITY_CHANGED);
     if (result.conflict) throw new Error(NEWER_DRAFT_SAVED);
     if (!result.ok) throw new Error(result.reason);
     return session.canvas.editableMapStyle();
@@ -241,16 +241,16 @@ export class StyleEditorHost {
     const { authority, drafts } = this.options;
     session.canvas.stylePreview = undefined;
     const id = drafts.identity?.draftId;
-    if (!id || !authority.epoch.isCurrent(session.generation)) throw new Error(WORKSPACE_AUTHORITY_CHANGED);
+    if (!id || !authority.epoch.isCurrent(session.generation)) throw new Error(EDITOR_AUTHORITY_CHANGED);
     const editor = this.#editor;
     this.#editor = undefined;
     try {
-      await this.options.host.attachWorkspaceDraft(id);
+      await this.options.host.attachEditorDraft(id);
     } finally {
       if (authority.epoch.isCurrent(session.generation)) this.#editor = editor;
       else editor?.dispose();
     }
-    authority.epoch.assertCurrent(session.generation, WORKSPACE_AUTHORITY_CHANGED);
+    authority.epoch.assertCurrent(session.generation, EDITOR_AUTHORITY_CHANGED);
     return session.canvas.editableMapStyle();
   }
 

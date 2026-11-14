@@ -146,7 +146,7 @@ test("host conversation replay and share notes never turn HTML or Markdown URLs 
     const accepted = await page.evaluate((payload) => {
       const element = document.querySelector("#output-safety-chat");
       element.shareNote = payload;
-      return element.setWorkspaceConversation([
+      return element.setEditorConversation([
         { id: payload, role: "assistant", content: payload },
         { id: "replayed-user", role: "user", content: payload },
       ]);

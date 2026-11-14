@@ -5,17 +5,17 @@ import { toCompositionDraft } from "./composition-draft-store.js";
 import type { StudioLifecycleClient } from "./lifecycle-client.js";
 import type { StudioPackageDraft } from "./lifecycle-types.js";
 
-type WorkspaceDraftClient = Pick<StudioLifecycleClient, "getDraft" | "replaceDraft"> &
+type EditorDraftClient = Pick<StudioLifecycleClient, "getDraft" | "replaceDraft"> &
   Partial<Pick<StudioLifecycleClient, "setMapStyle" | "initializeDraftStyle">>;
 
 /** Human-authorized REST edits of the same durable draft used by the native agent.
  * No MCP replay, implicit conflict retry, publication or model history is involved. */
-export class WorkspaceDraftBinding {
+export class EditorDraftBinding {
   #draft: StudioPackageDraft | undefined;
-  public constructor(private client: WorkspaceDraftClient) {}
+  public constructor(private client: EditorDraftClient) {}
 
   /** Renew transport credentials without changing the observed draft identity. */
-  public rebind(client: WorkspaceDraftClient): void {
+  public rebind(client: EditorDraftClient): void {
     this.client = client;
   }
 
@@ -67,7 +67,7 @@ export class WorkspaceDraftBinding {
 
   public async replace(state: CompositionState): Promise<CompositionState> {
     const current = this.#draft;
-    if (!current) throw new Error("Attach an authorized workspace draft before editing.");
+    if (!current) throw new Error("Attach an authorized editor draft before editing.");
     const draft = await this.client.replaceDraft(current.draftId, {
       packageKey: current.packageKey,
       generation: current.generation,

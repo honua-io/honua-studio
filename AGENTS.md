@@ -65,7 +65,7 @@ for Launch Stack deployment; Studio-specific qualification mechanics remain in R
 
 ## Issues and PRs
 - File issues in the Specifica format the existing issues use; search open and closed first.
-  Server tools, package lifecycle and the AI proxy belong in honua-server; shared client
+  Server tools, the Studio content lifecycle and the AI proxy belong in honua-server; shared client
   contracts in honua-sdk-js.
 - The `PR Issue Disposition` check (`scripts/lib/pr-issue-disposition.mjs`) fails any PR whose
   footer deviates from its grammar. Read `docs/pull-requests.md` for the footer and
@@ -85,6 +85,14 @@ BLOCKING:
   on public members.
 - N1 names that hide intent; F1 more than 3 parameters; F2 output arguments; F3 boolean flag arguments.
 - Over budget with no reason in the PR: functions ~40 lines or 2 nesting levels; classes, files ~400 lines.
+
+VOCABULARY (BLOCKING): user-facing text, docs and public names follow the Honua glossary
+(honua-server `docs/concepts/domain/README.md`) and the shared policy (honua-server
+`scripts/ci/retired-terms.v1.json` and `retired-terms.md`). Studio content is a Map or App with a Draft,
+Version and Released state, named by its kind; never a package, family or composition, and the editor is
+not a workspace. Keep server-owned wire names (`packageKey`, `family`, `workspaceId`) and the internal composition
+engine (`src/composition/`). `test/vocabulary/retired-terms.test.ts` enforces this; every new exception
+there needs a reason.
 
 WARNING: the rubric's other smells (N2-N7, G6-G36, T1-T9), e.g. G25 magic numbers or G12
 single-implementation interfaces.

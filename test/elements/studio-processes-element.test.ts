@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioProcessesElement } from "../../src/elements/studio-processes-element.js";
-import type { ProcessGraph, ServerProcessWorkspace } from "../../src/gp/process-workspace.js";
+import type { ProcessGraph, ServerProcessEditor } from "../../src/gp/process-editor.js";
 registerAllStudioElements();
 afterEach(() => {
   document.body.innerHTML = "";
@@ -13,7 +13,7 @@ it("preserves dirty graph text across registry/status rerenders and refuses stal
   element.client = {
     registry: async () => ({ registryVersion: "real", nodes: [] }),
     readVersion,
-  } as unknown as ServerProcessWorkspace;
+  } as unknown as ServerProcessEditor;
   document.body.appendChild(element);
   const editor = element.shadowRoot!.querySelector("textarea")!;
   editor.value = "{ still editing invalid JSON";
@@ -21,8 +21,8 @@ it("preserves dirty graph text across registry/status rerenders and refuses stal
   element.shadowRoot!.querySelector<HTMLButtonElement>('[data-action="registry"]')!.click();
   await vi.waitFor(() => expect(element.shadowRoot!.querySelector("pre")!.textContent).toContain("real"));
   expect(element.shadowRoot!.querySelector("textarea")!.value).toBe("{ still editing invalid JSON");
-  await expect(element.prepareWorkspaceTask()).rejects.toThrow("Save and validate");
-  expect(await element.attachWorkspaceTask({ packageId: "pkg", version: 1, contentHash: "a".repeat(64) })).toBe(false);
+  await expect(element.prepareEditorTask()).rejects.toThrow("Save and validate");
+  expect(await element.attachEditorTask({ packageId: "pkg", version: 1, contentHash: "a".repeat(64) })).toBe(false);
   expect(readVersion).not.toHaveBeenCalled();
 });
 
@@ -76,7 +76,7 @@ it("authors nodes and data ports visually, validates the same graph and preserve
     prepare,
     reserveCommand: () => ({ commandId: "durable", reconcileOnly: false }),
     run,
-  } as unknown as ServerProcessWorkspace;
+  } as unknown as ServerProcessEditor;
   document.body.appendChild(element);
   const button = (text: string) =>
     [...element.shadowRoot!.querySelectorAll("button")].find((item) => item.textContent === text)!;
@@ -99,7 +99,7 @@ it("authors nodes and data ports visually, validates the same graph and preserve
   ]);
   button("Save and validate snapshot").click();
   await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
-  await expect(element.prepareWorkspaceTask()).resolves.toEqual({
+  await expect(element.prepareEditorTask()).resolves.toEqual({
     packageId: "actual",
     version: 7,
     contentHash: "b".repeat(64),
@@ -111,7 +111,7 @@ it("authors nodes and data ports visually, validates the same graph and preserve
   button("Remove node").click();
   expect(element.graph.nodes).toHaveLength(1);
   expect(element.graph.edges).toEqual([]);
-  await expect(element.prepareWorkspaceTask()).rejects.toThrow("Save and validate");
+  await expect(element.prepareEditorTask()).rejects.toThrow("Save and validate");
 });
 
 it("rejects stale version attachment after newer selection or client authority change", async () => {
@@ -132,23 +132,23 @@ it("rejects stale version attachment after newer selection or client authority c
         }),
     )
     .mockResolvedValueOnce(snapshot("new"));
-  element.client = { readVersion } as unknown as ServerProcessWorkspace;
+  element.client = { readVersion } as unknown as ServerProcessEditor;
   document.body.appendChild(element);
-  const old = element.attachWorkspaceTask({ packageId: "old", version: 1, contentHash: "a".repeat(64) });
+  const old = element.attachEditorTask({ packageId: "old", version: 1, contentHash: "a".repeat(64) });
   await vi.waitFor(() => expect(readVersion).toHaveBeenCalledOnce());
-  expect(await element.attachWorkspaceTask({ packageId: "new", version: 1, contentHash: "a".repeat(64) })).toBe(true);
+  expect(await element.attachEditorTask({ packageId: "new", version: 1, contentHash: "a".repeat(64) })).toBe(true);
   resolve(snapshot("old"));
   expect(await old).toBe(false);
-  expect((await element.prepareWorkspaceTask()).packageId).toBe("new");
+  expect((await element.prepareEditorTask()).packageId).toBe("new");
   readVersion.mockImplementationOnce(
     () =>
       new Promise((done) => {
         resolve = done;
       }),
   );
-  const stale = element.attachWorkspaceTask({ packageId: "foreign", version: 1, contentHash: "a".repeat(64) });
+  const stale = element.attachEditorTask({ packageId: "foreign", version: 1, contentHash: "a".repeat(64) });
   await vi.waitFor(() => expect(readVersion).toHaveBeenCalledTimes(3));
-  element.client = {} as ServerProcessWorkspace;
+  element.client = {} as ServerProcessEditor;
   resolve(snapshot("foreign"));
   expect(await stale).toBe(false);
 });
@@ -169,7 +169,7 @@ it("selects the verified process binding instead of a publication index and refu
         },
       ],
     }),
-  } as unknown as ServerProcessWorkspace;
+  } as unknown as ServerProcessEditor;
   let finish: (value: { processLayerId: number }) => void = () => {};
   const resolve = vi.fn(
     async () =>
@@ -212,7 +212,7 @@ it("selects the verified process binding instead of a publication index and refu
   late.value = "published-service/0";
   late.dispatchEvent(new Event("change"));
   await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(3));
-  element.client = {} as ServerProcessWorkspace;
+  element.client = {} as ServerProcessEditor;
   finish({ processLayerId: 999 });
   await new Promise((done) => setTimeout(done, 0));
   expect(element.graph.nodes[0]!.parameters.layerId).toBe("0");

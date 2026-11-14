@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   type ProcessGraph,
-  ServerProcessWorkspace,
+  ServerProcessEditor,
   normalizeProcessDiagnostics,
   snapshotProcessGraph,
   validateProcessGraph,
-} from "../../src/gp/process-workspace.js";
+} from "../../src/gp/process-editor.js";
 const registry = {
   registryVersion: "v1",
   nodes: [
@@ -64,7 +64,7 @@ describe("Processes server adapter", () => {
         entries.set(key, value);
       },
     };
-    const first = new ServerProcessWorkspace({
+    const first = new ServerProcessEditor({
       environmentId: "env",
       principalId: "operator-a",
       csrfToken: "csrf",
@@ -75,7 +75,7 @@ describe("Processes server adapter", () => {
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ success: true, data: { items: [] } })),
     ) as unknown as typeof fetch;
-    const reopened = new ServerProcessWorkspace({
+    const reopened = new ServerProcessEditor({
       environmentId: "env",
       principalId: "operator-a",
       csrfToken: "csrf",
@@ -95,7 +95,7 @@ describe("Processes server adapter", () => {
       },
     };
     let commandId = "";
-    const client = new ServerProcessWorkspace({
+    const client = new ServerProcessEditor({
       environmentId: "env",
       principalId: "operator-a",
       csrfToken: "csrf",
@@ -128,10 +128,10 @@ describe("Processes server adapter", () => {
       },
     };
     const options = { environmentId: "env", csrfToken: "csrf", commandStorage };
-    const operatorA = new ServerProcessWorkspace({ ...options, principalId: "operator-a" });
+    const operatorA = new ServerProcessEditor({ ...options, principalId: "operator-a" });
     const pending = operatorA.reserveCommand("pkg", 1);
     let acceptedCommand = "";
-    const operatorB = new ServerProcessWorkspace({
+    const operatorB = new ServerProcessEditor({
       ...options,
       principalId: "operator-b",
       fetchImpl: async (input, init) => {
@@ -149,14 +149,14 @@ describe("Processes server adapter", () => {
     expect(fresh.commandId).not.toBe(pending.commandId);
     await operatorB.run("pkg", 1, acceptedCommand);
     expect(operatorB.reserveCommand("pkg", 1).reconcileOnly).toBe(false);
-    const renewedA = new ServerProcessWorkspace({ ...options, principalId: "operator-a", csrfToken: "renewed" });
+    const renewedA = new ServerProcessEditor({ ...options, principalId: "operator-a", csrfToken: "renewed" });
     expect(renewedA.reserveCommand("pkg", 1)).toEqual({ ...pending, reconcileOnly: true });
   });
 
   it("refuses durable submission without a principal partition before contacting the server", async () => {
     const fetchImpl = vi.fn();
     const commandStorage = { getItem: vi.fn(), setItem: vi.fn() };
-    const client = new ServerProcessWorkspace({ environmentId: "env", csrfToken: "csrf", fetchImpl, commandStorage });
+    const client = new ServerProcessEditor({ environmentId: "env", csrfToken: "csrf", fetchImpl, commandStorage });
     expect(() => client.reserveCommand("pkg", 1)).toThrow("principal partition");
     await expect(client.run("pkg", 1, "command")).rejects.toThrow("principal partition");
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe("Processes server adapter", () => {
       bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
       return new Response(JSON.stringify({ success: true, data: responses.shift() }));
     }) as unknown as typeof fetch;
-    const client = new ServerProcessWorkspace({
+    const client = new ServerProcessEditor({
       environmentId: "env-a",
       csrfToken: "csrf",
       principalId: "partition-a",

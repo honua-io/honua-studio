@@ -2,7 +2,7 @@
  * `<honua-studio-app>`: the Studio shell. Attribute, property and event contract: docs/element-contract.md;
  * session contract: docs/embed-session.md. A host that supplies its own chat or canvas child wires it itself;
  * this element only uses the public properties and events any embedder could use. Behaviour lives in the
- * controllers `StudioWorkspace` assembles; this class is the public facade and the element lifecycle.
+ * controllers `StudioEditorRoot` assembles; this class is the public facade and the element lifecycle.
  */
 import type { HonuaAgentToolDefinitionLike, HonuaAiMapKit } from "@honua/sdk-js/agent-tools";
 import {
@@ -13,15 +13,16 @@ import {
 } from "@honua/sdk-js/studio-agent";
 import { historyShortcutAction } from "../app/composition-editor.js";
 import type { DesignRelationship } from "../app/design-inspector-host.js";
-import type { LiveCompositionOptions } from "../app/live-composition-controller.js";
+import type { EditorStyleProviderOptions } from "../app/editor-authority.js";
+import type { EditorDraftIdentity } from "../app/editor-draft-session.js";
+import type { EditorRelease } from "../app/editor-release.js";
+import type { LiveEditingOptions } from "../app/live-composition-controller.js";
 import type { ProcessSourceChoice } from "../app/source-catalog.js";
-import { StudioWorkspace } from "../app/studio-workspace.js";
-import type { WorkspaceStyleProviderOptions } from "../app/workspace-authority.js";
-import type { WorkspaceDraftIdentity } from "../app/workspace-draft-session.js";
-import type { WorkspacePublication } from "../app/workspace-publication.js";
+import { StudioEditorRoot } from "../app/studio-editor-root.js";
 import type { AuthSession, SessionAdapter } from "../auth/index.js";
 import type { CatalogDataset, StudioClient } from "../client/studio-client.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../editor-agent.js";
 import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
@@ -29,7 +30,6 @@ import type { ExploreDatasetInput, ExploreDatasetMetadata } from "../recipes/exp
 import type { AuthoritativeStyleProvider } from "../styles/authoritative-style-provider.js";
 import { ThemeLoader } from "../theme/theme-loader.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
-import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
 import { HonuaStudioElementBase } from "./base-element.js";
 import type { StudioAgentCertificationOptions } from "./studio-chat-element.js";
 import { HonuaStudioLifecyclePanelElement } from "./studio-lifecycle-panel-element.js";
@@ -60,24 +60,24 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public styleEditorAssetsUrl = "/maputnik/index.html";
-  readonly #workspace = new StudioWorkspace(this, {
+  readonly #root = new StudioEditorRoot(this, {
     setShadowHtml: (html) => this.setShadowHtml(html),
     connectedSignal: () => this.connectedSignal,
   });
-  readonly #authority = this.#workspace.authority;
-  readonly #children = this.#workspace.children;
-  readonly #chrome = this.#workspace.chrome;
-  readonly #router = this.#workspace.router;
-  readonly #catalog = this.#workspace.catalog;
-  readonly #drafts = this.#workspace.drafts;
-  readonly #publication = this.#workspace.publication;
-  readonly #editor = this.#workspace.editor;
-  readonly #designInspector = this.#workspace.designInspector;
-  readonly #styleEditor = this.#workspace.styleEditor;
-  readonly #recipes = this.#workspace.recipes;
-  readonly #live = this.#workspace.live;
-  #workspaceAgentAdapter: WorkspaceAgentSessionAdapter | undefined;
-  #workspaceConversation: readonly WorkspaceConversationMessage[] = [];
+  readonly #authority = this.#root.authority;
+  readonly #children = this.#root.children;
+  readonly #chrome = this.#root.chrome;
+  readonly #router = this.#root.router;
+  readonly #catalog = this.#root.catalog;
+  readonly #drafts = this.#root.drafts;
+  readonly #release = this.#root.release;
+  readonly #editor = this.#root.editor;
+  readonly #designInspector = this.#root.designInspector;
+  readonly #styleEditor = this.#root.styleEditor;
+  readonly #recipes = this.#root.recipes;
+  readonly #live = this.#root.live;
+  #editorAgentAdapter: EditorAgentSessionAdapter | undefined;
+  #editorConversation: readonly EditorConversationMessage[] = [];
   #themeLoader: ThemeLoader | undefined;
 
   /**
@@ -90,7 +90,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   public set session(session: SessionAdapter | undefined) {
-    this.#workspace.replaceSession(session);
+    this.#root.replaceSession(session);
   }
 
   /** The resolved `AuthSession` this element and its descendants (`resolveInjectedAuth`) use; built lazily. */
@@ -109,19 +109,19 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Read-only style discovery pinned to this human authority; lease renewal may refresh transport only. */
-  public createWorkspaceStyleProvider(options: WorkspaceStyleProviderOptions = {}): AuthoritativeStyleProvider {
-    return this.#authority.createWorkspaceStyleProvider(options);
+  public createEditorStyleProvider(options: EditorStyleProviderOptions = {}): AuthoritativeStyleProvider {
+    return this.#authority.createEditorStyleProvider(options);
   }
 
-  /** Workspace-host agent transport; while set, the host's own composer replaces the chat slot. */
-  public get agentSessionAdapter(): WorkspaceAgentSessionAdapter | undefined {
-    return this.#workspaceAgentAdapter;
+  /** Editor-host agent transport; while set, the host's own composer replaces the chat slot. */
+  public get agentSessionAdapter(): EditorAgentSessionAdapter | undefined {
+    return this.#editorAgentAdapter;
   }
 
-  public set agentSessionAdapter(adapter: WorkspaceAgentSessionAdapter | undefined) {
-    const previous = this.#workspaceAgentAdapter;
-    this.#workspaceAgentAdapter = adapter;
-    this.#workspace.syncHostMode();
+  public set agentSessionAdapter(adapter: EditorAgentSessionAdapter | undefined) {
+    const previous = this.#editorAgentAdapter;
+    this.#editorAgentAdapter = adapter;
+    this.#root.syncHostMode();
     const chat = this.#children.chat();
     if (chat && (previous !== adapter || chat.agentSessionAdapter !== adapter)) {
       chat.detachAgentSession();
@@ -131,19 +131,19 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     else this.#chrome.showChatSlot();
   }
 
-  public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
-    this.#workspaceConversation = messages.map((message) => ({ ...message }));
-    return this.#children.chat()?.setWorkspaceConversation(this.#workspaceConversation) ?? true;
+  public setEditorConversation(messages: readonly EditorConversationMessage[]): boolean {
+    this.#editorConversation = messages.map((message) => ({ ...message }));
+    return this.#children.chat()?.setEditorConversation(this.#editorConversation) ?? true;
   }
 
   /** Composition state the canvas renders; it survives reconnection. */
   public get composition(): CompositionController {
-    return this.#workspace.composition;
+    return this.#root.composition;
   }
 
   /**
    * Tool-call orchestrator over `.composition`, logging to the chat's activity log when a chat child
-   * exists. Applies through the local reducer until `.enableLiveComposition()` attaches a live MCP session.
+   * exists. Applies through the local reducer until `.enableLiveEditing()` attaches a live MCP session.
    */
   public get toolCallOrchestrator(): ToolCallOrchestrator {
     return this.#live.orchestrator;
@@ -190,14 +190,14 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /**
    * Attaches a live MCP session so tool calls mutate a server draft through `honua_studio_*` tools instead
    * of the local reducer. The header's "Go live…" control calls this; every mode change is announced as
-   * `honua-studio-composition-mode-change` and logged.
+   * `honua-studio-editing-mode-change` and logged.
    */
-  public enableLiveComposition(options: LiveCompositionOptions): void {
+  public enableLiveEditing(options: LiveEditingOptions): void {
     this.#live.enable(options);
   }
 
   /** Returns to fixture mode. State the server already accepted stays; only future tool calls stay local. */
-  public disableLiveComposition(): void {
+  public disableLiveEditing(): void {
     this.#live.disable();
   }
 
@@ -239,63 +239,60 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Explicit human create action; never creates a draft as a side effect of viewing or chatting. */
-  public createWorkspaceDraft(
+  public createEditorDraft(
     packageKey: string,
     commandId?: string,
-  ): Promise<WorkspaceDraftIdentity | StudioApprovalPending> {
+  ): Promise<EditorDraftIdentity | StudioApprovalPending> {
     return this.#drafts.create(packageKey, commandId);
   }
 
   /** Read the authorized durable draft after a native turn. Does not execute tools. */
-  public attachWorkspaceDraft(draftId: string, mayAccept?: () => void): Promise<void> {
+  public attachEditorDraft(draftId: string, mayAccept?: () => void): Promise<void> {
     return this.#drafts.attach(draftId, mayAccept);
   }
 
   /** Idle observation for external draft changes; never discard an unsaved form value. */
-  public refreshWorkspaceDraft(): Promise<boolean> {
+  public refreshEditorDraft(): Promise<boolean> {
     return this.#drafts.refresh();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
-  public prepareWorkspaceTurn(): Promise<WorkspaceDraftIdentity | undefined> {
+  public prepareEditorTurn(): Promise<EditorDraftIdentity | undefined> {
     return this.#drafts.prepareTurn();
   }
 
   /** Save the active server draft as an immutable version; never publish it. */
-  public saveWorkspaceVersion(): Promise<StudioContentVersion> {
-    return this.#publication.saveVersion();
+  public saveEditorVersion(): Promise<StudioContentVersion> {
+    return this.#release.saveVersion();
   }
 
   /** List versions belonging to the active draft's server-owned content item. */
-  public listWorkspaceVersions(): Promise<readonly StudioContentVersion[]> {
-    return this.#publication.listVersions();
+  public listEditorVersions(): Promise<readonly StudioContentVersion[]> {
+    return this.#release.listVersions();
   }
 
-  /** Read the exact saved version for the host's human publication review. Never submits. */
-  public reviewWorkspacePublication(versionId: string): Promise<StudioContentVersion> {
-    return this.#publication.review(versionId);
+  /** Read the exact saved version for the host's human release review. Never submits. */
+  public reviewEditorRelease(versionId: string): Promise<StudioContentVersion> {
+    return this.#release.review(versionId);
   }
 
-  /** Human host action only; see `WorkspacePublication.publish` for the retry contract. */
-  public publishWorkspaceVersion(
+  /** Human host action only; see `EditorRelease.release` for the retry contract. */
+  public releaseEditorVersion(
     review: StudioContentVersion,
     request: StudioPublishRequestInput,
     commandId: string,
-  ): ReturnType<WorkspacePublication["publish"]> {
-    return this.#publication.publish(review, request, commandId);
+  ): ReturnType<EditorRelease["release"]> {
+    return this.#release.release(review, request, commandId);
   }
 
-  /** Read an active item's publication receipt without flushing edits or submitting a mutation. */
-  public readWorkspacePublication(
-    versionId: string,
-    requestId: string,
-  ): ReturnType<WorkspacePublication["readPublication"]> {
-    return this.#publication.readPublication(versionId, requestId);
+  /** Read an active item's release receipt without flushing edits or submitting a mutation. */
+  public readEditorRelease(versionId: string, requestId: string): ReturnType<EditorRelease["readRelease"]> {
+    return this.#release.readRelease(versionId, requestId);
   }
 
   /** Reopen a version of the active map as a new draft, preserving the saved version. */
-  public reopenWorkspaceVersion(versionId: string): Promise<void> {
-    return this.#publication.reopenVersion(versionId);
+  public reopenEditorVersion(versionId: string): Promise<void> {
+    return this.#release.reopenVersion(versionId);
   }
 
   public get selectedDesignRelationship(): DesignRelationship | undefined {
@@ -345,7 +342,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   }
 
   /** Explicit create. Stable submission IDs reuse the same canonical request and Idempotency-Key. */
-  public createRecipeDraft(input: ExploreDatasetInput, submissionId: string): Promise<WorkspaceDraftIdentity> {
+  public createRecipeDraft(input: ExploreDatasetInput, submissionId: string): Promise<EditorDraftIdentity> {
     return this.#recipes.createDraft(input, submissionId);
   }
 
@@ -411,21 +408,21 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     if (this.routingMode === "hash") this.#router.startHashRouting();
     else this.#router.followHostPath(this.getAttribute("current-path"));
     this.#children.ensureDefaults();
-    if (this.#workspaceAgentAdapter) this.agentSessionAdapter = this.#workspaceAgentAdapter;
-    this.#workspace.connectCanvas();
+    if (this.#editorAgentAdapter) this.agentSessionAdapter = this.#editorAgentAdapter;
+    this.#root.connectCanvas();
     // Construct the orchestrator while the chat child is resolvable for its activity log.
     void this.toolCallOrchestrator;
     void this.#live.resumeSharePreview();
     this.#listenForChildActivity();
-    this.agentSessionAdapter = this.#workspaceAgentAdapter;
-    if (this.#workspaceConversation.length) this.setWorkspaceConversation(this.#workspaceConversation);
+    this.agentSessionAdapter = this.#editorAgentAdapter;
+    if (this.#editorConversation.length) this.setEditorConversation(this.#editorConversation);
   }
 
   protected onDisconnect(): void {
     this.closeDesignInspector();
     this.#recipes.dispose();
     this.#chrome.dispose();
-    if (!this.#workspaceAgentAdapter) this.#children.chat()?.detachAgentSession();
+    if (!this.#editorAgentAdapter) this.#children.chat()?.detachAgentSession();
     this.#live.cancelAgentSetup();
     this.#router.stop();
     this.#authority.disposeAuth();
@@ -495,7 +492,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
       const requested = panel?.draftId;
       if (requested && requested !== this.#drafts.identity?.draftId) {
         if (!this.hasUnsavedStyleChanges) await this.closeStyleEditor();
-        await this.attachWorkspaceDraft(requested);
+        await this.attachEditorDraft(requested);
       }
       await this.openStyleEditor();
     } catch (error: unknown) {

@@ -99,7 +99,7 @@ describe("durable artifact import jobs", () => {
         schema: "honua_data",
       }),
     );
-    await expect(pending).rejects.toThrow("workspace changed");
+    await expect(pending).rejects.toThrow("import scope changed");
     expect(await instance.resume()).toBeUndefined();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -183,6 +183,6 @@ it("rejects a reserved upload intent when its original workspace changed", () =>
   const authority = instance.capture();
   const pending = instance.reserve(source, authority);
   scope = "other";
-  expect(() => instance.start("accepted", source, pending)).toThrow("workspace changed");
+  expect(() => instance.start("accepted", source, pending)).toThrow("import scope changed");
   expect(storage.getItem("honua.processes.artifact-import:other")).toBeNull();
 });

@@ -1,4 +1,4 @@
-import { workspaceAgent } from "./workspace-agent.js";
+import { editorAgent } from "./editor-agent.js";
 /**
  * Standalone shell bootstrap (honua-studio#5 REQ-002).
  *
@@ -98,4 +98,4 @@ if (chat) {
   }
 }
 
-Object.assign(globalThis, { HonuaStudioWorkspace: workspaceAgent });
+Object.assign(globalThis, { HonuaStudioEditor: editorAgent });

@@ -1,10 +1,10 @@
 # Honua Studio editor runtime
 
-**The embedded editor for the unified Honua Console workspace.**
+**The embedded Map and App editor for Honua Console.**
 
 This repository currently supplies Console's reusable map, styling, app, and
 Processes editing runtime. Console owns product navigation, authentication,
-workspace context, and the one shared conversation. Visual edits and agent
+Environment context, and the one shared conversation. Visual edits and agent
 commands operate on the same authorized draft and revision; ordinary creative
 editing does not require a generate/approve/handoff workflow. Publication and
 other governed operations remain explicit actions.
@@ -30,7 +30,7 @@ import → query → map journey.
 
 The embedded editor includes a data and interaction inspector beside Undo/Redo.
 It projects source/field consumers and incoming/outgoing connections from the
-current composition, describes fields through the current caller's authorized
+current Map, describes fields through the current caller's authorized
 source catalog, and follows exact object IDs into the existing selection event.
 Its support denominator includes runtime blockers and intrinsic source filters;
 stored bindings alone do not establish working interactions. Authored map filters
@@ -48,18 +48,18 @@ workflow qualification remain separate from the producer's fixture checks.
   vocabulary mirroring the SDK's agent-tools contract, applied by a reducer or
   by honua-server's `honua_studio_*` MCP tools. No arbitrary code eval; a live
   activity log shows every action, replayable step by step.
-- **Durable artifacts** — compositions serialize to the Studio package
-  families (`@honua/sdk-js/studio`) and save through
-  [honua-server](https://github.com/honua-io/honua-server)'s Studio package
-  lifecycle: drafts, immutable versions, comparisons, publish, rollback. Saving an active workspace
-  version records the rendered center, zoom, bearing and pitch; reopening restores that view.
+- **Durable artifacts** — Maps and Apps serialize to the Studio content
+  kinds (`@honua/sdk-js/studio`) and save through
+  [honua-server](https://github.com/honua-io/honua-server)'s Studio content
+  lifecycle: Drafts, immutable Versions, comparisons, release, rollback. Saving an active editor
+  Version records the rendered center, zoom, bearing and pitch; reopening restores that view.
   Pending authored camera transitions finish at their target before capture.
   Without a rendered camera, the authored view is retained.
 - **Collaboration through the platform** — asynchronous today via shared
   drafts and version history. Live co-editing exists server-side
   (honua-io/honua-server#2999, landed in honua-server PR #3035); Studio has no
   client for it yet.
-- **A platform capability, not a client feature** — packages live in
+- **A platform capability, not a client feature** — Maps and Apps live in
   honua-server, so any host can read them. Embedding Studio itself in
   [Honua Console](https://github.com/honua-io/honua-console)'s `/studio`
   surface is honua-io/honua-console#324, scheduled for 2026.2.
@@ -201,9 +201,9 @@ the first flagship deployment is the statewide Hawaii demo
 | MapLibre canvas that mutates as tool calls stream | `src/map/composition-map-view.ts` | #27 |
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts; source-scoped filter controls filter bounded chart/table rows before aggregation and pagination | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
-| Package lifecycle UI — draft, version, compare, publish, rollback against honua-server's Studio package lifecycle REST API | `src/lifecycle/` | #17 |
+| Studio content lifecycle UI — Draft, Version, compare, release, rollback against honua-server's Studio lifecycle REST API | `src/lifecycle/` | #17 |
 | Explore a dataset starter — authorized vector source and actual fields create a canonical map/table/category-filter draft in the existing grid; preview is illustrative | `src/recipes/`, `src/app/recipe-controller.ts` | #135 |
-| Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-workspace.ts`, `src/gp/custom-process-workspace.ts` | #104 |
+| Processes registry-driven node palette, port connections and configuration with advanced graph JSON, plus separate local-code adapters; visual and live end-to-end qualification pending | `src/gp/process-editor.ts`, `src/gp/custom-process-editor.ts` | #104 |
 | Conversational GP authoring, with execution behind a human-confirmed gate | `src/gp/` | #18 |
 | Embedding proofs — bare static harness and a real Blazor Web App host | `harness/bare/`, `harness/blazor-host/` | #13, #19 |
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
@@ -247,8 +247,8 @@ receipt does not qualify the full live suite.
   server with `npm run evals:server`. Live runs also report semantic role/configuration checks independently of fixture identifiers, while retaining the strict score; missing authoritative styles remain unmet prerequisites. The [authoritative style provider](docs/authoritative-styles.md) resolves real server definitions for supported vector layers and accepts actual browser observations for hash-bound semantic verification. Signed text-only diagnostic replies are verified separately from SDK-verified action rounds. The scheduled model-quality gate remains
   follow-up work.
 - **Processes live qualification remains pending.** Console's built-in and custom
-  Processes views use the server-backed adapters in `src/gp/process-workspace.ts`
-  and `src/gp/custom-process-workspace.ts`. Their installed edit/run/debug/output
+  Processes views use the server-backed adapters in `src/gp/process-editor.ts`
+  and `src/gp/custom-process-editor.ts`. Their installed edit/run/debug/output
   journey still needs qualification. The older standalone GP compatibility panel
   (`src/gp/job-client.ts`, [#35](https://github.com/honua-io/honua-studio/issues/35))
   continues to use the fixture job store.
@@ -263,25 +263,25 @@ receipt does not qualify the full live suite.
   lifecycle client (`src/lifecycle/`) stays for reasons recorded in its module
   header. The SDK now includes enumeration and extended lifecycle types;
   consolidating the remaining adapter and its POST refresh behavior is follow-up work.
-Both the Console workspace chat and standalone Studio chat include the SDK's
+Both the Console chat and standalone Studio chat include the SDK's
 versioned GIS workflow knowledge alongside freshly resolved host context. This
 guidance grants no authority: current tool discovery, resource permissions,
 approval policy and canonical receipts still control every action. Installed
 native model and visual workflow qualification remains pending.
 
-- **Live composition mutations delegate to the server.** Control and
+- **Live map edits delegate to the server.** Control and
   interaction commands ([#43](https://github.com/honua-io/honua-studio/issues/43))
   use the landed `honua_studio_*` tools, following visibility delegation in
   [#31](https://github.com/honua-io/honua-studio/issues/31). Routing remains a
   static `serverToolName` table until sdk-js#1397 supplies discovery.
-- **Embedded workspace versions use the server lifecycle.** Hosts can save
+- **Embedded editor Versions use the server lifecycle.** Hosts can save
   the active map as an immutable version, list its versions, and reopen one
   as a new draft through the [element methods](docs/element-contract.md).
   Pending visual edits settle first; a session or map change rejects stale
   results. This does not publish the map or qualify the complete installed
   Console journey.
-- **Read-only composition views are available to hosts.**
-  `createReadOnlyCompositionView` mounts the map and widget deck over one private
+- **Read-only App views are available to hosts.**
+  `createReadOnlyAppView` mounts the map and widget deck over one private
   controller, with bounded current-reader source transport and local controls.
   `createReadOnlyMapCanvas` remains available for map-only hosts. Both avoid an
   editor or lifecycle write path. Audience-route integration and actual published
@@ -344,14 +344,14 @@ HONUA_BASE_URL=http://localhost:8080 npm run dev:live
 
 The catalog reads the authenticated, paged `honua_list_layers` MCP tool and
 keeps each service/layer identity in an explicit map locator. **Add to map** uses
-the normal composition command path with that identity. The home package
-list reads `/api/v1/studio/content-items`: labels are package keys and badges
+the normal composition command path with that identity. The home Studio content
+list reads `/api/v1/studio/content-items`: labels are content keys (`packageKey`) and badges
 are actual `draft`, `current`, or `published` item states. Empty content stores
 show an empty list. Unknown geometry and ambiguous older bare-service references
 remain visibly unrenderable rather than becoming a guessed polygon or layer zero.
 
 Live mode reaches a real honua-server for the catalog, `/mcp` tool plane,
-package lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the
+Studio content lifecycle, and Studio AI proxy. A model-selected SDK tool mutates the
 same composition controller the canvas renders, then its structured result is
 fed back to the next assistant round.
 
@@ -383,7 +383,7 @@ path: chat SSE or fixture transport (`src/chat/`) → `ToolCallOrchestrator` (`s
 honua-server's `/mcp` (`src/mcp/client.ts`) → the MapLibre canvas (`src/map/composition-map-view.ts`) and the widget
 deck (`src/widgets/`). Command vocabulary lives in `src/composition/commands.ts` (history/undo/pinning in
 `controller.ts` + `history.ts`); `STUDIO_MCP_TOOL_NAMES` (`src/mcp/studio-tools.ts`) holds the typed wrappers for the
-`honua_studio_*` tools honua-server publishes. Persistence is honua-server's Studio package lifecycle via `src/lifecycle/`,
+`honua_studio_*` tools honua-server publishes. Persistence is honua-server's Studio content lifecycle via `src/lifecycle/`,
 whose `composition-draft-store.ts` is the single wire-conversion seam; publish/rollback sit behind a human gate, so
 nothing under `src/composition/**` may reach a client carrying those methods. Auth (`src/auth/`) is OIDC
 Authorization Code + PKCE, public client, tokens in memory only; embedded hosts hand off a session instead.
@@ -399,7 +399,7 @@ protocol scoped to each map. Only configured Honua GeoServices query and OGC ite
 routes receive bearer credentials; external sources, metadata and other resources do
 not. The transport rejects redirects, refreshes once after an authorization failure,
 and cancels pending requests when the map is removed. Tokens are never stored in
-styles, compositions or source URLs.
+styles, Maps, Apps or source URLs.
 
 
 Studio signs in to honua-server with OIDC Authorization Code + PKCE for a
@@ -463,7 +463,7 @@ Source filter controls share their exploration clauses with charts and tables ov
 the exact same source. Layer-specific interaction filters remain local to their
 layer. Unsupported widget filter expressions render a blocker. Filtering uses the
 loaded bounded rows; it does not claim complete aggregates for a truncated source.
-Filter gestures are exploration state, while the saved composition retains the
+Filter gestures are exploration state, while the saved Map retains the
 controls and bindings needed to use them again after reopening.
 
 Explore a dataset is the single 2026.1 starter from
@@ -489,7 +489,7 @@ numeric epoch fields are not coerced into dates. Numeric ranges remain numeric,
 and mixed-type or nonfinite bounds are rejected. Broader source-specific temporal
 normalization requires an explicit adapter and is not claimed here.
 
-Published composition views mount the saved source-filter controls against a
+Released App views mount the saved source-filter controls against a
 private audience exploration context. Select/date gestures filter the audience
 map, chart and table together; clearing restores the loaded rows. The viewer
 exposes no editor, save, publication or approval capability and reads source data

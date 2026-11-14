@@ -30,7 +30,7 @@ function mount(releaseView: () => boolean): { router: ShellRouter; view: HTMLEle
     hasView: () => true,
     viewRoot: () => view,
     onRouteRendered: () => {},
-    isWorkspaceHost: () => false,
+    isEditorHost: () => false,
     addCatalogSource: async () => {},
     releaseView,
   });

@@ -5,13 +5,13 @@ import type { DesignConsumer } from "../design/design-inventory.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import { runtimeMcpBaseUrl } from "../runtime-config.js";
 import type { MapStyleField } from "../styles/map-style-edit.js";
+import type { EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftSession } from "./editor-draft-session.js";
 import { sourceStyleProvider } from "./runtime-clients.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftSession } from "./workspace-draft-session.js";
 
 export type DesignRelationship = { readonly interactionId: string; readonly ownerRef: string };
 
@@ -23,8 +23,8 @@ export interface DesignInspectorHostElement extends EventTarget {
 
 export interface DesignInspectorHostOptions {
   readonly host: DesignInspectorHostElement;
-  readonly authority: WorkspaceAuthority;
-  readonly drafts: WorkspaceDraftSession;
+  readonly authority: EditorAuthority;
+  readonly drafts: EditorDraftSession;
   readonly catalog: SourceCatalog;
   readonly composition: CompositionController;
   readonly chrome: ShellChrome;
@@ -135,7 +135,7 @@ export class DesignInspectorHost {
     const fields = await provider.describeSource(source);
     signal.throwIfAborted();
     if (!authority.epoch.isCurrent(scope.generation) || scope.draftId !== drafts.identity?.draftId)
-      throw new Error("The workspace draft or authority changed.");
+      throw new Error("The editor draft or authority changed.");
     return fields;
   }
 

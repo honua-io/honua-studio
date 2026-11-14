@@ -265,16 +265,16 @@ export interface HonuaStudioControlChangeDetail {
 }
 
 /**
- * `honua-studio-composition-mode-change` — dispatched by
- * `<honua-studio-app>` when composition switches between fixture/offline
+ * `honua-studio-editing-mode-change` — dispatched by
+ * `<honua-studio-app>` when editing switches between fixture/offline
  * mode and the live server-draft path (honua-studio#23 REQ-004). Before #23
  * the only way to make that switch was `window.__honuaStudioApp`, a test
  * hook; the shell now owns a real control and announces the result, so an
  * embedding host can mirror the state in its own chrome instead of guessing.
  */
-export interface HonuaStudioCompositionModeChangeDetail {
+export interface HonuaStudioEditingModeChangeDetail {
   readonly mode: "fixture" | "live";
-  /** The Studio package the live session writes to. Present only for `"live"`. */
+  /** The server `packageKey` of the Map or App Draft the live session writes to. Present only for `"live"`. */
   readonly packageKey?: string;
   readonly family?: string;
 }
@@ -349,7 +349,7 @@ export interface HonuaStudioGpActivityDetail {
 
 /**
  * `honua-studio-gp-add-output` — dispatched by `<honua-studio-gp-panel>`
- * when a user clicks "Add to composition" on a completed job's output
+ * when a user clicks "Add to map" on a completed job's output
  * (honua-studio#10 REQ-004). A host forwards this into its own
  * `ToolCallOrchestrator` via the SAME `addLayer` composition command a chat
  * tool-call intent would use — see `studio-app-element.ts`'s listener.

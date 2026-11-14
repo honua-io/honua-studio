@@ -19,7 +19,7 @@ vi.mock("@honua/sdk-js/studio-agent", async (importOriginal) => {
 import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
-import type { HonuaStudioCompositionModeChangeDetail } from "../../src/elements/types.js";
+import type { HonuaStudioEditingModeChangeDetail } from "../../src/elements/types.js";
 
 import { installRuntimeConfig, runtimeConfig } from "../../src/runtime-config.js";
 
@@ -114,7 +114,7 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
     enableDraftFetch();
     const element = mount();
     element.sourceCatalog = [];
-    element.enableLiveComposition({ baseUrl: mcpBaseUrl, packageKey: "pkg-live-routes" });
+    element.enableLiveEditing({ baseUrl: mcpBaseUrl, packageKey: "pkg-live-routes" });
     await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
     expect(attachedAgentOptions[0]?.baseUrl).toBe(serverBaseUrl);
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === `${mcpBaseUrl}/mcp`)).toBe(true);
@@ -165,13 +165,13 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
 
   it("announces every mode change so an embedding host can mirror it", async () => {
     const element = mount();
-    const changes: HonuaStudioCompositionModeChangeDetail[] = [];
-    element.addEventListener("honua-studio-composition-mode-change", (event) => {
-      changes.push((event as CustomEvent<HonuaStudioCompositionModeChangeDetail>).detail);
+    const changes: HonuaStudioEditingModeChangeDetail[] = [];
+    element.addEventListener("honua-studio-editing-mode-change", (event) => {
+      changes.push((event as CustomEvent<HonuaStudioEditingModeChangeDetail>).detail);
     });
 
     await goLive(element, "pkg-live-1", "map");
-    element.disableLiveComposition();
+    element.disableLiveEditing();
 
     expect(changes).toEqual([{ mode: "live", packageKey: "pkg-live-1", family: "map" }, { mode: "fixture" }]);
   });
@@ -180,14 +180,14 @@ describe("<honua-studio-app> live-composition affordance (honua-studio#23 REQ-00
     const element = mount();
     await goLive(element, "pkg-live-1", "map");
     const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat");
-    const entries = chat?.activityLog.entries().filter((entry) => entry.type === "composition_mode_changed") ?? [];
+    const entries = chat?.activityLog.entries().filter((entry) => entry.type === "editing_mode_changed") ?? [];
     expect(entries).toHaveLength(1);
     expect(entries[0]?.detail).toMatchObject({ mode: "live", packageKey: "pkg-live-1" });
   });
 
   it("keeps the programmatic API working — the test hook path #7 established still applies", () => {
     const element = mount();
-    element.enableLiveComposition({ packageKey: "pkg-programmatic", family: "map" });
+    element.enableLiveEditing({ packageKey: "pkg-programmatic", family: "map" });
     expect(element.toolCallOrchestrator.isLive).toBe(true);
     expect(control(element, "live-composition-status").textContent).toContain("pkg-programmatic");
   });
@@ -210,7 +210,7 @@ it("blocks chat during setup and returns to fixture mode on failure", async () =
         rejectSetup = reject;
       }),
   );
-  element.enableLiveComposition({ packageKey: "pkg-pending", family: "map" });
+  element.enableLiveEditing({ packageKey: "pkg-pending", family: "map" });
   const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
   expect(chat.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="studio-chat-send"]')?.disabled).toBe(true);
   await chat.sendMessage("must not reach raw transport");
@@ -267,7 +267,7 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     enableDraftFetch();
     const element = mount();
     element.sourceCatalog = [];
-    element.enableLiveComposition({ packageKey: "pkg-live-auth" });
+    element.enableLiveEditing({ packageKey: "pkg-live-auth" });
     await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
     const firstSession = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")?.agentSession;
 
@@ -284,7 +284,7 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     enableDraftFetch();
     const element = mount();
     element.sourceCatalog = [];
-    element.enableLiveComposition({ packageKey: "pkg-live-certified" });
+    element.enableLiveEditing({ packageKey: "pkg-live-certified" });
     await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
     expect(attachedAgentOptions[0]).not.toHaveProperty("certification");
     expect(attachedAgentOptions[0]).not.toHaveProperty("transcriptVerifier");
@@ -309,7 +309,7 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     enableDraftFetch();
     const element = mount();
     element.sourceCatalog = [];
-    element.enableLiveComposition({ packageKey: "pkg-live-stale" });
+    element.enableLiveEditing({ packageKey: "pkg-live-stale" });
     await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
     const staleOnEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
 
@@ -335,7 +335,7 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     enableDraftFetch();
     const element = mount();
     element.sourceCatalog = [];
-    element.enableLiveComposition({ packageKey: "pkg-live-publication" });
+    element.enableLiveEditing({ packageKey: "pkg-live-publication" });
     await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
     const onEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
     const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;

@@ -116,7 +116,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     );
     vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     const panel = await panelDraft(app, "draft-a");
@@ -139,7 +139,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     );
     vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     const panel = await panelDraft(app, "draft-a");
@@ -163,7 +163,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>);
     const app = mount({ "routing-mode": "host" });
     expect(app.hasAttribute("current-path")).toBe(false);
-    await app.attachWorkspaceDraft("shared");
+    await app.attachEditorDraft("shared");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
     await app.openStyleEditor();
@@ -189,7 +189,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     );
     vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     const readStyle = vi
       .spyOn(canvas, "editableMapStyle")
@@ -197,9 +197,9 @@ describe("style editor follows the lifecycle panel draft", () => {
     await app.openStyleEditor();
     const firstFrame = app.shadowRoot?.querySelector("iframe");
     expect(firstFrame).toBeTruthy();
-    const attach = app.attachWorkspaceDraft.bind(app);
+    const attach = app.attachEditorDraft.bind(app);
     const trace: string[] = [];
-    vi.spyOn(app, "attachWorkspaceDraft").mockImplementation(async (draftId: string) => {
+    vi.spyOn(app, "attachEditorDraft").mockImplementation(async (draftId: string) => {
       trace.push(`attach:${draftId}`);
       await attach(draftId);
       active.id = draftId;
@@ -224,7 +224,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     );
     vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     openContentDraft(app, "draft-a");
@@ -246,7 +246,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     );
     vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     openContentDraft(app, "draft-a");
@@ -276,7 +276,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     );
     vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     await app.openStyleEditor();
@@ -303,7 +303,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     });
     const reopen = vi.spyOn(StudioLifecycleClient.prototype, "reopenVersion");
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     const panel = await panelDraft(app, "draft-a");
@@ -338,7 +338,7 @@ describe("style editor follows the lifecycle panel draft", () => {
       .spyOn(StudioLifecycleClient.prototype, "reopenVersion")
       .mockResolvedValue(draftEnvelope("draft-b", styleFor("#bbbbbb")));
     const app = await mountedContentApp();
-    await app.attachWorkspaceDraft("draft-a");
+    await app.attachEditorDraft("draft-a");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
     const panel = await panelDraft(app, "draft-a");

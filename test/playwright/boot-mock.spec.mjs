@@ -36,7 +36,7 @@ test("app boots against the mock honua-server fixture; sign-in unlocks the authe
     await expect(page.getByTestId("catalog-error")).toHaveCount(0);
     await expect(page.getByTestId("packages-error")).toHaveCount(0);
     await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
-    await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
+    await expect(page.getByTestId("packages-empty")).toHaveText("No Studio content yet.");
 
     // The normal UI uses the discovered identity and locator, without a
     // test-installed source catalog or metadata.honua.source override.

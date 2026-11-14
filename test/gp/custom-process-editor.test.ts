@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LocalProcessWorkspace, type LocalRunReceipt } from "../../src/gp/custom-process-workspace.js";
+import { LocalProcessEditor, type LocalRunReceipt } from "../../src/gp/custom-process-editor.js";
 const options = {
   csrfToken: "csrf",
   environmentId: "env-a",
@@ -31,7 +31,7 @@ describe("custom-code workspace adapter", () => {
           }),
         ),
       ) as typeof fetch;
-    const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+    const client = new LocalProcessEditor({ ...options, fetchImpl });
     await client.project();
     await client.save({ path: "process/tool.py", sha256: "before", content: "broken" }, "corrected");
     const [url, init] = vi.mocked(fetchImpl).mock.calls[1]!;
@@ -64,10 +64,10 @@ describe("custom-code workspace adapter", () => {
       if (init?.method === "POST" && String(url).endsWith("/runs")) throw new Error("lost response");
       throw new Error("Unexpected route");
     }) as typeof fetch;
-    const first = new LocalProcessWorkspace({ ...options, fetchImpl, commandStorage: storage });
+    const first = new LocalProcessEditor({ ...options, fetchImpl, commandStorage: storage });
     await first.project();
     await expect(first.run()).rejects.toThrow("lost response");
-    const second = new LocalProcessWorkspace({ ...options, fetchImpl, commandStorage: storage });
+    const second = new LocalProcessEditor({ ...options, fetchImpl, commandStorage: storage });
     await second.project();
     expect((await second.run()).runId).toBe(receipt.runId);
     expect(vi.mocked(fetchImpl).mock.calls.filter(([url]) => String(url).endsWith("/runs"))).toHaveLength(1);
@@ -75,7 +75,7 @@ describe("custom-code workspace adapter", () => {
   });
   it("does not advertise failed-run files as imported datasets", async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
-    const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+    const client = new LocalProcessEditor({ ...options, fetchImpl });
     await expect(
       client.importArtifact(
         { ...runIdentity, runId: "run", snapshotDigest: "hash", status: "failed" },
@@ -120,7 +120,7 @@ describe("custom-code workspace adapter", () => {
         entries.set(key, value);
       },
     };
-    const client = new LocalProcessWorkspace({ ...options, fetchImpl, commandStorage });
+    const client = new LocalProcessEditor({ ...options, fetchImpl, commandStorage });
     const imported = await client.importArtifact(receipt, receipt.artifacts![0]!.path, "points");
     expect(imported.status).toBe("completed");
     const dataset = imported.dataset!;
@@ -168,7 +168,7 @@ describe("artifact import acceptance boundaries", () => {
     const saved = storage();
     const { receipt } = await artifact();
     const fetchImpl = vi.fn();
-    const client = new LocalProcessWorkspace({ ...options, commandStorage: saved, fetchImpl });
+    const client = new LocalProcessEditor({ ...options, commandStorage: saved, fetchImpl });
     await expect(client.importArtifact(receipt, "points.geojson", "")).rejects.toThrow("dataset table name");
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(saved.entries.size).toBe(0);
@@ -180,12 +180,12 @@ describe("artifact import acceptance boundaries", () => {
       if (init?.method === "POST") throw new Error("upload response lost");
       return new Response(bytes);
     });
-    const first = new LocalProcessWorkspace({ ...options, commandStorage: saved, fetchImpl });
+    const first = new LocalProcessEditor({ ...options, commandStorage: saved, fetchImpl });
     expect(await first.importArtifact(receipt, "points.geojson", "points")).toMatchObject({
       status: "unknown",
       uploadId: expect.any(String),
     });
-    const reopened = new LocalProcessWorkspace({ ...options, commandStorage: saved, fetchImpl });
+    const reopened = new LocalProcessEditor({ ...options, commandStorage: saved, fetchImpl });
     expect(await reopened.importArtifact(receipt, "points.geojson", "points")).toMatchObject({
       status: "unknown",
       uploadId: expect.any(String),
@@ -206,7 +206,7 @@ describe("artifact import acceptance boundaries", () => {
           release = resolve;
         }),
     );
-    const client = new LocalProcessWorkspace({
+    const client = new LocalProcessEditor({
       ...options,
       workspaceId: () => workspace,
       commandStorage: saved,
@@ -232,7 +232,7 @@ describe("artifact import acceptance boundaries", () => {
           })
         : Promise.resolve(new Response(bytes)),
     );
-    const client = new LocalProcessWorkspace({
+    const client = new LocalProcessEditor({
       ...options,
       workspaceId: () => workspace,
       commandStorage: saved,
@@ -242,7 +242,7 @@ describe("artifact import acceptance boundaries", () => {
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
     workspace = "other";
     release(new Response(JSON.stringify({ jobId: "accepted-original" })));
-    await expect(pending).rejects.toThrow("workspace changed");
+    await expect(pending).rejects.toThrow("import scope changed");
     expect([...saved.entries.keys()].some((key) => key.includes('"other"'))).toBe(false);
     expect([...saved.entries.values()].every((value) => !value.includes("accepted-original"))).toBe(true);
   });
@@ -253,7 +253,7 @@ it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE
   async (capacity) => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     const writes = vi.fn();
-    const client = new LocalProcessWorkspace({
+    const client = new LocalProcessEditor({
       ...options,
       maxArtifactUploadBytes: capacity,
       fetchImpl,
@@ -279,7 +279,7 @@ it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE
 it("preflights a multi-GB declared output before any download, allocation or upload intent", async () => {
   const fetchImpl = vi.fn() as unknown as typeof fetch;
   const writes = vi.fn();
-  const client = new LocalProcessWorkspace({
+  const client = new LocalProcessEditor({
     ...options,
     fetchImpl,
     commandStorage: { getItem: () => null, setItem: writes },
@@ -304,7 +304,7 @@ it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])
   "refuses an invalid canonical artifact size before I/O (%s)",
   async (bytes) => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
-    const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+    const client = new LocalProcessEditor({ ...options, fetchImpl });
     await expect(
       client.importArtifact(
         {
@@ -334,7 +334,7 @@ it("cancels a response that exceeds the receipt instead of growing its buffer or
   );
   const fetchImpl = vi.fn(async () => response) as typeof fetch;
   const writes = vi.fn();
-  const client = new LocalProcessWorkspace({
+  const client = new LocalProcessEditor({
     ...options,
     fetchImpl,
     commandStorage: { getItem: () => null, setItem: writes },
@@ -360,7 +360,7 @@ it("refuses a response declaring more bytes than the canonical artifact before r
   const cancel = vi.fn();
   const response = new Response(new ReadableStream({ cancel }), { headers: { "Content-Length": "8589934592" } });
   const fetchImpl = vi.fn(async () => response) as typeof fetch;
-  const client = new LocalProcessWorkspace({
+  const client = new LocalProcessEditor({
     ...options,
     fetchImpl,
     commandStorage: { getItem: () => null, setItem: vi.fn() },
@@ -396,7 +396,7 @@ it("accepts metadata-only large fixtures and rejects fixture bodies in that meta
     .mockResolvedValueOnce(
       new Response(JSON.stringify({ ...identity, files: [], readOnlyFiles: [{ ...file, content: "fixture body" }] })),
     ) as typeof fetch;
-  const client = new LocalProcessWorkspace({ ...options, fetchImpl });
+  const client = new LocalProcessEditor({ ...options, fetchImpl });
   expect((await client.project()).readOnlyFiles).toEqual([file]);
   await expect(client.project()).rejects.toThrow("read-only file metadata");
 });

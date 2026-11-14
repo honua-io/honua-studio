@@ -44,7 +44,7 @@ beforeEach(async () => {
   app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
   app.session = { getToken: async () => "fixture-token", onExpired: () => () => {} };
   document.body.appendChild(app);
-  await app.attachWorkspaceDraft("original");
+  await app.attachEditorDraft("original");
   const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
   vi.spyOn(canvas, "mapView", "get").mockReturnValue({
     camera: () => camera,
@@ -61,7 +61,7 @@ afterEach(() => {
 describe("workspace saved camera", () => {
   it("persists the camera before the immutable version and drops the old bbox", async () => {
     const before = app.composition.state;
-    await app.saveWorkspaceVersion();
+    await app.saveEditorVersion();
     expect(replace).toHaveBeenCalledOnce();
     expect(replace.mock.calls[0]?.[1]).toMatchObject({
       generation: 1,
@@ -80,7 +80,7 @@ describe("workspace saved camera", () => {
     );
     const accepted = chat.activityLog.entries().find((entry) => entry.type === "composition_command_applied");
     expect(applyCompositionCommand(before, accepted!.detail.commandInput).state.view).toEqual(camera);
-    expect(await app.prepareWorkspaceTurn()).toMatchObject({ generation: 2 });
+    expect(await app.prepareEditorTurn()).toMatchObject({ generation: 2 });
   });
 
   it("waits for the rendered authored view before reading the camera", async () => {
@@ -92,7 +92,7 @@ describe("workspace saved camera", () => {
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     const settle = vi.fn(() => settling);
     vi.spyOn(canvas, "mapView", "get").mockReturnValue({ camera: readCamera, settleAuthoredView: settle } as never);
-    const pending = app.saveWorkspaceVersion();
+    const pending = app.saveEditorVersion();
     await vi.waitFor(() => expect(settle).toHaveBeenCalledOnce());
     expect(readCamera).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe("workspace saved camera", () => {
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     const settle = vi.fn(() => settling);
     vi.spyOn(canvas, "mapView", "get").mockReturnValue({ camera: () => camera, settleAuthoredView: settle } as never);
-    const pending = app.saveWorkspaceVersion();
+    const pending = app.saveEditorVersion();
     const rejected = expect(pending).rejects.toThrow(/session.*changed/);
     await vi.waitFor(() => expect(settle).toHaveBeenCalledOnce());
     app.session = { getToken: async () => "replacement-token", onExpired: () => () => {} };
@@ -123,7 +123,7 @@ describe("workspace saved camera", () => {
   it("keeps an authored view when there is no rendered camera", async () => {
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "mapView", "get").mockReturnValue(undefined);
-    await app.saveWorkspaceVersion();
+    await app.saveEditorVersion();
     expect(replace).not.toHaveBeenCalled();
     expect(save).toHaveBeenCalledOnce();
     expect(app.composition.state.view).toEqual(authoredView);
@@ -131,10 +131,10 @@ describe("workspace saved camera", () => {
 
   it("does not create a version after a rejected camera write", async () => {
     replace.mockRejectedValue(new Error("generation conflict"));
-    await expect(app.saveWorkspaceVersion()).rejects.toThrow("generation conflict");
+    await expect(app.saveEditorVersion()).rejects.toThrow("generation conflict");
     expect(save).not.toHaveBeenCalled();
     expect(app.composition.state.view).toEqual(authoredView);
-    await expect(app.saveWorkspaceVersion()).rejects.toThrow("pending");
+    await expect(app.saveEditorVersion()).rejects.toThrow("pending");
     expect(replace).toHaveBeenCalledOnce();
   });
 
@@ -146,7 +146,7 @@ describe("workspace saved camera", () => {
           finish = resolve;
         }),
     );
-    const pending = app.saveWorkspaceVersion();
+    const pending = app.saveEditorVersion();
     const rejected = expect(pending).rejects.toThrow(/session.*changed/);
     await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
     app.session = { getToken: async () => "replacement-token", onExpired: () => () => {} };

@@ -118,7 +118,7 @@ async function createRecipeMap(page, { key, sourceOption, firstPaintTimeout }) {
       browserErrors.push(`${response.status()} ${response.url().slice(0, 220)}: ${head}`);
   });
   await page.getByRole("button", { name: "Start from a recipe", exact: true }).click();
-  await page.getByRole("textbox", { name: "Package key", exact: true }).fill(key);
+  await page.getByRole("textbox", { name: "Content key", exact: true }).fill(key);
   await page.getByTestId("recipe-source").selectOption(await sourceOption(page));
   await expect(page.getByTestId("recipe-status")).toContainText("Verified");
   const fields = await page

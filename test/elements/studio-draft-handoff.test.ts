@@ -52,16 +52,16 @@ describe("host draft approval and attachment", () => {
       if (!current) throw new Error("Host navigated");
     };
     try {
-      const first = app.attachWorkspaceDraft("first", guard);
+      const first = app.attachEditorDraft("first", guard);
       await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
-      const queued = app.attachWorkspaceDraft("second", guard);
+      const queued = app.attachEditorDraft("second", guard);
       const firstRefused = expect(first).rejects.toThrow("Host navigated");
       const queuedRefused = expect(queued).rejects.toThrow("Host navigated");
       current = false;
       finish();
       await Promise.all([firstRefused, queuedRefused]);
       expect(get).toHaveBeenCalledTimes(1);
-      await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+      await expect(app.prepareEditorTurn()).resolves.toBeUndefined();
     } finally {
       get.mockRestore();
     }
@@ -70,15 +70,15 @@ describe("host draft approval and attachment", () => {
   it.each(["prepare", "attach"])("does not mark a %s failure as a rejected creation", async (phase) => {
     const app = mount();
     const error = new StudioLifecycleError("validation", "Read refused", { status: 400 });
-    const prepare = vi.spyOn(app, "prepareWorkspaceTurn");
-    const attach = vi.spyOn(app, "attachWorkspaceDraft").mockRejectedValue(error);
+    const prepare = vi.spyOn(app, "prepareEditorTurn");
+    const attach = vi.spyOn(app, "attachEditorDraft").mockRejectedValue(error);
     const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraftWithApproval").mockResolvedValue({
       draftId: "already-created",
     } as Awaited<ReturnType<StudioLifecycleClient["createDraft"]>>);
     if (phase === "prepare") prepare.mockRejectedValue(error);
     else prepare.mockResolvedValue(undefined);
     try {
-      await expect(app.createWorkspaceDraft("map", "command")).rejects.toBe(error);
+      await expect(app.createEditorDraft("map", "command")).rejects.toBe(error);
       expect(error.createDraftRejected).not.toBe(true);
       expect(create).toHaveBeenCalledTimes(phase === "prepare" ? 0 : 1);
       expect(attach).toHaveBeenCalledTimes(phase === "prepare" ? 0 : 1);
@@ -95,7 +95,7 @@ describe("host draft approval and attachment", () => {
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft");
     try {
       const app = mount();
-      expect(await app.createWorkspaceDraft("approval-map", "original-command")).toEqual(receipt);
+      expect(await app.createEditorDraft("approval-map", "original-command")).toEqual(receipt);
       expect(create.mock.calls[0]?.[1]).toBe("original-command");
       expect(get).not.toHaveBeenCalled();
     } finally {

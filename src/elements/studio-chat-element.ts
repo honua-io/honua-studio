@@ -19,7 +19,7 @@ import {
   type StudioAgentSessionOptions,
   createStudioAgentSession,
 } from "@honua/sdk-js/studio-agent";
-import type { WorkspaceAgentSessionAdapter, WorkspaceConversationMessage } from "../workspace-agent.js";
+import type { EditorAgentSessionAdapter, EditorConversationMessage } from "../editor-agent.js";
 
 import {
   type ActivityLog,
@@ -106,9 +106,9 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
   #annotationSeq = 0;
   #activeAbort: AbortController | undefined;
   #agentSession: StudioAgentSession | undefined;
-  public agentSessionAdapter: WorkspaceAgentSessionAdapter | undefined;
+  public agentSessionAdapter: EditorAgentSessionAdapter | undefined;
   /** Human-visible projection only; this never modifies the model's session history. */
-  public setWorkspaceConversation(messages: readonly WorkspaceConversationMessage[]): boolean {
+  public setEditorConversation(messages: readonly EditorConversationMessage[]): boolean {
     if (this.streaming) return false;
     const ids = new Set<string>();
     for (const message of messages) {
@@ -118,7 +118,7 @@ export class HonuaStudioChatElement extends HonuaStudioElementBase {
         !["user", "assistant"].includes(message.role) ||
         typeof message.content !== "string"
       )
-        throw new Error("Invalid workspace conversation projection.");
+        throw new Error("Invalid editor conversation history.");
       ids.add(message.id);
     }
     this.#state = {

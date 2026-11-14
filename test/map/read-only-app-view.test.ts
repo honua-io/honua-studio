@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HonuaStudioWidgetDeckElement } from "../../src/elements/studio-widget-deck-element.js";
 import type { CompositionMapFactoryOptions, CompositionMapLike } from "../../src/map/composition-map-view.js";
-import { createReadOnlyCompositionView } from "../../src/map/read-only-composition-view.js";
+import { createReadOnlyAppView } from "../../src/map/read-only-app-view.js";
 
 const origin = "https://console.test";
 const sourceRoot = `${origin}/api/studio/viewer/data`;
@@ -78,7 +78,7 @@ describe("read-only published composition view", () => {
     const original = body();
     const durable = structuredClone(original);
     const network = vi.spyOn(globalThis, "fetch");
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: original,
@@ -140,7 +140,7 @@ describe("read-only published composition view", () => {
       );
     });
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -176,7 +176,7 @@ describe("read-only published composition view", () => {
           ),
       );
       const transport = { fetchRequest };
-      const view = createReadOnlyCompositionView({
+      const view = createReadOnlyAppView({
         container: host.map,
         widgetContainer: host.widgets,
         body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -214,7 +214,7 @@ describe("read-only published composition view", () => {
     const json = vi.spyOn(response, "json");
     const fetchRequest = vi.fn(async () => response);
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -254,7 +254,7 @@ describe("read-only published composition view", () => {
     );
     const fetchRequest = vi.fn(async () => response);
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -281,7 +281,7 @@ describe("read-only published composition view", () => {
     const json = vi.spyOn(response, "json");
     const fetchRequest = vi.fn(async () => response);
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -306,7 +306,7 @@ describe("read-only published composition view", () => {
     const json = vi.spyOn(response, "json");
     const fetchRequest = vi.fn(async () => response);
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -338,7 +338,7 @@ describe("read-only published composition view", () => {
     const json = vi.spyOn(response, "json");
     const fetchRequest = vi.fn(async () => response);
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: {
@@ -372,7 +372,7 @@ describe("read-only published composition view", () => {
         throw new Error("Denied widget attempted a read.");
       });
       const getAudienceTransport = vi.fn(() => ({ fetchRequest }));
-      const view = createReadOnlyCompositionView({
+      const view = createReadOnlyAppView({
         container: host.map,
         widgetContainer: host.widgets,
         body: {
@@ -438,7 +438,7 @@ describe("read-only published composition view", () => {
     };
     const durable = structuredClone(original);
     const before = HonuaStudioWidgetDeckElement.instanceCount;
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: original,
@@ -474,7 +474,7 @@ describe("read-only published composition view", () => {
   it("keeps the newer composition when an older reload resumes after a reentrant reload", async () => {
     const host = hosts();
     const map = mapHarness();
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body(),
@@ -534,7 +534,7 @@ describe("read-only published composition view", () => {
       });
     });
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body([{ id: "grid", kind: "table", sourceId: "service/1" }]),
@@ -588,7 +588,7 @@ describe("read-only published composition view", () => {
     const newTransport = { fetchRequest: newFetch };
     let active = oldTransport;
     const original = body([{ id: "grid", kind: "table", sourceId: "service/1" }]);
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: original,
@@ -631,7 +631,7 @@ describe("read-only published composition view", () => {
           finish = resolve;
         }),
     );
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: body(),
@@ -703,7 +703,7 @@ it.each(
       );
     });
     const transport = { fetchRequest };
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: original,
@@ -793,7 +793,7 @@ it.each(["service/1", "parcels"])(
       ],
     };
     const durable = structuredClone(original);
-    const view = createReadOnlyCompositionView({
+    const view = createReadOnlyAppView({
       container: host.map,
       widgetContainer: host.widgets,
       body: original,
@@ -808,7 +808,7 @@ it.each(["service/1", "parcels"])(
     await until(() => root().querySelectorAll('[data-control-id="valid"] option').length === 3);
     const select = root().querySelector<HTMLSelectElement>('select[data-control-id="valid"]')!;
     expect([...select.options].map((option) => option.value)).toEqual(["", "North", "South"]);
-    expect(root().textContent).toContain('"unknown" reads from "unknown", which is not a layer in this composition');
+    expect(root().textContent).toContain('"unknown" reads from "unknown", which is not a layer in this map');
     expect(root().querySelector('select[data-control-id="unknown"]')).toBeNull();
     select.value = "North";
     select.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
@@ -832,7 +832,7 @@ it("ambiguous layer/source collisions never authorize widget or control data rea
   const fetchRequest = vi.fn(async () => {
     throw new Error("Ambiguous source must never reach transport");
   });
-  const view = createReadOnlyCompositionView({
+  const view = createReadOnlyAppView({
     container: host.map,
     widgetContainer: host.widgets,
     body: {

@@ -114,12 +114,12 @@ describe("embedded design inspector", () => {
           },
         }) as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>,
     );
-    await app.attachWorkspaceDraft("same");
+    await app.attachEditorDraft("same");
     await app.openDesignInspector();
     const panel = app.shadowRoot!.querySelector("#design-inspector-panel");
     app.shadowRoot!.querySelector<HTMLButtonElement>('[data-relationship="hide"][data-ref="layer:places"]')!.click();
     for (let poll = 0; poll < 2; poll++) {
-      expect(await app.refreshWorkspaceDraft()).toBe(true);
+      expect(await app.refreshEditorDraft()).toBe(true);
       expect(app.shadowRoot!.querySelector("#design-inspector-panel")).toBe(panel);
       expect(app.selectedDesignRelationship).toEqual({ interactionId: "hide", ownerRef: "layer:places" });
     }
@@ -127,7 +127,7 @@ describe("embedded design inspector", () => {
     expect(app.shadowRoot!.querySelector("#design-inspector-panel")).toBe(panel);
     expect(app.selectedDesignRelationship).toEqual({ interactionId: "hide", ownerRef: "layer:places" });
     revision = 2;
-    expect(await app.refreshWorkspaceDraft()).toBe(true);
+    expect(await app.refreshEditorDraft()).toBe(true);
     expect(app.shadowRoot!.querySelector("#design-inspector-panel")).not.toBeNull();
     expect(app.selectedDesignRelationship).toBeUndefined();
     app.session = { ...lease, principalId: "another" };
@@ -198,7 +198,7 @@ describe("embedded design inspector", () => {
         },
       } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
     });
-    await app.attachWorkspaceDraft("first");
+    await app.attachEditorDraft("first");
     app.composition.apply({
       name: "addAnnotation",
       annotation: { id: "private", kind: "note", text: "Private prior draft" },
@@ -208,15 +208,15 @@ describe("embedded design inspector", () => {
     const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
     await vi.waitFor(() => expect(canvas.interactions).toBeDefined());
     canvas.interactions!.publishControlChange("filter", { field: "category", operator: "=", value: "A" });
-    await app.attachWorkspaceDraft("first");
+    await app.attachEditorDraft("first");
     expect(app.composition.state.annotations[0]?.text).toBe("Private prior draft");
     expect(app.composition.state.pins).toHaveLength(1);
     expect(canvas.interactions!.temporaryFilterSummary()).toHaveLength(1);
     const accepted = app.composition.state;
-    await expect(app.attachWorkspaceDraft("denied")).rejects.toThrow("Denied draft");
+    await expect(app.attachEditorDraft("denied")).rejects.toThrow("Denied draft");
     expect(app.composition.state).toBe(accepted);
     expect(canvas.interactions!.temporaryFilterSummary()).toHaveLength(1);
-    await app.attachWorkspaceDraft("second");
+    await app.attachEditorDraft("second");
     await vi.waitFor(() => expect(canvas.interactions).toBeDefined());
     expect(app.composition.state.annotations).toEqual([]);
     expect(app.composition.state.pins).toEqual([]);
@@ -257,7 +257,7 @@ describe("embedded design inspector", () => {
       return Promise.resolve([{ name: "category", type: "string" }]);
     });
     const app = await mount();
-    const pending = app.attachWorkspaceDraft("denied-draft");
+    const pending = app.attachEditorDraft("denied-draft");
     expect(app.shadowRoot?.querySelector('[data-testid="design-inspector"]')).toBeNull();
     await expect(pending).rejects.toThrow();
     expect(app.composition.state.layers).toHaveLength(2);

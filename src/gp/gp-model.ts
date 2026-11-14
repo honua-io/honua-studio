@@ -108,7 +108,7 @@ export function validateGpPackageBodyStructurally(body: GpPackageBody): GpPackag
   errors.push(...duplicateIdErrors(body.steps, "steps"));
   if (body.outputs.length === 0) {
     errors.push(
-      "at least one output must be declared — a package with no output has nothing to register as a catalog dataset.",
+      "at least one output must be declared — a GP process with no output has nothing to register as a catalog dataset.",
     );
   }
   const stepIds = new Set(body.steps.map((step) => step.id));

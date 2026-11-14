@@ -97,9 +97,9 @@ test("Explore binds actual data, filters map/table, accepts ordinary visual/chat
     const before = await page.evaluate(() => structuredClone(window.__honuaStudioApp.composition.state));
     const restored = await page.evaluate(async () => {
       const app = window.__honuaStudioApp;
-      const version = await app.saveWorkspaceVersion();
+      const version = await app.saveEditorVersion();
       window.__recipeVersion = version;
-      await app.reopenWorkspaceVersion(version.versionId);
+      await app.reopenEditorVersion(version.versionId);
       return structuredClone(app.composition.state);
     });
     expect(restored.layers).toEqual(before.layers);

@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import type { WorkspaceLifecycleReader } from "../../src/lifecycle/workspace-reader.js";
+import type { ContentLifecycleReader } from "../../src/lifecycle/content-lifecycle-reader.js";
 import { readSharedStyleMapConsumer } from "../../src/styles/shared-style-consumer.js";
 const hash = "a".repeat(64);
 const draft = {
@@ -21,7 +21,7 @@ function fixture(changes: Record<string, unknown> = {}) {
   return {
     getDraft: vi.fn(async () => ({ ...draft, ...changes })),
     getVersion: vi.fn(async () => ({ ...version, ...changes })),
-  } as unknown as WorkspaceLifecycleReader;
+  } as unknown as ContentLifecycleReader;
 }
 it("pins an authorized draft by canonical identity and generation without inventing its SQL hash", async () => {
   const reader = fixture();

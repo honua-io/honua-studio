@@ -1,11 +1,11 @@
 import type { AuthSession, AuthStatus } from "../auth/index.js";
 import type { CompositionController } from "../composition/controller.js";
+import type { EditorAgentSessionAdapter } from "../editor-agent.js";
 import { AUTH_STATUS_LABELS } from "../elements/auth-status.js";
 import { appShellStyles, baseElementStyles } from "../elements/styles.js";
 import type { HonuaStudioThemeSwitcherVisibility } from "../elements/types.js";
 import type { StudioPackageFamilyWire } from "../mcp/studio-tools.js";
 import type { ThemeMode, ThemeSet } from "../theme/theme-loader.js";
-import type { WorkspaceAgentSessionAdapter } from "../workspace-agent.js";
 import { STUDIO_ROUTES } from "./shell-router.js";
 
 /** Package families whose drafts carry a composition body; mirrors the server gate and `mock-server.mjs`. */
@@ -25,7 +25,7 @@ export interface ShellChromeHost {
   themeMode: ThemeMode;
   readonly themeSwitcherVisibility: HonuaStudioThemeSwitcherVisibility;
   readonly currentPath: string;
-  readonly agentSessionAdapter: WorkspaceAgentSessionAdapter | undefined;
+  readonly agentSessionAdapter: EditorAgentSessionAdapter | undefined;
   readonly hasUnsavedStyleChanges: boolean;
   readonly composition: CompositionController;
   readonly toolCallOrchestrator: { readonly isLive: boolean };
@@ -34,8 +34,8 @@ export interface ShellChromeHost {
   openDesignInspector(): Promise<void>;
   closeDesignInspector(): void;
   applyHistoryAction(action: "undo" | "redo"): Promise<boolean>;
-  enableLiveComposition(options: { readonly packageKey: string; readonly family?: StudioPackageFamilyWire }): void;
-  disableLiveComposition(): void;
+  enableLiveEditing(options: { readonly packageKey: string; readonly family?: StudioPackageFamilyWire }): void;
+  disableLiveEditing(): void;
 }
 
 export interface ShellChromeOptions {
@@ -254,7 +254,7 @@ export class ShellChrome {
   }
 
   #compositionModeMarkup(): string {
-    return `<div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Composition mode">
+    return `<div class="app-composition-mode" data-testid="live-composition" role="group" aria-label="Editing mode">
             <span class="hn-badge" data-testid="live-composition-status">${FIXTURE_MODE_LABEL}</span>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-undo" disabled>Undo</button>
             <button type="button" class="hn-btn hn-btn--sm" data-testid="history-redo" disabled>Redo</button>
@@ -270,11 +270,11 @@ export class ShellChrome {
             >Go live…</button>
             <form class="live-form" id="live-composition-form" data-testid="live-composition-form" hidden>
               <label class="live-field">
-                <span class="hn-muted">Studio package key</span>
+                <span class="hn-muted">Content key</span>
                 <input type="text" required data-testid="live-composition-package-key" placeholder="pkg-…" />
               </label>
               <label class="live-field">
-                <span class="hn-muted">Family</span>
+                <span class="hn-muted">Kind</span>
                 <select data-testid="live-composition-family">
                   ${LIVE_COMPOSITION_FAMILIES.map((family) => `<option value="${family}">${family}</option>`).join("")}
                 </select>
@@ -356,7 +356,7 @@ export class ShellChrome {
     this.#on(toggle, "click", () => {
       // One button: open the connect form in fixture mode, return to fixture mode when live.
       if (host.toolCallOrchestrator.isLive) {
-        host.disableLiveComposition();
+        host.disableLiveEditing();
         return;
       }
       if (!form || !toggle) return;
@@ -373,7 +373,7 @@ export class ShellChrome {
         | StudioPackageFamilyWire
         | undefined;
       this.#closeLiveForm();
-      host.enableLiveComposition({ packageKey, ...(family ? { family } : {}) });
+      host.enableLiveEditing({ packageKey, ...(family ? { family } : {}) });
     });
   }
 

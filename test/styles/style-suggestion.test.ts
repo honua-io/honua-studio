@@ -312,7 +312,7 @@ describe("authorized style suggestion", () => {
     const again = second.suggestion.request();
     controller.apply({ name: "setVisibility", target: { kind: "layer", id: "other" }, visible: false });
     release!(jsonResponse(envelope(revision, geometrySuggestion())));
-    expect(await again).toEqual({ ok: false, reason: "The composition changed since the suggestion." });
+    expect(await again).toEqual({ ok: false, reason: "The map changed since the suggestion." });
     expect(second.onPreview).not.toHaveBeenCalled();
     expect(paintOf(controller.state.mapSpec as MapStyleDocument, "parcels")["fill-color"]).toBe("#112233");
   });

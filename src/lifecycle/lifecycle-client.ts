@@ -203,7 +203,7 @@ export class StudioLifecycleClient {
       throw new StudioLifecycleConflictError("Stale draft generation; refresh and retry.", { status: 409 });
     const body = current.envelope.body;
     if (current.envelope.family !== "map" || !body || typeof body !== "object" || Array.isArray(body))
-      throw new StudioLifecycleError("validation", "Map style editing requires a map composition draft.");
+      throw new StudioLifecycleError("validation", "Map style editing requires a Map draft.");
     const record = body as Record<string, unknown>;
     const metadata = mapSpec.metadata;
     const snapshot =

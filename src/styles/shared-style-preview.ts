@@ -87,7 +87,7 @@ export function createSharedStylePreview(options: SharedStylePreviewOptions) {
         pkg = projection.mapPackage;
       } else if ((body as { format?: unknown }).format === "honua_map_package.v1")
         pkg = structuredClone(body) as HonuaMapPackage;
-      else throw new Error("The selected map consumer is not a supported canonical map package.");
+      else throw new Error("The selected map consumer is not a supported canonical map.");
       if (!pkg.styleRefs?.some((reference) => reference.styleId === options.styleId && !reference.body))
         throw new Error("The selected map has no live reference to this shared style.");
       pkg = {

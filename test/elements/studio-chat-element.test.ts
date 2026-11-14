@@ -82,7 +82,7 @@ afterEach(() => {
 describe("<honua-studio-chat>", () => {
   it("does not reuse projected message ids for a subsequent host turn", async () => {
     const el = mountChat();
-    el.setWorkspaceConversation([
+    el.setEditorConversation([
       { id: "message-1", role: "assistant", content: "Original answer" },
       { id: "message-2", role: "user", content: "Original question" },
     ]);
@@ -106,7 +106,7 @@ describe("<honua-studio-chat>", () => {
       createdAt: "t",
     });
     expect(
-      el.setWorkspaceConversation([
+      el.setEditorConversation([
         { id: "turn-user", role: "user", content: "Question from the Console" },
         { id: "turn-agent", role: "assistant", content: "Shared reply" },
       ]),

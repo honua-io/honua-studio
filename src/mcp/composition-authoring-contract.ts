@@ -29,10 +29,10 @@ function calendarDay(value: string): number | undefined {
 /** Host rendering guidance supplements real discovery; it never supplies tool definitions or source identifiers. */
 export function compositionAuthoringGuidance(): string {
   return [
-    "Studio host composition contracts (use only tools actually discovered):",
+    "Studio host Map and App contracts (use only tools actually discovered):",
     `Widget kinds: ${COMPOSITION_WIDGET_KINDS.join(", ")}. The layer list is kind toc; layerList and filter are not widget kinds.`,
     'Charts use kind chart, sourceId from the trusted catalog, and config {groupBy: "<actual field>", chartType: "bar"}. Use the requested chart type and actual field; groupBy is the canonical category axis. Existing categoryField and other documented renderer aliases remain supported. A count needs no measure; other aggregates use measure {fn, field}. Histograms use binField and optional bins.',
-    "Tables require sourceId from the trusted catalog; optional config.fields chooses columns. Compare widgets require config.left and config.right as actual layer IDs. A time widget steps through layer visibility using config.steps: [{label, layerId}]; it is distinct from a timeSlider control over an attribute. toc and legend can read the composition without a sourceId.",
+    "Tables require sourceId from the trusted catalog; optional config.fields chooses columns. Compare widgets require config.left and config.right as actual layer IDs. A time widget steps through layer visibility using config.steps: [{label, layerId}]; it is distinct from a timeSlider control over an attribute. toc and legend can read the Map or App without a sourceId.",
     `Control kinds: ${COMPOSITION_CONTROL_KINDS.join(", ")}. Controls are separate from widgets.`,
     'Numeric thresholds, including numeric year fields, use filterSlider with config {field: "<actual field>", min: <known numeric domain>, max: <known numeric domain>, step: <positive step>, operator: ">="}. max must exceed min. Never invent a field or domain; inspect source metadata or ask when unavailable.',
     "timeSlider is temporal and needs config.field plus config.from and config.to as actual calendar dates, with to on or after from and optional stepDays. It is not a numeric year threshold slider.",

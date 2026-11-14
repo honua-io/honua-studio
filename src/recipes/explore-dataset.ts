@@ -19,7 +19,7 @@ export const EXPLORE_DATASET_RECIPE = {
     "An authorized published Honua vector FeatureServer layer with readable features.",
     "Point, line or polygon geometry and at least one string category field with values in the first 100 records.",
     "Choose 1–8 table columns from the actual source schema.",
-    "The server must support map draft creation. Save, reopen and publication use the normal workspace actions.",
+    "The server must support map draft creation. Save, reopen and release use the normal editor actions.",
   ],
   preview: {
     kind: "illustrative",
@@ -59,7 +59,7 @@ export function compileExploreDataset(input: ExploreDatasetInput, metadata: Expl
   if (input.recipeId !== EXPLORE_DATASET_RECIPE.id || input.recipeVersion !== EXPLORE_DATASET_RECIPE.version)
     throw new Error("This recipe version is unavailable. Reopen Explore a dataset.");
   if (!/^[A-Za-z0-9._-]{1,200}$/.test(input.packageKey))
-    throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the package key.");
+    throw new Error("Use 1–200 letters, numbers, dots, dashes or underscores for the content key.");
   const source = metadata.source;
   if (input.sourceId !== source.id) throw new Error("Refresh metadata for the selected source.");
   if (source.protocol !== "geoservices-feature-service")

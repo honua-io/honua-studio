@@ -215,7 +215,7 @@ describe("recipe canonical workspace creation", () => {
       app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
       await vi.waitFor(() => expect(app.sourceCatalog).toEqual(refreshed));
       vi.mocked(app.resolveRecipeSource).mockRestore();
-      vi.spyOn(app, "createWorkspaceStyleProvider").mockReturnValue({
+      vi.spyOn(app, "createEditorStyleProvider").mockReturnValue({
         describeDataset: vi.fn().mockRejectedValue(new Error("verified source reached provider")),
       } as never);
       await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
@@ -255,7 +255,7 @@ describe("recipe canonical workspace creation", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(app.sourceCatalog).toBe(verifiedCatalog);
     vi.mocked(app.resolveRecipeSource).mockRestore();
-    vi.spyOn(app, "createWorkspaceStyleProvider").mockReturnValue({
+    vi.spyOn(app, "createEditorStyleProvider").mockReturnValue({
       describeDataset: vi.fn().mockRejectedValue(new Error("verified source reached provider")),
     } as never);
     await expect(app.resolveRecipeSource(metadata.source.id, new AbortController().signal)).rejects.toThrow(
@@ -288,7 +288,7 @@ describe("recipe canonical workspace creation", () => {
     const pending = app.listRecipeSources(new AbortController().signal);
     app.session = { ...session, expiresAt: new Date(Date.now() + 7200000).toISOString() };
     finish([metadata.source]);
-    await expect(pending).rejects.toThrow("workspace authority changed");
+    await expect(pending).rejects.toThrow("editor authority changed");
   });
 
   it("equates only verified same-origin source aliases while preserving the published service and layer", async () => {
@@ -345,14 +345,14 @@ describe("recipe canonical workspace creation", () => {
     app.append(checkbox);
     expect(checkbox.value).toBe("on");
     expect(checkbox.defaultValue).toBe("");
-    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    await expect(app.prepareEditorTurn()).resolves.toBeUndefined();
     checkbox.checked = true;
-    await expect(app.prepareWorkspaceTurn()).rejects.toThrow("pending Studio edits");
+    await expect(app.prepareEditorTurn()).rejects.toThrow("pending Studio edits");
     checkbox.remove();
     const prospective = document.createElement("input");
     prospective.value = "prospective recipe package";
     app.shadowRoot!.querySelector("[data-recipe-outlet]")!.append(prospective);
-    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    await expect(app.prepareEditorTurn()).resolves.toBeUndefined();
   });
 
   it("closing during create fences attachment and explicit retry attaches the same accepted draft", async () => {
@@ -394,7 +394,7 @@ describe("recipe canonical workspace creation", () => {
         });
       return id === "original" ? original : created;
     });
-    await app.attachWorkspaceDraft("original");
+    await app.attachEditorDraft("original");
     const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft").mockImplementation((request) => {
       created = accepted(request);
       return new Promise((resolve) => {
@@ -403,16 +403,16 @@ describe("recipe canonical workspace creation", () => {
     });
     const pending = app.createRecipeDraft(input, "queued-attachment");
     await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
-    const switching = app.attachWorkspaceDraft("unrelated");
+    const switching = app.attachEditorDraft("unrelated");
     await vi.waitFor(() => expect(acceptRead).toBeTypeOf("function"));
     acceptCreate(created);
     await new Promise<void>((resolve) => queueMicrotask(() => queueMicrotask(resolve)));
     acceptRead(unrelated);
     await switching;
     await expect(pending).rejects.toThrow(/attachment was cancelled|active map changed/);
-    expect(await app.prepareWorkspaceTurn()).toMatchObject({ draftId: "unrelated" });
+    expect(await app.prepareEditorTurn()).toMatchObject({ draftId: "unrelated" });
     expect(get).not.toHaveBeenCalledWith(created.draftId);
-    await app.attachWorkspaceDraft(created.draftId);
+    await app.attachEditorDraft(created.draftId);
     expect(await app.createRecipeDraft(input, "queued-attachment")).toMatchObject({ draftId: created.draftId });
     expect(create).toHaveBeenCalledOnce();
   });
@@ -436,7 +436,7 @@ describe("recipe canonical workspace creation", () => {
     app.closeRecipePicker();
     acceptRead(created);
     await expect(pending).rejects.toThrow("attachment was cancelled");
-    expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+    expect(await app.prepareEditorTurn()).toBeUndefined();
     expect(app.composition.state.layers).toHaveLength(0);
     get.mockResolvedValue(created);
     expect(await app.createRecipeDraft(input, "close-during-read")).toMatchObject({ draftId: created.draftId });
@@ -470,8 +470,8 @@ describe("recipe canonical workspace creation", () => {
       controls: app.composition.state.controls,
       interactions: app.composition.state.interactions,
     });
-    expect(await app.prepareWorkspaceTurn()).toMatchObject({ draftId: created.draftId });
-    expect(await app.saveWorkspaceVersion()).toMatchObject({ versionId: "saved" });
+    expect(await app.prepareEditorTurn()).toMatchObject({ draftId: created.draftId });
+    expect(await app.saveEditorVersion()).toMatchObject({ versionId: "saved" });
     expect(save).toHaveBeenCalledOnce();
     expect({ controls: app.composition.state.controls, interactions: app.composition.state.interactions }).toEqual(
       authored,
@@ -539,8 +539,8 @@ describe("recipe canonical workspace creation", () => {
     await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
     app.session = { getToken: async () => "other-principal", onExpired: () => () => {} };
     accept(accepted(request));
-    await expect(pending).rejects.toThrow("workspace authority changed");
+    await expect(pending).rejects.toThrow("editor authority changed");
     expect(app.composition.state.layers).toHaveLength(0);
-    await expect(app.createRecipeDraft(input, "authority")).rejects.toThrow("original workspace authority");
+    await expect(app.createRecipeDraft(input, "authority")).rejects.toThrow("original editor authority");
   });
 });

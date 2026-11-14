@@ -1,15 +1,15 @@
+import type { EditorDraftBinding } from "../lifecycle/editor-draft.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
 import type { StudioContentVersion, StudioPublishRequestInput } from "../lifecycle/lifecycle-types.js";
-import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
+import type { EditorAuthority } from "./editor-authority.js";
+import type { EditorDraftIdentity, EditorDraftSession } from "./editor-draft-session.js";
 import type { EpochToken } from "./staleness-epoch.js";
-import type { WorkspaceAuthority } from "./workspace-authority.js";
-import type { WorkspaceDraftIdentity, WorkspaceDraftSession } from "./workspace-draft-session.js";
 
 type PublishReceipt = ReturnType<StudioLifecycleClient["requestPublish"]>;
 type PublicationReceipt = ReturnType<StudioLifecycleClient["getPublicationRequest"]>;
 
 interface PublicationReview {
-  readonly binding: WorkspaceDraftBinding;
+  readonly binding: EditorDraftBinding;
   readonly generation: EpochToken;
   readonly itemId: string;
   readonly versionId: string;
@@ -20,7 +20,7 @@ interface PublicationReview {
 /** What a queued lifecycle step gets: a fresh client, the draft it started on and its staleness check. */
 interface LifecycleStep {
   readonly client: StudioLifecycleClient;
-  readonly identity: WorkspaceDraftIdentity;
+  readonly identity: EditorDraftIdentity;
   readonly current: () => void;
   readonly generation: EpochToken;
 }
@@ -28,20 +28,20 @@ interface LifecycleStep {
 type LifecycleAction<T> = (step: LifecycleStep) => Promise<T>;
 
 const LIFECYCLE_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const SESSION_OR_MAP_CHANGED = "The workspace session or map changed.";
+const SESSION_OR_MAP_CHANGED = "The editor session or map changed.";
 
 /**
- * Saved versions of the active draft and their human-gated publication. Publishing requires a review
- * taken in the same workspace session, and nothing here publishes as a side effect.
+ * Saved versions of the active draft and their human-gated release. Releasing requires a review
+ * taken in the same editor session, and nothing here releases a version as a side effect.
  */
-export class WorkspacePublication {
+export class EditorRelease {
   #reviews = new WeakMap<StudioContentVersion, PublicationReview>();
 
   constructor(
-    private readonly authority: WorkspaceAuthority,
-    private readonly drafts: WorkspaceDraftSession,
+    private readonly authority: EditorAuthority,
+    private readonly drafts: EditorDraftSession,
     private readonly hooks: {
-      readonly prepareWorkspaceTurn: () => Promise<unknown>;
+      readonly prepareEditorTurn: () => Promise<unknown>;
       readonly saveCurrentView: (current: () => void) => Promise<void>;
     },
   ) {}
@@ -96,12 +96,12 @@ export class WorkspacePublication {
    * retain it and the exact input after a lost response. Replays use server policy
    * and fresh authorization; a receipt awaiting approval is never completion.
    */
-  async publish(review: StudioContentVersion, request: StudioPublishRequestInput, commandId: string): PublishReceipt {
+  async release(review: StudioContentVersion, request: StudioPublishRequestInput, commandId: string): PublishReceipt {
     const state = this.#reviews.get(review);
-    if (!state) throw new Error("Review the saved version in the current workspace before publishing.");
+    if (!state) throw new Error("Review the saved version in the current editor session before publishing.");
     const requireReview = () => {
       if (state.binding !== this.drafts.binding || !this.authority.epoch.isCurrent(state.generation))
-        throw new Error("Review the saved version again in the original workspace session before publishing.");
+        throw new Error("Review the saved version again in the original editor session before publishing.");
     };
     requireReview();
     const submission = this.#pinSubmission(state, request, commandId);
@@ -135,7 +135,7 @@ export class WorkspacePublication {
     }
   }
 
-  async readPublication(versionId: string, requestId: string): PublicationReceipt {
+  async readRelease(versionId: string, requestId: string): PublicationReceipt {
     const binding = this.drafts.binding;
     const generation = this.authority.epoch.current;
     const identity = binding?.identity;
@@ -171,7 +171,7 @@ export class WorkspacePublication {
     });
   }
 
-  /** A retried publication must reuse its original command ID and settings. */
+  /** A retried release must reuse its original command ID and settings. */
   #pinSubmission(
     state: PublicationReview,
     request: StudioPublishRequestInput,
@@ -195,7 +195,7 @@ export class WorkspacePublication {
     const generation = this.authority.epoch.current;
     const identity = binding?.identity;
     if (!binding || !identity) throw new Error("Open a map draft before using saved versions.");
-    await this.hooks.prepareWorkspaceTurn();
+    await this.hooks.prepareEditorTurn();
     const current = () => {
       if (!this.authority.epoch.isCurrent(generation) || binding !== this.drafts.binding)
         throw new Error(SESSION_OR_MAP_CHANGED);

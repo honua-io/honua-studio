@@ -439,7 +439,7 @@ export function readControlConfig(control: CompositionControl): ControlConfigRes
       const to = readIsoDate(config.to ?? config.end ?? config.max);
       if (!from || !to) {
         return fail(
-          `Time slider "${control.id}" needs config.from and config.to (ISO dates) — the composition carries no field schema to infer a time extent from.`,
+          `Time slider "${control.id}" needs config.from and config.to (ISO dates) — the map carries no field schema to infer a time extent from.`,
         );
       }
       const stepDays = Math.max(Math.trunc(readNumber(config, "stepDays", "step") ?? 1), 1);
@@ -579,7 +579,7 @@ export function describeControl(state: CompositionState, control: CompositionCon
   if (control.sourceId !== undefined && !controlSourceResolves(state, control.sourceId)) {
     return {
       state: "unsupported",
-      reason: `${CONTROL_KIND_LABELS[control.kind]} "${control.id}" reads from "${control.sourceId}", which is not a layer in this composition (nor a source any layer binds).`,
+      reason: `${CONTROL_KIND_LABELS[control.kind]} "${control.id}" reads from "${control.sourceId}", which is not a layer in this map (nor a source any layer binds).`,
     };
   }
 
@@ -590,7 +590,7 @@ export function describeControl(state: CompositionState, control: CompositionCon
     if (missing.length === normalized.config.config.layerIds.length) {
       return {
         state: "unsupported",
-        reason: `Opacity "${control.id}" drives ${missing.map((id) => `"${id}"`).join(", ")}, which the composition does not hold.`,
+        reason: `Opacity "${control.id}" drives ${missing.map((id) => `"${id}"`).join(", ")}, which the map does not hold.`,
       };
     }
   }

@@ -103,7 +103,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft").mockResolvedValue(draft);
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("original");
       let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
       vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
         () =>
@@ -112,8 +112,8 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
           }),
       );
       const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1, layerName: "Roads" });
-      await app.attachWorkspaceDraft("replacement");
-      if (switchBack) await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("replacement");
+      if (switchBack) await app.attachEditorDraft("original");
       finish([
         {
           id: "roads/1",
@@ -125,7 +125,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       ]);
       await expect(pending).rejects.toThrow(/active map changed/i);
       expect(replace).not.toHaveBeenCalled();
-      expect((await app.prepareWorkspaceTurn())?.draftId).toBe(switchBack ? "original" : "replacement");
+      expect((await app.prepareEditorTurn())?.draftId).toBe(switchBack ? "original" : "replacement");
       expect(app.composition.state.layers).toEqual([]);
     } finally {
       get.mockRestore();
@@ -147,7 +147,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("original");
       let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
       vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
         () =>
@@ -156,7 +156,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
           }),
       );
       const pending = app.addPublishedLayer({ serviceName: "roads", layerId: 1 });
-      expect(await app.refreshWorkspaceDraft()).toBe(true);
+      expect(await app.refreshEditorDraft()).toBe(true);
       finish([
         {
           id: "roads/1",
@@ -188,7 +188,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       .mockImplementation(async (_id, request) => ({ ...draft, generation: 2, envelope: request.envelope }));
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("original");
       vi.spyOn(app.studioClient, "listCatalog").mockResolvedValue([
         {
           id: "roads/1",
@@ -222,7 +222,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft").mockResolvedValue(draft);
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("original");
       let finish!: (value: Awaited<ReturnType<typeof app.studioClient.listCatalog>>) => void;
       vi.spyOn(app.studioClient, "listCatalog").mockImplementation(
         () =>
@@ -271,7 +271,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       .mockResolvedValue(draft);
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("original");
       vi.spyOn(app.studioClient, "listCatalog").mockResolvedValue([
         {
           id: "roads/1",
@@ -292,7 +292,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect((await earlier).ok).toBe(true);
       expect(await pending).toMatchObject({ ok: false, reason: expect.stringMatching(/view changed/i) });
       expect(replace).toHaveBeenCalledOnce();
-      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("original");
+      expect((await app.prepareEditorTurn())?.draftId).toBe("original");
     } finally {
       get.mockRestore();
       replace.mockRestore();
@@ -331,7 +331,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       };
       app.session = cookie;
       document.body.appendChild(app);
-      await app.attachWorkspaceDraft("original");
+      await app.attachEditorDraft("original");
       app.sourceCatalog = [source];
       const client = app.studioClient;
       app.studioClient = client;
@@ -378,12 +378,12 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     try {
       const app = mount();
       app.composition.apply({ name: "addLayer", layer: { id: "old", sourceId: "old" } });
-      await app.attachWorkspaceDraft("draft");
+      await app.attachEditorDraft("draft");
       expect(app.composition.canUndo()).toBe(false);
       expect(await app.applyHistoryAction("undo")).toBe(false);
-      expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "draft", generation: 2, packageKey: "map" });
+      expect(await app.prepareEditorTurn()).toEqual({ draftId: "draft", generation: 2, packageKey: "map" });
       app.session = fixtureSession();
-      expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+      expect(await app.prepareEditorTurn()).toBeUndefined();
       expect(app.composition.canUndo()).toBe(false);
     } finally {
       get.mockRestore();
@@ -428,7 +428,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
         };
         app.session = cookie;
         document.body.appendChild(app);
-        await app.attachWorkspaceDraft("shared");
+        await app.attachEditorDraft("shared");
         const dispatch = (app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement).commandDispatch!;
         if (mode === "undo") app.composition.apply({ name: "addLayer", layer: { id: "human", sourceId: "source" } });
         const pending =
@@ -441,7 +441,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
         expect(await pending).toBe(true);
         const accepted = mode === "command" ? ["human"] : [];
         expect(app.composition.state.layers.map((layer) => layer.id)).toEqual(accepted);
-        expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "shared", generation: 2, packageKey: "map" });
+        expect(await app.prepareEditorTurn()).toEqual({ draftId: "shared", generation: 2, packageKey: "map" });
         expect((await dispatch([{ name: "addLayer", layer: { id: "next", sourceId: "source" } }])).ok).toBe(true);
         const next = replace.mock.calls[1]![1];
         expect(next.generation).toBe(2);
@@ -500,7 +500,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       };
       app.session = cookie;
       document.body.appendChild(app);
-      const pending = app.attachWorkspaceDraft("shared");
+      const pending = app.attachEditorDraft("shared");
       await vi.waitFor(() => expect(get).toHaveBeenCalled());
       app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
       finish();
@@ -509,7 +509,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect((await dispatch([{ name: "addLayer", layer: { id: "next", sourceId: "source" } }])).ok).toBe(true);
       expect(writes).toHaveLength(1);
       expect(new Headers(writes[0]!.headers).get("X-CSRF-Token")).toBe("renewed");
-      expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "shared", generation: 2, packageKey: "map" });
+      expect(await app.prepareEditorTurn()).toEqual({ draftId: "shared", generation: 2, packageKey: "map" });
     } finally {
       get.mockRestore();
     }
@@ -532,8 +532,8 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     try {
       const app = mount();
       expect(create).not.toHaveBeenCalled();
-      await expect(app.createWorkspaceDraft("bad key")).rejects.toThrow("package key");
-      const identity = await app.createWorkspaceDraft("new-map");
+      await expect(app.createEditorDraft("bad key")).rejects.toThrow("content key");
+      const identity = await app.createEditorDraft("new-map");
       expect(identity).toEqual({ draftId: "created", generation: 0, packageKey: "new-map" });
       expect(create.mock.calls[0]?.[0].envelope.body).toMatchObject({ mapPackageId: "new-map", layers: [] });
       expect(get).toHaveBeenCalledWith("created");
@@ -566,15 +566,15 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     const reopen = vi.spyOn(StudioLifecycleClient.prototype, "reopenVersion").mockResolvedValue(reopened);
     try {
       const app = mount();
-      await expect(app.saveWorkspaceVersion()).rejects.toThrow("Open a map draft");
-      await app.attachWorkspaceDraft("original");
-      expect(await app.saveWorkspaceVersion()).toBe(version);
+      await expect(app.saveEditorVersion()).rejects.toThrow("Open a map draft");
+      await app.attachEditorDraft("original");
+      expect(await app.saveEditorVersion()).toBe(version);
       expect(save).toHaveBeenCalledExactlyOnceWith("original");
-      expect(await app.listWorkspaceVersions()).toEqual([version]);
+      expect(await app.listEditorVersions()).toEqual([version]);
       expect(list).toHaveBeenCalledExactlyOnceWith("item");
-      await app.reopenWorkspaceVersion("v1");
+      await app.reopenEditorVersion("v1");
       expect(reopen).toHaveBeenCalledExactlyOnceWith("item", "v1");
-      expect(await app.prepareWorkspaceTurn()).toEqual({ draftId: "reopened", generation: 0, packageKey: "saved-map" });
+      expect(await app.prepareEditorTurn()).toEqual({ draftId: "reopened", generation: 0, packageKey: "saved-map" });
     } finally {
       get.mockRestore();
       save.mockRestore();
@@ -601,14 +601,14 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     );
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
-      const pending = app.reopenWorkspaceVersion("v1");
+      await app.attachEditorDraft("original");
+      const pending = app.reopenEditorVersion("v1");
       const refused = expect(pending).rejects.toThrow("session or map changed");
       await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
       app.session = fixtureSession();
       finish({ ...draft, draftId: "reopened" });
       await refused;
-      expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+      expect(await app.prepareEditorTurn()).toBeUndefined();
       expect(get).not.toHaveBeenCalledWith("reopened");
     } finally {
       get.mockRestore();
@@ -638,8 +638,8 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     const replace = vi.spyOn(StudioLifecycleClient.prototype, "replaceDraft");
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("original");
-      const pending = app.reopenWorkspaceVersion("v1");
+      await app.attachEditorDraft("original");
+      const pending = app.reopenEditorVersion("v1");
       await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
       const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
       const edit = canvas.commandDispatch!([{ name: "addLayer", layer: { id: "old-edit", sourceId: "roads" } }]);
@@ -648,7 +648,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect(await edit).toMatchObject({ ok: false });
       expect(replace).not.toHaveBeenCalled();
       expect(app.composition.state.layers).toEqual([]);
-      expect((await app.prepareWorkspaceTurn())?.draftId).toBe("reopened");
+      expect((await app.prepareEditorTurn())?.draftId).toBe("reopened");
     } finally {
       get.mockRestore();
       reopen.mockRestore();
@@ -666,14 +666,14 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     );
     try {
       const app = mount();
-      const pending = app.attachWorkspaceDraft("old");
+      const pending = app.attachEditorDraft("old");
       await vi.waitFor(() => expect(get).toHaveBeenCalled());
       app.session = fixtureSession();
       resolve({ draftId: "old", generation: 0, packageKey: "old", envelope: { body: { layers: [] } } } as Awaited<
         ReturnType<StudioLifecycleClient["getDraft"]>
       >);
       await expect(pending).rejects.toThrow("session changed");
-      expect(await app.prepareWorkspaceTurn()).toBeUndefined();
+      expect(await app.prepareEditorTurn()).toBeUndefined();
     } finally {
       get.mockRestore();
     }
@@ -716,7 +716,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
         }));
       try {
         const app = mount();
-        await app.attachWorkspaceDraft(draft.draftId);
+        await app.attachEditorDraft(draft.draftId);
         const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
         vi.spyOn(canvas, "editableMapStyle").mockImplementation(async () => {
           if (mode === "changed-session") app.session = fixtureSession();
@@ -746,7 +746,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     let finish!: (style: { version: number; sources: Record<string, never>; layers: [] }) => void;
     try {
       const app = mount();
-      await app.attachWorkspaceDraft(draft.draftId);
+      await app.attachEditorDraft(draft.draftId);
       const canvas = app.querySelector<HonuaStudioCanvasElement>("honua-studio-canvas")!;
       const read = vi.spyOn(canvas, "editableMapStyle").mockImplementation(
         () =>
@@ -769,7 +769,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
   it("pins a New map gesture before waiting for pending writes", async () => {
     const app = mount();
     let release!: () => void;
-    const prepare = vi.spyOn(app, "prepareWorkspaceTurn").mockImplementation(
+    const prepare = vi.spyOn(app, "prepareEditorTurn").mockImplementation(
       () =>
         new Promise((resolve) => {
           release = () => resolve(undefined);
@@ -777,7 +777,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     );
     const create = vi.spyOn(StudioLifecycleClient.prototype, "createDraft");
     try {
-      const pending = app.createWorkspaceDraft("new-map");
+      const pending = app.createEditorDraft("new-map");
       app.session = fixtureSession();
       release();
       await expect(pending).rejects.toThrow("session changed");
@@ -798,7 +798,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("shared");
+      await app.attachEditorDraft("shared");
       let resolve!: (value: typeof draft) => void;
       get.mockImplementationOnce(
         () =>
@@ -806,7 +806,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
             resolve = done;
           }),
       );
-      const pending = app.attachWorkspaceDraft("shared");
+      const pending = app.attachEditorDraft("shared");
       await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
       const field = document.createElement("textarea");
       field.value = "unsaved edit";
@@ -815,7 +815,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       await expect(pending).rejects.toThrow("pending Studio edits");
       expect(field.value).toBe("unsaved edit");
       field.remove();
-      expect((await app.prepareWorkspaceTurn())?.generation).toBe(1);
+      expect((await app.prepareEditorTurn())?.generation).toBe(1);
     } finally {
       get.mockRestore();
     }
@@ -831,7 +831,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue(draft);
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("shared");
+      await app.attachEditorDraft("shared");
       let resolve!: (value: typeof draft) => void;
       get.mockImplementationOnce(
         () =>
@@ -839,7 +839,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
             resolve = done;
           }),
       );
-      const pending = app.refreshWorkspaceDraft();
+      const pending = app.refreshEditorDraft();
       await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
       const field = document.createElement("textarea");
       field.value = "unsaved refresh edit";
@@ -848,7 +848,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       await expect(pending).resolves.toBe(false);
       expect(field.value).toBe("unsaved refresh edit");
       field.remove();
-      expect((await app.prepareWorkspaceTurn())?.generation).toBe(1);
+      expect((await app.prepareEditorTurn())?.generation).toBe(1);
     } finally {
       get.mockRestore();
     }
@@ -897,7 +897,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
   it("does not announce an authority swap on first pre-connect session assignment", () => {
     const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
     const listener = vi.fn();
-    app.addEventListener("honua-workspace-draft-change", listener);
+    app.addEventListener("honua-studio-draft-change", listener);
     app.session = fixtureSession();
     expect(listener).not.toHaveBeenCalled();
     app.session = fixtureSession();
@@ -907,18 +907,18 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
 
   it("prepares host turns without fetching or discarding unsaved authoring fields", async () => {
     const app = mount();
-    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    await expect(app.prepareEditorTurn()).resolves.toBeUndefined();
     const pending = document.createElement("textarea");
     pending.value = "unsaved authoring value";
     app.appendChild(pending);
-    await expect(app.prepareWorkspaceTurn()).rejects.toThrow("pending Studio edits");
+    await expect(app.prepareEditorTurn()).rejects.toThrow("pending Studio edits");
     expect(pending.value).toBe("unsaved authoring value");
-    expect(await app.refreshWorkspaceDraft()).toBe(false);
+    expect(await app.refreshEditorDraft()).toBe(false);
     pending.remove();
     const chat = app.querySelector("honua-studio-chat");
     const composer = chat?.shadowRoot?.querySelector("textarea");
     if (composer) composer.value = "user-authored pending prompt";
-    await expect(app.prepareWorkspaceTurn()).resolves.toBeUndefined();
+    await expect(app.prepareEditorTurn()).resolves.toBeUndefined();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("package-drafts"))).toBe(false);
   });
 
@@ -947,7 +947,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     try {
       app.session = cookie;
       document.body.appendChild(app);
-      await app.attachWorkspaceDraft("shared");
+      await app.attachEditorDraft("shared");
       const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
       const editable = vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
       await app.openStyleEditor();
@@ -969,7 +969,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect(raw.isConnected).toBe(true);
       expect(raw.value).toBe("unaccepted visual expression");
       expect(await app.applyHistoryAction("undo")).toBe(false);
-      await expect(app.prepareWorkspaceTurn()).rejects.toThrow("pending Studio edits");
+      await expect(app.prepareEditorTurn()).rejects.toThrow("pending Studio edits");
       await expect(app.closeStyleEditor()).rejects.toThrow("Save or discard");
       editable.mockRestore();
     } finally {
@@ -1003,7 +1003,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     );
     try {
       const app = mount();
-      await app.attachWorkspaceDraft("shared");
+      await app.attachEditorDraft("shared");
       const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
       vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
       await app.openStyleEditor();
@@ -1037,7 +1037,7 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       button.click();
       await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
       let captured = false;
-      const pending = app.prepareWorkspaceTurn().then((value) => {
+      const pending = app.prepareEditorTurn().then((value) => {
         captured = true;
         return value;
       });
@@ -1055,19 +1055,19 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
 
   it("uses only the host product surface when a shared workspace adapter is supplied", () => {
     const app = mount();
-    expect(app.hasAttribute("data-workspace-host")).toBe(false);
+    expect(app.hasAttribute("data-editor-host")).toBe(false);
     app.agentSessionAdapter = {
       async submitTurn() {
         throw new Error("unused");
       },
     };
-    expect(app.hasAttribute("data-workspace-host")).toBe(true);
+    expect(app.hasAttribute("data-editor-host")).toBe(true);
     expect(app.shadowRoot!.querySelector("#view")!.childElementCount).toBe(0);
     expect(app.shadowRoot!.querySelector('[data-testid="history-undo"]')).not.toBeNull();
     expect(app.shadowRoot!.querySelector('[data-testid="history-status"]')).not.toBeNull();
     expect(app.querySelector("honua-studio-canvas")).not.toBeNull();
     app.agentSessionAdapter = undefined;
-    expect(app.hasAttribute("data-workspace-host")).toBe(false);
+    expect(app.hasAttribute("data-editor-host")).toBe(false);
   });
 
   it("mounts a shadow shell with the documented data-testids", () => {
@@ -1330,17 +1330,17 @@ it("pins read-only style discovery before requests while accepting same-authorit
   vi.stubGlobal("fetch", fetch);
   try {
     app.session = cookie;
-    const provider = app.createWorkspaceStyleProvider({ getAuthority: () => workspace });
+    const provider = app.createEditorStyleProvider({ getAuthority: () => workspace });
     const old = provider.sessionIdentity;
     app.session = { ...cookie, csrfToken: "renewed" };
     expect(provider.sessionIdentity).toBe(app.auth);
     expect(provider.sessionIdentity).not.toBe(old);
     workspace = "workspace-b";
-    await expect(provider.list()).rejects.toThrow("workspace authority changed");
+    await expect(provider.list()).rejects.toThrow("editor authority changed");
     expect(fetch).not.toHaveBeenCalled();
-    const replacement = app.createWorkspaceStyleProvider();
+    const replacement = app.createEditorStyleProvider();
     app.session = { ...cookie, principalId: "another-owner" };
-    await expect(replacement.list()).rejects.toThrow("workspace authority changed");
+    await expect(replacement.list()).rejects.toThrow("editor authority changed");
     expect(fetch).not.toHaveBeenCalled();
   } finally {
     app.session = undefined;
@@ -1413,7 +1413,7 @@ it.each([false, true])("shows shared-link detachment only for live references (i
       onExpired: () => () => {},
     };
     document.body.appendChild(app);
-    await app.attachWorkspaceDraft("shared");
+    await app.attachEditorDraft("shared");
     const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
     vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
     await app.openStyleEditor();

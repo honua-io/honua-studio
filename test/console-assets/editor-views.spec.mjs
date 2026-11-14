@@ -78,7 +78,7 @@ test("built Console session selects bounded workflow views with one MCP session 
     const result = await page.evaluate(async () => {
       const studio = await import("/console.js");
       let credential = 0;
-      const session = studio.createWorkspaceAgentSession({
+      const session = studio.createEditorAgentSession({
         fetchImpl: (input, init) => {
           const headers = new Headers(init?.headers);
           headers.set("X-Test-Agent", `fresh-${++credential}`);

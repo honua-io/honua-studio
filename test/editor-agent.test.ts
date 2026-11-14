@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../mock-server.mjs";
-import { createWorkspaceAgentSession, workspaceAgentFeatures } from "../src/workspace-agent.js";
+import { createEditorAgentSession, editorAgentFeatures } from "../src/editor-agent.js";
 
 it("sends shared workflow guidance with fresh host context through the real SDK and fixture proxy", async () => {
   const server = await startMockServer({ model: "byom-preview" });
   const token = mintFixtureAccessToken();
   const requests: { system?: string; tools?: { name: string }[] }[] = [];
   let context = "Current authorized target alpha";
-  const session = createWorkspaceAgentSession({
+  const session = createEditorAgentSession({
     fetchImpl: async (input, init) => {
       const path = new URL(String(input), "http://studio.test").pathname.replace(/^\/api/, "");
       if (path === "/v1/studio/ai/chat") requests.push(JSON.parse(String(init?.body)));
@@ -68,13 +68,13 @@ it("refreshes the same actual SDK session catalog with fresh approval and absent
       headers: { "content-type": "application/json", "mcp-session-id": "same-session" },
     });
   };
-  const session = createWorkspaceAgentSession({
+  const session = createEditorAgentSession({
     fetchImpl,
     system: () => "Discovery test",
     toolFamilies: ["honua.workspace.devops", "honua.workspace.local-process"],
     toolApproval: (entry) => entry.classification?.family !== "honua.workspace.devops" || devopsApproved,
   });
-  expect(workspaceAgentFeatures.toolApproval).toBe(true);
+  expect(editorAgentFeatures.toolApproval).toBe(true);
   try {
     await session.refreshTools();
     expect(session.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["test_devops", "test_local"]));
@@ -128,7 +128,7 @@ it("starts bounded and switches workflow views on the same SDK session without g
       headers: { "content-type": "application/json", "mcp-session-id": "workspace-session" },
     });
   };
-  const session = createWorkspaceAgentSession({
+  const session = createEditorAgentSession({
     fetchImpl,
     system: () => "Shared Console context",
     toolFamilies: ["honua.workspace.canonical"],

@@ -46,7 +46,7 @@ describe("Publication routing boundaries", () => {
     const callers = allSourceFiles
       .filter((file) => GATED_METHOD_CALL_PATTERN.test(readFileSync(file, "utf8")))
       .map((file) => relative(srcRoot, file));
-    expect(callers).toEqual(["app/workspace-publication.ts", "elements/studio-lifecycle-panel-element.ts"]);
+    expect(callers).toEqual(["app/editor-release.ts", "elements/studio-lifecycle-panel-element.ts"]);
   });
 
   it("no file under src/mcp/**, src/chat/**, or src/composition/** imports lifecycle-client.js at all", () => {

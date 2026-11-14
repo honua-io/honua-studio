@@ -216,7 +216,7 @@ principal, environment and deployment prefix. Switching between native and BFF
 routes requires a new session.
 
 `principalId` is the host's stable opaque user partition, not a credential. Pass
-the same partition to `ServerProcessWorkspace`; run submission requires it.
+the same partition to `ServerProcessEditor`; run submission requires it.
 Pending process commands and accepted receipts are retained separately for each
 environment and principal, so switching users cannot adopt another user's run.
 
@@ -242,16 +242,16 @@ the custom-code adapter verifies artifact bytes, uses normal import, and then
 uses the returned physical dataset identity for publication. Async operations
 remain pending until their actual result is observed.
 
-The host calls `await studio.attachWorkspaceDraft(draftId)` after native turns
+The host calls `await studio.attachEditorDraft(draftId)` after native turns
 and when restoring a `studio-composition` task. This reads the authorized
 `package-drafts/{draftId}` REST resource and observes its actual body, without
-replaying tools or injecting model history. `honua-workspace-draft-change` emits
+replaying tools or injecting model history. `honua-studio-draft-change` emits
 `{draftId, generation, packageKey}` from that resource. Persist the typed task
 reference and pass `{draftId,generation}` to the shared SDK session's `attachDraft`.
 Human canvas edits and undo/redo replace the same draft with optimistic generation
 checks and preserve envelope metadata; a conflict requires explicit reread, with
 no overwrite retry. Cookie canvas editing refuses local success before a shared
-draft is attached. `setWorkspaceConversation(messages)` projects authorized host
+draft is attached. `setEditorConversation(messages)` projects authorized host
 conversation into its transcript projection without changing the SDK's model history;
 it returns false while that bridge streams. The host owns the visible conversation.
 
@@ -272,32 +272,37 @@ verification does not establish installed workflow or cloud qualification.
 
 The Console entry exports `DatasetImportTaskClient`, `DatasetImportUploadClient`,
 `DatasetImportSubmissionClient`, and `hashDatasetImportFile`. Console supplies
-fresh authenticated headers and its workspace-bound BFF transport; these exports
+fresh authenticated headers and its host-scoped BFF transport; these exports
 do not grant import authority or enable a host that is not ready. Run
 `npm run test:console-assets` to exercise real hashing and read transports in
 Chromium. That packaging check uses controlled HTTP responses; live import,
 query, map and publication qualification remains separate.
 
-Before capturing a turn, `await studio.prepareWorkspaceTurn()` flushes accepted
+The Console entry also exports `createEditorAgentSession`, `editorAgentFeatures`,
+`ServerProcessEditor`, `LocalProcessEditor`, `createContentLifecycleReader` and
+`createReadOnlyAppView`. The standalone shell sets the global
+`HonuaStudioEditor`.
+
+Before capturing a turn, `await studio.prepareEditorTurn()` flushes accepted
 human edits and returns their `{draftId,generation,packageKey}` without fetching
 or overwriting state. It refuses pending form changes or failed writes. Compare
 its draft identity to the synchronously captured task; never retarget a prompt
 when the user switches context while it waits. For idle external observation,
-`refreshWorkspaceDraft()` returns false while unsaved authoring fields or a failed
+`refreshEditorDraft()` returns false while unsaved authoring fields or a failed
 write need reconciliation. The host also suppresses polling during native turns.
 
 ### Shared task attachment
 
-Cookie hosts provide a stable opaque `principalId` for the operator/environment partition. Rotating CSRF or expiry for the same principal retains the observed draft and renews its REST transport; changing principal or environment clears the draft and emits `honua-workspace-draft-change` with undefined detail. Hosts must clear the shared SDK draft with `attachDraft(undefined)` on that event.
+Cookie hosts provide a stable opaque `principalId` for the operator/environment partition. Rotating CSRF or expiry for the same principal retains the observed draft and renews its REST transport; changing principal or environment clears the draft and emits `honua-studio-draft-change` with undefined detail. Hosts must clear the shared SDK draft with `attachDraft(undefined)` on that event.
 
-`app.createWorkspaceDraft(packageKey, commandId?)` is an explicit human action. It accepts a trimmed key matching `[A-Za-z0-9._-]{1,200}` and creates an empty canonical map through the authenticated lifecycle REST API. A completed creation reads and attaches the actual server draft and returns `{draftId,generation,packageKey}`. With a caller-owned command ID, when policy requires approval it instead returns a `StudioApprovalPending` receipt containing `status: "awaiting-approval"`, `operationInstanceId`, and `proposalId` without attaching a draft. Omitting the ID preserves strict single-shot creation and rejects HTTP 202. The host retains that receipt and reuses the same command ID for retries of the same action. After approval completes, the host reads the canonical draft ID from the completed operation and calls `attachWorkspaceDraft(draftId)`. Viewing the canvas or submitting a prompt never creates a draft implicitly. Existing lifecycle `honua-studio-lifecycle-activity` events with kind `draft-loaded` or `version-reopened` identify an actual draft for guarded authorized attachment.
+`app.createEditorDraft(packageKey, commandId?)` is an explicit human action. It accepts a trimmed key matching `[A-Za-z0-9._-]{1,200}` and creates an empty canonical map through the authenticated lifecycle REST API. A completed creation reads and attaches the actual server draft and returns `{draftId,generation,packageKey}`. With a caller-owned command ID, when policy requires approval it instead returns a `StudioApprovalPending` receipt containing `status: "awaiting-approval"`, `operationInstanceId`, and `proposalId` without attaching a draft. Omitting the ID preserves strict single-shot creation and rejects HTTP 202. The host retains that receipt and reuses the same command ID for retries of the same action. After approval completes, the host reads the canonical draft ID from the completed operation and calls `attachEditorDraft(draftId)`. Viewing the canvas or submitting a prompt never creates a draft implicitly. Existing lifecycle `honua-studio-lifecycle-activity` events with kind `draft-loaded` or `version-reopened` identify an actual draft for guarded authorized attachment.
 
-The built-in Processes element exposes `prepareWorkspaceTask()` returning `{packageId,version,contentHash}` only after pending saves settle and the current graph is validated. `attachWorkspaceTask(reference)` reads the immutable version and verifies all three fields before projecting its graph; it returns false when local editing would be discarded. Hosts bind these references as server task kind `workflow-package`, id `packageId`, revision `version`, and `contentHash`. Raw graph/source content is not automatically included in prompts. Local custom source editing has no server workflow-package authority.
+The built-in Processes element exposes `prepareEditorTask()` returning `{packageId,version,contentHash}` only after pending saves settle and the current graph is validated. `attachEditorTask(reference)` reads the immutable version and verifies all three fields before projecting its graph; it returns false when local editing would be discarded. Hosts bind these references as server task kind `workflow-package`, id `packageId`, revision `version`, and `contentHash`. Raw graph/source content is not automatically included in prompts. Local custom source editing has no server workflow-package authority.
 
 The custom Processes client takes a `workspaceId: () => string` getter and sends `X-Honua-Workspace` on each bounded BFF request. Its explicit human `bind()` action uses the configured server/daemon pairing; no daemon credential reaches JavaScript. Saving includes the observed project revision and file SHA. Running first retains an immutable source/input snapshot, persists a command reference, and reconciles an uncertain response through `GET commands/{commandId}` before any retry.
 
-`custom.prepareWorkspaceTask()` waits for pending UI writes, rejects unsaved source or an externally changed project, and returns `{projectId,revision,sourceDigest}`. `attachWorkspaceTask(reference)` and `refreshWorkspaceTask()` read actual authorized project state and preserve dirty text. `honua-local-process-task-change` carries only that reference, or undefined while source is unsaved. Hosts bind this as task kind `local-process-workspace`, id `projectId`, revision `revision`, and contentHash `sourceDigest`. Binding/ownership authorization remains separate from context selection; the canonical server captures an actual immutable snapshot for the turn. Local run and artifact identities remain distinct from imported datasets, workflow packages, and map layers.
+`custom.prepareEditorTask()` waits for pending UI writes, rejects unsaved source or an externally changed project, and returns `{projectId,revision,sourceDigest}`. `attachEditorTask(reference)` and `refreshEditorTask()` read actual authorized project state and preserve dirty text. `honua-local-process-task-change` carries only that reference, or undefined while source is unsaved. Hosts bind this as task kind `local-process-workspace`, id `projectId`, revision `revision`, and contentHash `sourceDigest`. Binding/ownership authorization remains separate from context selection; the canonical server captures an actual immutable snapshot for the turn. Local run and artifact identities remain distinct from imported datasets, workflow packages, and map layers.
 
-Hosts may pass a throwing `mayAccept` callback to `attachWorkspaceDraft(draftId, mayAccept)` to reject navigation-stale attachments before the queued read and before adopting its result.
+Hosts may pass a throwing `mayAccept` callback to `attachEditorDraft(draftId, mayAccept)` to reject navigation-stale attachments before the queued read and before adopting its result.
 
 When an input starts with the verified deployment prefix, the adapter removes it only if the remaining route is admitted by the bounded router. If both forms are valid, the deployment-prefixed interpretation takes precedence. Otherwise the original canonical route is validated.

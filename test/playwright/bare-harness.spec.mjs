@@ -41,7 +41,7 @@ test.describe("bare embed harness (harness/bare)", () => {
       await expect(page.getByTestId("app-shell")).toBeVisible();
       await expect(page.getByTestId("catalog-error")).toHaveCount(0);
       await expect(page.getByTestId("catalog-list")).toContainText("Hawai'i statewide parcels");
-      await expect(page.getByTestId("packages-empty")).toHaveText("No packages yet.");
+      await expect(page.getByTestId("packages-empty")).toHaveText("No Studio content yet.");
 
       await expect(page.getByTestId("studio-chat")).toBeVisible();
       await expect(page.getByTestId("studio-chat-session-status")).toHaveText("Signed in");

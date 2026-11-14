@@ -4,8 +4,8 @@ import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { CompositionEditor, type CompositionEditorOptions } from "../../src/app/composition-editor.js";
 import { StalenessEpoch } from "../../src/app/staleness-epoch.js";
 import { CompositionController } from "../../src/composition/controller.js";
+import { EditorDraftBinding } from "../../src/lifecycle/editor-draft.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
-import { WorkspaceDraftBinding } from "../../src/lifecycle/workspace-draft.js";
 import { compositionToMapPackage } from "../../src/map/map-package-projection.js";
 import { applyStudioDraftBody } from "../../src/mcp/tool-bridge.js";
 
@@ -27,7 +27,7 @@ it.each(["vector", "raster"])(
           body: { layers: [] },
         },
       });
-      const binding = new WorkspaceDraftBinding(client);
+      const binding = new EditorDraftBinding(client);
       const composition = new CompositionController(await binding.observe(draft.draftId));
       const url = "https://archives.example/public.pmtiles";
       const editor = new CompositionEditor({

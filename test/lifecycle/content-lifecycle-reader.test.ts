@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createWorkspaceLifecycleReader } from "../../src/lifecycle/workspace-reader.js";
+import { createContentLifecycleReader } from "../../src/lifecycle/content-lifecycle-reader.js";
 
 it("projects actual lifecycle GET readback through the host's captured transport without exposing writes", async () => {
   const draft = { draftId: "draft", itemId: "map", packageKey: "parcels", generation: 7, envelope: { family: "map" } };
@@ -8,7 +8,7 @@ it("projects actual lifecycle GET readback through the host's captured transport
     .fn()
     .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: draft })))
     .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: version }))) as typeof fetch;
-  const reader = createWorkspaceLifecycleReader({ fetchImpl });
+  const reader = createContentLifecycleReader({ fetchImpl });
   expect(await reader.getDraft("draft")).toEqual(draft);
   expect(await reader.getVersion("map", "version")).toEqual(version);
   expect(vi.mocked(fetchImpl).mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
