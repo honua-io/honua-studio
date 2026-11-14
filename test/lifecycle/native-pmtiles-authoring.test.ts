@@ -4,8 +4,8 @@ import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { CompositionEditor, type CompositionEditorOptions } from "../../src/app/composition-editor.js";
 import { StalenessEpoch } from "../../src/app/staleness-epoch.js";
 import { CompositionController } from "../../src/composition/controller.js";
-import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 import { EditorDraftBinding } from "../../src/lifecycle/editor-draft.js";
+import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 import { compositionToMapPackage } from "../../src/map/map-package-projection.js";
 import { applyStudioDraftBody } from "../../src/mcp/tool-bridge.js";
 
