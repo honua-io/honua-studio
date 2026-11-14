@@ -131,6 +131,11 @@ describe("style editor follows the lifecycle panel draft", () => {
     expect(panelSlot.contains(editor ?? null)).toBe(false);
     expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.contains(editor ?? null)).toBe(true);
     expect(editor?.querySelector("iframe")?.isConnected).toBe(true);
+    // Editor and suggestions share one grid cell, so the canvas keeps the second column.
+    const column = app.shadowRoot?.querySelector("[data-testid='app-slots']")?.firstElementChild;
+    expect(column?.classList.contains("style-editor-column")).toBe(true);
+    expect(column?.contains(editor ?? null)).toBe(true);
+    expect(column?.querySelector("[data-testid='style-suggestion']")).toBeTruthy();
   });
 
   it("mounts the style editor in the lifecycle panel that is showing the open draft", async () => {
@@ -149,7 +154,7 @@ describe("style editor follows the lifecycle panel draft", () => {
     await app.openStyleEditor();
     const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
     expect(panel.contains(editor ?? null)).toBe(true);
-    expect(editor?.getAttribute("slot")).toBe("style-editor");
+    expect(editor?.parentElement?.getAttribute("slot")).toBe("style-editor");
     expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.hasAttribute("data-style-mode")).toBe(false);
   });
 

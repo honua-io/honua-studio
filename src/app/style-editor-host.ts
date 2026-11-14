@@ -13,6 +13,7 @@ import type { EpochToken } from "./staleness-epoch.js";
 import type { StudioAppChildren } from "./studio-app-children.js";
 
 const NEWER_DRAFT_SAVED = "Another edit saved this map first. Discard visual edits to load it, then reapply yours.";
+const SUGGESTION_REPLACED_BY_EDITS = "Visual style edits replaced the suggestion.";
 const SUGGESTION_BLOCKED_BY_EDITS = "Save or discard visual style edits before requesting a style suggestion.";
 
 /** The public `<honua-studio-app>` surface the style editor uses; hosts and tests may wrap these methods. */
@@ -45,6 +46,8 @@ export class StyleEditorHost {
   #editor: MapStyleEditor | undefined;
   #suggestions: StyleSuggestionPanel | undefined;
   #panel: HTMLElement | undefined;
+  /** Unlabelled column holding the editor and its suggestion region, so both occupy one grid cell. */
+  #column: HTMLElement | undefined;
   #unsubscribe: (() => void) | undefined;
 
   constructor(private readonly options: StyleEditorHostOptions) {}
@@ -120,7 +123,8 @@ export class StyleEditorHost {
     this.#suggestions = undefined;
     this.#editor?.dispose();
     this.#editor = undefined;
-    this.#panel?.remove();
+    this.#column?.remove();
+    this.#column = undefined;
     this.#panel = undefined;
     this.options.chrome.appSlots()?.removeAttribute("data-style-mode");
     this.options.chrome.paintHistory();
@@ -151,14 +155,18 @@ export class StyleEditorHost {
   #mountPanel(draftId: string): HTMLElement {
     const panel = window.document.createElement("section");
     panel.setAttribute("aria-label", "Map style editor");
+    const column = window.document.createElement("div");
+    column.className = "style-editor-column";
+    column.append(panel);
     const lifecycle = this.options.chrome.lifecyclePanel();
     if (lifecycle && this.#lifecycleDisplaysDraft(lifecycle, draftId)) {
-      panel.slot = "style-editor";
-      lifecycle.append(panel);
+      column.slot = "style-editor";
+      lifecycle.append(column);
     } else {
-      this.options.chrome.appSlots()?.prepend(panel);
+      this.options.chrome.appSlots()?.prepend(column);
       this.options.chrome.appSlots()?.setAttribute("data-style-mode", "");
     }
+    this.#column = column;
     this.#panel = panel;
     return panel;
   }
@@ -188,7 +196,6 @@ export class StyleEditorHost {
     });
     this.#suggestions = suggestions;
     // A sibling region keeps the editor's own status the only live region inside "Map style editor".
-    if (panel.slot) suggestions.element.slot = panel.slot;
     panel.after(suggestions.element);
   }
 
@@ -236,12 +243,14 @@ export class StyleEditorHost {
         // A visual edit supersedes a suggestion preview; a clean editor leaves a displayed suggestion alone.
         if (this.#suggestions?.previewing) {
           if (style === undefined) return;
-          this.#suggestions.discard();
+          this.#suggestions.discard(SUGGESTION_REPLACED_BY_EDITS);
         }
         session.canvas.stylePreview = style;
       },
       onDirty: (dirty) => {
-        this.#suggestions?.refresh();
+        // A visual edit drops a displayed or in-flight suggestion, so a late response cannot replace it.
+        if (dirty) this.#suggestions?.discard(SUGGESTION_REPLACED_BY_EDITS);
+        else this.#suggestions?.refresh();
         this.options.chrome.paintHistory();
         this.#announceDirtyChange({ dirty });
       },

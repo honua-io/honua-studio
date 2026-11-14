@@ -147,4 +147,49 @@ describe("style suggestion panel", () => {
     expect((q("style-suggestion-request") as HTMLButtonElement).disabled).toBe(false);
     expect(q("style-suggestion-status").textContent).toBe("");
   });
+
+  it("drops an in-flight request when visual edits start, so its late response never previews", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const captured = vi.fn<typeof fetch>(async (_input, init) => {
+      await gate;
+      init?.signal?.throwIfAborted();
+      return new Response(JSON.stringify(serverSuggestion), { status: 200 });
+    });
+    const { panel, q, onPreview } = mount({ host: nativeHost(captured) });
+    const pending = panel.request();
+    await vi.waitFor(() => expect(captured).toHaveBeenCalledOnce());
+    panel.discard("Visual style edits replaced the suggestion.");
+    release?.();
+    await pending;
+    expect(onPreview.mock.calls.some(([style]) => style !== undefined)).toBe(false);
+    expect(panel.previewing).toBe(false);
+    expect(q("style-suggestion-status").textContent).toBe("Visual style edits replaced the suggestion.");
+  });
+
+  it("discards a displayed preview once the map changes underneath it", async () => {
+    const { panel, q, controller, onPreview } = mount();
+    await panel.request();
+    expect(panel.previewing).toBe(true);
+    controller.apply({ name: "setVisibility", target: { kind: "layer", id: "sketch" }, visible: false });
+    panel.refresh();
+    expect(panel.previewing).toBe(false);
+    expect(onPreview).toHaveBeenLastCalledWith(undefined);
+    expect(q("style-suggestion-apply").closest("div")?.hidden).toBe(true);
+    expect(q("style-suggestion-status").textContent).toBe("The map changed since the suggestion. Request a new one.");
+  });
+
+  it("keeps keyboard focus in the surface after Discard and Apply hide their buttons", async () => {
+    const { panel, q } = mount();
+    await panel.request();
+    q("style-suggestion-discard").focus();
+    q("style-suggestion-discard").click();
+    expect(document.activeElement).toBe(q("style-suggestion-request"));
+    await panel.request();
+    q("style-suggestion-apply").focus();
+    q("style-suggestion-apply").click();
+    await vi.waitFor(() => expect(document.activeElement).toBe(q("style-suggestion-request")));
+  });
 });

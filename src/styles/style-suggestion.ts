@@ -120,6 +120,11 @@ export class LayerStyleSuggestion {
     return this.#pending !== undefined;
   }
 
+  /** False once the map or selection moved past the displayed suggestion; true when nothing is displayed. */
+  public isCurrent(): boolean {
+    return !this.#pending || this.#applyRefusal(this.#pending) === undefined;
+  }
+
   /** Whether the current target can request a suggestion, and the reason when it cannot. */
   public eligibility(): CanonicalLayerResolution {
     return resolveCanonicalMetadataLayer(

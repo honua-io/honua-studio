@@ -10,6 +10,7 @@ import { type StyleSuggestionHost, hostStyleSuggestionTransport } from "./style-
 import { LayerStyleSuggestion, type StyleSuggestionDispatch } from "./style-suggestion.js";
 
 const NO_LAYER = "Select a map layer to request a style suggestion.";
+const MAP_CHANGED = "The map changed since the suggestion. Request a new one.";
 
 export interface StyleSuggestionPanelOptions {
   readonly controller: CompositionController;
@@ -34,6 +35,8 @@ export class StyleSuggestionPanel {
   readonly #unavailable: string | undefined;
   #busy = false;
   #guidance = false;
+  /** Bumped by every discard or retarget, so an in-flight request's late outcome cannot overwrite it. */
+  #epoch = 0;
   #disposed = false;
 
   constructor(options: StyleSuggestionPanelOptions) {
@@ -76,8 +79,11 @@ export class StyleSuggestionPanel {
       this.#unavailable = resolved.reason;
     }
     this.#request.addEventListener("click", () => void this.request());
-    this.#apply.addEventListener("click", () => void this.apply());
-    this.#discard.addEventListener("click", () => this.discard());
+    this.#apply.addEventListener("click", () => void this.apply().then(() => this.#restoreFocus()));
+    this.#discard.addEventListener("click", () => {
+      this.discard();
+      this.#restoreFocus();
+    });
     this.refresh();
   }
 
@@ -93,9 +99,10 @@ export class StyleSuggestionPanel {
     if (blocked) return this.#say(blocked, true);
     this.#setBusy(true);
     this.#say("Requesting a style suggestion…");
+    const epoch = this.#epoch;
     try {
       const result = await suggestion.request();
-      if (this.#disposed) return;
+      if (this.#disposed || epoch !== this.#epoch) return;
       this.#say(result.ok ? "Previewing the suggestion. Apply it to the map draft or discard it." : result.reason);
     } finally {
       this.#setBusy(false);
@@ -115,17 +122,20 @@ export class StyleSuggestionPanel {
     }
   }
 
-  discard(): void {
+  /** Drops a displayed or in-flight suggestion; the message explains why when something was dropped. */
+  discard(message = "Discarded the suggestion."): void {
     if (!this.#suggestion || this.#disposed) return;
-    const hadPreview = this.#suggestion.pending;
+    const dropped = this.#suggestion.pending || this.#busy;
+    this.#epoch += 1;
     this.#suggestion.discard();
-    if (hadPreview) this.#say("Discarded the suggestion.");
+    if (dropped) this.#say(message);
     this.refresh();
   }
 
   /** Follows the style editor's selected layer; any displayed or in-flight suggestion is dropped. */
   retarget(layerId: string): void {
     if (!this.#suggestion || this.#disposed || layerId === this.#suggestion.layerId) return;
+    this.#epoch += 1;
     this.#suggestion.retarget(layerId);
     this.#guidance = false;
     this.#say("");
@@ -142,6 +152,12 @@ export class StyleSuggestionPanel {
       return;
     }
     if (this.#busy) return;
+    if (this.previewing && !this.#suggestion.isCurrent()) {
+      this.#epoch += 1;
+      this.#suggestion.discard();
+      this.#actions.hidden = true;
+      this.#say(MAP_CHANGED);
+    }
     const eligibility = this.#suggestion.layerId
       ? this.#suggestion.eligibility()
       : ({ ok: false, reason: NO_LAYER } as const);
@@ -158,6 +174,17 @@ export class StyleSuggestionPanel {
     this.#suggestion?.discard();
     this.#disposed = true;
     this.element.remove();
+  }
+
+  /** Apply and Discard hide their own buttons; keep keyboard focus in the surface. */
+  #restoreFocus(): void {
+    if (this.#disposed || !this.#actions.hidden) return;
+    if (!this.#request.hidden && !this.#request.disabled) {
+      this.#request.focus();
+      return;
+    }
+    this.#status.tabIndex = -1;
+    this.#status.focus();
   }
 
   #setBusy(busy: boolean): void {
