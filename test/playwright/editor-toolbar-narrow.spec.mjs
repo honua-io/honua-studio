@@ -7,6 +7,7 @@ const TOOLBAR_CONTROLS = [
   ["history-undo", "Undo"],
   ["history-redo", "Redo"],
   ["design-inspector-toggle", "Inspect data and interactions"],
+  ["manual-elements-toggle", "Add widgets and controls"],
   ["recipe-toggle", "Start from a recipe"],
 ];
 
@@ -95,6 +96,8 @@ test.describe("workspace editor toolbar at phone width", () => {
     await expectToolbarClearOfCanvas(page);
     await page.getByTestId("design-inspector-toggle").focus();
     await expect(page.getByTestId("design-inspector-toggle")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("manual-elements-toggle")).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.getByTestId("recipe-toggle")).toBeFocused();
   });
