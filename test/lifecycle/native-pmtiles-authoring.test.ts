@@ -1,5 +1,5 @@
 import { composeStyle } from "@honua/sdk-js/runtime";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import { CompositionEditor, type CompositionEditorOptions } from "../../src/app/composition-editor.js";
 import { StalenessEpoch } from "../../src/app/staleness-epoch.js";
@@ -30,7 +30,9 @@ it.each(["vector", "raster"])(
       const binding = new EditorDraftBinding(client);
       const composition = new CompositionController(await binding.observe(draft.draftId));
       const url = "https://archives.example/public.pmtiles";
+      const appendActivity = vi.fn();
       const editor = new CompositionEditor({
+        children: { chat: () => ({ activityLog: { append: appendActivity } }) },
         authority: { epoch: new StalenessEpoch() },
         drafts: {
           binding,
@@ -65,6 +67,10 @@ it.each(["vector", "raster"])(
           },
         ]),
       ).toEqual({ ok: true });
+      expect(appendActivity).toHaveBeenCalledExactlyOnceWith(
+        "composition_command_applied",
+        expect.objectContaining({ toolName: "addLayer", mode: "workspace" }),
+      );
       expect(await editor.applyHistory("undo")).toBe(true);
       expect(composition.state.layers).toEqual([]);
       expect(await editor.applyHistory("redo")).toBe(true);
