@@ -97,8 +97,8 @@ export class StyleSuggestionPanel {
     const suggestion = this.#suggestion;
     if (!suggestion || this.#busy || this.#disposed) return;
     const blocked = this.#options.blockedReason?.();
-    if (blocked) return this.#say(blocked, true);
-    this.#setBusy(true);
+    if (blocked) return this.#showGuidance(blocked);
+    this.#startBusy();
     this.#say("Requesting a style suggestion…");
     const epoch = this.#epoch;
     try {
@@ -106,7 +106,7 @@ export class StyleSuggestionPanel {
       if (this.#disposed || epoch !== this.#epoch) return;
       this.#say(result.ok ? "Previewing the suggestion. Apply it to the map draft or discard it." : result.reason);
     } finally {
-      this.#setBusy(false);
+      this.#finishBusy();
     }
   }
 
@@ -114,14 +114,14 @@ export class StyleSuggestionPanel {
     const suggestion = this.#suggestion;
     if (!suggestion || this.#busy || this.#disposed) return;
     this.#applying = true;
-    this.#setBusy(true);
+    this.#startBusy();
     try {
       const result = await suggestion.apply();
       if (this.#disposed) return;
       this.#say(result.ok ? "Applied the suggestion to the map draft." : result.reason);
     } finally {
       this.#applying = false;
-      this.#setBusy(false);
+      this.#finishBusy();
     }
   }
 
@@ -151,7 +151,7 @@ export class StyleSuggestionPanel {
     this.#actions.hidden = !this.previewing;
     if (!this.#suggestion) {
       this.#request.hidden = true;
-      this.#say(this.#unavailable ?? "", true);
+      this.#showGuidance(this.#unavailable ?? "");
       return;
     }
     // Apply clears its own preview; any other time a preview the map has moved past is dropped at once.
@@ -168,8 +168,8 @@ export class StyleSuggestionPanel {
     this.#request.hidden = !eligibility.ok;
     const blocked = eligibility.ok ? this.#options.blockedReason?.() : undefined;
     this.#request.disabled = Boolean(blocked);
-    if (!eligibility.ok) this.#say(eligibility.reason, true);
-    else if (blocked) this.#say(blocked, true);
+    if (!eligibility.ok) this.#showGuidance(eligibility.reason);
+    else if (blocked) this.#showGuidance(blocked);
     else if (this.#guidance) this.#say("");
   }
 
@@ -208,17 +208,31 @@ export class StyleSuggestionPanel {
     return idle(active) || (active !== null && this.element.contains(active));
   }
 
-  #setBusy(busy: boolean): void {
-    this.#busy = busy;
-    this.#request.disabled = busy;
-    this.#apply.disabled = busy;
-    this.#discard.disabled = busy;
-    if (!busy) this.refresh();
+  #startBusy(): void {
+    this.#busy = true;
+    this.#updateBusyControls();
   }
 
-  #say(text: string, guidance = false): void {
+  #finishBusy(): void {
+    this.#busy = false;
+    this.#updateBusyControls();
+    this.refresh();
+  }
+
+  #updateBusyControls(): void {
+    this.#request.disabled = this.#busy;
+    this.#apply.disabled = this.#busy;
+    this.#discard.disabled = this.#busy;
+  }
+
+  #say(text: string): void {
     this.#status.textContent = text;
-    this.#guidance = guidance && text.length > 0;
+    this.#guidance = false;
+  }
+
+  #showGuidance(text: string): void {
+    this.#say(text);
+    this.#guidance = text.length > 0;
   }
 }
 
