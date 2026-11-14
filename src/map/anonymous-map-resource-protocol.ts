@@ -48,9 +48,13 @@ function declaredOrigins(style: HonuaStyleSpecification, documentUrl: string): R
   return origins;
 }
 
-async function boundedBody(response: Response, signal: AbortSignal): Promise<ArrayBuffer> {
+export async function readBoundedMapAssetBody(
+  response: Response,
+  signal: AbortSignal,
+  maxBytes = MAX_RESOURCE_BYTES,
+): Promise<ArrayBuffer> {
   const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > MAX_RESOURCE_BYTES) {
+  if (Number.isFinite(length) && length > maxBytes) {
     await response.body?.cancel().catch(() => undefined);
     throw new Error("Map asset exceeds the size limit.");
   }
@@ -69,10 +73,10 @@ async function boundedBody(response: Response, signal: AbortSignal): Promise<Arr
       signal.throwIfAborted();
       if (done) break;
       const nextTotal = total + value.byteLength;
-      if (nextTotal > MAX_RESOURCE_BYTES) throw new Error("Map asset exceeds the size limit.");
+      if (nextTotal > maxBytes) throw new Error("Map asset exceeds the size limit.");
       if (nextTotal > bytes.byteLength) {
         let capacity = Math.max(bytes.byteLength, 1024);
-        while (capacity < nextTotal) capacity = Math.min(capacity * 2, MAX_RESOURCE_BYTES);
+        while (capacity < nextTotal) capacity = Math.min(capacity * 2, maxBytes);
         const expanded = new Uint8Array(capacity);
         expanded.set(bytes.subarray(0, total));
         bytes = expanded;
@@ -123,7 +127,7 @@ export function installAnonymousMapResourceProtocol(
         await response.body?.cancel().catch(() => undefined);
         throw new Error(`Map asset request failed (${response.status}).`);
       }
-      const buffer = await boundedBody(response, controller.signal);
+      const buffer = await readBoundedMapAssetBody(response, controller.signal);
       if (disposed) throw new Error("Map asset transport is disposed.");
       const json =
         /(?:^|\/|\+)json(?:;|$)/i.test(response.headers.get("content-type") ?? "") || /\.json$/i.test(url.pathname);

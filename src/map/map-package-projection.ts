@@ -208,6 +208,7 @@ function buildComposedLayer(
   layerType: CompositionLayerType,
   sourceId: string,
   appearance: CompositionLayerAppearance | undefined,
+  sourceLayer?: string,
 ): HonuaLayerSpecification {
   const color = paletteColorFor(layer.id);
   const opacity = appearance?.opacity?.[layer.id];
@@ -216,6 +217,7 @@ function buildComposedLayer(
     id: layer.id,
     type: maplibreLayerType(layerType),
     source: sourceId,
+    ...(sourceLayer ? { "source-layer": sourceLayer } : {}),
     ...(filter !== undefined ? { filter } : {}),
     paint: {
       ...defaultPaintFor(layerType, color),
@@ -359,7 +361,10 @@ export function compositionToMapPackage(
     }
 
     if (composeLayer && !existingRenderIds.has(layer.id))
-      insertVisual(buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance), layer.id);
+      insertVisual(
+        buildComposedLayer(layer, resolution.layerType, styleSourceId, options.appearance, resolution.sourceLayer),
+        layer.id,
+      );
     else
       mapSpec.layers = mapSpec.layers.map((renderLayer) => {
         if (!ownedByCompositionLayer(renderLayer, layer.id, knownOwnerIds)) return renderLayer;
