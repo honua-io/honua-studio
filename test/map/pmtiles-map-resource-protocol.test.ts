@@ -222,62 +222,44 @@ describe("anonymous PMTiles", () => {
       expanded.fill(32);
       expanded.set(new TextEncoder().encode("{}"), expanded.length - 2);
     }
-    const root = gzipSync(part === "directory" ? expanded : original.slice(127, 132));
     const json = gzipSync(part === "metadata" ? expanded : metadata);
     const tile = part === "tile" ? gzipSync(expanded) : original.slice(-3);
-    const bytes = new Uint8Array(127 + root.length + json.length + tile.length);
+    const leaf = part === "directory" ? gzipSync(expanded) : new Uint8Array(0);
+    const encoded: number[] = [];
+    let length = part === "directory" ? leaf.length : tile.length;
+    do {
+      const byte = length % 128;
+      length = Math.floor(length / 128);
+      encoded.push(byte | (length ? 128 : 0));
+    } while (length);
+    const root = gzipSync(new Uint8Array([1, 0, part === "directory" ? 0 : 1, ...encoded, 1]));
+    const leafOffset = 127 + root.length + json.length;
+    const tileOffset = leafOffset + leaf.length;
+    const bytes = new Uint8Array(tileOffset + tile.length);
     bytes.set(original.slice(0, 127));
     const header = new DataView(bytes.buffer);
     for (const [offset, value] of [
       [16, root.length],
       [24, 127 + root.length],
       [32, json.length],
-      [40, 127 + root.length + json.length],
-      [56, 127 + root.length + json.length],
+      [40, leafOffset],
+      [48, leaf.length],
+      [56, tileOffset],
       [64, tile.length],
     ])
       header.setBigUint64(offset, BigInt(value), true);
     bytes[97] = 2;
     bytes[98] = part === "tile" ? 2 : 1;
-    // The tile entry must address the compressed tile's complete byte range.
-    if (part === "tile") {
-      const length = tile.length;
-      const encoded: number[] = [];
-      let value = length;
-      do {
-        const byte = value % 128;
-        value = Math.floor(value / 128);
-        encoded.push(byte | (value ? 128 : 0));
-      } while (value);
-      const tileRoot = gzipSync(new Uint8Array([1, 0, 1, ...encoded, 1]));
-      // Keep the root length stable by constructing the tile fixture separately below.
-      const resized = new Uint8Array(127 + tileRoot.length + json.length + tile.length);
-      resized.set(bytes.slice(0, 127));
-      const view = new DataView(resized.buffer);
-      for (const [offset, number] of [
-        [16, tileRoot.length],
-        [24, 127 + tileRoot.length],
-        [40, 127 + tileRoot.length + json.length],
-        [56, 127 + tileRoot.length + json.length],
-      ])
-        view.setBigUint64(offset, BigInt(number), true);
-      resized.set(tileRoot, 127);
-      resized.set(json, 127 + tileRoot.length);
-      resized.set(tile, resized.length - tile.length);
-      const network = registry();
-      const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl: transport(resized) });
-      await expect(network.run(protocol.transformRequest(`pmtiles://${url}/0/0/0.mvt`)!.url)).rejects.toThrow(
-        "size limit",
-      );
-      protocol.dispose();
-      return;
-    }
     bytes.set(root, 127);
     bytes.set(json, 127 + root.length);
-    bytes.set(tile, bytes.length - tile.length);
+    bytes.set(leaf, leafOffset);
+    bytes.set(tile, tileOffset);
     const network = registry();
     const protocol = installPmtilesMapResourceProtocol(network, { fetchImpl: transport(bytes) });
-    await expect(network.run(protocol.transformRequest(`pmtiles://${url}`)!.url, "json")).rejects.toThrow("size limit");
+    const request = part === "metadata" ? `pmtiles://${url}` : `pmtiles://${url}/0/0/0.mvt`;
+    await expect(
+      network.run(protocol.transformRequest(request)!.url, part === "metadata" ? "json" : undefined),
+    ).rejects.toThrow("size limit");
     protocol.dispose();
   });
 
