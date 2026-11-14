@@ -49,9 +49,7 @@ export function createAnonymousPmtilesSource(
         referrerPolicy: "no-referrer",
         signal,
       });
-      const range = response.headers
-        .get("content-range")
-        ?.match(/^bytes (\d+)-(\d+)\/(\d+)(?:\.(?:mvt|mlt|png|jpg|webp|avif))?$/);
+      const range = response.headers.get("content-range")?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
       const start = Number(range?.[1]);
       const end = Number(range?.[2]);
       const total = Number(range?.[3]);

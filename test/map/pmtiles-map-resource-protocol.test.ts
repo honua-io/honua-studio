@@ -88,6 +88,7 @@ describe("anonymous PMTiles", () => {
 
   it.each([
     new Response(new Uint8Array([1]), { status: 200 }),
+    new Response(new Uint8Array([1, 2]), { status: 206, headers: { "content-range": "bytes 0-1/2.png" } }),
     new Response(new Uint8Array([1]), { status: 206, headers: { "content-range": "bytes 1-1/2" } }),
     new Response(new Uint8Array([1]), { status: 206, headers: { "content-range": "bytes 0-1/2" } }),
     new Response(new Uint8Array([1, 2]), { status: 206, headers: { "content-range": "bytes 0-0/1" } }),
