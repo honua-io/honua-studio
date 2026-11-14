@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/honua-io/honua-studio/compare/v0.3.0...v0.4.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** Studio's public element methods, events, host attribute, Console entry exports and the HonuaStudioWorkspace global are renamed with no deprecated aliases; CHANGELOG.md lists each old and new name. Honua Console must adopt the new names when it bumps its Studio release lock.
+
+### Code Refactoring
+
+* **api:** adopt the Map, App and editor vocabulary (rename outright, no deprecated aliases) ([#236](https://github.com/honua-io/honua-studio/issues/236)) ([7a2426e](https://github.com/honua-io/honua-studio/commit/7a2426ef1ec7254f27c8b53328811c8e42eeaf0f))
+
 ## [0.3.0](https://github.com/honua-io/honua-studio/compare/v0.2.1...v0.3.0) (2026-11-14)
 
 
