@@ -20,7 +20,7 @@ function archive(raster) {
   const layer = [...field(1, [...Buffer.from("land")]), ...field(2, feature), 40, ...varint(4096), 120, 2];
   const tile = raster
     ? Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ioAAAAASUVORK5CYII=",
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==",
         "base64",
       )
     : Buffer.from(field(3, layer));
@@ -61,6 +61,11 @@ function archive(raster) {
 test("published PMTiles vector and raster use credential-free range reads", async ({ page, context }) => {
   const root = resolve("dist-console");
   const requests = [];
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://localhost");
     if (url.pathname.endsWith(".pmtiles")) {
@@ -85,7 +90,7 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
     if (url.pathname === "/") {
       response
         .writeHead(200, { "Content-Type": "text/html" })
-        .end('<!doctype html><div id="map" style="width:800px;height:500px"></div>');
+        .end('<!doctype html><div id="map" style="width:800px;height:500px"></div><div id="widgets"></div>');
       return;
     }
     const file = resolve(root, url.pathname.slice(1));
@@ -148,6 +153,7 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
       };
       window.pmtilesFixture = runtime.createReadOnlyCompositionView({
         container: document.querySelector("#map"),
+        widgetContainer: document.querySelector("#widgets"),
         body,
         documentUrl: location.href,
         getAudienceTransport: () => {
@@ -159,6 +165,7 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
     await expect.poll(() => page.evaluate(() => window.pmtilesFixture.renderedFeatureCount)).toBeGreaterThan(0);
     await expect.poll(() => requests.some((request) => request.path === "/raster.pmtiles")).toBe(true);
     expect(await page.evaluate(() => window.pmtilesFixture.projection.unresolved)).toEqual([]);
+    expect(errors).toEqual([]);
     expect(requests.length).toBeGreaterThan(1);
     expect(requests.every((request) => request.range && !request.cookie && !request.auth)).toBe(true);
     await page.evaluate(() => window.pmtilesFixture.dispose());

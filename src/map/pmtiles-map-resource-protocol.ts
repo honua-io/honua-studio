@@ -49,7 +49,9 @@ export function createAnonymousPmtilesSource(
         referrerPolicy: "no-referrer",
         signal,
       });
-      const range = response.headers.get("content-range")?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+      const range = response.headers
+        .get("content-range")
+        ?.match(/^bytes (\d+)-(\d+)\/(\d+)(?:\.(?:mvt|mlt|png|jpg|webp|avif))?$/);
       const start = Number(range?.[1]);
       const end = Number(range?.[2]);
       const total = Number(range?.[3]);
@@ -101,8 +103,8 @@ export function installPmtilesMapResourceProtocol(
       controller.signal.throwIfAborted();
       if (!request.url.startsWith(prefix)) throw new Error("Invalid PMTiles protocol.");
       const canonical = `pmtiles://${request.url.slice(prefix.length)}`;
-      // Match the upstream protocol's exact archive key before invoking it, so it can never create its default FetchSource.
-      const match = canonical.match(/^pmtiles:\/\/(.+)\/(\d+)\/(\d+)\/(\d+)$/);
+      // Match the upstream protocol's archive key (TileJSON includes a tile-type extension) before invoking it, so it can never create its default FetchSource.
+      const match = canonical.match(/^pmtiles:\/\/(.+)\/(\d+)\/(\d+)\/(\d+)(?:\.(?:mvt|mlt|png|jpg|webp|avif))?$/);
       const archive = request.type === "json" ? canonical.slice(10) : match?.[1];
       if (!archive) throw new Error("Invalid PMTiles tile URL.");
       if (!protocol.get(archive)) {
