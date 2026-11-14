@@ -216,8 +216,7 @@ export class CompositionEditor {
       authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
       const observed = await binding.replace(target);
       authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
-      const changed = action === "undo" ? composition.undo() : composition.redo();
-      composition.replaceState(observed);
+      const changed = action === "undo" ? composition.undo(observed) : composition.redo(observed);
       drafts.announce();
       return changed;
     });

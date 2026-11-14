@@ -72,15 +72,15 @@ export class CompositionController {
     this.#notify();
   }
 
-  public undo(): boolean {
-    const restored = this.#history.undo();
+  public undo(acceptedState?: CompositionState): boolean {
+    const restored = this.#history.undo(acceptedState);
     if (restored === undefined) return false;
     this.#notify();
     return true;
   }
 
-  public redo(): boolean {
-    const restored = this.#history.redo();
+  public redo(acceptedState?: CompositionState): boolean {
+    const restored = this.#history.redo(acceptedState);
     if (restored === undefined) return false;
     this.#notify();
     return true;
