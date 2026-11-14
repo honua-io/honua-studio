@@ -99,15 +99,14 @@ interface ArchiveRequests {
 async function consumeArchive<T>(
   entry: ArchiveRequests,
   consumer: AbortController,
-  evict: () => void,
-  read: () => Promise<T>,
+  operation: { evict: () => void; read: () => Promise<T> },
 ): Promise<T> {
   entry.consumers.add(consumer);
   const leave = () => {
     entry.consumers.delete(consumer);
     if (entry.abandoned && entry.consumers.size === 0 && !entry.controller.signal.aborted) {
       entry.controller.abort();
-      evict();
+      operation.evict();
     }
   };
   let cancel!: () => void;
@@ -121,7 +120,7 @@ async function consumeArchive<T>(
   });
   try {
     consumer.signal.throwIfAborted();
-    return await Promise.race([read(), aborted]);
+    return await Promise.race([operation.read(), aborted]);
   } finally {
     consumer.signal.removeEventListener("abort", cancel);
     leave();
@@ -176,15 +175,13 @@ export function installPmtilesMapResourceProtocol(
       }
       const entry = archives.get(archive);
       if (!entry) throw new Error("Missing PMTiles archive transport.");
-      const result = await consumeArchive(
-        entry,
-        controller,
-        () => {
+      const result = await consumeArchive(entry, controller, {
+        evict: () => {
           protocol.tiles.delete(archive);
           archives.delete(archive);
         },
-        () => protocol.tilev4({ url: canonical, type: request.type }, controller),
-      );
+        read: () => protocol.tilev4({ url: canonical, type: request.type }, controller),
+      });
       lifetime.signal.throwIfAborted();
       // Keep derived tile requests on this map's transport even if MapLibre bypasses transformRequest.
       if (request.type === "json") {
