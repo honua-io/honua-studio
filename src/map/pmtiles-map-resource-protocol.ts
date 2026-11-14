@@ -116,6 +116,8 @@ export function installPmtilesMapResourceProtocol(
         const data = result.data as { tiles?: string[] };
         return { ...result, data: { ...data, tiles: data.tiles?.map((url) => url.replace(/^pmtiles:\/\//, prefix)) } };
       }
+      // MapLibre accepts null for a missing raster tile; its generic protocol type omits that case.
+      if (result.data === null) return result as unknown as Awaited<ReturnType<AddProtocolAction>>;
       if (!(result.data instanceof Uint8Array)) throw new Error("Invalid PMTiles tile data.");
       return { ...result, data: new Uint8Array(result.data).buffer };
     } catch (error) {

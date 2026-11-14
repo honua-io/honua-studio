@@ -404,6 +404,7 @@ export function compositionToMapPackage(
           id: `${layer.id}${OUTLINE_LAYER_SUFFIX}`,
           type: "line",
           source: styleSourceId,
+          ...(resolution.sourceLayer ? { "source-layer": resolution.sourceLayer } : {}),
           ...(outlineFilter !== undefined ? { filter: outlineFilter } : {}),
           paint: {
             ...outlinePaintFor(paletteColorFor(layer.id)),

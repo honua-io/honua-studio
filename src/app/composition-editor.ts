@@ -9,6 +9,7 @@ import { isStudioLifecycleGenerationConflict } from "../lifecycle/lifecycle-erro
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
+import { bindNativeAuthoringSources } from "./native-source-authoring.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
@@ -266,7 +267,7 @@ export class CompositionEditor {
       // style candidate is validated against the canvas's current style snapshot.
       anchor = { ...current, mapSpec };
     }
-    const target = locallyValidatedTarget(anchor, commands);
+    const target = bindNativeAuthoringSources(locallyValidatedTarget(anchor, commands), this.options.catalog?.catalog);
     const observed = styleCommand
       ? {
           ...(await binding.replaceStyle(styleCommand.mapSpec)),

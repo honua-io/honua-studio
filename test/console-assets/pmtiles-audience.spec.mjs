@@ -16,7 +16,20 @@ function field(number, bytes) {
   return [...varint(number * 8 + 2), ...varint(bytes.length), ...bytes];
 }
 function archive(raster) {
-  const feature = [8, 1, 24, 1, ...field(4, [9, ...varint(4096), ...varint(4096)])];
+  const geometry = [
+    9,
+    ...varint(2048),
+    ...varint(2048),
+    26,
+    ...varint(4096),
+    0,
+    0,
+    ...varint(4096),
+    ...varint(4095),
+    0,
+    15,
+  ];
+  const feature = [8, 1, 24, 3, ...field(4, geometry)];
   const layer = [...field(1, [...Buffer.from("land")]), ...field(2, feature), 40, ...varint(4096), 120, 2];
   const tile = raster
     ? Buffer.from(
@@ -115,40 +128,26 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
       const runtime = await import("/console.js");
       const body = {
         layers: [
-          { id: "image", sourceId: "image", type: "raster", visible: true },
           {
-            id: "point",
-            sourceId: "point",
-            type: "circle",
+            id: "image",
+            sourceId: "image",
+            type: "raster",
             visible: true,
-            metadata: { honua: { sourceLayer: "land" } },
+            metadata: { honua: { source: { type: "raster", url: `pmtiles://${location.origin}/raster.pmtiles` } } },
+          },
+          {
+            id: "land",
+            sourceId: "land",
+            type: "fill",
+            visible: true,
+            metadata: {
+              honua: {
+                sourceLayer: "land",
+                source: { type: "vector", url: `pmtiles://${location.origin}/vector.pmtiles` },
+              },
+            },
           },
         ],
-        sourceBindings: ["image", "point"].map((id) => ({
-          sourceId: id,
-          protocol: "pmtiles",
-          locator: {
-            url: `${location.origin}/${id === "image" ? "raster" : "vector"}.pmtiles`,
-            sourceType: id === "image" ? "raster" : "vector",
-          },
-        })),
-        mapSpec: {
-          version: 8,
-          sources: {
-            image: { type: "raster", url: `pmtiles://${location.origin}/raster.pmtiles` },
-            point: { type: "vector", url: `pmtiles://${location.origin}/vector.pmtiles` },
-          },
-          layers: [
-            { id: "image", type: "raster", source: "image" },
-            {
-              id: "point",
-              type: "circle",
-              source: "point",
-              "source-layer": "land",
-              paint: { "circle-radius": 20, "circle-color": "#ff0000" },
-            },
-          ],
-        },
         view: { center: [0, 0], zoom: 0 },
       };
       window.pmtilesFixture = runtime.createReadOnlyCompositionView({
@@ -165,6 +164,14 @@ test("published PMTiles vector and raster use credential-free range reads", asyn
     await expect.poll(() => page.evaluate(() => window.pmtilesFixture.renderedFeatureCount)).toBeGreaterThan(0);
     await expect.poll(() => requests.some((request) => request.path === "/raster.pmtiles")).toBe(true);
     expect(await page.evaluate(() => window.pmtilesFixture.projection.unresolved)).toEqual([]);
+    expect(
+      await page.evaluate(
+        () =>
+          window.pmtilesFixture.projection.mapPackage.mapSpec.layers.find((layer) => layer.id === "land__outline")[
+            "source-layer"
+          ],
+      ),
+    ).toBe("land");
     expect(errors).toEqual([]);
     expect(requests.length).toBeGreaterThan(1);
     expect(requests.every((request) => request.range && !request.cookie && !request.auth)).toBe(true);
