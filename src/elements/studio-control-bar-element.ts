@@ -421,7 +421,7 @@ export class HonuaStudioControlBarElement extends HonuaStudioElementBase {
   /**
    * Options and change detail borrow the SDK control kit's vocabulary
    * (`HonuaBasemapDefinition`, `HonuaBasemapSwitcherChangeDetail` in
-   * `@honua/sdk-js/controls`) rather than inventing a Studio spelling — see
+   * `@honua/app-platform/controls`) rather than inventing a Studio spelling — see
    * this issue's PR body on the native-vs-delegate decision.
    */
   #renderBasemapSwitcher(

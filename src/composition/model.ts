@@ -10,7 +10,7 @@ import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map
  * server draft (`history.ts`'s `DraftSync` / `CompositionDraftStore` seam)
  * owns persistence, and undo/redo (`history.ts`) maps to draft revisions
  * through `DraftSync` — over `FixtureDraftStore` in fixture mode, or over
- * `@honua/sdk-js/studio`'s `HonuaStudioLifecycleClient.drafts` through
+ * `@honua/app-platform/studio`'s `HonuaStudioLifecycleClient.drafts` through
  * `../lifecycle/composition-draft-store.ts` against a real server.
  *
  * These types are **not** the durable wire shape and are not meant to become

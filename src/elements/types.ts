@@ -24,7 +24,7 @@
  * @module
  */
 
-import type { StudioPublicationIdentifiers } from "@honua/sdk-js/studio";
+import type { StudioPublicationIdentifiers } from "@honua/app-platform/studio";
 import type { AuthSession, AuthState, AuthStatus, SessionAdapter } from "../auth/types.js";
 import type { ActivityLogEntry } from "../chat/activity-log.js";
 import type { StudioAiStopReason } from "../chat/ai-contract.js";

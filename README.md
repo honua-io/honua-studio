@@ -49,7 +49,7 @@ workflow qualification remain separate from the producer's fixture checks.
   by honua-server's `honua_studio_*` MCP tools. No arbitrary code eval; a live
   activity log shows every action, replayable step by step.
 - **Durable artifacts** — Maps and Apps serialize to the Studio content
-  kinds (`@honua/sdk-js/studio`) and save through
+  kinds (`@honua/app-platform/studio`) and save through
   [honua-server](https://github.com/honua-io/honua-server)'s Studio content
   lifecycle: Drafts, immutable Versions, comparisons, release, rollback. Saving an active editor
   Version records the rendered center, zoom, bearing and pitch; reopening restores that view.

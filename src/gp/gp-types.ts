@@ -2,7 +2,7 @@
  * Wire types for the Studio `gp` package family's envelope body, plus the
  * async batch-execution job surface (honua-studio#10, REQ-001..005/NFR-001).
  *
- * ## Why these are not `@honua/sdk-js/studio`'s `HonuaGPPackage`
+ * ## Why these are not `@honua/app-platform/studio`'s `HonuaGPPackage`
  *
  * The SDK's `gp` family is one of its declared **stub** projections: three
  * fields (`packageId`, `format`, `status`) plus `[extra: string]: unknown`,

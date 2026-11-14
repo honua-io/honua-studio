@@ -124,7 +124,7 @@ export interface AttributionControlConfig {
   readonly compact: boolean;
 }
 
-/** One exclusive basemap option. Field names borrowed from the SDK control kit's `HonuaBasemapDefinition` (`@honua/sdk-js/controls`) rather than invented here. */
+/** One exclusive basemap option. Field names borrowed from the SDK control kit's `HonuaBasemapDefinition` (`@honua/app-platform/controls`) rather than invented here. */
 export interface BasemapOption {
   readonly id: string;
   readonly label: string;

@@ -12,7 +12,7 @@
  * interfaces are usable directly against a real `ApiResponse<T>.data`
  * payload with zero translation.
  *
- * ## Why these are not `@honua/sdk-js/studio`'s lifecycle types
+ * ## Why these are not `@honua/app-platform/studio`'s lifecycle types
  *
  * The SDK's projection of the same API is narrower than the API. Three
  * concrete gaps, each visible in a response `mock-server.mjs` reproduces

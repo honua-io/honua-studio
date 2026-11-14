@@ -11,8 +11,8 @@
  * Keep this module outside the lifecycle barrel: composition code must not gain
  * access to publication methods through its narrow create/get/replace seam.
  */
-import { isHonuaStudioError, isHonuaStudioGenerationConflict } from "@honua/sdk-js/studio";
-import type { HonuaStudioLifecycleClient, StudioPackageEnvelope } from "@honua/sdk-js/studio";
+import { isHonuaStudioError, isHonuaStudioGenerationConflict } from "@honua/app-platform/studio";
+import type { HonuaStudioLifecycleClient, StudioPackageEnvelope } from "@honua/app-platform/studio";
 
 import {
   type CompositionDraft,

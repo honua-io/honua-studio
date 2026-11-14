@@ -16,7 +16,7 @@
  *
  * ## Why {@link CompositionDraftStore} is an interface, not an SDK import
  *
- * The real implementation is `@honua/sdk-js/studio`'s
+ * The real implementation is `@honua/app-platform/studio`'s
  * `HonuaStudioLifecycleClient.drafts`, and the adapter onto it now exists
  * and is compiler-checked: `../lifecycle/composition-draft-store.ts`. This
  * module still declares the seam as a structural interface for a reason

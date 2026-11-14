@@ -12,7 +12,7 @@ export {
   DatasetImportUploadClient,
   DatasetImportSubmissionClient,
   hashDatasetImportFile,
-} from "@honua/sdk-js/control-plane";
+} from "@honua/app-platform/control-plane";
 
 export { ServerProcessEditor } from "./gp/process-editor.js";
 export { HonuaStudioProcessesElement, type ProcessSourcePicker } from "./elements/studio-processes-element.js";

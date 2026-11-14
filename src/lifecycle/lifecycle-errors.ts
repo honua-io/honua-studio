@@ -7,7 +7,7 @@
  * (`https://honua.io/problems/studio`) documented in
  * `docs/internal/admin-api/studio-package-lifecycle.md` (honua-server).
  *
- * ## Why not `@honua/sdk-js/studio`'s `HonuaStudioError`
+ * ## Why not `@honua/app-platform/studio`'s `HonuaStudioError`
  *
  * Because this taxonomy covers two failure modes the SDK's does not, and
  * both are ones {@link StudioLifecycleClient}'s callers branch on:

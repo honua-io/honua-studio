@@ -20,7 +20,7 @@
  * @module
  */
 
-import type { HonuaChartEncodingChannel, HonuaVegaLiteChartSpec } from "@honua/sdk-js/studio";
+import type { HonuaChartEncodingChannel, HonuaVegaLiteChartSpec } from "@honua/app-platform/studio";
 
 /** One drawable datum: a category (or bin/instant) and its aggregated magnitude. */
 export interface ChartPoint {

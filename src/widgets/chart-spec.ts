@@ -44,12 +44,12 @@
  * @module
  */
 
-import type { HonuaGeneratedAppChartWidget } from "@honua/sdk-js/generated-app";
+import type { HonuaGeneratedAppChartWidget } from "@honua/app-platform/generated-app";
 import {
   type HonuaChartEncodingChannel,
   type HonuaVegaLiteChartSpec,
   chartWidgetToVegaLiteSpec,
-} from "@honua/sdk-js/studio";
+} from "@honua/app-platform/studio";
 
 import type { CompositionWidget } from "../composition/model.js";
 import { type CompositionChartConfig, type CompositionMeasure, readChartConfig } from "./widget-config.js";

@@ -34,7 +34,7 @@
  * @module
  */
 
-import type { HonuaVegaLiteChartSpec } from "@honua/sdk-js/studio";
+import type { HonuaVegaLiteChartSpec } from "@honua/app-platform/studio";
 
 import { paletteColorFor } from "../composition/palette.js";
 import type { ChartPoint, ChartSeries } from "./chart-data.js";

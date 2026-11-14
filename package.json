@@ -33,7 +33,9 @@
     "test:console-assets": "npm run build:console-assets && playwright test --config playwright.console-assets.config.mjs"
   },
   "dependencies": {
-    "@honua/sdk-js": "0.2.7",
+    "@honua/app-platform": "0.3.7",
+    "@honua/sdk": "0.3.7",
+    "@honua/sdk-js": "0.3.7",
     "maplibre-gl": "6.11.2",
     "pmtiles": "4.4.1"
   },

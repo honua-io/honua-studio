@@ -1,4 +1,4 @@
-import type { StudioPublicationIdentifiers } from "@honua/sdk-js/studio";
+import type { StudioPublicationIdentifiers } from "@honua/app-platform/studio";
 
 /** A durable operation awaiting a separate approval; no content pointer has moved. */
 export interface StudioApprovalPending extends StudioPublicationIdentifiers {

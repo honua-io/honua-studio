@@ -9,7 +9,7 @@
  * what makes "reuses the SDK conversion" checkable rather than a claim in a
  * comment — a second chart model would drift from it immediately.
  */
-import { chartWidgetToVegaLiteSpec } from "@honua/sdk-js/studio";
+import { chartWidgetToVegaLiteSpec } from "@honua/app-platform/studio";
 import { describe, expect, it } from "vitest";
 
 import type { CompositionWidget } from "../../src/composition/model.js";

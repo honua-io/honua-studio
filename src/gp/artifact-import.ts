@@ -1,4 +1,4 @@
-import { createHonuaAdminClient } from "@honua/sdk-js/control-plane";
+import { createHonuaAdminClient } from "@honua/app-platform/control-plane";
 
 export interface ImportedProcessDataset {
   readonly tableName: string;

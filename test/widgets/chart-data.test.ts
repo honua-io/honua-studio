@@ -9,7 +9,7 @@
  * hand-written spec through the aggregator with no widget in sight, would
  * not.
  */
-import type { HonuaVegaLiteChartSpec } from "@honua/sdk-js/studio";
+import type { HonuaVegaLiteChartSpec } from "@honua/app-platform/studio";
 import { describe, expect, it } from "vitest";
 
 import type { CompositionWidget } from "../../src/composition/model.js";

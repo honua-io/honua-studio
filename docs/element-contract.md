@@ -436,7 +436,7 @@ the normal path (`onSelection` → the canvas → `controller.select` + one
 Enter/Space.
 
 **Charts** are derived from the SDK's own `chartWidgetToVegaLiteSpec`
-(`@honua/sdk-js/studio`) and drawn by a bounded native SVG renderer;
+(`@honua/app-platform/studio`) and drawn by a bounded native SVG renderer;
 `src/widgets/chart-render.ts` documents that trade. The spec is the
 contract — aggregation reads `spec.encoding`, and a deployment wanting full
 Vega can hand the same spec object to `vega-embed`. The chart pipeline is
