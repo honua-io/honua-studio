@@ -24,6 +24,7 @@ export type CanonicalLayerResolution =
 /** Writes one command to the map's draft; a shared server draft persists it before it resolves. */
 export type StyleSuggestionDispatch = (
   command: CompositionCommand,
+  options?: { readonly isCurrent: () => boolean },
 ) => Promise<{ readonly ok: boolean; readonly reason?: string }>;
 
 export interface LayerStyleSuggestionOptions {
@@ -214,7 +215,9 @@ export class LayerStyleSuggestion {
     if (this.#dispatch) {
       let outcome: { readonly ok: boolean; readonly reason?: string };
       try {
-        outcome = await this.#dispatch(command);
+        outcome = await this.#dispatch(command, {
+          isCurrent: () => this.#pending === pending && this.#applyRefusal(pending) === undefined,
+        });
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : "The suggestion could not be saved." };
       }

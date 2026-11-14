@@ -7,6 +7,8 @@ import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-
 import type { SessionAdapter } from "../../src/elements/types.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
 
+import { StyleSuggestionPanel } from "../../src/styles/style-suggestion-panel.js";
+
 registerAllStudioElements();
 
 function fixtureSession(): SessionAdapter {
@@ -397,4 +399,20 @@ it("mounts the style suggestion region beside the style editor and removes it on
   );
   await app.closeStyleEditor();
   expect(surface?.isConnected).toBe(false);
+});
+
+it("discards the suggestion state when reloading visual edits", async () => {
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+    draftEnvelope(draftId, styleFor("#aaaaaa")),
+  );
+  const app = await mountedContentApp();
+  await app.attachEditorDraft("draft-a");
+  const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+  vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+  await app.openStyleEditor();
+  const discard = vi.spyOn(StyleSuggestionPanel.prototype, "discard");
+  canvas.stylePreview = styleFor("#bbbbbb");
+  await app.discardStyleChanges();
+  expect(discard).toHaveBeenCalledOnce();
+  expect(canvas.stylePreview).toBeUndefined();
 });

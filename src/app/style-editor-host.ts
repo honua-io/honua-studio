@@ -181,13 +181,18 @@ export class StyleEditorHost {
       catalog: () => catalog.catalog ?? [],
       host: { session: () => authority.session, auth: () => authority.resolvedAuth },
       layerId: selectedLayerId ?? composition.state.layers[0]?.id,
-      dispatch: async (command) => {
+      dispatch: async (command, options) => {
         if (
           !authority.epoch.isCurrent(session.generation) ||
           session.identity.draftId !== this.options.drafts.identity?.draftId
         )
           return { ok: false, reason: `${EDITOR_AUTHORITY_CHANGED} Reopen the visual editor.` };
-        return this.options.editor.dispatch([command]);
+        return this.options.editor.dispatch([command], {
+          isCurrent: () =>
+            authority.epoch.isCurrent(session.generation) &&
+            session.identity.draftId === this.options.drafts.identity?.draftId &&
+            options?.isCurrent() !== false,
+        });
       },
       onPreview: (style) => {
         session.canvas.stylePreview = style;
@@ -293,6 +298,7 @@ export class StyleEditorHost {
   /** Explicit discard permits an authoritative refresh; no stale buffer is written. */
   async #reloadDraft(session: EditingSession): Promise<MapStyleDocument> {
     const { authority, drafts } = this.options;
+    this.#suggestions?.discard("Discarded the suggestion.");
     session.canvas.stylePreview = undefined;
     const id = drafts.identity?.draftId;
     if (!id || !authority.epoch.isCurrent(session.generation)) throw new Error(EDITOR_AUTHORITY_CHANGED);

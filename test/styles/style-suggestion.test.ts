@@ -494,3 +494,24 @@ it("reads the catalog when the request is made, not when the controller was buil
   expect(suggestion.eligibility()).toEqual({ ok: true, canonicalLayerId: CANONICAL_LAYER_ID });
   expect((await suggestion.request()).ok).toBe(true);
 });
+
+it("refuses a queued suggestion after an earlier map edit completes", async () => {
+  const controller = controllerFor();
+  let startWrite!: () => void;
+  const queued = new Promise<void>((resolve) => {
+    startWrite = resolve;
+  });
+  const dispatch: StyleSuggestionDispatch = async (command, options) => {
+    await queued;
+    if (options?.isCurrent?.() === false) return { ok: false, reason: "The initiating view changed." };
+    controller.apply(command);
+    return { ok: true };
+  };
+  const { suggestion } = mountWithDispatch(controller, dispatch);
+  expect((await suggestion.request()).ok).toBe(true);
+  const applying = suggestion.apply();
+  controller.apply({ name: "setVisibility", target: { kind: "layer", id: "other" }, visible: false });
+  startWrite();
+  expect(await applying).toEqual({ ok: false, reason: "The initiating view changed." });
+  expect(controller.state.layers.find((layer) => layer.id === "parcels")?.styleRef).toBeUndefined();
+});
