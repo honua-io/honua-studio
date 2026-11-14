@@ -39,10 +39,10 @@ async function addChart(page) {
   await page.keyboard.press("Enter");
   const panel = page.locator("#manual-elements-panel");
   await expect(panel).toBeVisible();
-  await panel.getByLabel("Element", { exact: true }).selectOption("chart");
-  await panel.getByLabel("Title (optional)").fill("Parcels by zoning");
-  await panel.getByLabel("Data layer").selectOption("explore-layer");
-  await panel.getByLabel("Category field").fill("zoning_code");
+  await panel.getByRole("combobox", { name: "Element", exact: true }).selectOption("chart");
+  await panel.getByRole("textbox", { name: "Title (optional)", exact: true }).fill("Parcels by zoning");
+  await panel.getByRole("combobox", { name: "Data layer", exact: true }).selectOption("explore-layer");
+  await panel.getByRole("textbox", { name: "Category field", exact: true }).fill("zoning_code");
   await panel.getByRole("button", { name: "Add element", exact: true }).click();
   await expect(panel.getByRole("status")).toContainText("Saved");
   await expect(page.getByTestId("studio-widget-chart")).toBeVisible();
@@ -51,8 +51,8 @@ async function addChart(page) {
 
 async function undoControlRemoval(page) {
   const panel = page.locator("#manual-elements-panel");
-  await panel.getByLabel("Element", { exact: true }).selectOption("scale");
-  await panel.getByLabel("Title (optional)").fill("Distance scale");
+  await panel.getByRole("combobox", { name: "Element", exact: true }).selectOption("scale");
+  await panel.getByRole("textbox", { name: "Title (optional)", exact: true }).fill("Distance scale");
   await panel.getByRole("button", { name: "Add element", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Remove Distance scale" })).toBeVisible();
   await panel.getByRole("button", { name: "Remove Distance scale" }).click();

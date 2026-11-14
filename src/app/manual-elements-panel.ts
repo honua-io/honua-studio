@@ -56,7 +56,8 @@ export class ManualElementsPanel {
   }
 
   #buildForm(): void {
-    for (const [kind, title] of Object.entries(ELEMENTS)) this.#kind.add(new Option(title, kind));
+    for (const [kind, title] of Object.entries(ELEMENTS)) this.#kind.add(this.#option(title, kind));
+    this.#kind.value = "table";
     this.#kind.name = "kind";
     this.#title.name = "title";
     this.#source.name = "source";
@@ -96,8 +97,8 @@ export class ManualElementsPanel {
     if (this.#disposed) return;
     const state = this.options.state();
     const selected = this.#source.value;
-    this.#source.replaceChildren(new Option("Choose a layer", ""));
-    for (const layer of state.layers) this.#source.add(new Option(layer.title ?? layer.id, layer.id));
+    this.#source.replaceChildren(this.#option("Choose a layer", ""));
+    for (const layer of state.layers) this.#source.add(this.#option(layer.title ?? layer.id, layer.id));
     this.#source.value = selected;
     const data = this.#kind.value === "table" || this.#kind.value === "chart";
     this.#source.parentElement!.hidden = !data;
@@ -123,6 +124,13 @@ export class ManualElementsPanel {
     const label = document.createElement("label");
     label.append(document.createTextNode(text), input);
     return label;
+  }
+
+  #option(text: string, value: string): HTMLOptionElement {
+    const option = document.createElement("option");
+    option.textContent = text;
+    option.value = value;
+    return option;
   }
 
   #item(
@@ -184,7 +192,9 @@ export class ManualElementsPanel {
       const result = await this.options.dispatch([command]);
       if (result.ok && (command.name === "addWidget" || command.name === "addControl")) this.#dirty = false;
       if (!this.#disposed)
-        this.#status.textContent = result.ok ? "Saved. Use Undo to reverse this edit." : result.reason;
+        this.#status.textContent = result.ok
+          ? "Saved. Use Undo to reverse this edit."
+          : (result.reason ?? "This edit could not be saved.");
     } catch (error) {
       if (!this.#disposed) this.#status.textContent = error instanceof Error ? error.message : String(error);
     } finally {

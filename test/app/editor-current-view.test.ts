@@ -160,8 +160,8 @@ describe("workspace saved camera", () => {
 });
 
 function manualElementForm() {
-  app.querySelector<HTMLButtonElement>('[data-testid="manual-elements-toggle"]')!.click();
-  return app.querySelector<HTMLFormElement>("#manual-elements-panel form")!;
+  app.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="manual-elements-toggle"]')!.click();
+  return app.shadowRoot!.querySelector<HTMLFormElement>("#manual-elements-panel form")!;
 }
 
 it("keeps manual element forms editable after refreshing the same draft", async () => {
@@ -183,6 +183,6 @@ it("preserves unsaved manual input when a different draft attach is refused", as
   await expect(app.attachEditorDraft("other")).rejects.toThrow("Save pending Studio edits");
   expect(form.isConnected).toBe(true);
   expect(title.value).toBe("Unsaved chart");
-  expect(app.querySelector("#manual-elements-panel form")).toBe(form);
+  expect(app.shadowRoot!.querySelector("#manual-elements-panel form")).toBe(form);
   expect(replace).not.toHaveBeenCalled();
 });
