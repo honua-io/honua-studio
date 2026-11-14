@@ -39,19 +39,8 @@ export function hostStyleSuggestionTransport(host: StyleSuggestionHost): StyleSu
     return { ok: false, reason: STYLE_SUGGESTION_NEEDS_HOST_SESSION };
   const { principalId, environmentId } = captured;
   const native = captured.baseUrl === NATIVE_HOST_BASE_URL;
-  const requireSameLease = (): CookieSessionAdapter => {
-    const current = host.session();
-    if (
-      !isCookieSession(current) ||
-      current.principalId !== principalId ||
-      current.environmentId !== environmentId ||
-      current.baseUrl !== captured.baseUrl
-    )
-      throw new Error("The host session changed.");
-    return current;
-  };
   const transport: LayerStyleSuggestionOptions["transport"] = async (canonicalLayerId, init) => {
-    requireSameLease();
+    requireSameLease(host, captured);
     const fetchRequest = host.auth()?.fetchRequest;
     if (!fetchRequest) throw new Error(STYLE_SUGGESTION_NEEDS_HOST_SESSION);
     if (!Number.isSafeInteger(canonicalLayerId) || canonicalLayerId < 0)
@@ -69,21 +58,44 @@ export function hostStyleSuggestionTransport(host: StyleSuggestionHost): StyleSu
     const response = await fetchRequest(path, { method: "POST", headers, signal: init.signal, body: "{}" });
     if (!response.ok) return response;
     const suggestion: unknown = await response.json();
-    requireSameLease();
+    requireSameLease(host, captured);
     init.signal.throwIfAborted();
-    return new Response(
-      JSON.stringify({
-        binding: {
-          principalId,
-          environmentId,
-          canonicalLayerId,
-          draftRevision: init.draftRevision,
-          composedLayerId: init.composedLayerId,
-        },
-        suggestion,
-      }),
-      { status: 200, headers },
-    );
+    return nativeResponse(suggestion, {
+      principalId,
+      environmentId,
+      canonicalLayerId,
+      draftRevision: init.draftRevision,
+      composedLayerId: init.composedLayerId,
+    });
   };
   return { ok: true, principalId, environmentId, transport };
+}
+
+function requireSameLease(host: StyleSuggestionHost, captured: CookieSessionAdapter): CookieSessionAdapter {
+  const { principalId, environmentId } = captured;
+  const current = host.session();
+  if (
+    !isCookieSession(current) ||
+    current.principalId !== principalId ||
+    current.environmentId !== environmentId ||
+    current.baseUrl !== captured.baseUrl
+  )
+    throw new Error("The host session changed.");
+  return current;
+}
+
+function nativeResponse(
+  suggestion: unknown,
+  binding: {
+    principalId: string;
+    environmentId: string;
+    canonicalLayerId: number;
+    draftRevision: string;
+    composedLayerId: string;
+  },
+): Response {
+  return new Response(JSON.stringify({ binding, suggestion }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }

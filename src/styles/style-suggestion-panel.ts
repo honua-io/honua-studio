@@ -42,26 +42,13 @@ export class StyleSuggestionPanel {
 
   constructor(options: StyleSuggestionPanelOptions) {
     this.#options = options;
-    const section = document.createElement("section");
-    section.setAttribute("aria-label", "Style suggestion");
-    section.setAttribute("data-testid", "style-suggestion");
-    const heading = document.createElement("h3");
-    heading.textContent = "Style suggestion";
-    const note = document.createElement("p");
-    note.textContent = "Suggestions are advisory. The map changes only when you apply one.";
-    this.#request = button("Suggest a style", "style-suggestion-request");
-    this.#status = document.createElement("p");
-    this.#status.setAttribute("role", "status");
-    this.#status.setAttribute("data-testid", "style-suggestion-status");
-    const preview = document.createElement("div");
-    preview.setAttribute("data-testid", "style-suggestion-preview");
-    this.#apply = button("Apply suggestion", "style-suggestion-apply");
-    this.#discard = button("Discard suggestion", "style-suggestion-discard");
-    this.#actions = document.createElement("div");
-    this.#actions.append(this.#apply, this.#discard);
-    this.#actions.hidden = true;
-    section.append(heading, note, this.#request, this.#status, preview, this.#actions);
+    const { section, request, status, preview, apply, discard, actions } = createPanelElements();
     this.element = section;
+    this.#request = request;
+    this.#status = status;
+    this.#apply = apply;
+    this.#discard = discard;
+    this.#actions = actions;
 
     const resolved = hostStyleSuggestionTransport(options.host);
     if (resolved.ok) {
@@ -242,4 +229,27 @@ function button(label: string, testId: string): HTMLButtonElement {
   element.textContent = label;
   element.setAttribute("data-testid", testId);
   return element;
+}
+
+function createPanelElements() {
+  const section = document.createElement("section");
+  section.setAttribute("aria-label", "Style suggestion");
+  section.setAttribute("data-testid", "style-suggestion");
+  const heading = document.createElement("h3");
+  heading.textContent = "Style suggestion";
+  const note = document.createElement("p");
+  note.textContent = "Suggestions are advisory. The map changes only when you apply one.";
+  const request = button("Suggest a style", "style-suggestion-request");
+  const status = document.createElement("p");
+  status.setAttribute("role", "status");
+  status.setAttribute("data-testid", "style-suggestion-status");
+  const preview = document.createElement("div");
+  preview.setAttribute("data-testid", "style-suggestion-preview");
+  const apply = button("Apply suggestion", "style-suggestion-apply");
+  const discard = button("Discard suggestion", "style-suggestion-discard");
+  const actions = document.createElement("div");
+  actions.append(apply, discard);
+  actions.hidden = true;
+  section.append(heading, note, request, status, preview, actions);
+  return { section, request, status, preview, apply, discard, actions };
 }

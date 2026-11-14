@@ -239,14 +239,7 @@ export class StyleEditorHost {
       selectedLayerId,
       getFields: (sourceId) => this.#describeFields(session, sourceId),
       onSelectLayer: (layerId) => this.#suggestions?.retarget(layerId),
-      onPreview: (style) => {
-        // A visual edit supersedes a suggestion preview; a clean editor leaves a displayed suggestion alone.
-        if (this.#suggestions?.previewing) {
-          if (style === undefined) return;
-          this.#suggestions.discard(SUGGESTION_REPLACED_BY_EDITS);
-        }
-        session.canvas.stylePreview = style;
-      },
+      onPreview: (style) => this.#previewStyle(session, style),
       onDirty: (dirty) => {
         // A visual edit drops a displayed or in-flight suggestion, so a late response cannot replace it.
         if (dirty) this.#suggestions?.discard(SUGGESTION_REPLACED_BY_EDITS);
@@ -261,6 +254,15 @@ export class StyleEditorHost {
         this.options.chrome.focusStyleEditorReturn();
       },
     };
+  }
+
+  #previewStyle(session: EditingSession, style: MapStyleDocument | undefined): void {
+    // A visual edit supersedes a suggestion preview; a clean editor leaves a displayed suggestion alone.
+    if (this.#suggestions?.previewing) {
+      if (style === undefined) return;
+      this.#suggestions.discard(SUGGESTION_REPLACED_BY_EDITS);
+    }
+    session.canvas.stylePreview = style;
   }
 
   async #describeFields(session: EditingSession, sourceId: string): Promise<readonly MapStyleField[]> {

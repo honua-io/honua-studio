@@ -158,30 +158,6 @@ describe("style editor follows the lifecycle panel draft", () => {
     expect(app.shadowRoot?.querySelector("[data-testid='app-slots']")?.hasAttribute("data-style-mode")).toBe(false);
   });
 
-  it("mounts the style suggestion region beside the style editor and removes it on close", async () => {
-    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
-      draftEnvelope(draftId, styleFor("#aaaaaa")),
-    );
-    vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
-    const app = await mountedContentApp();
-    await app.attachEditorDraft("draft-a");
-    const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
-    vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
-    await app.openStyleEditor();
-    const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
-    const surface = editor?.nextElementSibling as HTMLElement | null | undefined;
-    expect(surface?.getAttribute("data-testid")).toBe("style-suggestion");
-    expect(surface?.getAttribute("aria-label")).toBe("Style suggestion");
-    expect(editor?.querySelectorAll("[role='status']")).toHaveLength(1);
-    // The fixture signs in with a bearer token, so the action is replaced by its reason.
-    expect(surface?.querySelector<HTMLElement>("[data-testid='style-suggestion-request']")?.hidden).toBe(true);
-    expect(surface?.querySelector("[data-testid='style-suggestion-status']")?.textContent).toBe(
-      "Style suggestions need a signed-in Console session.",
-    );
-    await app.closeStyleEditor();
-    expect(surface?.isConnected).toBe(false);
-  });
-
   it("removes a refused host path when current-path was absent, then accepts the retry", async () => {
     const style = styleFor("#ffffff");
     vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
@@ -398,3 +374,27 @@ function savedVersion() {
     envelope: { family: "map", schemaVersion: "1.0", body: { layers: [] } },
   } as Awaited<ReturnType<StudioLifecycleClient["listVersions"]>>["versions"][number];
 }
+
+it("mounts the style suggestion region beside the style editor and removes it on close", async () => {
+  vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async (draftId: string) =>
+    draftEnvelope(draftId, styleFor("#aaaaaa")),
+  );
+  vi.spyOn(StudioLifecycleClient.prototype, "listVersions").mockResolvedValue({ itemId: "item", versions: [] });
+  const app = await mountedContentApp();
+  await app.attachEditorDraft("draft-a");
+  const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+  vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(styleFor("#aaaaaa"));
+  await app.openStyleEditor();
+  const editor = app.shadowRoot?.querySelector<HTMLElement>("[aria-label='Map style editor']");
+  const surface = editor?.nextElementSibling as HTMLElement | null | undefined;
+  expect(surface?.getAttribute("data-testid")).toBe("style-suggestion");
+  expect(surface?.getAttribute("aria-label")).toBe("Style suggestion");
+  expect(editor?.querySelectorAll("[role='status']")).toHaveLength(1);
+  // The fixture signs in with a bearer token, so the action is replaced by its reason.
+  expect(surface?.querySelector<HTMLElement>("[data-testid='style-suggestion-request']")?.hidden).toBe(true);
+  expect(surface?.querySelector("[data-testid='style-suggestion-status']")?.textContent).toBe(
+    "Style suggestions need a signed-in Console session.",
+  );
+  await app.closeStyleEditor();
+  expect(surface?.isConnected).toBe(false);
+});
