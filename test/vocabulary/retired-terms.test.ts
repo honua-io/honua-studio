@@ -74,6 +74,7 @@ const RENAMES_DOC = "docs/vocabulary-renames.md";
 const RENAME_RECORDS: ReadonlyArray<{ readonly path: string; readonly reason: string }> = [
   { path: RENAMES_DOC, reason: "the rename list" },
   { path: "test/vocabulary/retired-terms.test.ts", reason: "this guard's list of renamed names" },
+  { path: "CHANGELOG.md", reason: "release-please history quotes past commit messages verbatim" },
   {
     path: "scripts/__tests__/live-publication.test.mjs",
     reason: "Console pin 97631d3 contract until the Studio lock bump",
