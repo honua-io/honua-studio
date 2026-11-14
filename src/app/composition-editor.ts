@@ -9,6 +9,7 @@ import { isStudioLifecycleGenerationConflict } from "../lifecycle/lifecycle-erro
 import type { WorkspaceDraftBinding } from "../lifecycle/workspace-draft.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
+import { bindNativeAuthoringSources } from "./native-source-authoring.js";
 import type { ShellChrome } from "./shell-chrome.js";
 import type { SourceCatalog } from "./source-catalog.js";
 import type { EpochToken } from "./staleness-epoch.js";
@@ -215,8 +216,7 @@ export class CompositionEditor {
       authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
       const observed = await binding.replace(target);
       authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
-      const changed = action === "undo" ? composition.undo() : composition.redo();
-      composition.replaceState(observed);
+      const changed = action === "undo" ? composition.undo(observed) : composition.redo(observed);
       drafts.announce();
       return changed;
     });
@@ -266,7 +266,7 @@ export class CompositionEditor {
       // style candidate is validated against the canvas's current style snapshot.
       anchor = { ...current, mapSpec };
     }
-    const target = locallyValidatedTarget(anchor, commands);
+    const target = bindNativeAuthoringSources(locallyValidatedTarget(anchor, commands), this.options.catalog?.catalog);
     const observed = styleCommand
       ? {
           ...(await binding.replaceStyle(styleCommand.mapSpec)),
@@ -277,8 +277,19 @@ export class CompositionEditor {
     authority.epoch.assertCurrent(generation, WORKSPACE_SESSION_CHANGED);
     // The accepted style response establishes one authoritative revision;
     // replaying it against the older source anchor would reject valid additions.
-    if (!styleCommand) for (const command of commands) composition.apply(command);
-    composition.replaceState(observed);
+    if (styleCommand) composition.replaceState(observed);
+    else {
+      for (const [index, command] of commands.entries()) {
+        const accepted =
+          index === commands.length - 1
+            ? observed
+            : bindNativeAuthoringSources(
+                locallyValidatedTarget(composition.state, [command]),
+                this.options.catalog?.catalog,
+              );
+        composition.apply(command, accepted);
+      }
+    }
     drafts.announce();
   }
 

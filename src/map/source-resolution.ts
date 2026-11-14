@@ -60,6 +60,7 @@ const OGC_FEATURES_PROTOCOL = "ogc_features" satisfies MapPackageProtocol;
 export const DRAFT_WRITER_PROTOCOLS = [
   GEOSERVICES_FEATURE_SERVICE_PROTOCOL,
   OGC_FEATURES_PROTOCOL,
+  "pmtiles",
 ] as const satisfies readonly MapPackageProtocol[];
 
 /** A durable source binding — structurally the SDK's `HonuaMapPackageSourceBinding`. */
@@ -104,6 +105,7 @@ export interface CompositionSourceResolution {
   /** Native MapLibre source spec — what the offline render path actually uses. */
   readonly source: Readonly<Record<string, unknown>>;
   readonly layerType: CompositionLayerType;
+  readonly sourceLayer?: string;
 }
 
 export interface CompositionSourceResolutionFailure {
@@ -180,7 +182,9 @@ export function isAnonymousMapAssetSource(value: unknown): value is Readonly<Rec
   if (urls.length === 0 || !urls.every((url) => typeof url === "string")) return false;
   return urls.every((url) => {
     try {
-      const parsed = new URL(url, "https://audience.invalid/");
+      const archive = url.startsWith("pmtiles://");
+      if (archive && (value.url !== url || !["vector", "raster"].includes(String(value.type)))) return false;
+      const parsed = archive ? new URL(url.slice(10)) : new URL(url, "https://audience.invalid/");
       return /^https?:$/.test(parsed.protocol) && !parsed.username && !parsed.password;
     } catch {
       return false;
@@ -232,12 +236,13 @@ export function resolveCompositionSource(
   const authoredType = layer.type;
   const metadata = honuaMetadata(layer);
   const inlineSource = metadata?.source;
+  const descriptor = findCompositionSourceDescriptor(layer.sourceId, options.catalog);
   if (
     authoredType !== undefined &&
     authoredType !== "fill" &&
     authoredType !== "line" &&
     authoredType !== "circle" &&
-    !(authoredType === "raster" && isPlainObject(inlineSource))
+    !(authoredType === "raster" && (isPlainObject(inlineSource) || descriptor?.protocol === "pmtiles"))
   ) {
     return {
       reason: `Source "${layer.sourceId}" requests layer type "${authoredType}", which the composition map cannot render yet.`,
@@ -251,15 +256,50 @@ export function resolveCompositionSource(
       authoredType ??
       (declaredType as CompositionLayerType | undefined) ??
       layerTypeForGeometry(typeof metadata?.geometryType === "string" ? metadata.geometryType : undefined);
-    return { source: inlineSource, layerType: layerType ?? "fill" };
+    return {
+      source: inlineSource,
+      layerType: layerType ?? "fill",
+      ...(typeof metadata?.sourceLayer === "string" ? { sourceLayer: metadata.sourceLayer } : {}),
+    };
   }
 
   // Older saved drafts used a bare service id. Resolve it only when the
   // actual catalog advertises exactly one layer for that service.
-  const descriptor = findCompositionSourceDescriptor(layer.sourceId, options.catalog);
   if (!descriptor) {
     return {
       reason: `Source "${layer.sourceId}" is not in the catalog, and the layer carries no metadata.honua.source override.`,
+    };
+  }
+
+  if (descriptor.protocol === "pmtiles") {
+    const locator = descriptor.locator;
+    const sourceType = locator?.sourceType;
+    const url = locator?.url;
+    const source = { type: sourceType, url: typeof url === "string" ? `pmtiles://${url}` : undefined };
+    if (
+      (sourceType !== "vector" && sourceType !== "raster") ||
+      !isAnonymousMapAssetSource(source) ||
+      typeof url !== "string" ||
+      !/^https?:\/\//.test(url)
+    )
+      return {
+        reason: `Source "${layer.sourceId}" requires a public HTTP(S) PMTiles URL and explicit vector/raster sourceType.`,
+      };
+    const layerType =
+      authoredType ?? (sourceType === "raster" ? "raster" : layerTypeForGeometry(descriptor.geometryType));
+    if (!layerType || (sourceType === "raster") !== (layerType === "raster"))
+      return { reason: `Source "${layer.sourceId}" has incompatible PMTiles presentation.`, scope: "layer" };
+    const sourceLayer = metadata?.sourceLayer;
+    if (sourceType === "vector" && (typeof sourceLayer !== "string" || !sourceLayer.trim()))
+      return {
+        reason: `Source "${layer.sourceId}" requires metadata.honua.sourceLayer for vector PMTiles.`,
+        scope: "layer",
+      };
+    return {
+      source,
+      layerType,
+      ...(sourceType === "vector" ? { sourceLayer: sourceLayer as string } : {}),
+      binding: { sourceId: layer.sourceId, protocol: "pmtiles", locator: { url, sourceType } },
     };
   }
 
