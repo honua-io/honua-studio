@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { defineConfig } from "vite";
+import { collectLicenseNotices } from "./scripts/lib/license-notices.mjs";
 import { type SdkPayloadReceipt, verifySdkPayload } from "./scripts/lib/verify-sdk-payload.mjs";
 
 // Verify the installed public package against its registry archive and lockfile.
@@ -98,37 +99,11 @@ export default defineConfig({
             2,
           )}\n`,
         });
-        const packages = new Map<string, string>();
-        for (const id of this.getModuleIds()) {
-          if (!id.includes("node_modules/")) continue;
-          let directory = dirname(id.split("?")[0]);
-          while (directory !== dirname(directory)) {
-            const manifestPath = join(directory, "package.json");
-            if (existsSync(manifestPath)) {
-              const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-              if (manifest.name) {
-                const texts = readdirSync(directory)
-                  .filter((name) => /^(licen[cs]e|notice|copying)([.-]|$)/i.test(name))
-                  .sort()
-                  .map((name) => `${name}\n${readFileSync(join(directory, name), "utf8")}`);
-                packages.set(
-                  `${manifest.name}@${manifest.version}`,
-                  `License: ${JSON.stringify(manifest.license ?? "See package notices")}\n${texts.join("\n\n")}`,
-                );
-                break;
-              }
-            }
-            directory = dirname(directory);
-          }
-        }
         this.emitFile({ type: "asset", fileName: "LICENSE", source: readFileSync(resolve("LICENSE"), "utf8") });
         this.emitFile({
           type: "asset",
           fileName: "THIRD-PARTY-NOTICES.txt",
-          source: [...packages]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([name, text]) => `${name}\n${text}`)
-            .join("\n\n========================================\n\n"),
+          source: collectLicenseNotices(this.getModuleIds()),
         });
       },
     },
