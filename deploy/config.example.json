@@ -1,6 +1,6 @@
 {
   "schemaVersion": "honua.studio.runtime-config.v1",
-  "serverBaseUrl": "https://honua.example.com",
+  "serverBaseUrl": "https://honua.example.com/api",
   "mcpBaseUrl": "https://honua.example.com",
   "oidc": {
     "issuer": "https://identity.example.com",
