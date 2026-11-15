@@ -1204,6 +1204,27 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
       expect(app.shadowRoot?.querySelector('[data-testid="auth-status"]')?.textContent).toBe("Signed out");
     });
 
+    it("standalone mode: an unreachable issuer shows the sign-in failure, not an expired session", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("Failed to fetch");
+        }),
+      );
+      const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+      document.body.appendChild(app);
+      const control = (id: string) => app.shadowRoot?.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+      expect(control("auth-error")?.hidden).toBe(true);
+
+      control("auth-signin")?.click();
+
+      await vi.waitFor(() => expect(control("auth-error")?.hidden).toBe(false));
+      expect(control("auth-status")?.textContent).toBe("Signed out");
+      expect(control("auth-error")?.getAttribute("role")).toBe("alert");
+      expect(control("auth-error")?.textContent).toMatch(/^Sign-in failed\. Could not reach the OIDC issuer/);
+      expect(control("auth-signin")?.hidden).toBe(false);
+    });
+
     it(".session assigned after connection tears down and rebuilds .auth", async () => {
       const app = document.createElement("honua-studio-app") as HonuaStudioAppElement;
       vi.stubGlobal(

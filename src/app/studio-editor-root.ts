@@ -226,6 +226,7 @@ export class StudioEditorRoot {
       host: this.host,
       ...shell,
       authStatus: () => this.authority.resolvedAuth?.getState().status ?? "signed-out",
+      authError: () => this.authority.resolvedAuth?.getState().error,
       isDesignInspectorOpen: () => this.designInspector.isOpen,
       onToggleManualElements: () => this.manualElements.toggle(),
       isHistoryBusy: () => this.drafts.historyBusy,

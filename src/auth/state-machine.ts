@@ -18,6 +18,8 @@ export type AuthTransitionEvent =
   /** The refresh round-trip minted a new access token (and, for rotation, a new refresh token). */
   | { type: "token-rotated"; accessToken: string; expiresAt?: number }
   | { type: "refresh-failed"; error: string }
+  /** Sign-in could not start (for example, the issuer is unreachable): no session existed, so this is not an expiry. */
+  | { type: "sign-in-failed"; error: string }
   | { type: "signed-out" };
 
 export const INITIAL_AUTH_STATE: AuthState = { status: "signed-out" };
@@ -38,6 +40,8 @@ export function reduceAuthState(state: AuthState, event: AuthTransitionEvent): A
       return { status: "fresh", accessToken: event.accessToken, expiresAt: event.expiresAt };
     case "refresh-failed":
       return { status: "expired", error: event.error };
+    case "sign-in-failed":
+      return { status: "signed-out", error: event.error };
     case "signed-out":
       return { status: "signed-out" };
     default: {
