@@ -10,7 +10,7 @@ Practically that means three things, and all three are satisfied here:
 
 | Asset | How it is vendored |
 | --- | --- |
-| MapLibre GL JS | `maplibre-gl` is a **pinned exact** npm dependency (no `^`), bundled by Vite. Its web worker is inlined by MapLibre itself as a blob URL — no separate worker file is fetched. |
+| MapLibre GL JS | `maplibre-gl` is a **pinned exact** npm dependency (no `^`), bundled by Vite. Vite bundles its ES-module web worker as a same-origin asset (`assets/maplibre-gl-worker-*.js`; see `../composition-map-view.ts`), so the worker is never fetched from a CDN. |
 | MapLibre GL CSS | Imported as `maplibre-gl/dist/maplibre-gl.css?inline` and injected into the canvas element's shadow root as a string. Never a `<link>` to a CDN. |
 | Basemap geometry | `natural-earth-land-110m.json` (this directory), imported as a JSON module. |
 
