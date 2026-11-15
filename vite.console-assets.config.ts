@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { defineConfig } from "vite";
-import { collectLicenseNotices } from "./scripts/lib/license-notices.mjs";
+import { licenseNotices } from "./scripts/lib/license-notices.mjs";
 import { type SdkPayloadReceipt, verifySdkPayload } from "./scripts/lib/verify-sdk-payload.mjs";
 
 // Verify the installed public package against its registry archive and lockfile.
@@ -39,8 +39,9 @@ export default defineConfig({
   base: "./",
   publicDir: false,
   plugins: [
+    licenseNotices(),
     {
-      name: "console-license-notices",
+      name: "console-sdk-provenance",
       closeBundle() {
         const directory = resolve("public/maputnik");
         if (!existsSync(join(directory, "PROVENANCE.json")))
@@ -98,12 +99,6 @@ export default defineConfig({
             null,
             2,
           )}\n`,
-        });
-        this.emitFile({ type: "asset", fileName: "LICENSE", source: readFileSync(resolve("LICENSE"), "utf8") });
-        this.emitFile({
-          type: "asset",
-          fileName: "THIRD-PARTY-NOTICES.txt",
-          source: collectLicenseNotices(this.getModuleIds()),
         });
       },
     },

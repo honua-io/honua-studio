@@ -84,7 +84,7 @@ export default defineConfig(({ mode }) => {
     envPrefix: ["VITE_", "HONUA_OIDC_ISSUER", "HONUA_OIDC_CLIENT_ID", "HONUA_OIDC_REDIRECT_URI", "HONUA_OIDC_SCOPES"],
     // The published image serves dist/ as is, so it carries the licence and
     // the notices of every bundled package (MapLibre, PMTiles, Turf, ...).
-    plugins: [licenseNotices()],
+    plugins: [licenseNotices(projectRoot)],
     server: { proxy },
     preview: { proxy },
     // MapLibre 6's worker uses dynamic import(), which only an ES-format
