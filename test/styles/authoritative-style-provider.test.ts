@@ -95,6 +95,15 @@ describe("authoritative style provider", () => {
     await expect(fixture({}, { serviceName: "OtherService" }).provider.describeDataset(source)).rejects.toThrow(
       "actual published source",
     );
+    const canonical = fixture({}, { layerId: undefined, serviceLayerIndex: 0 });
+    await expect(canonical.provider.describeDataset(source)).resolves.toEqual({
+      geometryType: "Polygon",
+      fields: [{ name: "district", type: "String" }],
+    });
+    const described = canonical.fetchImpl.mock.calls
+      .map((call) => JSON.parse(String(call[1]?.body)))
+      .find((body) => body.params?.name === "honua_describe_layer");
+    expect(described.params.arguments).toMatchObject({ serviceId: "service", layerId: 0, serviceLayerIndex: 0 });
   });
 
   it("preserves hidden layers, combines active filters and scales canonical opacity in the actual SDK composition", async () => {

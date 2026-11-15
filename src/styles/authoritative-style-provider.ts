@@ -2,6 +2,7 @@ import { toWgs84 } from "@honua/sdk-js/geometry";
 import type { HonuaStyleRefBody, HonuaStyleRefLayerOverride } from "@honua/sdk-js/runtime";
 import { type HonuaStyleSpecification, validateHonuaStyle } from "@honua/sdk-js/style";
 import type { AuthSession } from "../auth/types.js";
+import { publishedLayerIndex } from "../client/studio-client.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import { type CompositionSourceDescriptor, layerTypeForGeometry } from "../map/source-resolution.js";
 import { McpClient } from "../mcp/client.js";
@@ -307,10 +308,10 @@ export class AuthoritativeStyleProvider {
     const { serviceId, layerId } = source.locator ?? {};
     if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
       throw new Error("Select an actual published source for thematic fields.");
-    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId });
+    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId, serviceLayerIndex: layerId });
     if (
       descriptor.serviceId !== serviceId ||
-      descriptor.layerId !== layerId ||
+      publishedLayerIndex(descriptor) !== layerId ||
       !Array.isArray(descriptor.fields) ||
       descriptor.fields.length > 1000 ||
       descriptor.fieldCount !== descriptor.fields.length
@@ -359,9 +360,13 @@ export class AuthoritativeStyleProvider {
     )
       throw new Error("Style binding source is outside the trusted server root.");
     const definition = await this.read(styleId);
-    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId });
+    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId, serviceLayerIndex: layerId });
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style binding.");
-    if (descriptor.serviceId !== serviceId || descriptor.layerId !== layerId || !Array.isArray(descriptor.fields))
+    if (
+      descriptor.serviceId !== serviceId ||
+      publishedLayerIndex(descriptor) !== layerId ||
+      !Array.isArray(descriptor.fields)
+    )
       throw new Error("Style source descriptor identity does not match.");
     if (
       descriptor.fields.length > 1000 ||
