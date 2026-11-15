@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -54,5 +56,13 @@ describe("runtime config", () => {
   it("fails closed when the deployment config cannot be loaded", async () => {
     const fetchImpl = (async () => new Response("missing", { status: 404 })) as typeof fetch;
     await expect(loadRuntimeConfig(fetchImpl)).rejects.toThrow(/404/);
+  });
+  it("ships a deploy example whose REST root is the server's /api mount", () => {
+    // Studio requests `${serverBaseUrl}/v1/studio/...`; honua-server mounts Studio at /api/v1/studio.
+    const example = parseRuntimeConfig(
+      JSON.parse(readFileSync(new URL("../deploy/config.example.json", import.meta.url), "utf8")),
+    );
+    expect(new URL(example.serverBaseUrl).pathname).toBe("/api");
+    expect(new URL(example.mcpBaseUrl).pathname).toBe("/");
   });
 });
