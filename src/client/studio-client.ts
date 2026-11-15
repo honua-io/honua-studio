@@ -103,17 +103,24 @@ function object(value: unknown): Record<string, unknown> {
 /**
  * Service-local layer index. The installed server catalog uses `serviceLayerIndex`.
  * Fixture discovery still sends `layerId`. A response that sets both to different
- * numbers is not an identity.
+ * numbers, or that includes a field that is not a safe index at least zero, is not an identity.
  */
 export function publishedLayerIndex(record: { layerId?: unknown; serviceLayerIndex?: unknown }): number | undefined {
-  const layerId = safeLayerIndex(record.layerId);
-  const serviceLayerIndex = safeLayerIndex(record.serviceLayerIndex);
+  const layerId = readLayerIndex(record, "layerId");
+  const serviceLayerIndex = readLayerIndex(record, "serviceLayerIndex");
+  if (layerId === conflicting || serviceLayerIndex === conflicting) return undefined;
   if (layerId !== undefined && serviceLayerIndex !== undefined && layerId !== serviceLayerIndex) return undefined;
   return layerId ?? serviceLayerIndex;
 }
 
-function safeLayerIndex(value: unknown): number | undefined {
-  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
+const conflicting = Symbol("conflicting-layer-index");
+
+function readLayerIndex(
+  record: { layerId?: unknown; serviceLayerIndex?: unknown },
+  key: "layerId" | "serviceLayerIndex",
+): number | undefined | typeof conflicting {
+  if (!Object.hasOwn(record, key) || record[key] === undefined) return undefined;
+  return Number.isSafeInteger(record[key]) && Number(record[key]) >= 0 ? Number(record[key]) : conflicting;
 }
 
 /** Reads real server discovery APIs; missing capabilities remain visible errors. */

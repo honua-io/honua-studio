@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { StudioClient } from "../../src/client/studio-client.js";
+import { StudioClient, publishedLayerIndex } from "../../src/client/studio-client.js";
 import { McpClient } from "../../src/mcp/client.js";
 
 afterEach(() => {
@@ -39,4 +39,13 @@ it("reads a server catalog layer identified by serviceLayerIndex", async () => {
       },
     },
   ]);
+});
+
+it("rejects a present layer index that is not a safe non-negative integer", () => {
+  expect(publishedLayerIndex({ layerId: -1, serviceLayerIndex: 2 })).toBeUndefined();
+  expect(publishedLayerIndex({ layerId: 2, serviceLayerIndex: 3.5 })).toBeUndefined();
+  expect(publishedLayerIndex({ layerId: "2", serviceLayerIndex: 2 })).toBeUndefined();
+  expect(publishedLayerIndex({ layerId: 2, serviceLayerIndex: 3 })).toBeUndefined();
+  expect(publishedLayerIndex({ serviceLayerIndex: 2 })).toBe(2);
+  expect(publishedLayerIndex({ layerId: 2, serviceLayerIndex: 2 })).toBe(2);
 });
