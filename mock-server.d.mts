@@ -8,7 +8,11 @@ import type http from "node:http";
 
 export declare const OIDC_CLIENT_ID: string;
 
-export declare function startMockServer(options?: { port?: number; model?: "fixture" | "byom-preview" }): Promise<{
+export declare function startMockServer(options?: {
+  port?: number;
+  model?: "fixture" | "byom-preview";
+  extraDatasets?: Record<string, unknown>[];
+}): Promise<{
   server: http.Server;
   url: string;
   close: () => Promise<void>;

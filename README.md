@@ -147,6 +147,8 @@ weaken an assertion, or dispatch another paid run without main authorization.
 
 Studio remains **not live-qualified for rc.2**.
 
+On an installed verification cohort, `npm run test:browser:cohort` with `HONUA_COHORT_AUTHOR=1` builds current Studio against the installed server. The non-coder recipe created a map and table from a published layer whose catalog identity is `serviceLayerIndex` rather than `layerId`, saved one version, and received HTTP 202 with publication status 4. The anonymous published route stayed absent. Password Console sign-in opened the approval panel, and the server refused the review because human approval requires an interactive OIDC session. That cohort has password Console auth and no identity provider, so anonymous opening after approval is not proven there. The scheduled demo canary remains the environment failure recorded above.
+
 The Compose qualification limits each model request and the provider default to 1,024 output
 tokens. A shared loopback guard permits at most three chat requests across all browser workers;
 the pinned server disables provider HTTP retries. A completed harness must retain provider-reported
