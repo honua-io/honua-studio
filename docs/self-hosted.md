@@ -8,9 +8,10 @@ Studio is packaged as both a static tarball and the container image
 Published versions and their assets are on the
 [Releases page](https://github.com/honua-io/honua-studio/releases). To run an
 unreleased checkout instead, build the image yourself
-(`docker build -t honua-studio .`) and set `IMAGE=honua-studio` below;
-everything else on this page applies unchanged, and the clean-machine path is
-what CI's container smoke runs on every pull request.
+(`docker build -t honua-studio .`), use `IMAGE=honua-studio` in place of the
+first line below and skip `docker pull`; everything else on this page applies
+unchanged, and the clean-machine path is what CI's container smoke runs on
+every pull request.
 
 The same immutable assets run in every environment; deployment settings are read
 from `/config.json` on each page load with `Cache-Control: no-store`.

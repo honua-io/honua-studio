@@ -183,9 +183,10 @@ checksums and a receipt binding version/source SHA/image digest to the GitHub
 release, and records a build-provenance attestation for each tarball with the
 repository
 ([how a release is cut](docs/preview-release-posture.md#cutting-a-release)). Published
-versions, v0.1.0 (2026-11-04) through the latest, are on the
-[Releases page](https://github.com/honua-io/honua-studio/releases); each includes
-standalone and Console tarballs, checksums, and a source/image receipt;
+versions are on the
+[Releases page](https://github.com/honua-io/honua-studio/releases); from v0.1.1
+on, each includes standalone and Console tarballs, checksums, and a source/image
+receipt (v0.1.0 carries no assets);
 see [`docs/self-hosted.md`](docs/self-hosted.md). Standing Studio up
 on the public demo remains a 2026.2 decision (D2), so treat every capability
 below as something you verify by running it, not by visiting a URL.
