@@ -58,6 +58,8 @@ export class OidcAuthSession implements AuthSession {
     this.fetchFn = options.fetchFn ?? fetch;
     this.windowRef = options.windowRef;
     this.providerReady = this.initProvider();
+    // Discovery runs at construction; a failure is reported when sign-in or a token read awaits it, not as an unhandled rejection.
+    this.providerReady.catch(() => undefined);
   }
 
   private async initProvider(): Promise<OAuth2Provider> {
@@ -174,7 +176,7 @@ export class OidcAuthSession implements AuthSession {
       // Redirect mode never resolves (the page navigates away).
       await provider.signIn();
     } catch (error) {
-      this.dispatch({ type: "refresh-failed", error: describeError(error) });
+      this.dispatch({ type: "sign-in-failed", error: describeError(error) });
       throw error;
     }
   }

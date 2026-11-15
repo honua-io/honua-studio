@@ -41,7 +41,12 @@ curl --fail http://127.0.0.1:8080/config.json
 
 Changing `config.json` and restarting the container repoints the same image;
 no `npm` install or asset rebuild is involved. OIDC redirect URIs must include
-the externally visible Studio URL. The server must allow that origin.
+the externally visible Studio URL. The server must allow that origin: add it
+to the server's `Cors__AllowedOrigins__<n>` settings. Without it the browser
+blocks Studio's API calls, because the server sends no
+`Access-Control-Allow-Origin` header for an origin it does not list. If the
+issuer cannot be reached, Studio stays signed out and shows "Sign-in failed"
+with the discovery URL it tried.
 
 The tag release workflow runs the pinned Trivy scan and the full
 smoke suite ([`smoke-suite.yml`](../.github/workflows/smoke-suite.yml) — the

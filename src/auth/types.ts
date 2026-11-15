@@ -20,7 +20,7 @@ export interface AuthState {
   accessToken?: string;
   /** Absolute expiry (epoch ms) of `accessToken`, when known. */
   expiresAt?: number;
-  /** Set on "expired" — a human-readable reason surfaced by the UI. */
+  /** Set on "expired", or on "signed-out" after a failed sign-in — a human-readable reason surfaced by the UI. */
   error?: string;
 }
 

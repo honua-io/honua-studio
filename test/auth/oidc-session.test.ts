@@ -221,6 +221,28 @@ describe("OidcAuthSession", () => {
     expect(session.getState().status).toBe("signed-out");
   });
 
+  it("an unreachable issuer leaves a first sign-in signed out with the discovery reason, not expired", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const fetchFn = vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      });
+      const session = new OidcAuthSession(
+        { issuer: ISSUER, clientId: "studio-test", redirectUri: REDIRECT_URI, scopes: ["openid"] },
+        { fetchFn: fetchFn as unknown as typeof fetch, windowRef: createFakeWindow() },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+
+      await expect(session.signIn()).rejects.toThrow(/discovery document/);
+      expect(session.getState().status).toBe("signed-out");
+      expect(session.getState().error).toMatch(/Could not reach the OIDC issuer/);
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("isRedirectCallback() recognizes both a code+state success and an error callback", () => {
     const session = new OidcAuthSession(
       { issuer: ISSUER, clientId: "c", redirectUri: REDIRECT_URI, scopes: [] },

@@ -43,6 +43,8 @@ export interface ShellChromeOptions {
   readonly setShadowHtml: (html: string) => void;
   readonly connectedSignal: () => AbortSignal | undefined;
   readonly authStatus: () => AuthStatus;
+  /** Why the last sign-in failed, while still signed out. */
+  readonly authError?: () => string | undefined;
   readonly isDesignInspectorOpen: () => boolean;
   readonly onToggleManualElements?: () => void;
   readonly isHistoryBusy: () => boolean;
@@ -186,6 +188,12 @@ export class ShellChrome {
     const status = this.options.authStatus();
     const label = this.#control("auth-status");
     if (label) label.textContent = AUTH_STATUS_LABELS[status];
+    const failure = this.#control("auth-error");
+    if (failure) {
+      const reason = status === "signed-out" ? this.options.authError?.() : undefined;
+      failure.textContent = reason ? `Sign-in failed. ${reason}` : "";
+      failure.hidden = !reason;
+    }
     const signedIn = status === "fresh" || status === "refreshing";
     const signIn = this.#control("auth-signin");
     const signOut = this.#control("auth-signout");
@@ -231,6 +239,7 @@ export class ShellChrome {
           </nav>
           <div class="app-auth" data-testid="auth-controls" role="group" aria-label="Session">
             <span class="hn-muted" data-testid="auth-status"></span>
+            <span class="app-auth-error" data-testid="auth-error" role="alert" hidden></span>
             ${this.#authControlsMarkup()}
           </div>
           ${this.#compositionModeMarkup()}
@@ -326,7 +335,10 @@ export class ShellChrome {
         if (path) this.options.onNavigate(path, event);
       });
     }
-    this.#on(this.#control("auth-signin"), "click", () => void host.auth.signIn());
+    this.#on(this.#control("auth-signin"), "click", () => {
+      // The session records the failure in its state, which paintAuth shows; nothing else to handle here.
+      host.auth.signIn().catch(() => undefined);
+    });
     this.#on(this.#control("auth-signout"), "click", () => void host.auth.signOut());
     this.#bindLiveCompositionControls();
     this.#on(this.#control("design-inspector-toggle"), "click", () => {

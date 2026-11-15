@@ -12,6 +12,11 @@ describe("auth state machine (fresh / refresh / rotate / expire)", () => {
     expect(reduceAuthState(INITIAL_AUTH_STATE, { type: "sign-in-started" })).toEqual({ status: "signing-in" });
   });
 
+  it("sign-in-failed returns to signed-out and keeps the reason", () => {
+    const state = reduceAuthState({ status: "signing-in" }, { type: "sign-in-failed", error: "issuer unreachable" });
+    expect(state).toEqual({ status: "signed-out", error: "issuer unreachable" });
+  });
+
   it("callback-started moves to authenticating", () => {
     const state = reduceAuthState({ status: "signing-in" }, { type: "callback-started" });
     expect(state).toEqual({ status: "authenticating" });
