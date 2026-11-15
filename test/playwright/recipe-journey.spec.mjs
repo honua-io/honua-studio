@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
+import { evaluateRetained, startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
 async function boot(page, preview) {
   await page.goto(preview.url);
@@ -95,7 +95,7 @@ test("Explore binds actual data, filters map/table, accepts ordinary visual/chat
     await filter.selectOption("R-5");
     await expect(rows).toHaveCount(12);
     const before = await page.evaluate(() => structuredClone(window.__honuaStudioApp.composition.state));
-    const restored = await page.evaluate(async () => {
+    const restored = await evaluateRetained(page, async () => {
       const app = window.__honuaStudioApp;
       const version = await app.saveEditorVersion();
       window.__recipeVersion = version;
