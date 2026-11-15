@@ -9,7 +9,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer } from "./helpers.mjs";
+import { evaluateRetained, startPreviewServer } from "./helpers.mjs";
 
 test.use({ trace: "retain-on-failure" });
 
@@ -47,7 +47,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         });
       }, token);
 
-      await page.evaluate(() =>
+      await evaluateRetained(page, () =>
         window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district."),
       );
       await expect(page.getByTestId("studio-chat-tool-call")).toContainText("add_layer");
@@ -69,7 +69,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
       expect(afterFirstCall.draftId).toBeTruthy();
       expect(afterFirstCall.generation).toBeGreaterThan(1);
 
-      await page.evaluate(() =>
+      await evaluateRetained(page, () =>
         window.__honuaStudioChat.sendMessage("Now add a chart showing the count of parcels by zoning code."),
       );
       await expect(page.getByTestId("studio-chat-tool-call")).toHaveCount(2);
@@ -173,7 +173,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         });
       }, token);
 
-      await page.evaluate(() =>
+      await evaluateRetained(page, () =>
         window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district."),
       );
       await expect
@@ -181,7 +181,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
         .toEqual(["hi-parcels"]);
 
       // A TOC, then the real checkbox — no test-only command path.
-      await page.evaluate(() =>
+      await evaluateRetained(page, () =>
         window.__honuaStudioApp.toolCallOrchestrator.handleToolCall({
           toolName: "addWidget",
           arguments: { widget: { id: "layers", kind: "toc", title: "Layers" } },
@@ -203,7 +203,7 @@ test.describe("compose fixture journey through the real MCP client (standalone s
 
       // An unrelated composition mutation syncs the draft. The hidden layer
       // must stay hidden.
-      await page.evaluate(() =>
+      await evaluateRetained(page, () =>
         window.__honuaStudioApp.toolCallOrchestrator.handleToolCall({
           toolName: "setView",
           arguments: { view: { zoom: 9 } },

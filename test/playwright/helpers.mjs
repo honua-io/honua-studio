@@ -14,6 +14,48 @@ export async function waitForStudioApp(page) {
   await page.waitForFunction(() => Boolean(window.__honuaStudioApp));
 }
 
+/** Run async test operations without leaving CDP awaiting a collectible promise. */
+export async function evaluateRetained(page, operation, argument) {
+  const key = `__studioOperation_${crypto.randomUUID().replaceAll("-", "")}`;
+  const callback = await page.evaluateHandle(`(${operation.toString()})`);
+  try {
+    // CDP can collect Playwright's wrapper even when the operation's promise is
+    // rooted. Return synchronously, then use Playwright's rooted polling task.
+    await page.evaluate(
+      ({ callback, argument, key }) => {
+        const state = { done: false };
+        window[key] = state;
+        state.promise = Promise.resolve(callback(argument)).then(
+          (value) => {
+            state.value = value;
+            state.done = true;
+          },
+          (error) => {
+            state.error = error;
+            state.failed = true;
+            state.done = true;
+          },
+        );
+      },
+      { callback, argument, key },
+    );
+    const completed = await page.waitForFunction((key) => window[key].done, key);
+    await completed.dispose();
+    return await page.evaluate((key) => {
+      const state = window[key];
+      if (state.failed) throw state.error;
+      return state.value;
+    }, key);
+  } finally {
+    await page
+      .evaluate((key) => {
+        delete window[key];
+      }, key)
+      .catch(() => {});
+    await callback.dispose();
+  }
+}
+
 /** Signing in loads the catalog, and a new catalog restarts the map view: wait for the view that renders it. */
 export async function waitForSignedInMap(page) {
   await page.waitForFunction(
