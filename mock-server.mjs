@@ -275,6 +275,20 @@ function proposalStatusPayload(proposal) {
 }
 
 /** Shares the lifecycle store so a tool mutation is the record the REST routes read. */
+function catalogLayerRecord(dataset) {
+  const record = {
+    serviceId: dataset.id,
+    serviceName: dataset.serviceName ?? dataset.id,
+    name: dataset.title,
+    type: dataset.geometryType === "Raster" ? "Raster Layer" : "Feature Layer",
+    geometryType: dataset.geometryType,
+  };
+  if (dataset.serviceLayerIndex !== undefined) record.serviceLayerIndex = dataset.serviceLayerIndex;
+  if (dataset.layerId !== undefined) record.layerId = dataset.layerId;
+  else if (dataset.serviceLayerIndex === undefined) record.layerId = 0;
+  return record;
+}
+
 function createMcpDispatcher(store, catalogDatasets) {
   const drafts = store.drafts;
 
@@ -364,14 +378,7 @@ function createMcpDispatcher(store, catalogDatasets) {
       if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1) {
         return toolError("invalid_argument", "Invalid catalog pagination.");
       }
-      const layers = catalogDatasets.slice(offset, offset + limit).map((dataset) => ({
-        serviceId: dataset.id,
-        serviceName: dataset.id,
-        layerId: 0,
-        name: dataset.title,
-        type: dataset.geometryType === "Raster" ? "Raster Layer" : "Feature Layer",
-        geometryType: dataset.geometryType,
-      }));
+      const layers = catalogDatasets.slice(offset, offset + limit).map(catalogLayerRecord);
       const hasMore = offset + layers.length < catalogDatasets.length;
       return toolSuccess({
         layerCount: layers.length,
@@ -2266,7 +2273,7 @@ function unauthorized(res) {
   json(res, 401, { error: { code: 401, message: "Unauthorized" } }, { "www-authenticate": "Bearer" });
 }
 
-export async function startMockServer({ port = 0, model = "fixture" } = {}) {
+export async function startMockServer({ port = 0, model = "fixture", extraDatasets = [] } = {}) {
   if (model !== "fixture" && model !== "byom-preview") {
     throw new Error('Mock model must be "fixture" or "byom-preview".');
   }
@@ -2283,7 +2290,7 @@ export async function startMockServer({ port = 0, model = "fixture" } = {}) {
   // job output on job completion — never mutates the shared module-level
   // CATALOG constant itself, so one test's completed job can never leak a
   // registered dataset into a different `startMockServer()` instance.
-  const catalogDatasets = CATALOG.datasets.map((dataset) => ({ ...dataset }));
+  const catalogDatasets = [...CATALOG.datasets, ...extraDatasets].map((dataset) => ({ ...dataset }));
   const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
   // Live `Mcp-Session-Id`s for this server. A session is bound at initialize
   // (docs/guides/connect/ai-agents-mcp.md).
