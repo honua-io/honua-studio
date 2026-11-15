@@ -17,7 +17,6 @@ export async function waitForStudioApp(page) {
 /** Run async test operations without leaving CDP awaiting a collectible promise. */
 export async function evaluateRetained(page, operation, argument) {
   const key = `__studioOperation_${crypto.randomUUID().replaceAll("-", "")}`;
-  // Materialize the trusted test callback without invoking it yet.
   const callback = await page.evaluateHandle(`(${operation.toString()})`);
   try {
     // CDP can collect Playwright's wrapper even when the operation's promise is
