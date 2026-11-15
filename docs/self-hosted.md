@@ -5,12 +5,13 @@ Studio is packaged as both a static tarball and the container image
 [`release.yml`](../.github/workflows/release.yml) for each `v*` release
 ([how a release is cut](preview-release-posture.md#cutting-a-release)).
 
-> **No release has been cut yet.** No `v*` tag exists, so there is nothing to
-> pull from GHCR and no release asset to download today. Until the first tag,
-> build the image yourself from this checkout (`docker build -t honua-studio .`)
-> and substitute that tag for the `ghcr.io/...` one below; everything else on
-> this page applies unchanged, and the clean-machine path is what CI's
-> container smoke runs on every pull request.
+Published versions and their assets are on the
+[Releases page](https://github.com/honua-io/honua-studio/releases). To run an
+unreleased checkout instead, build the image yourself
+(`docker build -t honua-studio .`), use `IMAGE=honua-studio` in place of the
+first line below and skip `docker pull`; everything else on this page applies
+unchanged, and the clean-machine path is what CI's container smoke runs on
+every pull request.
 
 The same immutable assets run in every environment; deployment settings are read
 from `/config.json` on each page load with `Cache-Control: no-store`.
@@ -18,13 +19,15 @@ from `/config.json` on each page load with `Cache-Control: no-store`.
 Copy `deploy/config.example.json` to `config.json` and set the public server
 URL and public OIDC client values. The file must not contain provider keys,
 client secrets, admin tokens, or other credentials. `serverBaseUrl` is the
-REST API root (commonly `/api`), while `mcpBaseUrl` is the separately
-configured base for the unprefixed `/mcp` endpoint. In the supported
+REST API root including the server's `/api` prefix (for example
+`https://honua.example.com/api`; Studio requests `<serverBaseUrl>/v1/studio/...`),
+while `mcpBaseUrl` is the separately configured base for the unprefixed `/mcp`
+endpoint. In the supported
 `server-proxy` model mode, the server owns model-provider credentials.
 Client-direct model transport is not supported by this contract version.
 
-`$VERSION` below is the release tag, for example `v2026.1.1`; until the first
-tag is cut, set `IMAGE=honua-studio` from a local `docker build` instead.
+`$VERSION` below is the release tag, for example `v0.5.0`; the image tag keeps
+the leading `v`.
 
 ```sh
 IMAGE="ghcr.io/honua-io/honua-studio:$VERSION"
