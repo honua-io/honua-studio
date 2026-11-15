@@ -1,4 +1,8 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it } from "vitest";
+
+import { fetchStudioAiCapabilities } from "../src/chat/capabilities-client.js";
 
 import {
   installRuntimeConfig,
@@ -54,5 +58,23 @@ describe("runtime config", () => {
   it("fails closed when the deployment config cannot be loaded", async () => {
     const fetchImpl = (async () => new Response("missing", { status: 404 })) as typeof fetch;
     await expect(loadRuntimeConfig(fetchImpl)).rejects.toThrow(/404/);
+  });
+
+  it("ships an example whose REST base reaches the server's /api/v1/studio routes and root /mcp", async () => {
+    const example = parseRuntimeConfig(
+      JSON.parse(readFileSync(new URL("../deploy/config.example.json", import.meta.url), "utf8")),
+    );
+    const requested: string[] = [];
+    const fetchImpl = (async (input: string) => {
+      requested.push(input);
+      return new Response(JSON.stringify({ success: true, data: { enabled: false, providers: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    await fetchStudioAiCapabilities({ baseUrl: example.serverBaseUrl, fetchImpl });
+    expect(requested.map((url) => new URL(url).pathname)).toEqual(["/api/v1/studio/ai/capabilities"]);
+    // MCP is unprefixed on the server, so its base must not carry /api.
+    expect(new URL(example.mcpBaseUrl).pathname).toBe("/");
   });
 });
