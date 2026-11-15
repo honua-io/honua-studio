@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/honua-io/honua-studio/compare/v0.4.0...v0.5.0) (2026-11-15)
+
+
+### Features
+
+* **styles:** mount authorized style suggestions beside the layer style editor ([#263](https://github.com/honua-io/honua-studio/issues/263)) ([df79af0](https://github.com/honua-io/honua-studio/commit/df79af07b596281d283ce38296fe97b41cb447df))
+
+
+### Bug Fixes
+
+* accept server layer indexes in the Studio catalog ([#212](https://github.com/honua-io/honua-studio/issues/212)) ([#269](https://github.com/honua-io/honua-studio/issues/269)) ([09367ed](https://github.com/honua-io/honua-studio/commit/09367edbb9fd3ef806dc7afef3d2636025c8eaf5))
+* revalidate queued style suggestions and discard previews ([d8858ba](https://github.com/honua-io/honua-studio/commit/d8858ba9145cbef9ca6a068aa641c992e7030277))
+
 ## [0.4.0](https://github.com/honua-io/honua-studio/compare/v0.3.0...v0.4.0) (2026-11-14)
 
 
