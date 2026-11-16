@@ -87,7 +87,7 @@ test("valid publication JSON cannot certify a viewer that does not render its ma
       );
     } else {
       response.setHeader("content-type", "text/html");
-      response.end("<p data-map-status>Map failed.</p>");
+      response.end("<p data-map-status>Map ready.</p><div data-map-canvas></div>");
     }
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
