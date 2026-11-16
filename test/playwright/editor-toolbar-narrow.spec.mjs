@@ -72,35 +72,39 @@ async function readToolbarLayout(page) {
       overlapsCanvas: intersects(control.box, canvas) || control.text.some((rect) => intersects(rect, canvas)),
     });
   }
-  const pageOverflows = await page.evaluate(
-    () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-  );
-  return { controls, pageOverflows };
+  return { controls };
 }
 
 async function expectToolbarClearOfCanvas(page) {
   const layout = await readToolbarLayout(page);
   expect(layout.controls.filter((control) => control.textOverflowsControl || control.overlapsCanvas)).toEqual([]);
-  expect(layout.pageOverflows).toBe(false);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1))
+    .toBe(false);
   return layout;
 }
 
 test.describe("workspace editor toolbar at phone width", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("keeps every label clear of the canvas", async ({ workspaceEditor: page }) => {
-    for (const [testId, label] of TOOLBAR_CONTROLS) {
-      await expect(page.getByTestId(testId)).toHaveText(label);
-      await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
-    }
-    await expectToolbarClearOfCanvas(page);
-    await page.getByTestId("design-inspector-toggle").focus();
-    await expect(page.getByTestId("design-inspector-toggle")).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByTestId("manual-elements-toggle")).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByTestId("recipe-toggle")).toBeFocused();
-  });
+  for (const rootFontSize of [16, 32]) {
+    test(`keeps every label clear of the canvas at ${rootFontSize}px root text`, async ({ workspaceEditor: page }) => {
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = `${size}px`;
+      }, rootFontSize);
+      for (const [testId, label] of TOOLBAR_CONTROLS) {
+        await expect(page.getByTestId(testId)).toHaveText(label);
+        await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
+      }
+      await expectToolbarClearOfCanvas(page);
+      await page.getByTestId("design-inspector-toggle").focus();
+      await expect(page.getByTestId("design-inspector-toggle")).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByTestId("manual-elements-toggle")).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByTestId("recipe-toggle")).toBeFocused();
+    });
+  }
 });
 
 test.describe("workspace editor toolbar at desktop width", () => {

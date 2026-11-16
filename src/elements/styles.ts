@@ -170,11 +170,18 @@ export function appShellStyles(): string {
     /* honua-studio#23 REQ-004 — the live-composition control group. */
     .app-composition-mode {
       display: flex; flex-wrap: wrap; align-items: center; gap: var(--hn-space-2, 8px);
-      /* A zero minimum lets the row shrink so whole controls wrap, instead of their labels. */
+      /* Whole controls wrap first; oversized labels can wrap inside the available width. */
       position: relative; min-width: 0; max-width: 100%;
     }
     .app-composition-mode > .hn-btn,
-    .app-composition-mode > .hn-badge { flex: 0 0 auto; white-space: nowrap; }
+    .app-composition-mode > .hn-badge {
+      flex: 0 1 auto; min-width: 0; max-width: 100%;
+      white-space: normal; overflow-wrap: anywhere;
+    }
+    .app-composition-mode > .hn-btn {
+      height: auto;
+      min-height: calc(var(--hn-control-height, 2.25rem) - var(--hn-space-2, 8px));
+    }
     .app-composition-mode .hn-badge[data-mode="live"] {
       background: var(--hn-accent-tint, #e3f1ea); color: var(--hn-accent, #0b6b4d);
     }
@@ -323,7 +330,7 @@ export function lifecycleStyles(): string {
 export function canvasStyles(): string {
   return `
     .canvas { display: flex; flex-direction: column; gap: var(--hn-space-2, 8px); min-height: 12rem; }
-    .canvas-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--hn-space-3, 12px); }
+    .canvas-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--hn-space-3, 12px); }
     .canvas-surfaces { display: flex; gap: var(--hn-space-1, 4px); }
     /* honua-studio#23: the live MapLibre surface. A WebGL canvas needs a real
        height — a flex child that collapses to 0 renders nothing at all — so
