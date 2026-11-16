@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 
-import { liveApprovalConfiguration } from "../../scripts/lib/live-approval-config.mjs";
+import { liveApprovalConfiguration, validateApprovalUrl } from "../../scripts/lib/live-approval-config.mjs";
 import { diagnosticRedactor, writeDiagnostic } from "../../scripts/lib/live-diagnostics.mjs";
 
 export { liveApprovalConfiguration };
@@ -63,11 +63,8 @@ async function recordApprovalFailure(page, { configuration, stage, error }) {
 }
 
 export async function approvePasswordPublication(page, { consoleUrl, proposalId, password }) {
+  validateApprovalUrl("consoleUrl", consoleUrl);
   const base = new URL(`${consoleUrl.replace(/\/$/, "")}/`);
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
-  if ((base.protocol !== "https:" && !(base.protocol === "http:" && loopback)) || base.username || base.password) {
-    throw new Error("Password approval requires HTTPS or a loopback Console URL without credentials.");
-  }
   await page.goto(new URL("auth/signin", base).href);
   const passwordInput = page.locator('input[type="password"]');
   await expect(passwordInput).toBeVisible();

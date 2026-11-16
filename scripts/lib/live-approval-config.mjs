@@ -20,7 +20,7 @@ export function liveApprovalConfiguration(environment = process.env) {
   return configuration;
 }
 
-function validateApprovalUrl(key, value) {
+export function validateApprovalUrl(key, value) {
   const url = new URL(value);
   const localConsole =
     key === "consoleUrl" && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);

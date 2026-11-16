@@ -168,3 +168,16 @@ test("password approval never fills credentials after an off-origin redirect", a
   await expect(approvePasswordPublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow();
   await expect(page.locator('input[type="password"]')).toHaveValue("");
 });
+
+for (const suffix of ["?tenant=a", "#approval"]) {
+  test(`password approval rejects a Console URL with ${suffix}`, async ({ page }) => {
+    await expect(
+      approvePasswordPublication(page, {
+        ...credentials,
+        consoleUrl: `https://console.test/console${suffix}`,
+        proposalId: "target-proposal",
+      }),
+    ).rejects.toThrow(/without credentials, query or fragment/);
+    expect(page.url()).toBe("about:blank");
+  });
+}
