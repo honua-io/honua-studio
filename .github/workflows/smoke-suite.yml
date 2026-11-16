@@ -25,7 +25,7 @@ permissions:
 
 env:
   NODE_VERSION: "22.23.3"
-  DOTNET_VERSION: "10.0.x"
+  DOTNET_VERSION: "11.0.x"
 
 jobs:
   container-smoke:

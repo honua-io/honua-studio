@@ -7,8 +7,7 @@ interactive render modes — SSR/enhanced-nav DOM patching, render-mode
 re-instantiation, router URL ownership, and focus across shadow DOM are all
 real, Blazor-specific integration risks a synthetic DOM test can't fully
 stand in for. This is a minimal, real `dotnet new blazor` project
-(`StudioHost/`, .NET 10 SDK — the latest LTS available when this was built;
-check `dotnet --list-sdks`) that hosts the built Studio elements at
+(`StudioHost/`, .NET 11 SDK; check `dotnet --list-sdks`) that hosts the built Studio elements at
 `/studio`, driven by `test/playwright/blazor-host.spec.mjs`.
 
 This is a **de-risking harness**, not the console integration itself
