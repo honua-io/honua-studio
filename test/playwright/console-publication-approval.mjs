@@ -41,23 +41,8 @@ export async function approveLivePublication(page, options) {
       .click();
     stage = "Console session callback";
     await page.waitForURL(inbox.href, { timeout: 60_000 });
-    await expect(page.getByRole("heading", { name: "Approval inbox", exact: true })).toBeVisible();
-    const panel = page.locator(".proposal-approval-panel").filter({
-      has: page.getByRole("heading", { name: options.proposalId, exact: true }),
-    });
-    stage = "pending proposal review";
-    await expect(panel).toHaveAttribute("data-proposal-id", options.proposalId);
-    await expect(panel.locator("[data-proposal-status]")).toHaveAttribute("data-proposal-status", "AwaitingApproval");
-    const approve = panel.locator("[data-proposal-approve]");
-    await expect(approve).toBeEnabled();
     stage = "human approval";
-    await approve.click();
-    await expect(panel.locator("[data-proposal-status]")).toHaveAttribute(
-      "data-proposal-status",
-      /^(Succeeded|Failed|Rejected|Cancelled)$/,
-      { timeout: 60_000 },
-    );
-    await expect(panel.locator("[data-proposal-status]")).toHaveAttribute("data-proposal-status", "Succeeded");
+    await approvePublicationInInbox(page, options.proposalId);
   } catch (error) {
     await recordApprovalFailure(page, { configuration, stage, error });
     throw new Error(`Console publication approval failed during ${stage}.`);
@@ -75,4 +60,45 @@ async function recordApprovalFailure(page, { configuration, stage, error }) {
     `Stage: ${stage}\n${error.message}\n\n${snapshot}`,
     redact,
   );
+}
+
+export async function approvePasswordPublication(page, { consoleUrl, proposalId, password }) {
+  const base = new URL(`${consoleUrl.replace(/\/$/, "")}/`);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
+  if ((base.protocol !== "https:" && !(base.protocol === "http:" && loopback)) || base.username || base.password) {
+    throw new Error("Password approval requires HTTPS or a loopback Console URL without credentials.");
+  }
+  await page.goto(new URL("auth/signin", base).href);
+  const passwordInput = page.locator('input[type="password"]');
+  await expect(passwordInput).toBeVisible();
+  expect(new URL(page.url()).origin).toBe(base.origin);
+  const session = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin/auth/session" && response.request().method() === "POST",
+  );
+  await passwordInput.fill(password);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  expect((await session).status()).toBe(204);
+  const inbox = new URL("inbox", base);
+  inbox.searchParams.set("proposalId", proposalId);
+  await page.goto(inbox.href);
+  await approvePublicationInInbox(page, proposalId);
+}
+
+async function approvePublicationInInbox(page, proposalId) {
+  await expect(page.getByRole("heading", { name: /^(Approval inbox|Approvals)$/ })).toBeVisible({ timeout: 30_000 });
+  const panel = page.locator(".proposal-approval-panel").filter({
+    has: page.getByRole("heading", { name: proposalId, exact: true }),
+  });
+  await expect(panel).toHaveAttribute("data-proposal-id", proposalId);
+  await expect(panel.locator("[data-proposal-status]")).toHaveAttribute("data-proposal-status", "AwaitingApproval");
+  const approve = panel.locator("[data-proposal-approve]");
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  await expect(panel.locator("[data-proposal-status]")).toHaveAttribute(
+    "data-proposal-status",
+    /^(Succeeded|Failed|Rejected|Cancelled)$/,
+    { timeout: 60_000 },
+  );
+  await expect(panel.locator("[data-proposal-status]")).toHaveAttribute("data-proposal-status", "Succeeded");
 }
