@@ -16,6 +16,11 @@ import { collectPlaywrightContexts, writeDiagnostic } from "./lib/live-diagnosti
 
 const root = resolve(".tmp/live-compose");
 const lock = JSON.parse(readFileSync(new URL("./live-compose-images.json", import.meta.url), "utf8"));
+// A digest-pinned shell for the identity file permissions: the Studio image base.
+const shellImage = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8").match(
+  /^FROM (\S+@sha256:[0-9a-f]{64})$/m,
+)?.[1];
+if (!shellImage) throw new Error("Dockerfile must start from a digest-pinned base image.");
 validateImageLock(lock);
 
 function run(command, args, { cwd = root, maxBuffer = 1024 * 1024 } = {}) {
@@ -133,7 +138,7 @@ function createIdentityCertificate() {
     `${root}/identity:/identity`,
     "--entrypoint",
     "sh",
-    "redis:7.4-alpine",
+    shellImage,
     "-c",
     `chgrp -R 1001 /identity && chmod 640 /identity/certs/kc.key /identity/realm/${realmName}.json`,
   ]);
