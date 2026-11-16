@@ -43,12 +43,7 @@ for (const { width, fontSize, columns } of [
       const workspace = element.shadowRoot.querySelector(".workspace");
       const panels = [...workspace.children].map((panel) => {
         const box = panel.getBoundingClientRect();
-        return {
-          top: box.top,
-          left: box.left,
-          right: box.right,
-          overflow: panel.scrollWidth - panel.clientWidth,
-        };
+        return { top: box.top, left: box.left, right: box.right, overflow: panel.scrollWidth - panel.clientWidth };
       });
       return {
         host: { left: host.left, right: host.right },
