@@ -1,6 +1,10 @@
 import { readFileSync, rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
+import {
+  approveLivePublication,
+  approvePasswordPublication,
+  liveApprovalConfiguration,
+} from "./console-publication-approval.mjs";
 
 const credentials = {
   consoleUrl: "https://console.test/",
@@ -122,3 +126,58 @@ test("missing approval credentials fail before opening the Console", async ({ pa
   ).rejects.toThrow(/HONUA_LIVE_APPROVER_PASSWORD/);
   expect(page.url()).toBe("about:blank");
 });
+
+async function installPasswordFixture(page, status) {
+  const decisions = await installConsoleFixture(page, { status });
+  await page.route("https://console.test/auth/signin", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<form onsubmit="event.preventDefault(); fetch('/api/v1/admin/auth/session', {
+      method: 'POST', body: document.querySelector('input').value
+    })"><input type="password"><button>Continue</button></form>`,
+    }),
+  );
+  await page.route("https://console.test/api/v1/admin/auth/session", (route) => {
+    expect(route.request().postData()).toBe(credentials.password);
+    return route.fulfill({ status: 204 });
+  });
+  return decisions;
+}
+
+test("password approval opens a browser session and approves only the selected proposal", async ({ page }) => {
+  const decisions = await installPasswordFixture(page, "Succeeded");
+  await approvePasswordPublication(page, { ...credentials, proposalId: "target-proposal" });
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0].proposal).toBe("target-proposal");
+  expect(decisions[0].headers.authorization).toBeUndefined();
+  expect(decisions[0].headers["x-api-key"]).toBeUndefined();
+});
+
+test("password approval refuses a failed proposal", async ({ page }) => {
+  await installPasswordFixture(page, "Failed");
+  await expect(approvePasswordPublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow();
+});
+
+test("password approval never fills credentials after an off-origin redirect", async ({ page }) => {
+  await page.route("https://console.test/auth/signin", (route) =>
+    navigateSyntheticOrigin(route, "https://unexpected.test/signin"),
+  );
+  await page.route("https://unexpected.test/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: '<input type="password">' }),
+  );
+  await expect(approvePasswordPublication(page, { ...credentials, proposalId: "target-proposal" })).rejects.toThrow();
+  await expect(page.locator('input[type="password"]')).toHaveValue("");
+});
+
+for (const suffix of ["?tenant=a", "#approval"]) {
+  test(`password approval rejects a Console URL with ${suffix}`, async ({ page }) => {
+    await expect(
+      approvePasswordPublication(page, {
+        ...credentials,
+        consoleUrl: `https://console.test/console${suffix}`,
+        proposalId: "target-proposal",
+      }),
+    ).rejects.toThrow(/without credentials, query or fragment/);
+    expect(page.url()).toBe("about:blank");
+  });
+}

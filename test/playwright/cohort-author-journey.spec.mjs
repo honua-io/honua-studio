@@ -1,9 +1,11 @@
 /** Non-coder authoring against an installed verification cohort. No model call. */
 import { readFileSync } from "node:fs";
 
-import { chromium, expect, request as playwrightRequest, test } from "@playwright/test";
+import { expect, request as playwrightRequest, test } from "@playwright/test";
 
 import { ensureCohortAuthorLayer } from "../../scripts/cohort-author-layer.mjs";
+import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
+import { approvePasswordPublication } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 
 const enabled = process.env.HONUA_COHORT_AUTHOR === "1";
@@ -17,8 +19,9 @@ test.describe("cohort author journey @cohort", () => {
     "Cohort authoring runs only with HONUA_COHORT_AUTHOR=1, HONUA_LIVE_BASE_URL, HONUA_LIVE_CONSOLE_URL and HONUA_COHORT_PASSWORD_FILE.",
   );
 
-  test("a non-coder builds a map and app on a published layer and a password session cannot release it", async ({
+  test("a non-coder builds a map and app on a published layer and a password session publishes the exact version", async ({
     page,
+    browser,
   }) => {
     test.setTimeout(300_000);
     const apiKey = readFileSync(passwordFile, "utf8").trim();
@@ -97,16 +100,37 @@ test.describe("cohort author journey @cohort", () => {
       const pending = (await response.json()).data;
       expect(pending.status).toBe(4);
       expect(pending.proposalId).toBeTruthy();
+      expect(pending.resourceIds.versionId).toBe(versionId);
+      const { itemId, requestId } = pending.resourceIds;
+      expect(itemId).toBeTruthy();
+      expect(requestId).toBeTruthy();
       await expect(page.getByTestId("lifecycle-panel-message")).toContainText("awaiting separate human approval");
 
       const route = `/${packageKey}`;
       // The cohort Console returns its HTML shell for unknown /console routes. The publication
       // pointer is the server route, which stays absent until a person approves.
       expect(await publishedStatus(route)).toBe(404);
-      const review = await passwordApprovalReview(pending.proposalId, password);
-      expect(review.status).toBe(403);
-      expect(review.detail).toContain("interactive OIDC session");
-      expect(await publishedStatus(route)).toBe(404);
+      const approvalContext = await browser.newContext();
+      try {
+        const approvalPage = await approvalContext.newPage();
+        await approvePasswordPublication(approvalPage, { consoleUrl, proposalId: pending.proposalId, password });
+      } finally {
+        await approvalContext.close();
+      }
+      const receiptResponse = await fetch(
+        `${liveBaseUrl}/v1/studio/content-items/${itemId}/versions/${versionId}/publish-requests/${requestId}`,
+        { headers: { "x-api-key": apiKey } },
+      );
+      expect(receiptResponse.status).toBe(200);
+      const receipt = (await receiptResponse.json()).data;
+      expect(receipt).toMatchObject({ status: "accepted", versionId });
+      const published = await publishedDocument(route);
+      expect(published.status).toBe(200);
+      expect(published.body.success).toBe(true);
+      expect(published.body.data).toMatchObject({ itemId, versionId, publicationId: requestId, visibility: "public" });
+      expect(published.body.data.family).toBe("map");
+      expect(published.body.data.envelope.body.layers).not.toHaveLength(0);
+      await verifyAnonymousPublication(browser, { consoleUrl, route, itemId, versionId, requestId });
     } finally {
       if (draftId) {
         await fetch(`${liveBaseUrl}/v1/studio/package-drafts/${draftId}`, {
@@ -132,41 +156,5 @@ async function publishedDocument(route) {
     return { status: response.status(), body };
   } finally {
     await api.dispose();
-  }
-}
-
-async function passwordApprovalReview(proposalId, password) {
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ ignoreHTTPSErrors: true });
-  const page = await context.newPage();
-  try {
-    await page.goto(`${consoleUrl}/auth/signin`);
-    const passwordInput = page.locator('input[type="password"]');
-    await expect(passwordInput).toBeVisible();
-    const session = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === "/api/v1/admin/auth/session" && response.request().method() === "POST",
-    );
-    await passwordInput.fill(password);
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    expect((await session).status()).toBe(204);
-    const inbox = new URL(`${consoleUrl}/inbox`);
-    inbox.searchParams.set("proposalId", proposalId);
-    await page.goto(inbox.href);
-    const heading = page.getByRole("heading", { name: /^(Approval inbox|Approvals)$/ });
-    await expect(heading).toBeVisible({ timeout: 30_000 });
-    const panel = page.locator(".proposal-approval-panel").filter({
-      has: page.getByRole("heading", { name: proposalId, exact: true }),
-    });
-    await expect(panel.locator("[data-proposal-approve]")).toBeEnabled();
-    return await page.evaluate(async (id) => {
-      const reviewResponse = await fetch(`/api/v1/admin/proposals/${id}/approval-review`, {
-        credentials: "same-origin",
-      });
-      const detail = (await reviewResponse.text()).slice(0, 240);
-      return { status: reviewResponse.status, detail };
-    }, proposalId);
-  } finally {
-    await browser.close();
   }
 }

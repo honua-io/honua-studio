@@ -66,3 +66,39 @@ test("anonymous witness checks the exact approved version, rendered canvas and a
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("valid publication JSON cannot certify a viewer that does not render its map", async ({ browser }) => {
+  const { createServer } = await import("node:http");
+  const server = createServer((request, response) => {
+    if (request.url.startsWith("/api/studio/viewer/published/")) {
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          success: true,
+          data: {
+            itemId: publication.itemId,
+            versionId: publication.versionId,
+            publicationId: publication.requestId,
+            visibility: "public",
+            family: "map",
+            envelope: { body: liveMapBody("qualification-map") },
+          },
+        }),
+      );
+    } else {
+      response.setHeader("content-type", "text/html");
+      response.end("<p data-map-status>Map ready.</p><div data-map-canvas></div>");
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await expect(
+      verifyAnonymousPublication(browser, {
+        ...publication,
+        consoleUrl: `http://127.0.0.1:${server.address().port}`,
+      }),
+    ).rejects.toThrow();
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
