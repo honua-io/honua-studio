@@ -1,9 +1,10 @@
 /** Non-coder authoring against an installed verification cohort. No model call. */
 import { readFileSync } from "node:fs";
 
-import { chromium, expect, request as playwrightRequest, test } from "@playwright/test";
+import { expect, request as playwrightRequest, test } from "@playwright/test";
 
 import { ensureCohortAuthorLayer } from "../../scripts/cohort-author-layer.mjs";
+import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approvePasswordPublication } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 
@@ -20,6 +21,7 @@ test.describe("cohort author journey @cohort", () => {
 
   test("a non-coder builds a map and app on a published layer and a password session publishes the exact version", async ({
     page,
+    browser,
   }) => {
     test.setTimeout(300_000);
     const apiKey = readFileSync(passwordFile, "utf8").trim();
@@ -108,13 +110,12 @@ test.describe("cohort author journey @cohort", () => {
       // The cohort Console returns its HTML shell for unknown /console routes. The publication
       // pointer is the server route, which stays absent until a person approves.
       expect(await publishedStatus(route)).toBe(404);
-      const browser = await chromium.launch();
+      const approvalContext = await browser.newContext();
       try {
-        const context = await browser.newContext();
-        const approvalPage = await context.newPage();
+        const approvalPage = await approvalContext.newPage();
         await approvePasswordPublication(approvalPage, { consoleUrl, proposalId: pending.proposalId, password });
       } finally {
-        await browser.close();
+        await approvalContext.close();
       }
       const receiptResponse = await fetch(
         `${liveBaseUrl}/v1/studio/content-items/${itemId}/versions/${versionId}/publish-requests/${requestId}`,
@@ -129,6 +130,7 @@ test.describe("cohort author journey @cohort", () => {
       expect(published.body.data).toMatchObject({ itemId, versionId, publicationId: requestId, visibility: "public" });
       expect(published.body.data.family).toBe("map");
       expect(published.body.data.envelope.body.layers).not.toHaveLength(0);
+      await verifyAnonymousPublication(browser, { consoleUrl, route, itemId, versionId, requestId });
     } finally {
       if (draftId) {
         await fetch(`${liveBaseUrl}/v1/studio/package-drafts/${draftId}`, {
