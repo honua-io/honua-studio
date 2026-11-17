@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.1](https://github.com/honua-io/honua-studio/compare/v0.5.0...v0.5.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **auth:** report an unreachable OIDC issuer as a sign-in failure, not an expired session ([#277](https://github.com/honua-io/honua-studio/issues/277)) ([1f772c7](https://github.com/honua-io/honua-studio/commit/1f772c764333dc7aa0a1ce001bd4ede34d777c25))
+* **chat:** keep catalog titles and layer ids as data in the agent prompt ([7161a3e](https://github.com/honua-io/honua-studio/commit/7161a3e260aa62e71a001ea71e45bd409335392a))
+* **chat:** keep catalog titles and layer ids as data in the agent prompt ([129d1c2](https://github.com/honua-io/honua-studio/commit/129d1c2e90f7a73ebaae1410a3dad89c2ef7bccf))
+* **docs:** self-hosted example targets /api/v1/studio; executable docs ([#272](https://github.com/honua-io/honua-studio/issues/272)) ([884a11c](https://github.com/honua-io/honua-studio/commit/884a11c044966676843499a5d253c71ed3c465c8))
+* **editor:** contain toolbar at enlarged mobile text ([#287](https://github.com/honua-io/honua-studio/issues/287)) ([038bf3c](https://github.com/honua-io/honua-studio/commit/038bf3ca06e8ce363912af1fb902c8dcf153603a))
+* **processes:** fit narrow hosts and enlarged text ([#285](https://github.com/honua-io/honua-studio/issues/285)) ([112b192](https://github.com/honua-io/honua-studio/commit/112b1927f831f7fd8ac0601207007c87cef3ce1b))
+* **release:** ship LICENSE and third-party notices in the Studio image ([04f1d46](https://github.com/honua-io/honua-studio/commit/04f1d46c474f7072755fa074b1e8715d7a118655))
+* **release:** ship LICENSE and third-party notices in the Studio image ([4ad31df](https://github.com/honua-io/honua-studio/commit/4ad31df0726d9815bf6cb16d86cbb6ef2f923841))
+* **release:** vendor missing licence texts and share the notices plugin ([2dcadd7](https://github.com/honua-io/honua-studio/commit/2dcadd7a7efab7704173432a2a3d6eb40922393c))
+
 ## [0.5.0](https://github.com/honua-io/honua-studio/compare/v0.4.0...v0.5.0) (2026-11-15)
 
 
