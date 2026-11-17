@@ -85,25 +85,26 @@ Configuration forms for every agent action and the installed Build journey remai
 
 ## Status
 
-**v0.1 preview — self-hosted, bring your own model. Run it from source.**
+**Self-hosted Preview, bring your own model.** Run a [published release](https://github.com/honua-io/honua-studio/releases)
+(latest `v0.5.1`) or build from source.
 
 The 2026.1 browser Preview gates are packaging integrity, security, runtime
 configuration, and the in-repo browser and embed smokes. Hosted demo and
 real-model journeys are separate from those packaging gates; rc.2 requires live proof. The 2026.2 graduation checklist is
 [`docs/preview-release-posture.md`](docs/preview-release-posture.md).
 
-Recorded default-branch fixture evidence, at `5ba4acc` (historical, not candidate qualification):
+Recorded default-branch fixture evidence, at `4d52431` (not candidate qualification):
 
-- [CI run 42947075068](https://github.com/honua-io/honua-studio/actions/runs/42947075068)
-  passed typecheck, style, build, 1,797 Vitest tests across 147 files, and 52 Node
+- [CI run 43912181337](https://github.com/honua-io/honua-studio/actions/runs/43912181337)
+  passed typecheck, style, build, 1,906 Vitest tests across 157 files, and 53 Node
   live-harness contracts.
-- [Smoke run 42947074965](https://github.com/honua-io/honua-studio/actions/runs/42947074965)
+- [Smoke run 43912181304](https://github.com/honua-io/honua-studio/actions/runs/43912181304)
   passed the container, browser, production Console-assets and Blazor jobs. The browser
-  job reported 50 passed. Console assets reported six passed and Blazor reported six passed.
+  job reported 65 passed. Console assets reported seven passed and Blazor reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Demo canary 43639924006](https://github.com/honua-io/honua-studio/actions/runs/43639924006),
-  at `ab7eb254` on 2026-11-14, reported **three passed, three failed**, with retries disabled,
-  in 41.8 seconds. Boot and scripted MCP composition passed. Publication stopped because
+- [Demo canary 43987714041](https://github.com/honua-io/honua-studio/actions/runs/43987714041),
+  at `4d52431` on 2026-11-17, reported **three passed, three failed**, with retries disabled.
+  Boot, style and filters, and scripted MCP composition passed. Publication stopped because
   `HONUA_LIVE_CONSOLE_URL` was absent. Both real-model journeys refused invocation before a
   provider call: readiness advertised only a Bedrock adapter, with no allowed Opus 5.5 or Sol
   provider. The canary has failed nightly since 2026-10-22. The stale immediate-`Published`
@@ -206,7 +207,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Chat console, activity log, deterministic fixture-conversation mode | `src/chat/`, `src/composition/fixture-conversation.ts` | #14 |
 | SDK-owned live agent loop over honua-server's Studio AI proxy — declares tools, executes model-selected calls, and feeds results back | `@honua/sdk-js/studio-agent`, `src/elements/studio-chat-element.ts` | #40 |
 | Composition engine — intent reducer, preview, undo/redo, pinning | `src/composition/` | #15 |
-| MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 17 `honua_studio_*` tools; this client has typed wrappers for the 13 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16, #31 |
+| MCP tool plane — JSON-RPC client against honua-server's `/mcp`, tool bridge, orchestrator. honua-server publishes 23 `honua_studio_*` tools; this client has typed wrappers for the 18 draft-lifecycle/composition ones (`STUDIO_MCP_TOOL_NAMES`) | `src/mcp/` | #16, #31 |
 | MapLibre canvas that mutates as tool calls stream | `src/map/composition-map-view.ts` | #27 |
 | Map controls — 13 of the closed 14-kind vocabulary render; `search` reports as explicitly unsupported (no provider field upstream) | `src/controls/` | #29 |
 | Chrome widgets — layer list (TOC), legend, compare, time, data grid, bar/line/pie charts; source-scoped filter controls filter bounded chart/table rows before aggregation and pagination | `src/widgets/`, `src/elements/studio-widget-deck-element.ts` | #34 |
@@ -218,7 +219,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
 | Candidate journeys record one row per source SHA and stay switched off until `HONUA_CANDIDATE_JOURNEYS` is `on` and the pinned server revision is that SHA. No schedule. | `.github/workflows/live-candidate-journeys.yml` | #228 |
 | The demo-only model-free live style/filter journey uses the seeded zoning layer and checks painted styles, temporary filters, and saved draft state. Restoration awaits a new live receipt; fixture evidence alone does not qualify the demo. | `test/playwright/live-demo-journeys.spec.mjs` | #238 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43116174020) at `ee2df06` (not current main): 2 passed, 3 failed before a model turn (demo deployment settings, see [Status](#status)) | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43987714041) at `4d52431`: 3 passed, 3 failed before a model turn (demo deployment settings, see [Status](#status)) | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering supports public **PMTiles vector and raster archives**, plus
 vector sources reached over OGC API Features or a GeoServices FeatureServer.
