@@ -47,11 +47,20 @@ export class EditorRelease {
   ) {}
 
   saveVersion(): Promise<StudioContentVersion> {
-    return this.#withLifecycle(async ({ client, identity, current }) => {
+    return this.#withLifecycle(async ({ client, identity, current, generation }) => {
       await this.hooks.saveCurrentView(current);
       current();
       const version = await client.saveAsVersion(identity.draftId);
-      current();
+      if (!this.authority.epoch.isCurrent(generation) || !this.drafts.binding) return version;
+      try {
+        const refreshed = await client.getDraft(identity.draftId);
+        if (!this.authority.epoch.isCurrent(generation) || !this.drafts.binding) return version;
+        const noted = this.drafts.noteNewerDraft(refreshed);
+        if (noted === "diverged" || noted === "foreign") this.drafts.markConflict();
+      } catch {
+        if (!this.authority.epoch.isCurrent(generation)) return version;
+        this.drafts.markConflict();
+      }
       return version;
     });
   }

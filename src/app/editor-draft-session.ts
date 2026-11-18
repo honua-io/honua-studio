@@ -1,9 +1,12 @@
 import type { CompositionController } from "../composition/controller.js";
 import { createEmptyCompositionState } from "../composition/model.js";
 import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
+import { readCompositionBody } from "../lifecycle/composition-draft-store.js";
 import { EditorDraftBinding } from "../lifecycle/editor-draft.js";
 import type { StudioLifecycleClient } from "../lifecycle/lifecycle-client.js";
+import type { StudioPackageDraft } from "../lifecycle/lifecycle-types.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "../mcp/composition-envelope.js";
+import { toStudioCompositionBody } from "../mcp/tool-bridge.js";
 import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./editor-authority.js";
 import { type EpochToken, StalenessEpoch } from "./staleness-epoch.js";
 
@@ -81,6 +84,31 @@ export class EditorDraftSession {
 
   announce(): void {
     this.hooks.onDraftChange(this.identity);
+  }
+
+  /**
+   * Keeps the edit token aligned after a version save advances the server draft.
+   * A newer generation whose map is not the editor's map is a concurrent write:
+   * leave the token alone and report `diverged` so the caller blocks the next edit.
+   */
+  noteNewerDraft(draft: StudioPackageDraft): "adopted" | "unchanged" | "diverged" | "foreign" {
+    const binding = this.#binding;
+    if (!binding) throw new Error("Open a map draft before using saved versions.");
+    const kind = binding.classifyObservation(draft);
+    if (kind === "foreign") return "foreign";
+    if (kind === "stale") return "unchanged";
+    let observed: ReturnType<typeof readCompositionBody>;
+    try {
+      observed = readCompositionBody(draft.envelope?.body);
+    } catch {
+      return "diverged";
+    }
+    const serverMap = JSON.stringify(toStudioCompositionBody(observed));
+    const editorMap = JSON.stringify(toStudioCompositionBody(this.composition.state));
+    if (serverMap !== editorMap) return "diverged";
+    binding.adoptIfNewer(draft);
+    this.announce();
+    return "adopted";
   }
 
   async create(packageKey: string, commandId?: string): Promise<EditorDraftIdentity | StudioApprovalPending> {

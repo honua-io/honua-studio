@@ -36,6 +36,24 @@ export class EditorDraftBinding {
     return state;
   }
 
+  /** Whether a refresh is this draft and newer than the token the editor holds. */
+  public classifyObservation(draft: StudioPackageDraft): "foreign" | "stale" | "newer" {
+    const current = this.#draft;
+    if (!current) throw new Error("Attach an authorized editor draft before editing.");
+    if (!isSameDraft(draft, current)) return "foreign";
+    return draft.generation > current.generation ? "newer" : "stale";
+  }
+
+  /**
+   * Saving a version stamps the draft and advances its generation without
+   * returning that generation. Adopt a newer observation of this same draft.
+   * The caller checks that the observation is still the editor's map.
+   */
+  public adoptIfNewer(draft: StudioPackageDraft): void {
+    if (this.classifyObservation(draft) !== "newer") return;
+    this.#draft = draft;
+  }
+
   public async initializeStyle(mapSpec: MapStyleDocument): Promise<CompositionState> {
     const current = this.#draft;
     if (!current || !this.client.initializeDraftStyle)
@@ -53,12 +71,7 @@ export class EditorDraftBinding {
   }
 
   #acceptStyle(draft: StudioPackageDraft, current: StudioPackageDraft): CompositionState {
-    if (
-      draft?.draftId !== current.draftId ||
-      draft.packageKey !== current.packageKey ||
-      !Number.isSafeInteger(draft.generation) ||
-      draft.generation <= current.generation
-    )
+    if (!isSameDraft(draft, current) || draft.generation <= current.generation)
       throw new Error("The style command did not return an accepted authoritative draft.");
     const observed = toCompositionDraft(draft).envelope.body;
     this.#draft = draft;
@@ -88,4 +101,12 @@ export class EditorDraftBinding {
     this.#draft = draft;
     return { ...observed, pins: state.pins, annotations: state.annotations };
   }
+}
+
+function isSameDraft(draft: StudioPackageDraft | undefined, current: StudioPackageDraft): draft is StudioPackageDraft {
+  return (
+    draft?.draftId === current.draftId &&
+    draft.packageKey === current.packageKey &&
+    Number.isSafeInteger(draft.generation)
+  );
 }
