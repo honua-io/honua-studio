@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/honua-io/honua-studio/compare/v0.5.1...v0.5.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **editor:** read the draft generation after saving a version ([#292](https://github.com/honua-io/honua-studio/issues/292)) ([ce68d4e](https://github.com/honua-io/honua-studio/commit/ce68d4e7880a509fc8053e73592bf8a3bf9325f4)), closes [#291](https://github.com/honua-io/honua-studio/issues/291)
+
 ## [0.5.1](https://github.com/honua-io/honua-studio/compare/v0.5.0...v0.5.1) (2026-11-16)
 
 
