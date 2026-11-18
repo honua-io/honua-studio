@@ -85,6 +85,83 @@ describe("workspace saved camera", () => {
     expect(await app.prepareEditorTurn()).toMatchObject({ generation: 2 });
   });
 
+  it("sends the generation the version save advanced on the next save", async () => {
+    let generation = 1;
+    let body = initialDraft.envelope.body;
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(async () => ({
+      ...initialDraft,
+      generation,
+      envelope: { ...initialDraft.envelope, body },
+    }));
+    replace.mockImplementation(async (_draftId, request) => {
+      expect(request.generation).toBe(generation);
+      generation += 1;
+      body = request.envelope.body;
+      return { ...initialDraft, ...request, generation };
+    });
+    save.mockImplementation(async () => {
+      generation += 1;
+      return { versionId: `saved-${generation}` } as never;
+    });
+
+    await app.saveEditorVersion();
+    expect(replace.mock.calls.map((call) => call[1].generation)).toEqual([1]);
+    await app.saveEditorVersion();
+    expect(replace.mock.calls.map((call) => call[1].generation)).toEqual([1, 3]);
+    expect(app.composition.state.view).toEqual(camera);
+    expect(await app.prepareEditorTurn()).toMatchObject({ generation: 5 });
+  });
+
+  it("blocks the next edit when the version refresh belongs to another draft", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+      ...initialDraft,
+      draftId: "someone-else",
+      generation: 9,
+    });
+    await expect(app.saveEditorVersion()).resolves.toMatchObject({ versionId: "saved" });
+    await expect(app.saveEditorVersion()).rejects.toThrow(/pending|reload/i);
+    expect(save).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledOnce();
+  });
+
+  it("blocks the next edit when the version refresh shows someone else's map", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+      ...initialDraft,
+      generation: 9,
+      envelope: {
+        ...initialDraft.envelope,
+        body: { layers: [{ id: "other", sourceId: "src", visible: true }], view: {} },
+      },
+    });
+    await expect(app.saveEditorVersion()).resolves.toMatchObject({ versionId: "saved" });
+    await expect(app.prepareEditorTurn()).rejects.toThrow(/pending|reload/i);
+    await expect(app.saveEditorVersion()).rejects.toThrow(/pending|reload/i);
+    expect(replace).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a saved version when the generation refresh fails", async () => {
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockRejectedValue(new Error("refresh failed"));
+    await expect(app.saveEditorVersion()).resolves.toMatchObject({ versionId: "saved" });
+    await expect(app.saveEditorVersion()).rejects.toThrow(/pending|reload/i);
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it("does not adopt a generation refresh after the session changes", async () => {
+    let finish!: (draft: typeof initialDraft) => void;
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = app.saveEditorVersion();
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    app.session = { getToken: async () => "replacement-token", onExpired: () => () => {} };
+    finish({ ...initialDraft, generation: 9 });
+    await expect(pending).resolves.toMatchObject({ versionId: "saved" });
+    await expect(app.prepareEditorTurn()).resolves.toBeUndefined();
+  });
+
   it("waits for the rendered authored view before reading the camera", async () => {
     let finish!: () => void;
     const settling = new Promise<void>((resolve) => {
