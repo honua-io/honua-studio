@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/honua-io/honua-studio/compare/v0.5.3...v0.5.4) (2026-11-20)
+
+
+### Bug Fixes
+
+* **editor:** save a version without re-sending a view the draft already holds ([#298](https://github.com/honua-io/honua-studio/issues/298)) ([#299](https://github.com/honua-io/honua-studio/issues/299)) ([15ab22f](https://github.com/honua-io/honua-studio/commit/15ab22fbbba0b603f55e1dbfc29e7e978e34f0ab))
+
 ## [0.5.3](https://github.com/honua-io/honua-studio/compare/v0.5.2...v0.5.3) (2026-11-20)
 
 
