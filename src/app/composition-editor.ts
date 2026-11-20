@@ -225,6 +225,9 @@ export class CompositionEditor {
     const generation = authority.epoch.current;
     return drafts.enqueue(async () => {
       authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
+      // An edit queued ahead of this one may have been held for approval meanwhile.
+      const held = drafts.pendingApproval && drafts.heldEditMessage();
+      if (held) throw new LocallyRefusedEdit(held);
       const observed = await binding.replace(target);
       authority.epoch.assertCurrent(generation, EDITOR_SESSION_CHANGED);
       const changed = action === "undo" ? composition.undo(observed) : composition.redo(observed);
@@ -268,6 +271,7 @@ export class CompositionEditor {
 
   /** A write held for approval waits for that approval; any other server failure needs a reload. */
   #holdOrConflict(error: unknown): void {
+    if (error instanceof LocallyRefusedEdit) return;
     if (isStudioLifecycleApprovalPending(error)) this.options.drafts.markAwaitingApproval(error.pending);
     else this.options.drafts.markConflict();
   }
