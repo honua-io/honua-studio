@@ -3,10 +3,12 @@ export type { StudioLifecycleClientOptions, TokenSource } from "./lifecycle-clie
 export { StudioLifecycleClient } from "./lifecycle-client.js";
 export type { StudioApprovalPending } from "./approval-pending.js";
 export {
+  StudioLifecycleApprovalPendingError,
   StudioLifecycleConflictError,
   StudioLifecycleError,
   StudioLifecycleSessionExpiredError,
   StudioLifecycleTransportError,
+  isStudioLifecycleApprovalPending,
   isStudioLifecycleGenerationConflict,
   isStudioLifecycleNotFound,
 } from "./lifecycle-errors.js";

@@ -213,6 +213,8 @@ export interface HonuaStudioCommandOutcome {
   readonly reason?: string;
   /** True when the write lost to a newer draft generation; reloading the draft recovers. */
   readonly conflict?: boolean;
+  /** Present when the server holds the write for a separate human approval; nothing was applied yet. */
+  readonly approval?: { readonly proposalId: string; readonly proposalUri?: string };
 }
 
 /**

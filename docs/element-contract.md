@@ -106,6 +106,19 @@ state are persisted separately; the output is an ordinary Map draft.
 
 `prepareEditorTurn()` waits for accepted visual edits and returns its
 current draft identity; it refuses unresolved edits or conflicts.
+When the server holds a draft edit for a separate human approval (HTTP 202 with a
+proposal), the edit's `HonuaStudioCommandOutcome` has `ok: false` and
+`approval: {proposalId, proposalUri?}`, and the map stays unchanged. Studio keeps the
+first held receipt in `pendingEditorApproval` and emits
+`honua-studio-editor-approval-change` (`{ pendingApproval }`, undefined when the hold
+ends). While the hold lasts, further edits, undo and redo, `prepareEditorTurn()` and
+`saveEditorVersion()` are refused with a message that names the proposal; edit
+outcomes carry the same `approval`. The held write is based on the draft generation
+it was made against. Once `attachEditorDraft(draftId)` or the idle refresh observes a
+newer generation, the write has either been applied or is stale and cannot apply, and the
+hold ends. A reload at the same generation keeps it.
+`discardEditorApprovalHold()` drops the hold, for example after a rejection, so
+the next reload adopts the server draft.
 `saveEditorVersion()` saves that draft as an immutable version,
 `listEditorVersions()` reads versions of the same server-owned Map or
 App, and `reopenEditorVersion(versionId)` opens a version of that item

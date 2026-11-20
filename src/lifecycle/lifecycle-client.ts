@@ -39,6 +39,7 @@ import { type StudioApprovalPending, readStudioApprovalPending } from "./approva
  * @module
  */
 import {
+  StudioLifecycleApprovalPendingError,
   StudioLifecycleConflictError,
   StudioLifecycleError,
   StudioLifecycleSessionExpiredError,
@@ -421,6 +422,7 @@ export class StudioLifecycleClient {
     if (response.status === 202) {
       const pending = readStudioApprovalPending(envelope.data);
       if (allowApproval && pending) return pending as T;
+      if (pending) throw new StudioLifecycleApprovalPendingError(pending);
       throw new StudioLifecycleError("unknown", "The action is pending; no completed result was returned.", {
         status: 202,
       });
