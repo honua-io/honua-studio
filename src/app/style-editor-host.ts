@@ -1,5 +1,6 @@
 import type { CompositionController } from "../composition/controller.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
+import { isStudioLifecycleApprovalPending } from "../lifecycle/lifecycle-errors.js";
 import type { MapStyleDocument, MapStyleField } from "../styles/map-style-edit.js";
 import { MapStyleEditor, type MapStyleEditorOptions } from "../styles/map-style-editor.js";
 import { StyleSuggestionPanel } from "../styles/style-suggestion-panel.js";
@@ -141,7 +142,11 @@ export class StyleEditorHost {
     await drafts.enqueue(async () => {
       const style = await canvas.editableMapStyle();
       if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(EDITOR_AUTHORITY_CHANGED);
-      const observed = await binding.initializeStyle(style);
+      const observed = await binding.initializeStyle(style).catch((error: unknown) => {
+        if (isStudioLifecycleApprovalPending(error) && authority.epoch.isCurrent(epoch) && drafts.binding === binding)
+          drafts.markAwaitingApproval(error.pending);
+        throw error;
+      });
       if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(EDITOR_AUTHORITY_CHANGED);
       composition.resetBaseline({
         ...observed,

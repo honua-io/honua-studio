@@ -644,7 +644,7 @@ describe("lifecycle/lifecycle-client error mapping (fetch-mocked)", () => {
         data: { status: 4, operationInstanceId: "operation-1", proposalId: "proposal-1" },
       });
     const c = new StudioLifecycleClient({ baseUrl: "/api", fetchImpl });
-    await expect(c.saveAsVersion("draft-1")).rejects.toMatchObject({ status: 202, code: "unknown" });
+    await expect(c.saveAsVersion("draft-1")).rejects.toMatchObject({ status: 202, code: "approval-pending" });
   });
 
   it("maps a 401 with no auth configured straight to StudioLifecycleSessionExpiredError", async () => {

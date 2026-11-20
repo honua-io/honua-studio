@@ -256,6 +256,16 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     return this.#drafts.refresh();
   }
 
+  /** The map edit the server holds for a separate human approval; reload the draft once it is approved. */
+  public get pendingEditorApproval(): StudioApprovalPending | undefined {
+    return this.#drafts.pendingApproval;
+  }
+
+  /** Stop waiting for a held edit (for example after its rejection); the next reload adopts the server draft. */
+  public discardEditorApprovalHold(): void {
+    this.#drafts.discardApprovalHold();
+  }
+
   /** Flush accepted human edits before the host captures a durable native turn. */
   public prepareEditorTurn(): Promise<EditorDraftIdentity | undefined> {
     return this.#drafts.prepareTurn();

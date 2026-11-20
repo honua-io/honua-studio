@@ -5,8 +5,12 @@ import type { CompositionState } from "../composition/model.js";
 import { applyCompositionCommands, isCompositionCommandError } from "../composition/reducer.js";
 import type { HonuaStudioCanvasElement } from "../elements/studio-canvas-element.js";
 import type { HonuaStudioChatToolCallResultDetail, HonuaStudioCommandOutcome } from "../elements/types.js";
+import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
 import type { EditorDraftBinding } from "../lifecycle/editor-draft.js";
-import { isStudioLifecycleGenerationConflict } from "../lifecycle/lifecycle-errors.js";
+import {
+  isStudioLifecycleApprovalPending,
+  isStudioLifecycleGenerationConflict,
+} from "../lifecycle/lifecycle-errors.js";
 import type { ToolCallOrchestrator } from "../mcp/orchestrator.js";
 import { resolveToolCall } from "../mcp/tool-bridge.js";
 import { EDITOR_SESSION_CHANGED, type EditorAuthority } from "./editor-authority.js";
@@ -44,6 +48,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+function approvalOf(pending: StudioApprovalPending): NonNullable<HonuaStudioCommandOutcome["approval"]> {
+  return {
+    proposalId: pending.proposalId,
+    ...(pending.proposalUri !== undefined && { proposalUri: pending.proposalUri }),
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -171,13 +182,17 @@ export class CompositionEditor {
   async applyHistory(action: HistoryAction): Promise<boolean> {
     const { drafts, chrome, authority } = this.options;
     if (drafts.historyBusy || this.options.hasUnsavedStyleChanges()) return false;
+    if (drafts.pendingApproval) {
+      this.options.chrome.setHistoryStatus(drafts.heldEditMessage() ?? "Waiting for separate human approval.");
+      return false;
+    }
     const authGeneration = authority.epoch.current;
     drafts.historyBusy = true;
     chrome.paintHistory();
     try {
       return await this.#runHistory(action);
     } catch (error) {
-      if (drafts.binding && authority.epoch.isCurrent(authGeneration)) drafts.markConflict();
+      if (drafts.binding && authority.epoch.isCurrent(authGeneration)) this.#holdOrConflict(error);
       chrome.setHistoryStatus(error instanceof Error ? error.message : `Unable to ${action}.`);
       return false;
     } finally {
@@ -232,6 +247,8 @@ export class CompositionEditor {
     const { authority, drafts } = this.options;
     if (edit.isCurrent?.() === false)
       return { ok: false, reason: "The initiating view changed before the edit began." };
+    const held = drafts.pendingApproval;
+    if (held) return { ok: false, reason: drafts.heldEditMessage(), approval: approvalOf(held) };
     try {
       await this.#applyToDraft(edit);
       this.#recordAcceptedCommands(edit.commands);
@@ -239,13 +256,20 @@ export class CompositionEditor {
     } catch (error) {
       const reconcile = !(error instanceof LocallyRefusedEdit);
       if (reconcile && authority.epoch.isCurrent(edit.generation) && edit.binding === drafts.binding)
-        drafts.markConflict();
+        this.#holdOrConflict(error);
       return {
         ok: false,
         reason: errorMessage(error),
         ...(isStudioLifecycleGenerationConflict(error) && { conflict: true }),
+        ...(isStudioLifecycleApprovalPending(error) && { approval: approvalOf(error.pending) }),
       };
     }
+  }
+
+  /** A write held for approval waits for that approval; any other server failure needs a reload. */
+  #holdOrConflict(error: unknown): void {
+    if (isStudioLifecycleApprovalPending(error)) this.options.drafts.markAwaitingApproval(error.pending);
+    else this.options.drafts.markConflict();
   }
 
   #recordAcceptedCommands(commands: readonly CompositionCommand[]): void {

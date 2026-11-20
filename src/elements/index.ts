@@ -68,11 +68,13 @@ export type {
 // import `TokenSource` from `../lifecycle/lifecycle-client.js` directly if
 // you specifically need the lifecycle client's copy of the type.
 export {
+  StudioLifecycleApprovalPendingError,
   StudioLifecycleClient,
   StudioLifecycleConflictError,
   StudioLifecycleError,
   StudioLifecycleSessionExpiredError,
   StudioLifecycleTransportError,
+  isStudioLifecycleApprovalPending,
   isStudioLifecycleGenerationConflict,
   isStudioLifecycleNotFound,
 } from "../lifecycle/index.js";

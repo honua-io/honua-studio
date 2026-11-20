@@ -283,6 +283,14 @@ export class StudioEditorRoot {
         host.dispatchEvent(
           new CustomEvent("honua-studio-draft-change", { bubbles: true, composed: true, detail: identity }),
         ),
+      onApprovalChange: (pending) =>
+        host.dispatchEvent(
+          new CustomEvent("honua-studio-editor-approval-change", {
+            bubbles: true,
+            composed: true,
+            detail: { pendingApproval: pending },
+          }),
+        ),
     });
   }
 

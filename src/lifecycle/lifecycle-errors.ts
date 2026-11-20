@@ -26,6 +26,7 @@
  *
  * @module
  */
+import type { StudioApprovalPending } from "./approval-pending.js";
 import type { StudioProblemDetails } from "./lifecycle-types.js";
 
 export type StudioLifecycleErrorCode =
@@ -34,6 +35,7 @@ export type StudioLifecycleErrorCode =
   | "validation" // 400
   | "internal" // 500
   | "session-expired" // 401 after one forced-refresh retry
+  | "approval-pending" // 202 — the server holds the write for a separate human approval
   | "unknown";
 
 /** Base error for every {@link StudioLifecycleClient} failure. `.problem` carries the parsed RFC 7807 body when the server returned one. */
@@ -88,6 +90,28 @@ export class StudioLifecycleTransportError extends StudioLifecycleError {
     super("unknown", message, { cause });
     this.name = "StudioLifecycleTransportError";
   }
+}
+
+/**
+ * HTTP 202 with an approval receipt on a write whose caller expects a completed result: the server
+ * holds the change for a separate human approval and nothing has been applied yet.
+ */
+export class StudioLifecycleApprovalPendingError extends StudioLifecycleError {
+  public readonly pending: StudioApprovalPending;
+
+  public constructor(pending: StudioApprovalPending) {
+    super(
+      "approval-pending",
+      `Waiting for separate human approval. Proposal ${pending.proposalId}. The change is applied only after it is approved in the Inbox.`,
+      { status: 202 },
+    );
+    this.name = "StudioLifecycleApprovalPendingError";
+    this.pending = pending;
+  }
+}
+
+export function isStudioLifecycleApprovalPending(error: unknown): error is StudioLifecycleApprovalPendingError {
+  return error instanceof StudioLifecycleApprovalPendingError;
 }
 
 export function isStudioLifecycleGenerationConflict(error: unknown): error is StudioLifecycleConflictError {

@@ -24,6 +24,8 @@ export interface EditorDraftSessionHooks {
   readonly beforeMapSwitch: (draftId: string) => void;
   readonly afterMapSwitch: () => void;
   readonly onDraftChange: (identity: EditorDraftIdentity | undefined) => void;
+  /** Runs when a held edit starts waiting for approval or stops waiting. */
+  readonly onApprovalChange?: (pending: StudioApprovalPending | undefined) => void;
 }
 
 /**
@@ -35,6 +37,7 @@ export class EditorDraftSession {
   readonly activeMap = new StalenessEpoch();
   #binding: EditorDraftBinding | undefined;
   #conflict = false;
+  #held: { readonly pending: StudioApprovalPending; readonly generation: number } | undefined;
   historyBusy = false;
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -57,6 +60,43 @@ export class EditorDraftSession {
     this.#conflict = true;
   }
 
+  /** The edit the server holds for a separate human approval, if any. */
+  get pendingApproval(): StudioApprovalPending | undefined {
+    return this.#held?.pending;
+  }
+
+  /**
+   * Blocks further edits while the server holds a write for approval; the first hold is kept. The held
+   * write carries the draft generation it was based on, so once a reload observes a newer generation the
+   * write has either been applied or is stale and cannot apply, and the hold ends. Until then it keeps blocking.
+   * This relies on the server executing an approved draft replace only at its original generation.
+   */
+  markAwaitingApproval(pending: StudioApprovalPending): void {
+    const generation = this.identity?.generation;
+    if (generation === undefined) throw new Error("Open a map draft before editing.");
+    if (!this.#held) this.#setHeld({ pending, generation });
+  }
+
+  /** Human choice to stop waiting (for example after a rejection); the next reload adopts the server draft. */
+  discardApprovalHold(): void {
+    this.#setHeld(undefined);
+  }
+
+  /** The refusal for any edit, save or turn while a write waits for approval. */
+  heldEditMessage(): string | undefined {
+    const held = this.#held?.pending;
+    return (
+      held &&
+      `The last map edit is waiting for separate human approval (proposal ${held.proposalId}). Approve it in the Inbox, then reload the map before editing, saving a version or sending an editor turn.`
+    );
+  }
+
+  #setHeld(next: { readonly pending: StudioApprovalPending; readonly generation: number } | undefined): void {
+    if (this.#held === next) return;
+    this.#held = next;
+    this.hooks.onApprovalChange?.(next?.pending);
+  }
+
   /** Runs `task` after every queued draft operation; a failure never blocks the queue. */
   enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = this.#queue.then(task);
@@ -69,13 +109,14 @@ export class EditorDraftSession {
   }
 
   isEditPending(): boolean {
-    return this.historyBusy || this.#conflict || this.hooks.hasDirtyForm();
+    return this.#isPendingBesidesHold() || this.#held !== undefined;
   }
 
   /** Forgets the draft of a former authority. */
   detach(): void {
     this.#binding = undefined;
     this.#conflict = false;
+    this.#setHeld(undefined);
   }
 
   rebind(client: StudioLifecycleClient): void {
@@ -160,6 +201,8 @@ export class EditorDraftSession {
     }
     this.#binding = binding;
     this.#conflict = false;
+    const observed = binding.identity?.generation ?? 0;
+    if (switchesMap || (this.#held && observed > this.#held.generation)) this.#setHeld(undefined);
     const reset = switchesMap || previous?.generation !== binding.identity?.generation;
     const attach = reset
       ? this.composition.resetBaseline.bind(this.composition)
@@ -181,22 +224,29 @@ export class EditorDraftSession {
     const generation = this.authority.epoch.current;
     await this.#queue;
     const identity = binding?.identity;
-    if (!identity || binding !== this.#binding || this.isEditPending()) return false;
+    // A hold alone does not stop an idle re-read: a newer generation is exactly how the hold ends.
+    if (!identity || binding !== this.#binding || this.#isPendingBesidesHold()) return false;
     try {
       await this.hooks.attachEditorDraft(identity.draftId);
     } catch (error) {
-      if (!this.authority.epoch.isCurrent(generation) || this.isEditPending()) return false;
+      if (!this.authority.epoch.isCurrent(generation) || this.#isPendingBesidesHold()) return false;
       throw error;
     }
-    return this.authority.epoch.isCurrent(generation) && !this.hooks.hasDirtyForm();
+    return this.authority.epoch.isCurrent(generation) && !this.hooks.hasDirtyForm() && !this.#held;
   }
 
   async prepareTurn(): Promise<EditorDraftIdentity | undefined> {
     await this.hooks.settleStyleEdits();
     await this.#queue;
+    const held = this.heldEditMessage();
+    if (held) throw new Error(held);
     if (this.isEditPending())
       throw new Error("Save or explicitly reload the pending Studio edits before sending an editor turn.");
     return this.identity;
+  }
+
+  #isPendingBesidesHold(): boolean {
+    return this.historyBusy || this.#conflict || this.hooks.hasDirtyForm();
   }
 
   #requireAcceptable(generation: EpochToken, mayAccept: (() => void) | undefined): void {
