@@ -147,6 +147,7 @@ function editorOver(session: EditorDraftSession, composition: CompositionControl
     drafts: session,
     composition,
     chrome,
+    children: { chat: () => undefined },
     hasUnsavedStyleChanges: () => false,
   } as unknown as CompositionEditorOptions);
   return { editor, chrome };
@@ -217,5 +218,29 @@ describe("editor draft session: ending a hold", () => {
     expect(approvals).toEqual([HELD, undefined]);
     expect(composition.state.layers.map((layer) => layer.id)).toEqual(["roads"]);
     await expect(session.prepareTurn()).resolves.toMatchObject({ generation: 1 });
+  });
+});
+
+describe("editor draft session: work queued behind a held edit", () => {
+  it("refuses a queued undo without a second write or a conflict", async () => {
+    let rejectHeld!: (error: unknown) => void;
+    const replaceDraft = vi
+      .fn()
+      .mockResolvedValueOnce(mapDraft(2))
+      .mockReturnValueOnce(new Promise((_, reject) => (rejectHeld = reject)));
+    const { session, composition } = sessionReading([mapDraft(1)], replaceDraft);
+    const { editor, chrome } = editorOver(session, composition);
+    await session.attach("draft-1");
+    expect(await editor.dispatch([{ name: "setView", view: { zoom: 4 } }])).toEqual({ ok: true });
+
+    const held = editor.dispatch([{ name: "setView", view: { zoom: 6 } }]);
+    const undo = editor.applyHistory("undo"); // Queued before the server answers the edit above.
+    rejectHeld(new StudioLifecycleApprovalPendingError(HELD));
+
+    expect((await held).approval).toMatchObject({ proposalId: "proposal-1" });
+    expect(await undo).toBe(false);
+    expect(chrome.setHistoryStatus).toHaveBeenCalledWith(HELD_MESSAGE);
+    expect(replaceDraft).toHaveBeenCalledTimes(2);
+    await expect(session.prepareTurn()).rejects.toThrow(HELD_MESSAGE); // Held, not conflicted.
   });
 });
