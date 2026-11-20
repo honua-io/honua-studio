@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/honua-io/honua-studio/compare/v0.5.2...v0.5.3) (2026-11-20)
+
+
+### Bug Fixes
+
+* **editor:** report a Studio edit held for approval with its proposal ([#296](https://github.com/honua-io/honua-studio/issues/296)) ([1654a8e](https://github.com/honua-io/honua-studio/commit/1654a8ecaea81c29deda4595099988a2db0c38f1)), closes [#294](https://github.com/honua-io/honua-studio/issues/294)
+
 ## [0.5.2](https://github.com/honua-io/honua-studio/compare/v0.5.1...v0.5.2) (2026-11-18)
 
 
