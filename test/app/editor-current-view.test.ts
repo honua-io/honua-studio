@@ -6,6 +6,7 @@ import type { HonuaStudioAppElement } from "../../src/elements/studio-app-elemen
 import type { HonuaStudioCanvasElement } from "../../src/elements/studio-canvas-element.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
 import { StudioLifecycleClient } from "../../src/lifecycle/lifecycle-client.js";
+import { StudioLifecycleApprovalPendingError } from "../../src/lifecycle/lifecycle-errors.js";
 
 registerAllStudioElements();
 
@@ -27,6 +28,8 @@ const initialDraft = {
   },
 } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>;
 const camera = { center: [-157.85, 21.31] as const, zoom: 11, bearing: 325, pitch: 45 };
+type Camera = { center: readonly [number, number]; zoom: number; bearing: number; pitch: number };
+let currentCamera: Camera = camera;
 
 let app: HonuaStudioAppElement;
 let save: MockInstance<StudioLifecycleClient["saveAsVersion"]>;
@@ -47,12 +50,13 @@ beforeEach(async () => {
   await app.attachEditorDraft("original");
   const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
   vi.spyOn(canvas, "mapView", "get").mockReturnValue({
-    camera: () => camera,
+    camera: () => currentCamera,
     settleAuthoredView: async () => {},
   } as never);
 });
 
 afterEach(() => {
+  currentCamera = camera;
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -106,10 +110,59 @@ describe("workspace saved camera", () => {
 
     await app.saveEditorVersion();
     expect(replace.mock.calls.map((call) => call[1].generation)).toEqual([1]);
+    currentCamera = { ...camera, zoom: 12 };
     await app.saveEditorVersion();
     expect(replace.mock.calls.map((call) => call[1].generation)).toEqual([1, 3]);
-    expect(app.composition.state.view).toEqual(camera);
+    expect(app.composition.state.view).toEqual(currentCamera);
     expect(await app.prepareEditorTurn()).toMatchObject({ generation: 5 });
+  });
+
+  it("saves the version without a draft write when the camera has not moved", async () => {
+    await app.saveEditorVersion();
+    expect(replace).toHaveBeenCalledOnce();
+
+    // A reloaded map reads its camera back with float noise; that is still the stored view.
+    currentCamera = { ...camera, center: [camera.center[0] + 1e-9, camera.center[1]], zoom: camera.zoom - 1e-9 };
+    await app.saveEditorVersion();
+
+    expect(replace).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it("writes a view changed only locally, such as a bookmark, before saving the version", async () => {
+    await app.saveEditorVersion();
+    expect(replace).toHaveBeenCalledOnce();
+
+    const bookmark = { center: [-157.8, 21.3] as const, zoom: 13, bearing: 0, pitch: 0 };
+    app.composition.apply({ name: "setView", view: bookmark });
+    currentCamera = bookmark;
+    await app.saveEditorVersion();
+
+    expect(replace).toHaveBeenCalledTimes(2);
+    expect((replace.mock.calls[1]?.[1].envelope.body as { view: unknown }).view).toEqual(bookmark);
+  });
+
+  it("asks for one approval for the saved view, then saves without another proposal", async () => {
+    const held = { status: "awaiting-approval", operationInstanceId: "operation-1", proposalId: "proposal-1" } as const;
+    replace.mockRejectedValueOnce(new StudioLifecycleApprovalPendingError(held));
+
+    await expect(app.saveEditorVersion()).rejects.toThrow(/proposal-1/);
+    expect(save).not.toHaveBeenCalled();
+
+    // The person approves the held view in the Inbox; reloading reads the draft it produced.
+    const sent = replace.mock.calls[0]?.[1];
+    vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+      ...initialDraft,
+      generation: 2,
+      envelope: sent!.envelope,
+    } as never);
+    // Reloading at a newer generation ends the hold, as Check approval and reload map does.
+    await app.attachEditorDraft("original");
+    replace.mockClear();
+
+    await expect(app.saveEditorVersion()).resolves.toMatchObject({ versionId: "saved" });
+    expect(replace).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledOnce();
   });
 
   it("blocks the next edit when the version refresh belongs to another draft", async () => {

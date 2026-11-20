@@ -1,4 +1,4 @@
-import type { CompositionState } from "../composition/model.js";
+import { type CompositionState, canonicalCompositionJson } from "../composition/model.js";
 import { toCompositionDraftBody } from "../mcp/composition-envelope.js";
 import type { MapStyleDocument } from "../styles/map-style-edit.js";
 import { toCompositionDraft } from "./composition-draft-store.js";
@@ -78,6 +78,23 @@ export class EditorDraftBinding {
     return observed;
   }
 
+  /** Whether the server draft already holds `state` as replace would send it, so a write would change nothing. */
+  public holds(state: CompositionState): boolean {
+    const current = this.#draft;
+    if (!current) return false;
+    return canonicalCompositionJson(this.#body(state, current)) === canonicalCompositionJson(current.envelope.body);
+  }
+
+  #body(state: CompositionState, current: StudioPackageDraft) {
+    return toCompositionDraftBody(
+      state,
+      current.packageKey,
+      current.envelope.family,
+      current.envelope.body as Readonly<Record<string, unknown>>,
+      current.envelope.format,
+    );
+  }
+
   public async replace(state: CompositionState): Promise<CompositionState> {
     const current = this.#draft;
     if (!current) throw new Error("Attach an authorized editor draft before editing.");
@@ -86,16 +103,7 @@ export class EditorDraftBinding {
       generation: current.generation,
       ...(current.workspaceId !== undefined ? { workspaceId: current.workspaceId } : {}),
       ...(current.ownerId !== undefined ? { ownerId: current.ownerId } : {}),
-      envelope: {
-        ...current.envelope,
-        body: toCompositionDraftBody(
-          state,
-          current.packageKey,
-          current.envelope.family,
-          current.envelope.body as Readonly<Record<string, unknown>>,
-          current.envelope.format,
-        ),
-      },
+      envelope: { ...current.envelope, body: this.#body(state, current) },
     });
     const observed = toCompositionDraft(draft).envelope.body;
     this.#draft = draft;

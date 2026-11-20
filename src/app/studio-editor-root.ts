@@ -2,7 +2,8 @@ import { isCookieSession, isSameCookiePrincipal, verifiedSourcePathBase } from "
 import type { SessionAdapter } from "../auth/index.js";
 import type { CompositionCommand } from "../composition/commands.js";
 import { CompositionController } from "../composition/controller.js";
-import { createEmptyCompositionState } from "../composition/model.js";
+import { type CompositionState, type CompositionView, createEmptyCompositionState } from "../composition/model.js";
+import { applyCompositionCommand } from "../composition/reducer.js";
 import type { HonuaStudioAppElement } from "../elements/studio-app-element.js";
 import { CompositionEditor } from "./composition-editor.js";
 import { DesignInspectorHost } from "./design-inspector-host.js";
@@ -193,9 +194,25 @@ export class StudioEditorRoot {
     const camera = mapView?.camera();
     if (!camera) return;
     const command: CompositionCommand = { name: "setView", view: { ...camera, pitch: camera.pitch ?? 0 } };
+    // Re-sending what the server draft already holds is still a draft write: where draft changes need
+    // approval, every Save version would be held as a new proposal and never reach the version save.
+    // Local-only changes (bookmarks, geolocate, agent viewports) differ from the server body and are written.
+    const after = this.#stateAfterCamera(command);
+    if (after && this.drafts.binding?.holds(after)) return;
     const outcome = await this.editor.applyQueuedDraftCommands([command]);
     if (!outcome.ok) throw new Error(outcome.reason);
     current();
+  }
+
+  /** The state the camera command would produce; a camera within float noise of the stored view leaves it as is. */
+  #stateAfterCamera(command: CompositionCommand): CompositionState | undefined {
+    const state = this.composition.state;
+    try {
+      const next = applyCompositionCommand(state, command).state;
+      return sameView(state.view, next.view) ? state : next;
+    } catch {
+      return undefined; // An out-of-range camera goes to the edit path, which reports the refusal.
+    }
   }
 
   #editingParts() {
@@ -310,4 +327,21 @@ export class StudioEditorRoot {
       hasUnsavedStyleChanges: () => this.host.hasUnsavedStyleChanges,
     });
   }
+}
+
+// Cameras read back from the map after a reload differ from the stored view by float noise only.
+const VIEW_TOLERANCE = 1e-7;
+
+function sameView(a: CompositionView, b: CompositionView): boolean {
+  const keys = ["bbox", "center", "zoom", "pitch", "bearing"] as const;
+  return keys.every((key) => sameValue(a[key], b[key]));
+}
+
+function sameValue(a: number | readonly number[] | undefined, b: number | readonly number[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (typeof a === "number" || typeof b === "number")
+    return typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= VIEW_TOLERANCE;
+  return (
+    a.length === b.length && a.every((value, index) => Math.abs(value - (b[index] ?? Number.NaN)) <= VIEW_TOLERANCE)
+  );
 }
