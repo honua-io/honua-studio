@@ -227,7 +227,11 @@ describe("editor draft session: work queued behind a held edit", () => {
     const replaceDraft = vi
       .fn()
       .mockResolvedValueOnce(mapDraft(2))
-      .mockReturnValueOnce(new Promise((_, reject) => (rejectHeld = reject)));
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          rejectHeld = reject;
+        }),
+      );
     const { session, composition } = sessionReading([mapDraft(1)], replaceDraft);
     const { editor, chrome } = editorOver(session, composition);
     await session.attach("draft-1");
