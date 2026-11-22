@@ -575,7 +575,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
         <p><strong>${escapeHtml(title)}</strong></p>
         ${
           pending.kind === "publish" && !pending.intent
-            ? `<p role="alert" data-testid="lifecycle-publication-intent-required">This saved version has no publication intent. Choose its publication route and visibility in the package, then save a new version before requesting publication. No publication request has been sent.</p>`
+            ? `<p role="alert" data-testid="lifecycle-publication-intent-required">This saved version has no publication intent. Choose its publication route and visibility in the Map or App, then save a new version before requesting publication. No publication request has been sent.</p>`
             : ""
         }
         <p class="hn-muted">
