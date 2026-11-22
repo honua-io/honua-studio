@@ -38,7 +38,12 @@ function fakeVersion(overrides: Partial<StudioContentVersion> = {}): StudioConte
     versionId: "version-1",
     versionNumber: 1,
     contentHash: "abc123def456",
-    envelope: { family: "map", schemaVersion: "1.0", body: { layers: [], view: {}, widgets: [] } },
+    envelope: {
+      family: "map",
+      schemaVersion: "1.0",
+      body: { layers: [], view: {}, widgets: [] },
+      publicationIntent: { route: "/maps/parcels-overview", visibility: "private" },
+    },
     validation: { status: "valid", diagnostics: [] },
     createdAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -320,6 +325,33 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       expect(el.shadowRoot!.activeElement).toBe(input);
     });
 
+    it.each([false, true])(
+      "blocks a saved version without publication intent even when the draft has intent: %s",
+      async (draftHasIntent) => {
+        const client = new FakeLifecycleClient();
+        client.versions = [fakeVersion({ envelope: fakeDraft().envelope })];
+        if (draftHasIntent) client.draft = fakeDraft({ envelope: fakeVersion().envelope });
+        const { el } = mount(client);
+        el.draftId = "draft-1";
+        await flush();
+        el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-publish"]')!.click();
+        await flush();
+
+        expect(
+          el.shadowRoot!.querySelector('[data-testid="lifecycle-publication-intent-required"]')?.textContent,
+        ).toContain("This saved version has no publication intent");
+        const input = el.shadowRoot!.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]')!;
+        input.value = "parcels-overview";
+        input.dispatchEvent(new Event("input"));
+        const submit = el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')!;
+        expect(submit.disabled).toBe(true);
+        // The submission guard must also reject a directly dispatched event.
+        submit.dispatchEvent(new MouseEvent("click"));
+        await flush();
+        expect(client.requestPublishCalls).toHaveLength(0);
+      },
+    );
+
     it("clicking Confirm publish (only once enabled) calls client.requestPublish exactly once with the selected version and intent", async () => {
       const { el, client } = mount(new FakeLifecycleClient());
       el.draftId = "draft-1";
@@ -338,7 +370,11 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       await flush();
 
       expect(client.requestPublishCalls).toEqual([
-        { itemId: "item-1", versionId: "version-1", input: { intent: undefined } },
+        {
+          itemId: "item-1",
+          versionId: "version-1",
+          input: { intent: { route: "/maps/parcels-overview", visibility: "private" } },
+        },
       ]);
       expect(client.requestRollbackCalls).toHaveLength(0);
       expect(el.shadowRoot?.querySelector('[data-testid="lifecycle-confirm-dialog"]')).toBeFalsy(); // dialog closes after success

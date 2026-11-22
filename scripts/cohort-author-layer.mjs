@@ -59,7 +59,7 @@ async function geometryColumn(root, headers) {
   const connectionId = await connectionIdFor(root, headers);
   const response = await fetch(`${root}/api/v1/admin/connections/${connectionId}/tables`, { headers });
   const body = await readJson(response, "table discovery");
-  const tables = body.data?.items ?? body.data?.tables ?? body.data ?? [];
+  const tables = body.data?.items ?? body.data?.tables ?? body.data ?? body.tables ?? [];
   const table = tables.find((item) => item.table === `imported_${TABLE}` || item.table === TABLE);
   if (!table?.geometryColumn) throw new Error(`Imported table ${TABLE} has no geometry column.`);
   return {

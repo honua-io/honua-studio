@@ -40,6 +40,7 @@ test.describe("package lifecycle journey: browse -> open -> edit -> version -> c
           family: "map",
           schemaVersion: "1.0",
           format: "honua_map_package.v1",
+          publicationIntent: { route: "/maps/journey-parcels-overview", visibility: "private" },
           body: { layers: [{ id: "parcels", sourceId: "parcels" }], view: { zoom: 10 }, widgets: [] },
         },
       });

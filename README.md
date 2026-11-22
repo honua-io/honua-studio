@@ -316,6 +316,10 @@ native model and visual workflow qualification remains pending.
   identity. Changed session, map or immutable content is refused; retries keep
   the original settings and command. Console controls, durable host recovery
   and live audience qualification are still being integrated.
+- **Publication requires saved intent.** The lifecycle panel blocks a saved
+  version without publication intent and explains that route and visibility must
+  be chosen in the Map or App and saved in a new version. It never borrows publication
+  settings from the current draft or infers public visibility.
 - **Approval receipts are distinct from completion.** Lifecycle publication
   and rollback show HTTP 202 approval requests as awaiting separate human
   approval, retaining operation and proposal references in activity events.
@@ -470,7 +474,7 @@ Other commands:
 | `npm run test:console-assets` | Builds production Console assets, then runs six public-export and current-reader rendering checks, including root, Console and nested worker asset mounts. Vendor the pinned Maputnik source first with `node scripts/vendor-maputnik.mjs <pinned-maputnik-checkout>`; the CI smoke suite does this and retains the checked bundle |
 | `npm run test:self-hosted-preview` | Browser BYOM preview receipt against the built `honua-studio:ci` image; needs that image and Playwright chromium. The container smoke builds the image, then runs this. Uses no demo credential |
 | `npm run test:browser:blazor` | Builds the Blazor Web App test host (`npm run build:blazor-host`), then runs `harness/blazor-host`'s spec — needs the .NET SDK, see `harness/blazor-host/README.md` |
-| `npm run test:browser:live` | Builds and runs the `@live` journeys when `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set. The style/filter journey requires the seeded demo catalog and is excluded from fresh Compose stacks. The qualification workflow starts the locked customer Compose stack, creates a dedicated OIDC test person and supplies private per-run credentials. Publication asserts pending and an unchanged pointer, clicks Approve through Console in a fresh browser context, then independently verifies the accepted request and exact published version. Direct Anthropic Opus 5.5 uses `HONUA_LIVE_ANTHROPIC_API_KEY`; automatic retries are disabled. The separate demo canary uses the external Console URL/profile/IdP variables and approver username/password secrets described in AGENTS.md. |
+| `npm run test:browser:live` | Builds and runs the `@live` journeys when `HONUA_LIVE_BASE_URL` and `HONUA_LIVE_API_KEY` are set. The style/filter journey uses the seeded demo catalog by default. For a disposable candidate, `HONUA_COHORT_AUTHOR=1` explicitly imports four synthetic polygons and enables the same styling, filtering, persistence and accessibility assertions. `HONUA_LIVE_EXPECT_AI_DISABLED=1` makes boot assert an unconfigured assistant; it does not qualify either assistant journey or relax model selection. The qualification workflow starts the locked customer Compose stack, creates a dedicated OIDC test person and supplies private per-run credentials. Publication asserts pending and an unchanged pointer, clicks Approve through Console in a fresh browser context, then independently verifies the accepted request and exact published version. Direct Anthropic Opus 5.5 uses `HONUA_LIVE_ANTHROPIC_API_KEY`; automatic retries are disabled. The separate demo canary uses the external Console URL/profile/IdP variables and approver username/password secrets described in AGENTS.md. |
 
 Design tokens live in `src/theme/`: `tokens.css` holds the structural
 spacing/type/radius/elevation scale, and `theme-standalone.css` /

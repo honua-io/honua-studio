@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { expect, request as playwrightRequest, test } from "@playwright/test";
 
 import { ensureCohortAuthorLayer } from "../../scripts/cohort-author-layer.mjs";
+import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
 import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approvePasswordPublication } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
@@ -12,6 +13,8 @@ const enabled = process.env.HONUA_COHORT_AUTHOR === "1";
 const liveBaseUrl = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const consoleUrl = process.env.HONUA_LIVE_CONSOLE_URL?.replace(/\/$/, "");
 const passwordFile = process.env.HONUA_COHORT_PASSWORD_FILE;
+
+test.use({ launchOptions: { args: liveApprovalBrowserArguments() } });
 
 test.describe("cohort author journey @cohort", () => {
   test.skip(

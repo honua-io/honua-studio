@@ -301,7 +301,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
 
   #openPublishConfirm(versionId: string): void {
     const version = this.#versions.find((candidate) => candidate.versionId === versionId);
-    const intent = version?.envelope.publicationIntent ?? this.#draft?.envelope.publicationIntent ?? undefined;
+    const intent = version?.envelope.publicationIntent ?? undefined;
     this.#pendingConfirm = { kind: "publish", versionId, intent };
     this.#confirmText = "";
     this.#actionMessage = undefined;
@@ -330,6 +330,11 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     return Boolean(expectedKey) && this.#confirmText === expectedKey;
   }
 
+  #canConfirm(): boolean {
+    const pending = this.#pendingConfirm;
+    return this.#confirmTextMatchesKey() && Boolean(pending && (pending.kind === "rollback" || pending.intent));
+  }
+
   /**
    * THE ONLY call site for `requestPublish`/`requestRollback` in this
    * package (spec REQ-009). Reachable ONLY via `#confirmSubmit`'s `click`
@@ -338,7 +343,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
    */
   async #submitConfirm(): Promise<void> {
     const pending = this.#pendingConfirm;
-    if (!pending || !this.#itemId || !this.#confirmTextMatchesKey()) return;
+    if (!pending || !this.#itemId || !this.#canConfirm() || this.#confirmSubmitting) return;
     this.#confirmSubmitting = true;
     this.render();
     try {
@@ -560,7 +565,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     const pending = this.#pendingConfirm;
     if (!pending) return "";
     const expectedKey = this.#confirmPackageKey() ?? "";
-    const matches = this.#confirmTextMatchesKey();
+    const matches = this.#canConfirm();
     const title =
       pending.kind === "publish"
         ? `Confirm publish of version ${pending.versionId}`
@@ -568,6 +573,11 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     return `
       <div class="lifecycle-confirm" data-testid="lifecycle-confirm-dialog" role="alertdialog" aria-label="${escapeHtml(title)}">
         <p><strong>${escapeHtml(title)}</strong></p>
+        ${
+          pending.kind === "publish" && !pending.intent
+            ? `<p role="alert" data-testid="lifecycle-publication-intent-required">This saved version has no publication intent. Choose its publication route and visibility in the Map or App, then save a new version before requesting publication. No publication request has been sent.</p>`
+            : ""
+        }
         <p class="hn-muted">
           This action is irreversible except by a further rollback. Type the content key
           <strong data-testid="lifecycle-confirm-expected-key">${escapeHtml(expectedKey)}</strong> to confirm.
@@ -664,7 +674,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
       () => {
         this.#confirmText = confirmInput.value;
         if (confirmSubmit) {
-          confirmSubmit.disabled = !this.#confirmTextMatchesKey() || this.#confirmSubmitting;
+          confirmSubmit.disabled = !this.#canConfirm() || this.#confirmSubmitting;
         }
       },
       { signal },
