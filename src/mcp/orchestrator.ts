@@ -71,6 +71,11 @@ import { historyCommand } from "../composition/history-command.js";
 import { canonicalCompositionJson } from "../composition/model.js";
 import { applyCompositionCommand, isCompositionCommandError } from "../composition/reducer.js";
 import type { CompositionToolCall } from "../composition/tool-call.js";
+import type { StudioApprovalPending } from "../lifecycle/approval-pending.js";
+import {
+  StudioLifecycleApprovalPendingError,
+  isStudioLifecycleApprovalPending,
+} from "../lifecycle/lifecycle-errors.js";
 import type { McpClient } from "./client.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "./composition-envelope.js";
 import { isMcpGenerationConflict } from "./errors.js";
@@ -106,13 +111,18 @@ export interface ToolCallOrchestrationSuccess {
   readonly draft?: StudioMcpDraft;
 }
 
-export type ToolCallOrchestrationErrorCode = ToolBridgeErrorCode | "reducer-rejected" | "server-error";
+export type ToolCallOrchestrationErrorCode =
+  | ToolBridgeErrorCode
+  | "reducer-rejected"
+  | "server-error"
+  | "approval-pending";
 
 export interface ToolCallOrchestrationFailure {
   readonly ok: false;
   readonly toolName: string;
   readonly code: ToolCallOrchestrationErrorCode;
   readonly reason: string;
+  readonly pending?: StudioApprovalPending;
 }
 
 export type ToolCallOrchestrationResult = ToolCallOrchestrationSuccess | ToolCallOrchestrationFailure;
@@ -144,6 +154,7 @@ export class ToolCallOrchestrator {
   #studioTools: StudioMcpToolClient | undefined;
   #draftId: string | undefined;
   #generation: number | undefined;
+  #pendingApproval: StudioApprovalPending | undefined;
   #draftSetupGeneration = 0;
   #draftSetup: Promise<{ readonly draftId: string; readonly generation: number }> | undefined;
   /** Serializes server-bound calls so two rapid tool-call events never race the same draft's generation against each other. */
@@ -164,6 +175,32 @@ export class ToolCallOrchestrator {
 
   public get generation(): number | undefined {
     return this.#generation;
+  }
+
+  public get pendingApproval(): StudioApprovalPending | undefined {
+    return this.#pendingApproval;
+  }
+
+  /** Read an existing draft after human approval; never replay the held mutation. */
+  public async resumeLiveDraft(draftId: string): Promise<void> {
+    const execute = async () => {
+      const tools = this.#studioTools;
+      const live = this.#live;
+      const epoch = this.#draftSetupGeneration;
+      if (!tools || !live) throw new Error("No live Studio editing session is attached.");
+      const draft = await tools.getDraft(draftId);
+      if (epoch !== this.#draftSetupGeneration || live !== this.#live) {
+        throw new Error("Live Studio editing session changed while reloading the draft.");
+      }
+      if (this.#pendingApproval && draft.draftId === this.#draftId && draft.generation <= (this.#generation ?? -1)) {
+        throw new Error("The held map edit has not completed; approve it in the Inbox, then reload the draft.");
+      }
+      this.acceptServerDraft(draft);
+      this.#pendingApproval = undefined;
+    };
+    const run = this.#serverQueue.then(execute);
+    this.#serverQueue = run.catch(() => undefined);
+    return run;
   }
 
   public get isLive(): boolean {
@@ -230,6 +267,8 @@ export class ToolCallOrchestrator {
         }
         return action === "undo" ? this.#controller.undo() : this.#controller.redo();
       } catch (error) {
+        if (sessionGeneration === this.#draftSetupGeneration && isStudioLifecycleApprovalPending(error))
+          this.#pendingApproval = error.pending;
         this.#activityLog?.append("assistant_turn_error", {
           phase: "history-sync",
           action,
@@ -255,6 +294,7 @@ export class ToolCallOrchestrator {
   public attachLiveSession(options: ToolCallOrchestratorLiveOptions): void {
     this.#draftSetupGeneration += 1;
     this.#draftSetup = undefined;
+    this.#pendingApproval = undefined;
     this.#live = options;
     this.#studioTools = new StudioMcpToolClient(options.client);
     this.#draftId = options.draftId;
@@ -265,6 +305,7 @@ export class ToolCallOrchestrator {
   public detachLiveSession(): void {
     this.#draftSetupGeneration += 1;
     this.#draftSetup = undefined;
+    this.#pendingApproval = undefined;
     this.#live = undefined;
     this.#studioTools = undefined;
     this.#draftId = undefined;
@@ -343,12 +384,13 @@ export class ToolCallOrchestrator {
       return this.#reject(toolName, "reducer-rejected", reason);
     }
 
+    const sessionGeneration = this.#draftSetupGeneration;
     let draftId: string;
     let generation: number;
     try {
       ({ draftId, generation } = await this.#ensureDraft());
     } catch (error) {
-      return this.#reject(toolName, "server-error", errorMessage(error));
+      return this.#rejectServerError(toolName, error, sessionGeneration);
     }
 
     const invocation = buildServerToolInvocation(
@@ -365,9 +407,11 @@ export class ToolCallOrchestrator {
     try {
       draft = await this.#callServerTool(invocation);
     } catch (error) {
-      return this.#reject(toolName, "server-error", errorMessage(error));
+      return this.#rejectServerError(toolName, error, sessionGeneration);
     }
 
+    if (sessionGeneration !== this.#draftSetupGeneration)
+      return this.#reject(toolName, "server-error", "Live Studio editing session changed during the map edit.");
     this.#generation = draft.generation;
     this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
     const accepted = this.#accept(toolName, "server", command, draft);
@@ -412,6 +456,7 @@ export class ToolCallOrchestrator {
 
   /** Lazily creates the draft this session composes against, seeded with whatever local composition state already exists — idempotent once a draft is established. */
   async #ensureDraft(): Promise<{ readonly draftId: string; readonly generation: number }> {
+    if (this.#pendingApproval) throw new StudioLifecycleApprovalPendingError(this.#pendingApproval);
     if (this.#draftId !== undefined && this.#generation !== undefined) {
       return { draftId: this.#draftId, generation: this.#generation };
     }
@@ -437,6 +482,12 @@ export class ToolCallOrchestrator {
           this.#controller.replaceState(applyStudioDraft(draft, this.#controller.state));
           return { draftId: draft.draftId, generation: draft.generation };
         })
+        .catch((error: unknown) => {
+          if (setupGeneration === this.#draftSetupGeneration && isStudioLifecycleApprovalPending(error)) {
+            this.#pendingApproval = error.pending;
+          }
+          throw error;
+        })
         .finally(() => {
           if (setupGeneration === this.#draftSetupGeneration) this.#draftSetup = undefined;
         });
@@ -457,6 +508,14 @@ export class ToolCallOrchestrator {
       ...(draft ? { draftId: draft.draftId, generation: draft.generation } : {}),
     });
     return { ok: true, toolName, mode, command, ...(draft ? { draft } : {}) };
+  }
+
+  #rejectServerError(toolName: string, error: unknown, sessionGeneration: number): ToolCallOrchestrationFailure {
+    if (sessionGeneration !== this.#draftSetupGeneration)
+      return this.#reject(toolName, "server-error", "Live Studio editing session changed during the map edit.");
+    if (!isStudioLifecycleApprovalPending(error)) return this.#reject(toolName, "server-error", errorMessage(error));
+    this.#pendingApproval = error.pending;
+    return { ...this.#reject(toolName, "approval-pending", error.message), pending: error.pending };
   }
 
   #reject(toolName: string, code: ToolCallOrchestrationErrorCode, reason: string): ToolCallOrchestrationFailure {

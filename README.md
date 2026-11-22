@@ -305,7 +305,12 @@ native model and visual workflow qualification remains pending.
 - **Approval receipts are distinct from completion.** Lifecycle publication
   and rollback show HTTP 202 approval requests as awaiting separate human
   approval, retaining operation and proposal references in activity events.
-  Unknown pending responses never count as completed mutations.
+  Unknown pending responses never count as completed mutations. MCP draft edits
+  also retain approval handles, leave the canvas unchanged, and block duplicate
+  proposals. Hosts can read an authorized completed draft with
+  `toolCallOrchestrator.resumeLiveDraft(draftId)` after separate human approval;
+  no held mutation is replayed. Focused fixture coverage passes 45 tests across
+  five files; installed approval/completion remains to be verified.
 - **Sharing follows server policy and stays Preview**
   ([#26](https://github.com/honua-io/honua-studio/issues/26)). The self-hosted
   fixture smoke submits a canonical immutable-version proposal, keeps the

@@ -258,7 +258,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** The map edit the server holds for a separate human approval; reload the draft once it is approved. */
   public get pendingEditorApproval(): StudioApprovalPending | undefined {
-    return this.#drafts.pendingApproval;
+    return this.#drafts.pendingApproval ?? this.#live.orchestrator.pendingApproval;
   }
 
   /** Stop waiting for a held edit (for example after its rejection); the next reload adopts the server draft. */
