@@ -14,7 +14,7 @@ const reportPath = process.env.PLAYWRIGHT_JSON_OUTPUT_NAME ?? ".tmp/live-studio-
 const guard = await startLiveModelGuard(serverOrigin, {
   host: "0.0.0.0",
   port: approvalObserverPort,
-  modelFree: mode === "oidc-lifecycle",
+  mode,
 });
 let child;
 let interrupt;

@@ -165,7 +165,7 @@ test("a single guard caps concurrent calls across clients and records only provi
 });
 
 test("model-free qualification refuses every model call before forwarding", async (context) => {
-  const { guard, requests, chat } = await fixture(context, completedStream, { modelFree: true });
+  const { guard, requests, chat } = await fixture(context, completedStream, { mode: "oidc-lifecycle" });
   assert.equal((await chat()).status, 429);
   assert.equal(requests.length, 0);
   assert.equal(guard.evidence().mode, "oidc-lifecycle");
@@ -176,7 +176,7 @@ test("model-free qualification refuses every model call before forwarding", asyn
 
 test("model-free qualification forwards lifecycle and OIDC approval traffic without consuming model budget", async (context) => {
   const { guard, requests } = await fixture(context, (response) => response.writeHead(200).end("{}"), {
-    modelFree: true,
+    mode: "oidc-lifecycle",
   });
   await (await fetch(`${guard.origin}/api/v1/studio/maps`)).text();
   await (

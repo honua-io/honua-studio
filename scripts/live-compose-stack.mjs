@@ -16,7 +16,8 @@ import { collectPlaywrightContexts, writeDiagnostic } from "./lib/live-diagnosti
 import { liveQualificationMode } from "./lib/live-qualification-mode.mjs";
 
 const root = resolve(".tmp/live-compose");
-const modelFree = liveQualificationMode() === "oidc-lifecycle";
+const mode = liveQualificationMode();
+const modelFree = mode === "oidc-lifecycle";
 const lock = JSON.parse(readFileSync(new URL("./live-compose-images.json", import.meta.url), "utf8"));
 // A digest-pinned shell for the identity file permissions: the Studio image base.
 const shellImage = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8").match(
@@ -103,10 +104,7 @@ function prepare() {
   for (const [name, value] of Object.entries(secrets)) writePrivate(`secrets/${name}`, value);
   writePrivate("secrets/approver_password", password);
   writePrivate(`identity/realm/${realmName}.json`, JSON.stringify(approverRealm({ password, clientSecret })));
-  writeFileSync(
-    resolve(root, "compose.studio.json"),
-    JSON.stringify(studioComposeOverlay(lock, { modelFree }), null, 2),
-  );
+  writeFileSync(resolve(root, "compose.studio.json"), JSON.stringify(studioComposeOverlay(lock, { mode }), null, 2));
   createIdentityCertificate();
   compose(["config", "--quiet"]);
   console.log("Customer quickstart prepared with immutable images and a dedicated OIDC test person.");

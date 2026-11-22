@@ -173,10 +173,10 @@ function modelGuardHandler(origin, state, redact, sockets) {
   };
 }
 
-function assertQualifiedModelCalls(state, modelFree) {
+function assertQualifiedModelCalls(state, mode) {
   const { calls } = state;
   if (state.rejectedCalls) throw new Error("Live model guard refused requests; qualification failed.");
-  if (modelFree) {
+  if (mode === "oidc-lifecycle") {
     if (calls.length) throw new Error("OIDC lifecycle qualification must not invoke a model.");
     return;
   }
@@ -197,11 +197,16 @@ function assertQualifiedModelCalls(state, modelFree) {
   }
 }
 
-export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0, modelFree = false } = {}) {
+export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0, mode = "full" } = {}) {
   const target = new URL(origin);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/")
     throw new Error("The Compose guard requires a loopback server origin.");
-  const state = { calls: [], approvals: [], rejectedCalls: 0, maxCalls: modelFree ? 0 : liveModelLimits.maxCalls };
+  const state = {
+    calls: [],
+    approvals: [],
+    rejectedCalls: 0,
+    maxCalls: mode === "oidc-lifecycle" ? 0 : liveModelLimits.maxCalls,
+  };
   const { calls } = state;
   const sockets = new Set();
   const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor(), sockets));
@@ -227,13 +232,13 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
     },
     evidence: () => ({
       limits: { ...liveModelLimits, maxCalls: state.maxCalls },
-      mode: modelFree ? "oidc-lifecycle" : "full",
+      mode,
       calls,
       approvals: state.approvals,
       rejectedCalls: state.rejectedCalls,
       promptTokens: calls.reduce((total, call) => total + (call.promptTokens ?? 0), 0),
       completionTokens: calls.reduce((total, call) => total + (call.completionTokens ?? 0), 0),
     }),
-    assertQualified: () => assertQualifiedModelCalls(state, modelFree),
+    assertQualified: () => assertQualifiedModelCalls(state, mode),
   };
 }

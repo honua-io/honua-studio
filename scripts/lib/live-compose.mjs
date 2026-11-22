@@ -29,16 +29,16 @@ export function validateImageLock(lock) {
     throw new Error("Server and executor must use the same candidate.");
 }
 
-export function studioComposeOverlay(lock, { modelFree = false } = {}) {
+export function studioComposeOverlay(lock, { mode = "full" } = {}) {
   validateImageLock(lock);
   const secretNames = Object.values(studioSecretNames).filter(
-    (name) => !modelFree || name !== studioSecretNames.provider,
+    (name) => mode !== "oidc-lifecycle" || name !== studioSecretNames.provider,
   );
   return {
     services: {
       honua: {
         image: lock.server.image,
-        environment: studioServerEnvironment({ modelFree }),
+        environment: studioServerEnvironment(mode),
         secrets: secretNames,
         volumes: ["./identity/certs:/certs:ro"],
         depends_on: { keycloak: { condition: "service_started" } },
@@ -66,7 +66,7 @@ export function studioComposeOverlay(lock, { modelFree = false } = {}) {
   };
 }
 
-function studioServerEnvironment({ modelFree }) {
+function studioServerEnvironment(mode) {
   const environment = {
     PUBLIC_BASE_URL: consoleOrigin,
     Studio__EndUserAuthorization__Enabled: "true",
@@ -96,14 +96,15 @@ function studioServerEnvironment({ modelFree }) {
     AiExecutionAdmission__DeploymentId: "studio-live-compose",
     AiExecutionAdmission__Backend: "postgres",
   };
-  if (modelFree) {
-    for (const name of Object.keys(environment)) {
-      if (name.startsWith("StudioAiProxy__") || name === "HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY")
-        delete environment[name];
-    }
-    environment.StudioAiProxy__Enabled = "false";
-  }
-  return environment;
+  if (mode !== "oidc-lifecycle") return environment;
+  return {
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => !isModelProviderSetting(name))),
+    StudioAiProxy__Enabled: "false",
+  };
+}
+
+function isModelProviderSetting(name) {
+  return name.startsWith("StudioAiProxy__") || name === "HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY";
 }
 
 function keycloakService() {

@@ -84,7 +84,7 @@ test("the approval observer leaves the customer quickstart and identity ports av
 
 test("the model-free overlay keeps human authorization without provider configuration or credentials", () => {
   const full = studioComposeOverlay(lock);
-  const overlay = studioComposeOverlay(lock, { modelFree: true });
+  const overlay = studioComposeOverlay(lock, { mode: "oidc-lifecycle" });
   const environment = overlay.services.honua.environment;
   assert.equal(environment.StudioAiProxy__Enabled, "false");
   assert.deepEqual(
