@@ -17,7 +17,8 @@ job refuses any other revision.
   and the container from the smoked revision. `@honua/studio` depends on an
   exact published `@honua/sdk-js` version (`package.json`), not a range.
   The receipt records the version, source SHA, and pushed image digest.
-  No `v*` tag has been cut, so nothing is pullable from GHCR yet.
+  Published `v*` releases and their assets are listed on the
+  [Releases page](https://github.com/honua-io/honua-studio/releases).
 - **Security.** The tag workflow runs filesystem Trivy from the pinned
   `honua-io/.github` workflow and `needs` it before publish. OpenSSF Scorecard
   scores the default branch, and scorecard-action refuses tag and dispatch
@@ -68,9 +69,9 @@ branch: `gh workflow run release.yml --ref <branch> -f publish=false`. A dry
 run runs the smokes, Trivy and every build, packs both tarballs and
 builds and checks the image, but pushes, attests and uploads nothing.
 
-Versioning starts from the `0.0.0` that `package.json` reports, which
-release-please treats as "never released". `initial-version` makes the first
-release `v0.1.0`, not release-please's default `v1.0.0`. While the major is
+Versioning started from `0.0.0` in `package.json`, which release-please
+treated as "never released". `initial-version` made the first release
+`v0.1.0`, not release-please's default `v1.0.0`. While the major is
 `0`, `bump-minor-pre-major` turns a breaking change into a minor bump, so it
 never jumps to `1.0.0`. `bump-patch-for-minor-pre-major: false` keeps a
 `feat` as a minor bump; a `fix` is a patch. Leaving `0.x` is a deliberate

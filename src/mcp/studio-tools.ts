@@ -1,7 +1,7 @@
 import type { HonuaMapPackageSourceBinding } from "@honua/sdk-js/runtime";
 import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 /**
- * Typed wrappers over `McpClient.callTool` for 17 `honua_studio_*` tools
+ * Typed wrappers over `McpClient.callTool` for 18 `honua_studio_*` tools
  * (honua-server#3002; `gh pr diff 3016` in honua-server — draft lifecycle:
  * create/get/update/validate/preview, composition mutation: add/remove
  * layer, set layer style, set layer visibility, set view, add/remove widget,
@@ -302,7 +302,7 @@ export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDra
 }
 
 /**
- * Typed convenience layer over {@link McpClient.callTool} for the 17
+ * Typed convenience layer over {@link McpClient.callTool} for the 18
  * `honua_studio_*` tools. Every method is a thin `callTool(name, args)` plus
  * response parsing (`structuredContent`, falling back to the first text
  * block as JSON — the tool success side of the same shape

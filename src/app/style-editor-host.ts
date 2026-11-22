@@ -142,6 +142,8 @@ export class StyleEditorHost {
     await drafts.enqueue(async () => {
       const style = await canvas.editableMapStyle();
       if (!authority.epoch.isCurrent(epoch) || drafts.binding !== binding) throw new Error(EDITOR_AUTHORITY_CHANGED);
+      const held = drafts.pendingApproval && drafts.heldEditMessage();
+      if (held) throw new Error(held);
       const observed = await binding.initializeStyle(style).catch((error: unknown) => {
         if (isStudioLifecycleApprovalPending(error) && authority.epoch.isCurrent(epoch) && drafts.binding === binding)
           drafts.markAwaitingApproval(error.pending);
@@ -296,6 +298,11 @@ export class StyleEditorHost {
     const result = await this.options.editor.dispatch([{ name: "setMapStyle", mapSpec: style }]);
     authority.epoch.assertCurrent(session.generation, EDITOR_AUTHORITY_CHANGED);
     if (result.conflict) throw new Error(NEWER_DRAFT_SAVED);
+    // The visual editor keeps the held style as unsaved, so only Discard can reload the map.
+    if (result.approval)
+      throw new Error(
+        `The style change is waiting for separate human approval (proposal ${result.approval.proposalId}). Approve it in the Inbox, then press Discard to reload the map.`,
+      );
     if (!result.ok) throw new Error(result.reason);
     return session.canvas.editableMapStyle();
   }
