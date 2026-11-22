@@ -12,6 +12,7 @@ import { runStyleFilterJourney, zoningSourceOption } from "./style-filter-journe
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const LIVE_API_KEY = process.env.HONUA_LIVE_API_KEY;
+const EXPECT_AI_DISABLED = process.env.HONUA_LIVE_EXPECT_AI_DISABLED === "1";
 
 test.describe("live demo-server journeys @live", () => {
   test.skip(
@@ -144,9 +145,13 @@ test.describe("live demo-server journeys @live", () => {
       });
       expect(capabilities.status).toBe(200);
       expect(capabilities.body.success).toBe(true);
-      expect(capabilities.body.data.enabled).toBe(true);
-      expect(capabilities.body.data.providers.length).toBeGreaterThan(0);
-      expect(capabilities.body.data.defaultProvider).toBeTruthy();
+      if (EXPECT_AI_DISABLED) {
+        expect(capabilities.body.data).toMatchObject({ enabled: false, providers: [], defaultProvider: "" });
+      } else {
+        expect(capabilities.body.data.enabled).toBe(true);
+        expect(capabilities.body.data.providers.length).toBeGreaterThan(0);
+        expect(capabilities.body.data.defaultProvider).toBeTruthy();
+      }
     } finally {
       await preview.close();
     }
