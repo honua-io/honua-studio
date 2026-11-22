@@ -337,9 +337,9 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
         el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-publish"]')!.click();
         await flush();
 
-        expect(el.shadowRoot!.querySelector('[data-testid="lifecycle-publication-intent-required"]')?.textContent).toContain(
-          "This saved version has no publication intent",
-        );
+        expect(
+          el.shadowRoot!.querySelector('[data-testid="lifecycle-publication-intent-required"]')?.textContent,
+        ).toContain("This saved version has no publication intent");
         const input = el.shadowRoot!.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]')!;
         input.value = "parcels-overview";
         input.dispatchEvent(new Event("input"));
