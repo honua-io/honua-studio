@@ -79,6 +79,26 @@ for (const themeSet of ["standalone", "console"]) {
         await expectNoSeriousAxeViolations(page, info, "recipe");
         await keyboard.activate(page.getByRole("button", { name: "Create editable draft", exact: true }));
         await expect(page.getByTestId("recipe-status")).toContainText("Created draft");
+        // Recipe creation does not author publication intent; seed that publication precondition explicitly.
+        const headers = { authorization: `Bearer ${mintFixtureAccessToken()}`, "content-type": "application/json" };
+        const draftsResponse = await fetch(`${mock.url}/v1/studio/package-drafts?q=${key}`, { headers });
+        expect(draftsResponse.status).toBe(200);
+        const drafts = (await draftsResponse.json()).data.items;
+        expect(drafts).toHaveLength(1);
+        const savedDraft = drafts[0];
+        const intentResponse = await fetch(`${mock.url}/v1/studio/package-drafts/${savedDraft.draftId}`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            packageKey: key,
+            generation: savedDraft.generation,
+            envelope: {
+              ...savedDraft.envelope,
+              publicationIntent: { route: `/maps/${key}`, visibility: "private" },
+            },
+          }),
+        });
+        expect(intentResponse.status).toBe(200);
         await keyboard.activate(page.getByRole("button", { name: "Close", exact: true }));
         await expect(page.getByTestId("recipe-panel")).toBeHidden();
         await expect(page.getByTestId("studio-widget-grid-row")).toHaveCount(25);
