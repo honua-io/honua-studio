@@ -107,3 +107,10 @@ test("scripted MCP setup fails clearly without a usable catalog or matching fiel
     assert.throws(() => liveMcpFixture(candidateSource, metadata), /matching live layer metadata/);
   }
 });
+
+test("scripted MCP source selection accepts GeoJSON line geometries", () => {
+  for (const geometryType of ["LineString", "MultiLineString"]) {
+    const source = { ...candidateSource, geometryType };
+    assert.equal(selectMcpFixtureSource([source]), source);
+  }
+});
