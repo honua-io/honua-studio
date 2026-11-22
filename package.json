@@ -25,6 +25,7 @@
     "test:browser:install": "playwright install --with-deps chromium",
     "test:browser": "npm run build --silent && playwright test --grep-invert \"@blazor|@live|@cohort\"",
     "test:browser:live": "npm run build --silent && playwright test --grep @live",
+    "test:browser:live:oidc": "npm run build --silent && playwright test --grep \"@live.*package lifecycle:\"",
     "test:browser:cohort": "npm run build --silent && playwright test --grep @cohort --retries=0",
     "test:self-hosted-preview": "node scripts/self-hosted-preview-receipt.mjs --image honua-studio:ci",
     "build:blazor-host": "npm run build:blazor-assets --silent && dotnet build harness/blazor-host/StudioHost/StudioHost.csproj",

@@ -81,3 +81,23 @@ test("the approval observer leaves the customer quickstart and identity ports av
   const { approvalObserverPort } = await import("../lib/live-diagnostics.mjs");
   for (const reservedPort of [18080, 18081, 18082, 5174, 8443]) assert.notEqual(approvalObserverPort, reservedPort);
 });
+
+test("the model-free overlay keeps human authorization without provider configuration or credentials", () => {
+  const full = studioComposeOverlay(lock);
+  const overlay = studioComposeOverlay(lock, { mode: "oidc-lifecycle" });
+  const environment = overlay.services.honua.environment;
+  assert.equal(environment.StudioAiProxy__Enabled, "false");
+  assert.deepEqual(
+    Object.keys(environment).filter((key) => key.startsWith("StudioAiProxy__")),
+    ["StudioAiProxy__Enabled"],
+  );
+  assert.equal(environment.HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY, undefined);
+  assert.equal(environment.Studio__EndUserAuthorization__Enabled, "true");
+  assert.deepEqual(overlay.services.console, full.services.console);
+  assert.deepEqual(overlay.services.keycloak, full.services.keycloak);
+  for (const key of Object.keys(full.services.honua.environment).filter((name) => name.startsWith("Oidc__"))) {
+    assert.equal(environment[key], full.services.honua.environment[key]);
+  }
+  assert.equal(overlay.secrets.anthropic_api_key, undefined);
+  assert.equal(overlay.services.honua.secrets.includes("anthropic_api_key"), false);
+});

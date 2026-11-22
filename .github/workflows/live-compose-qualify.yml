@@ -6,6 +6,11 @@ name: Qualify the customer Compose stack
 on:
   workflow_call:
     inputs:
+      qualification_mode:
+        description: full, or oidc-lifecycle for model-free human approval proof only
+        required: false
+        type: string
+        default: full
       artifact_name:
         description: Artifact that holds this run's qualification evidence
         required: true
@@ -32,6 +37,8 @@ jobs:
     name: Qualify the customer Compose stack
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      HONUA_LIVE_QUALIFICATION_MODE: ${{ inputs.qualification_mode }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -78,7 +85,7 @@ jobs:
         run: |
           npm ci
           npm run test:browser:install
-          node --test scripts/__tests__/live-candidate-row.test.mjs scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
+          node --test scripts/__tests__/live-candidate-row.test.mjs scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-qualification-mode.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
           node --test scripts/__tests__/live-publication.test.mjs
 
       - name: Prepare the customer quickstart and dedicated test person
@@ -93,7 +100,7 @@ jobs:
           NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/.tmp/live-compose/identity/certs/kc.crt
         run: node scripts/live-compose-stack.mjs start
 
-      - name: Record configured provider readiness
+      - name: Record configured capabilities
         run: node scripts/live-demo-readiness.mjs
 
       - name: Qualify Studio against the customer stack without retries

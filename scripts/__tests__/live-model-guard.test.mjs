@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startLiveModelGuard } from "../lib/live-model-guard.mjs";
 
-async function fixture(context, respond) {
+async function fixture(context, respond, options = {}) {
   const requests = [];
   const upstream = createServer(async (request, response) => {
     let body = "";
@@ -18,7 +18,7 @@ async function fixture(context, respond) {
     respond(response);
   });
   await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
-  const guard = await startLiveModelGuard(`http://127.0.0.1:${upstream.address().port}`);
+  const guard = await startLiveModelGuard(`http://127.0.0.1:${upstream.address().port}`, options);
   context.after(async () => {
     await guard.close();
     await new Promise((resolve) => upstream.close(resolve));
@@ -77,16 +77,23 @@ test("the qualification CLI persists evidence and redacted contexts on browser f
     npm,
     `#!/usr/bin/env node
 const { connect } = require("node:net");
+const assert = require("node:assert/strict");
+if (process.env.SYNTHETIC_BROWSER_MODE === "oidc-lifecycle") {
+  require("node:fs").writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
+    stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 }
+  }));
+}
+assert.equal(process.argv[3], process.env.SYNTHETIC_BROWSER_MODE === "oidc-lifecycle" ? "test:browser:live:oidc" : "test:browser:live");
 const socket = connect(new URL(process.env.HONUA_LIVE_BASE_URL).port, "127.0.0.1");
 socket.once("connect", () => {
   console.log("SYNTHETIC_BROWSER_READY");
   if (process.env.SYNTHETIC_BROWSER_MODE === "failure") process.exit(7);
-  if (process.env.SYNTHETIC_BROWSER_MODE === "unqualified") process.exit(0);
+  if (["unqualified", "oidc-lifecycle"].includes(process.env.SYNTHETIC_BROWSER_MODE)) process.exit(0);
 });
 `,
   );
   chmodSync(npm, 0o700);
-  for (const mode of ["failure", "unqualified", "SIGINT", "SIGTERM"]) {
+  for (const mode of ["failure", "unqualified", "oidc-lifecycle", "SIGINT", "SIGTERM"]) {
     await context.test(mode, { timeout: 5000 }, async (scenario) => {
       const cwd = join(directory, mode);
       mkdirSync(join(cwd, ".tmp/playwright-output/publish"), { recursive: true });
@@ -96,7 +103,12 @@ socket.once("connect", () => {
       );
       const child = spawn(process.execPath, [fileURLToPath(new URL("../qualify-live-compose.mjs", import.meta.url))], {
         cwd,
-        env: { ...process.env, PATH: `${commands}${delimiter}${process.env.PATH}`, SYNTHETIC_BROWSER_MODE: mode },
+        env: {
+          ...process.env,
+          PATH: `${commands}${delimiter}${process.env.PATH}`,
+          SYNTHETIC_BROWSER_MODE: mode,
+          HONUA_LIVE_QUALIFICATION_MODE: mode === "oidc-lifecycle" ? mode : "full",
+        },
         stdio: ["ignore", "pipe", "pipe"],
       });
       scenario.after(() => child.kill("SIGKILL"));
@@ -117,13 +129,14 @@ socket.once("connect", () => {
         child.once("error", reject);
         child.once("close", resolve);
       });
-      assert.equal(code, { failure: 7, unqualified: 1, SIGINT: 130, SIGTERM: 143 }[mode], errors);
+      assert.equal(code, { failure: 7, unqualified: 1, "oidc-lifecycle": 0, SIGINT: 130, SIGTERM: 143 }[mode], errors);
       if (mode === "unqualified") {
         assert.match(errors, /Every live model call must complete with valid provider token usage/);
       }
       const usage = JSON.parse(readFileSync(join(cwd, ".tmp/live-model-usage.json"), "utf8"));
       assert.equal(usage.calls.length, 0);
-      assert.equal(usage.limits.maxCalls, 3);
+      assert.equal(usage.mode, mode === "oidc-lifecycle" ? mode : "full");
+      assert.equal(usage.limits.maxCalls, mode === "oidc-lifecycle" ? 0 : 3);
       assert.equal(usage.limits.maxTokens, 1024);
       assert.match(output, /Live model usage:/);
       const snapshot = readFileSync(join(cwd, ".tmp/live-diagnostics/playwright/publish/error-context.md"), "utf8");
@@ -149,6 +162,34 @@ test("a single guard caps concurrent calls across clients and records only provi
   assert.equal(evidence.completionTokens, 6);
   assert.equal(JSON.stringify(evidence).includes("synthetic-private-key"), false);
   assert.throws(() => guard.assertQualified(), /refused/);
+});
+
+test("model-free qualification refuses every model call before forwarding", async (context) => {
+  const { guard, requests, chat } = await fixture(context, completedStream, { mode: "oidc-lifecycle" });
+  assert.equal((await chat()).status, 429);
+  assert.equal(requests.length, 0);
+  assert.equal(guard.evidence().mode, "oidc-lifecycle");
+  assert.equal(guard.evidence().limits.maxCalls, 0);
+  assert.equal(guard.evidence().calls.length, 0);
+  assert.throws(() => guard.assertQualified(), /refused/);
+});
+
+test("model-free qualification forwards lifecycle and OIDC approval traffic without consuming model budget", async (context) => {
+  const { guard, requests } = await fixture(context, (response) => response.writeHead(200).end("{}"), {
+    mode: "oidc-lifecycle",
+  });
+  await (await fetch(`${guard.origin}/api/v1/studio/maps`)).text();
+  await (
+    await fetch(`${guard.origin}/api/v1/admin/proposals/test-proposal/approve`, {
+      method: "POST",
+      headers: { authorization: "Bearer synthetic-person-token" },
+    })
+  ).text();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].headers.authorization, "Bearer synthetic-person-token");
+  assert.equal(guard.evidence().approvals[0].status, 200);
+  assert.equal(guard.evidence().calls.length, 0);
+  assert.doesNotThrow(() => guard.assertQualified());
 });
 
 test("oversized or unapproved requests never reach the upstream", async (context) => {

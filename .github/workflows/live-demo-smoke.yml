@@ -1,7 +1,15 @@
 name: Live customer Compose Studio journeys
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      qualification_mode:
+        description: Full qualification or model-free OIDC lifecycle proof
+        type: choice
+        default: full
+        options:
+          - full
+          - oidc-lifecycle
 
 permissions:
   contents: read
@@ -15,5 +23,6 @@ jobs:
     name: Live customer Compose Studio journeys
     uses: ./.github/workflows/live-compose-qualify.yml
     with:
-      artifact_name: live-customer-compose-studio
+      artifact_name: live-customer-compose-studio-${{ inputs.qualification_mode }}
+      qualification_mode: ${{ inputs.qualification_mode }}
     secrets: inherit
