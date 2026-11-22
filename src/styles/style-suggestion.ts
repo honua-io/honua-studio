@@ -9,6 +9,7 @@ import type { CompositionCommand } from "../composition/commands.js";
 import type { CompositionController } from "../composition/controller.js";
 import { type CompositionLayer, canonicalCompositionJson } from "../composition/model.js";
 import { type CompositionSourceDescriptor, hasCompositionSourceOverride } from "../map/source-resolution.js";
+import { isRecord } from "../shared/is-record.js";
 import type { MapStyleDocument } from "./map-style-edit.js";
 
 const PERMITTED_OVERRIDE_KEYS = ["paint", "layout", "filter", "minzoom", "maxzoom", "metadata"] as const;
@@ -470,8 +471,4 @@ function isStyledLayer(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

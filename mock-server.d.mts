@@ -12,7 +12,9 @@ export declare function startMockServer(options?: {
   port?: number;
   model?: "fixture" | "byom-preview";
   extraDatasets?: Record<string, unknown>[];
+  approvalTools?: string[];
 }): Promise<{
+  resolveDraftOperation: (proposalId: string, decision: "approve" | "reject") => unknown;
   server: http.Server;
   url: string;
   close: () => Promise<void>;

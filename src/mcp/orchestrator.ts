@@ -181,6 +181,11 @@ export class ToolCallOrchestrator {
     return this.#pendingApproval;
   }
 
+  /** Clear a rejected approval hold before reloading the authoritative draft. */
+  public discardApprovalHold(): void {
+    this.#pendingApproval = undefined;
+  }
+
   /** Read an existing draft after human approval; never replay the held mutation. */
   public async resumeLiveDraft(draftId: string): Promise<void> {
     const tools = this.#studioTools;

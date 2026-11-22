@@ -18,6 +18,7 @@ import type { HonuaMapPackageSourceBinding } from "@honua/sdk-js/runtime";
  */
 import { readStudioApprovalPending } from "../lifecycle/approval-pending.js";
 import { StudioLifecycleApprovalPendingError } from "../lifecycle/lifecycle-errors.js";
+import { isRecord } from "../shared/is-record.js";
 import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 import type { McpClient } from "./client.js";
 import type { McpToolsCallResult } from "./protocol.js";
@@ -324,10 +325,6 @@ export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDra
   )
     throw new Error("The server returned an incomplete map draft.");
   return value as unknown as StudioMcpDraft;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /**

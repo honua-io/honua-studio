@@ -269,6 +269,7 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
   /** Stop waiting for a held edit (for example after its rejection); the next reload adopts the server draft. */
   public discardEditorApprovalHold(): void {
     this.#drafts.discardApprovalHold();
+    this.#live.orchestrator.discardApprovalHold();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
