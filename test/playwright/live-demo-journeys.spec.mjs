@@ -1,5 +1,6 @@
 /** Live deployment checks leave timestamped content items; drafts are deleted after each test. */
 import { chromium, expect, test } from "@playwright/test";
+import { ensureCohortAuthorLayer } from "../../scripts/cohort-author-layer.mjs";
 import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
 import { liveModelLimits } from "../../scripts/lib/live-model-guard.mjs";
 import { liveMapBody } from "../../scripts/lib/live-publication.mjs";
@@ -8,10 +9,11 @@ import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
-import { runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
+import { cohortSourceOption, runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
 const LIVE_API_KEY = process.env.HONUA_LIVE_API_KEY;
+const COHORT_AUTHOR = process.env.HONUA_COHORT_AUTHOR === "1";
 const EXPECT_AI_DISABLED = process.env.HONUA_LIVE_EXPECT_AI_DISABLED === "1";
 
 test.describe("live demo-server journeys @live", () => {
@@ -347,10 +349,11 @@ test.describe("live demo-server journeys @live", () => {
     page,
   }, info) => {
     test.skip(
-      !LIVE_BASE_URL || new URL(LIVE_BASE_URL).hostname !== "demo.honua.io",
-      "The style/filter journey requires the seeded demo zoning catalog.",
+      !COHORT_AUTHOR && (!LIVE_BASE_URL || new URL(LIVE_BASE_URL).hostname !== "demo.honua.io"),
+      "The style/filter journey requires the demo zoning catalog or HONUA_COHORT_AUTHOR=1 for synthetic polygons.",
     );
     test.setTimeout(360_000);
+    if (COHORT_AUTHOR) await ensureCohortAuthorLayer({ baseUrl: LIVE_BASE_URL, apiKey: LIVE_API_KEY });
     const key = `studio-e2e-style-${Date.now()}`;
     const preview = await startLivePreview();
     const readDraft = async (packageKey) => {
@@ -366,7 +369,7 @@ test.describe("live demo-server journeys @live", () => {
       await runStyleFilterJourney(page, info, {
         key,
         readDraft,
-        sourceOption: zoningSourceOption,
+        sourceOption: COHORT_AUTHOR ? cohortSourceOption : zoningSourceOption,
         firstPaintTimeout: 30_000,
       });
     } finally {

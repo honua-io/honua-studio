@@ -101,6 +101,11 @@ const parcelsSourceOption = recipeSourceOption(
 /** The demo's zoning layer keeps feature pagination bounded alongside the MCP journey. */
 export const zoningSourceOption = recipeSourceOption("zoning dataset", (option) => /zoning/i.test(option.label));
 
+/** Bounded synthetic polygons explicitly seeded by the cohort author opt-in. */
+export const cohortSourceOption = recipeSourceOption("cohort polygon dataset", (option) =>
+  option.label.includes("studio-journey-212"),
+);
+
 async function createRecipeMap(page, { key, sourceOption, firstPaintTimeout }) {
   const browserErrors = [];
   page.on("console", (message) => {
