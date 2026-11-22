@@ -302,7 +302,7 @@ export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDra
 }
 
 /**
- * Typed convenience layer over {@link McpClient.callTool} for the 17
+ * Typed convenience layer over {@link McpClient.callTool} for the 18
  * `honua_studio_*` tools. Every method is a thin `callTool(name, args)` plus
  * response parsing (`structuredContent`, falling back to the first text
  * block as JSON — the tool success side of the same shape
