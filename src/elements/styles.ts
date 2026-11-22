@@ -303,6 +303,7 @@ export function lifecycleStyles(): string {
       display: flex; flex-direction: column; gap: var(--hn-space-2, 8px);
     }
     .lifecycle-banner-title { font-weight: 600; }
+    .lifecycle-banner .hn-muted { color: inherit; }
     .lifecycle-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--hn-space-2, 8px); margin: 0; }
     .lifecycle-diff-item { display: flex; flex-direction: column; gap: var(--hn-space-0, 2px); font-size: var(--hn-text-sm, 0.8125rem); }
     .lifecycle-diff-item[data-equal="false"] { color: var(--hn-critical-text, #9c2828); }
