@@ -196,6 +196,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#live.enable(options);
   }
 
+  /** Reloads a completed authorized draft and reconnects live chat without replaying the held edit. */
+  public resumeLiveDraft(draftId: string): Promise<void> {
+    return this.#live.resumeDraft(draftId);
+  }
+
   /** Returns to fixture mode. State the server already accepted stays; only future tool calls stay local. */
   public disableLiveEditing(): void {
     this.#live.disable();

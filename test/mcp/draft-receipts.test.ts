@@ -123,6 +123,19 @@ describe("MCP draft operation receipts", () => {
     ]);
   });
 
+  it("rejects a queued reload before it reads through a replacement session", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    const client = new McpClient({ fetchImpl: vi.fn() });
+    const replacement = new McpClient({ fetchImpl: vi.fn() });
+    const read = vi.spyOn(replacement, "callTool").mockResolvedValue({ structuredContent: draft });
+    const orchestrator = new ToolCallOrchestrator({ controller, live: { client, packageKey: "map-1" } });
+    const reload = orchestrator.resumeLiveDraft("draft-1");
+    orchestrator.attachLiveSession({ client: replacement, packageKey: "map-2" });
+    await expect(reload).rejects.toThrow("session changed");
+    expect(read).not.toHaveBeenCalled();
+    expect(orchestrator.draftId).toBeUndefined();
+  });
+
   it("does not install a reloaded draft into a replaced session", async () => {
     const controller = new CompositionController(createEmptyCompositionState());
     const before = controller.state;

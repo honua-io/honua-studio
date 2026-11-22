@@ -311,7 +311,7 @@ native model and visual workflow qualification remains pending.
   Unknown pending responses never count as completed mutations. MCP draft edits
   also retain approval handles, leave the canvas unchanged, and block duplicate
   proposals. Hosts can read an authorized completed draft with
-  `toolCallOrchestrator.resumeLiveDraft(draftId)` after separate human approval;
+  `resumeLiveDraft(draftId)` after separate human approval;
   no held mutation is replayed. Focused fixture coverage passes 45 tests across
   five files; installed approval/completion remains to be verified.
 - **Sharing follows server policy and stays Preview**

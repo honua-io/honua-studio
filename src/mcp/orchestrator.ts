@@ -183,11 +183,14 @@ export class ToolCallOrchestrator {
 
   /** Read an existing draft after human approval; never replay the held mutation. */
   public async resumeLiveDraft(draftId: string): Promise<void> {
+    const tools = this.#studioTools;
+    const live = this.#live;
+    const epoch = this.#draftSetupGeneration;
     const execute = async () => {
-      const tools = this.#studioTools;
-      const live = this.#live;
-      const epoch = this.#draftSetupGeneration;
       if (!tools || !live) throw new Error("No live Studio editing session is attached.");
+      if (epoch !== this.#draftSetupGeneration || live !== this.#live) {
+        throw new Error("Live Studio editing session changed while reloading the draft.");
+      }
       const draft = await tools.getDraft(draftId);
       if (epoch !== this.#draftSetupGeneration || live !== this.#live) {
         throw new Error("Live Studio editing session changed while reloading the draft.");

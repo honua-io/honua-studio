@@ -20,6 +20,7 @@ import { registerAllStudioElements } from "../../src/elements/registry.js";
 import type { HonuaStudioAppElement } from "../../src/elements/studio-app-element.js";
 import type { HonuaStudioChatElement } from "../../src/elements/studio-chat-element.js";
 import type { HonuaStudioEditingModeChangeDetail } from "../../src/elements/types.js";
+import { McpClient } from "../../src/mcp/client.js";
 
 import { installRuntimeConfig, runtimeConfig } from "../../src/runtime-config.js";
 
@@ -219,6 +220,36 @@ it("blocks chat during setup and returns to fixture mode on failure", async () =
   await vi.waitFor(() => expect(element.toolCallOrchestrator.isLive).toBe(false));
   expect(control(element, "live-composition-status").textContent).toBe("Fixture mode");
   expect(chat.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="studio-chat-send"]')?.disabled).toBe(false);
+});
+
+it("retains approval during automatic setup and resumes chat after an authorized reload", async () => {
+  enableDraftFetch();
+  const element = mount();
+  element.sourceCatalog = [];
+  const clientCall = vi.spyOn(McpClient.prototype, "callTool").mockResolvedValueOnce({
+    structuredContent: {
+      operation: { status: "RequiresApproval", operationInstanceId: "op-held", proposalId: "proposal-held" },
+    },
+  });
+  element.enableLiveEditing({ packageKey: "pkg-held" });
+  const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
+  await vi.waitFor(() =>
+    expect(chat.activityLog.entries().some((entry) => entry.type === "assistant_turn_error")).toBe(true),
+  );
+  expect(element.toolCallOrchestrator.isLive).toBe(true);
+  expect(element.pendingEditorApproval).toMatchObject({ proposalId: "proposal-held", operationInstanceId: "op-held" });
+  expect(attachedAgentOptions).toHaveLength(0);
+  expect(chat.shadowRoot?.querySelector<HTMLInputElement>('[data-testid="studio-chat-input"]')?.disabled).toBe(true);
+  await chat.sendMessage("must remain held");
+  expect(chat.activityLog.entries().some((entry) => entry.type === "user_message_sent")).toBe(false);
+  await expect(element.toolCallOrchestrator.ensureLiveDraft()).rejects.toMatchObject({ code: "approval-pending" });
+  expect(clientCall.mock.calls.filter(([name]) => name === "honua_studio_create_draft")).toHaveLength(1);
+  await element.resumeLiveDraft("draft-current");
+  await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+  expect(chat.shadowRoot?.querySelector<HTMLInputElement>('[data-testid="studio-chat-input"]')?.disabled).toBe(false);
+  expect(element.pendingEditorApproval).toBeUndefined();
+  expect(clientCall.mock.calls.filter(([name]) => name === "honua_studio_create_draft")).toHaveLength(1);
+  expect(clientCall).toHaveBeenCalledWith("honua_studio_get_draft", { draftId: "draft-current" });
 });
 
 describe("<honua-studio-app> map wiring (honua-studio#23)", () => {

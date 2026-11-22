@@ -13,6 +13,7 @@ import type { CompositionController } from "../composition/controller.js";
 import type { EditorAgentSessionAdapter } from "../editor-agent.js";
 import type { HonuaStudioChatElement, StudioAgentCertificationOptions } from "../elements/studio-chat-element.js";
 import type { HonuaStudioEditingModeChangeDetail } from "../elements/types.js";
+import { isStudioLifecycleApprovalPending } from "../lifecycle/lifecycle-errors.js";
 import { createStudioAiMapKit } from "../map/agent-map-kit.js";
 import { McpClient } from "../mcp/client.js";
 import { StudioAuthoringMcpClient } from "../mcp/composition-authoring-contract.js";
@@ -196,12 +197,18 @@ export class LiveCompositionController {
     const generation = this.#agentSetup.current;
     void setup.catch((error) => {
       if (!this.#agentSetup.isCurrent(generation)) return;
-      this.options.host.disableLiveEditing();
+      if (!isStudioLifecycleApprovalPending(error)) this.options.host.disableLiveEditing();
       this.options.children.chat()?.activityLog.append("assistant_turn_error", {
         errorMessage: error instanceof Error ? error.message : String(error),
         phase: "agent-session-setup",
       });
     });
+  }
+
+  /** Reconnects chat after the host reloads a draft completed through human approval. */
+  async resumeDraft(draftId: string): Promise<void> {
+    await this.options.host.toolCallOrchestrator.resumeLiveDraft(draftId);
+    this.scheduleAgentSession();
   }
 
   /** Supersedes any agent session setup still in flight. */
