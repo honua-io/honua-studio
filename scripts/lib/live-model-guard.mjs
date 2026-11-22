@@ -173,6 +173,30 @@ function modelGuardHandler(origin, state, redact, sockets) {
   };
 }
 
+function assertQualifiedModelCalls(state, modelFree) {
+  const { calls } = state;
+  if (state.rejectedCalls) throw new Error("Live model guard refused requests; qualification failed.");
+  if (modelFree) {
+    if (calls.length) throw new Error("OIDC lifecycle qualification must not invoke a model.");
+    return;
+  }
+  if (
+    !calls.length ||
+    calls.some(
+      (call) =>
+        call.status !== 200 ||
+        call.invalidStream ||
+        !Number.isInteger(call.promptTokens) ||
+        call.promptTokens < 1 ||
+        !Number.isInteger(call.completionTokens) ||
+        call.completionTokens < 0 ||
+        call.completionTokens > liveModelLimits.maxTokens,
+    )
+  ) {
+    throw new Error("Every live model call must complete with valid provider token usage.");
+  }
+}
+
 export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0, modelFree = false } = {}) {
   const target = new URL(origin);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/")
@@ -210,27 +234,6 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
       promptTokens: calls.reduce((total, call) => total + (call.promptTokens ?? 0), 0),
       completionTokens: calls.reduce((total, call) => total + (call.completionTokens ?? 0), 0),
     }),
-    assertQualified: () => {
-      if (state.rejectedCalls) throw new Error("Live model guard refused requests; qualification failed.");
-      if (modelFree) {
-        if (calls.length) throw new Error("OIDC lifecycle qualification must not invoke a model.");
-        return;
-      }
-      if (
-        !calls.length ||
-        calls.some(
-          (call) =>
-            call.status !== 200 ||
-            call.invalidStream ||
-            !Number.isInteger(call.promptTokens) ||
-            call.promptTokens < 1 ||
-            !Number.isInteger(call.completionTokens) ||
-            call.completionTokens < 0 ||
-            call.completionTokens > liveModelLimits.maxTokens,
-        )
-      ) {
-        throw new Error("Every live model call must complete with valid provider token usage.");
-      }
-    },
+    assertQualified: () => assertQualifiedModelCalls(state, modelFree),
   };
 }
