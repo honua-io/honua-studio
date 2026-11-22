@@ -162,7 +162,7 @@ function modelGuardHandler(origin, state, redact, sockets) {
       response.writeHead(400).end("Live model request refused by the qualification guard.");
       return;
     }
-    if (state.calls.length >= liveModelLimits.maxCalls) {
+    if (state.calls.length >= state.maxCalls) {
       state.rejectedCalls++;
       response.writeHead(429).end("Live model call budget exhausted; no upstream request was made.");
       return;
@@ -173,11 +173,40 @@ function modelGuardHandler(origin, state, redact, sockets) {
   };
 }
 
-export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0 } = {}) {
+function assertQualifiedModelCalls(state, mode) {
+  const { calls } = state;
+  if (state.rejectedCalls) throw new Error("Live model guard refused requests; qualification failed.");
+  if (mode === "oidc-lifecycle") {
+    if (calls.length) throw new Error("OIDC lifecycle qualification must not invoke a model.");
+    return;
+  }
+  if (
+    !calls.length ||
+    calls.some(
+      (call) =>
+        call.status !== 200 ||
+        call.invalidStream ||
+        !Number.isInteger(call.promptTokens) ||
+        call.promptTokens < 1 ||
+        !Number.isInteger(call.completionTokens) ||
+        call.completionTokens < 0 ||
+        call.completionTokens > liveModelLimits.maxTokens,
+    )
+  ) {
+    throw new Error("Every live model call must complete with valid provider token usage.");
+  }
+}
+
+export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0, mode = "full" } = {}) {
   const target = new URL(origin);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/")
     throw new Error("The Compose guard requires a loopback server origin.");
-  const state = { calls: [], approvals: [], rejectedCalls: 0 };
+  const state = {
+    calls: [],
+    approvals: [],
+    rejectedCalls: 0,
+    maxCalls: mode === "oidc-lifecycle" ? 0 : liveModelLimits.maxCalls,
+  };
   const { calls } = state;
   const sockets = new Set();
   const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor(), sockets));
@@ -202,30 +231,14 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
       return closing;
     },
     evidence: () => ({
-      limits: liveModelLimits,
+      limits: { ...liveModelLimits, maxCalls: state.maxCalls },
+      mode,
       calls,
       approvals: state.approvals,
       rejectedCalls: state.rejectedCalls,
       promptTokens: calls.reduce((total, call) => total + (call.promptTokens ?? 0), 0),
       completionTokens: calls.reduce((total, call) => total + (call.completionTokens ?? 0), 0),
     }),
-    assertQualified: () => {
-      if (state.rejectedCalls) throw new Error("Live model guard refused requests; qualification failed.");
-      if (
-        !calls.length ||
-        calls.some(
-          (call) =>
-            call.status !== 200 ||
-            call.invalidStream ||
-            !Number.isInteger(call.promptTokens) ||
-            call.promptTokens < 1 ||
-            !Number.isInteger(call.completionTokens) ||
-            call.completionTokens < 0 ||
-            call.completionTokens > liveModelLimits.maxTokens,
-        )
-      ) {
-        throw new Error("Every live model call must complete with valid provider token usage.");
-      }
-    },
+    assertQualified: () => assertQualifiedModelCalls(state, mode),
   };
 }

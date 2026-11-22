@@ -28,6 +28,7 @@ import "./theme/theme-standalone.css";
 import "./theme/theme-console.css";
 import "./styles/app.css";
 
+import type { FixtureConversation } from "./chat/fixture-conversation.js";
 import { FixtureChatTransport } from "./chat/fixture-transport.js";
 import { FIXTURE_CONVERSATIONS } from "./chat/fixtures/index.js";
 import type { HonuaStudioAppElement, HonuaStudioChatElement, HonuaStudioThemeChangeDetail } from "./elements/index.js";
@@ -54,6 +55,7 @@ declare global {
     /** Test-only handles — see harness/bare/mount.ts's identical convention. */
     __honuaStudioApp?: HonuaStudioAppElement;
     __honuaStudioChat?: HonuaStudioChatElement;
+    __honuaStudioSetChatFixture?: (conversation: FixtureConversation) => void;
   }
 }
 
@@ -90,7 +92,12 @@ root.replaceChildren(app);
 Object.assign(window, { __honuaStudioApp: app });
 const chat = app.querySelector<HonuaStudioChatElement>("honua-studio-chat");
 if (chat) {
-  Object.assign(window, { __honuaStudioChat: chat });
+  Object.assign(window, {
+    __honuaStudioChat: chat,
+    __honuaStudioSetChatFixture: (conversation: FixtureConversation) => {
+      chat.transport = new FixtureChatTransport(conversation);
+    },
+  });
   const conversationId = window.__honuaStudioChatFixtureConversationId;
   if (conversationId) {
     const conversation = FIXTURE_CONVERSATIONS.find((c) => c.id === conversationId);
