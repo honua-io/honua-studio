@@ -245,7 +245,10 @@ The native-file direction follows [ADR-0087](https://github.com/honua-io/honua-s
 The demo canary's manual `journeys` input defaults to `all`, as scheduled runs do.
 Select `model-free` to run only boot, direct style/filter and scripted MCP journeys
 using the existing demo credential, without model calls or publication. This focused
-receipt does not qualify the full live suite.
+receipt does not qualify the full live suite. The scripted MCP journey discovers a
+published vector source and its fields from the target server before replaying
+layer and chart intents; it verifies deployed MCP mutations and stored Draft state,
+without establishing a real assistant pass.
 
 ### In progress
 

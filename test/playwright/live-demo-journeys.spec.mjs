@@ -8,6 +8,7 @@ import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
+import { installLiveMcpFixture, liveMcpFixture, selectMcpFixtureSource } from "./live-mcp-fixture.mjs";
 import { runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
@@ -381,12 +382,16 @@ test.describe("live demo-server journeys @live", () => {
     const preview = await startLivePreview();
     let draftId;
     try {
-      await page.addInitScript(() => {
-        window.__honuaStudioChatFixtureConversationId = "compose-districts-map";
-      });
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
+      const catalog = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
+      const source = selectMcpFixtureSource(catalog);
+      const metadataUrl = new URL(`${source.locator.url}/${source.locator.layerId}?f=json`, page.url());
+      const metadataResponse = await page.request.get(metadataUrl.href);
+      expect(metadataResponse.ok()).toBe(true);
+      const fixture = liveMcpFixture(source, await metadataResponse.json());
+      await installLiveMcpFixture(page, fixture.turns);
 
       // baseUrl "" -> the MCP client posts to the page-relative /mcp, which
       // vite.config.ts proxies to the SERVER ORIGIN's /mcp (the deployed
@@ -400,15 +405,13 @@ test.describe("live demo-server journeys @live", () => {
         });
       }, packageKey);
 
-      await page.evaluate(() =>
-        window.__honuaStudioChat.sendMessage("Add the Hawai'i statewide parcels layer and style it by district."),
-      );
+      await page.evaluate((prompt) => window.__honuaStudioChat.sendMessage(prompt), fixture.turns[0].prompt);
       await expect(page.getByTestId("studio-chat-tool-call")).toContainText("add_layer");
       await expect
         .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers.map((l) => l.id)), {
           timeout: 30_000,
         })
-        .toEqual(["hi-parcels"]);
+        .toEqual([fixture.datasetId]);
 
       const afterFirstCall = await page.evaluate(() => ({
         draftId: window.__honuaStudioApp.toolCallOrchestrator.draftId,
@@ -418,19 +421,17 @@ test.describe("live demo-server journeys @live", () => {
       expect(afterFirstCall.generation).toBeGreaterThan(1);
       draftId = afterFirstCall.draftId;
 
-      await page.evaluate(() =>
-        window.__honuaStudioChat.sendMessage("Now add a chart showing the count of parcels by zoning code."),
-      );
+      await page.evaluate((prompt) => window.__honuaStudioChat.sendMessage(prompt), fixture.turns[1].prompt);
       await expect(page.getByTestId("studio-chat-tool-call")).toHaveCount(2);
       await expect
         .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.widgets.map((w) => w.id)), {
           timeout: 30_000,
         })
-        .toEqual(["chart-hi-parcels-zoning_code"]);
+        .toEqual([fixture.chartId]);
 
       // The canvas readout reflects the server-confirmed state.
-      await expect(page.getByTestId("studio-canvas-layers")).toContainText("hi-parcels");
-      await expect(page.getByTestId("studio-canvas-widgets")).toContainText("chart-hi-parcels-zoning_code");
+      await expect(page.getByTestId("studio-canvas-layers")).toContainText(fixture.datasetId);
+      await expect(page.getByTestId("studio-canvas-widgets")).toContainText(fixture.chartId);
 
       // Nothing silently dropped.
       const rejectedEntries = await page.evaluate(() =>
@@ -440,8 +441,13 @@ test.describe("live demo-server journeys @live", () => {
 
       // Independent of the UI: the REAL deployed store holds the composed draft.
       const draft = await restCall("GET", `/v1/studio/package-drafts/${draftId}`);
-      expect(draft.envelope.body.layers.map((l) => l.id)).toEqual(["hi-parcels"]);
-      expect(draft.envelope.body.widgets.map((w) => w.id)).toEqual(["chart-hi-parcels-zoning_code"]);
+      expect(draft.envelope.body.layers.map((l) => l.id)).toEqual([fixture.datasetId]);
+      expect(draft.envelope.body.widgets.map((w) => w.id)).toEqual([fixture.chartId]);
+      expect(draft.envelope.body.layers[0].sourceId).toBe(source.id);
+      expect(draft.envelope.body.widgets[0]).toMatchObject({
+        sourceId: source.id,
+        config: { groupBy: fixture.turns[1].args.groupBy, chartType: "bar" },
+      });
     } finally {
       if (draftId) {
         await restCall("DELETE", `/v1/studio/package-drafts/${draftId}`).catch(() => {});

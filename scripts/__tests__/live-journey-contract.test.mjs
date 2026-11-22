@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { liveReadinessEvidence, selectLiveModel } from "../../test/playwright/live-journey-contract.mjs";
+import { liveMcpFixture, selectMcpFixtureSource } from "../../test/playwright/live-mcp-fixture.mjs";
 
 const opus = {
   provider: "opus",
@@ -62,4 +63,54 @@ test("readiness evidence excludes provider identities, model identifiers, signin
     liveReadinessEvidence({ enabled: true, providers: [{ ...opus, kind: "bedrock" }] }, {}).approvedProviderAvailable,
     false,
   );
+});
+
+const candidateSource = {
+  id: "synthetic-points/0",
+  title: "Synthetic points",
+  protocol: "geoservices-feature-service",
+  geometryType: "esriGeometryPoint",
+  locator: { url: "/rest/services/synthetic/FeatureServer", layerId: 0 },
+};
+
+test("scripted MCP turns bind to the candidate catalog and actual layer fields", () => {
+  const source = selectMcpFixtureSource([{ ...candidateSource, protocol: "wms" }, candidateSource]);
+  const fixture = liveMcpFixture(source, {
+    id: 0,
+    fields: [
+      { name: "Shape", type: "esriFieldTypeGeometry" },
+      { name: "category", type: "esriFieldTypeString" },
+    ],
+  });
+  assert.equal(fixture.datasetId, "synthetic-points/0");
+  assert.equal(fixture.chartId, "chart-synthetic-points/0-category");
+  assert.deepEqual(
+    fixture.turns.map((turn) => turn.args),
+    [
+      { datasetId: source.id, sourceId: source.id },
+      { datasetId: source.id, sourceId: source.id, groupBy: "category", chartType: "bar" },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(fixture), /hi-parcels|district|zoning_code/);
+});
+
+test("scripted MCP setup fails clearly without a usable catalog or matching field metadata", () => {
+  for (const catalog of [[], [{ ...candidateSource, locator: {} }], [{ ...candidateSource, geometryType: "Raster" }]]) {
+    assert.throws(() => selectMcpFixtureSource(catalog), /published vector FeatureServer/);
+  }
+  for (const metadata of [
+    { id: 1, fields: [{ name: "category" }] },
+    { id: 0, fields: [] },
+    { id: 0, fields: [{ name: "Shape", type: "esriFieldTypeGeometry" }] },
+    { id: 0, error: { code: 403 }, fields: [{ name: "category" }] },
+  ]) {
+    assert.throws(() => liveMcpFixture(candidateSource, metadata), /matching live layer metadata/);
+  }
+});
+
+test("scripted MCP source selection accepts GeoJSON line geometries", () => {
+  for (const geometryType of ["LineString", "MultiLineString"]) {
+    const source = { ...candidateSource, geometryType };
+    assert.equal(selectMcpFixtureSource([source]), source);
+  }
 });
