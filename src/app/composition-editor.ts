@@ -119,7 +119,8 @@ export class CompositionEditor {
         toolName: command.name,
         arguments: { ...command } as Record<string, unknown>,
       });
-      if (!result.ok) return { ok: false, reason: result.reason };
+      if (!result.ok)
+        return { ok: false, reason: result.reason, ...(result.pending && { approval: approvalOf(result.pending) }) };
     }
     return { ok: true };
   }

@@ -1,5 +1,4 @@
 import type { HonuaMapPackageSourceBinding } from "@honua/sdk-js/runtime";
-import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 /**
  * Typed wrappers over `McpClient.callTool` for 18 `honua_studio_*` tools
  * (honua-server#3002; `gh pr diff 3016` in honua-server — draft lifecycle:
@@ -17,6 +16,10 @@ import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map
  *
  * @module
  */
+import { readStudioApprovalPending } from "../lifecycle/approval-pending.js";
+import { StudioLifecycleApprovalPendingError } from "../lifecycle/lifecycle-errors.js";
+import { isRecord } from "../shared/is-record.js";
+import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 import type { McpClient } from "./client.js";
 import type { McpToolsCallResult } from "./protocol.js";
 
@@ -298,7 +301,30 @@ function structured<T>(result: McpToolsCallResult): T {
  * class's named methods.
  */
 export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDraft {
-  return structured<StudioMcpDraft>(result);
+  const value = structured<unknown>(result);
+  if (!isRecord(value)) throw new Error("The server returned no completed map draft.");
+  if ("operation" in value) {
+    const pending = readStudioApprovalPending(value.operation);
+    if (pending) throw new StudioLifecycleApprovalPendingError(pending);
+    const status = isRecord(value.operation) ? value.operation.status : undefined;
+    // OperationHandleStatus.Completed is 1 in the server contract.
+    if (![1, "Completed", "completed"].includes(status as string | number)) {
+      throw new Error("The map operation has not completed; no draft was applied.");
+    }
+  }
+  if (
+    typeof value.draftId !== "string" ||
+    !value.draftId.trim() ||
+    typeof value.packageKey !== "string" ||
+    !value.packageKey.trim() ||
+    !Number.isSafeInteger(value.generation) ||
+    (value.generation as number) < 0 ||
+    !isRecord(value.envelope) ||
+    typeof value.envelope.family !== "string" ||
+    typeof value.envelope.schemaVersion !== "string"
+  )
+    throw new Error("The server returned an incomplete map draft.");
+  return value as unknown as StudioMcpDraft;
 }
 
 /**
@@ -313,17 +339,17 @@ export class StudioMcpToolClient {
 
   public async createDraft(input: CreateStudioDraftInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_create_draft", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async getDraft(draftId: string): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_get_draft", { draftId });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async updateDraft(input: UpdateStudioDraftInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_update_draft", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async validateDraft(draftId: string): Promise<StudioMcpValidationSummary> {
@@ -338,12 +364,12 @@ export class StudioMcpToolClient {
 
   public async addLayer(input: AddStudioLayerInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_add_layer", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async removeLayer(input: RemoveStudioLayerInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_layer", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async setMapStyle(input: {
@@ -352,53 +378,53 @@ export class StudioMcpToolClient {
     readonly mapSpec: MapStyleDocument;
   }): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_map_style", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async setLayerStyle(input: SetStudioLayerStyleInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_layer_style", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   /** `honua_studio_set_layer_visibility` — the durable half of a TOC toggle. `visible` is part of the server's `StudioCompositionLayer`, so this is what makes a toggle survive a draft sync. */
   public async setLayerVisibility(input: SetStudioLayerVisibilityInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_layer_visibility", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async setView(input: SetStudioViewInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_set_view", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async addWidget(input: AddStudioWidgetInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_add_widget", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async removeWidget(input: RemoveStudioWidgetInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_widget", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async addControl(input: AddStudioControlInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_add_control", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async removeControl(input: RemoveStudioControlInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_control", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async bindInteraction(input: BindStudioInteractionInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_bind_interaction", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async removeInteraction(input: RemoveStudioInteractionInput): Promise<StudioMcpDraft> {
     const result = await this.client.callTool("honua_studio_remove_interaction", { ...input });
-    return structured<StudioMcpDraft>(result);
+    return parseStudioDraftResult(result);
   }
 
   public async proposePublication(input: ProposeStudioPublicationInput): Promise<ProposeStudioPublicationOutput> {

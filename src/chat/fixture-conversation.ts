@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/is-record.js";
 import type { StudioAiChatEvent } from "./ai-contract.js";
 /**
  * The scripted-conversation JSON format (honua-studio#6, AD-4 "a no-model
@@ -52,10 +53,6 @@ export class InvalidFixtureConversationError extends Error {
     super(`Invalid fixture conversation: ${reason}`);
     this.name = "InvalidFixtureConversationError";
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Runtime-validates parsed JSON as a {@link FixtureConversation} — the boundary between "arbitrary JSON on disk" and the typed shape the transport/player trust. */

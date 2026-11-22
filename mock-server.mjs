@@ -19,7 +19,8 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import http from "node:http";
-import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { URL, fileURLToPath } from "node:url";
 
 import { planByomPreviewTurn } from "./scripts/lib/byom-preview-model.mjs";
 import { createFixtureTranscriptSigner } from "./scripts/lib/fixture-transcript-signer.mjs";
@@ -43,7 +44,10 @@ const CHAT_EVENT_TYPE_TO_SSE_NAME = {
 };
 
 const FIXTURE_CONVERSATION = JSON.parse(
-  readFileSync(new URL("./src/chat/fixtures/compose-districts-map.json", import.meta.url), "utf8"),
+  readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "src/chat/fixtures/compose-districts-map.json"),
+    "utf8",
+  ),
 );
 
 const BYOM_CAPABILITIES = {
@@ -2273,7 +2277,7 @@ function unauthorized(res) {
   json(res, 401, { error: { code: 401, message: "Unauthorized" } }, { "www-authenticate": "Bearer" });
 }
 
-export async function startMockServer({ port = 0, model = "fixture", extraDatasets = [] } = {}) {
+export async function startMockServer({ port = 0, model = "fixture", extraDatasets = [], approvalTools = [] } = {}) {
   if (model !== "fixture" && model !== "byom-preview") {
     throw new Error('Mock model must be "fixture" or "byom-preview".');
   }
@@ -2292,6 +2296,21 @@ export async function startMockServer({ port = 0, model = "fixture", extraDatase
   // registered dataset into a different `startMockServer()` instance.
   const catalogDatasets = [...CATALOG.datasets, ...extraDatasets].map((dataset) => ({ ...dataset }));
   const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
+  const pendingDraftOperations = new Map();
+  function draftOperation(method, params, actorId) {
+    if (method !== "tools/call" || !approvalTools.includes(params?.name)) return mcp.handle(method, params, actorId);
+    const proposalId = randomUUID();
+    const operation = { status: "RequiresApproval", operationInstanceId: randomUUID(), proposalId };
+    pendingDraftOperations.set(proposalId, { params, actorId });
+    return { result: { structuredContent: { operation, draftId: null, generation: null, envelope: null } } };
+  }
+  function resolveDraftOperation(proposalId, decision) {
+    const pending = pendingDraftOperations.get(proposalId);
+    if (!pending) throw new Error("Unknown draft approval proposal.");
+    if (decision !== "approve" && decision !== "reject") throw new Error("Unknown draft approval decision.");
+    pendingDraftOperations.delete(proposalId);
+    return decision === "approve" ? mcp.handle("tools/call", pending.params, pending.actorId).result : undefined;
+  }
   // Live `Mcp-Session-Id`s for this server. A session is bound at initialize
   // (docs/guides/connect/ai-agents-mcp.md).
   const mcpSessions = new Set();
@@ -2555,7 +2574,7 @@ export async function startMockServer({ port = 0, model = "fixture", extraDatase
         actorId = typeof principal.sub === "string" && principal.sub ? principal.sub : FIXTURE_ACTOR;
       }
 
-      const outcome = mcp.handle(method, params, actorId);
+      const outcome = draftOperation(method, params, actorId);
       const extraHeaders = {};
       if (method === "initialize") {
         const sessionId = randomUUID();
@@ -2750,7 +2769,7 @@ export async function startMockServer({ port = 0, model = "fixture", extraDatase
       server.close((error) => (error ? reject(error) : resolve(undefined)));
     });
 
-  return { server, url, close };
+  return { server, url, close, resolveDraftOperation };
 }
 
 function bearerToken(req) {

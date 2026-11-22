@@ -196,6 +196,11 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
     this.#live.enable(options);
   }
 
+  /** Reloads a completed authorized draft and reconnects live chat without replaying the held edit. */
+  public resumeLiveDraft(draftId: string): Promise<void> {
+    return this.#live.resumeDraft(draftId);
+  }
+
   /** Returns to fixture mode. State the server already accepted stays; only future tool calls stay local. */
   public disableLiveEditing(): void {
     this.#live.disable();
@@ -258,12 +263,13 @@ export class HonuaStudioAppElement extends HonuaStudioElementBase {
 
   /** The map edit the server holds for a separate human approval; reload the draft once it is approved. */
   public get pendingEditorApproval(): StudioApprovalPending | undefined {
-    return this.#drafts.pendingApproval;
+    return this.#drafts.pendingApproval ?? this.#live.orchestrator.pendingApproval;
   }
 
   /** Stop waiting for a held edit (for example after its rejection); the next reload adopts the server draft. */
   public discardEditorApprovalHold(): void {
     this.#drafts.discardApprovalHold();
+    this.#live.orchestrator.discardApprovalHold();
   }
 
   /** Flush accepted human edits before the host captures a durable native turn. */
