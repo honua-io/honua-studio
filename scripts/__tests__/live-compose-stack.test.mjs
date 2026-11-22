@@ -41,6 +41,7 @@ function stackFixture(context, overrides = {}) {
     GITHUB_ENV: resolve(directory, "browser.env"),
     HONUA_LIVE_SERVER_SOURCE: resolve(directory, "source"),
     HONUA_LIVE_ANTHROPIC_API_KEY: "synthetic-provider-key",
+    HONUA_LIVE_QUALIFICATION_MODE: "full",
     NODE_OPTIONS: `--import ${fetchFixture}`,
     GITHUB_SHA: "b".repeat(40),
   };
@@ -123,6 +124,39 @@ test("a missing provider key fails before executing any command", (context) => {
   const fixture = stackFixture(context);
   fixture.environment.HONUA_LIVE_ANTHROPIC_API_KEY = undefined;
   assert.notEqual(fixture.run("prepare").status, 0);
+  assert.equal(fixture.commands().length, 0);
+});
+
+test("model-free lifecycle preparation needs no provider key and retains the real OIDC browser handoff", (context) => {
+  const fixture = stackFixture(context);
+  fixture.environment.HONUA_LIVE_QUALIFICATION_MODE = "oidc-lifecycle";
+  fixture.environment.GITHUB_OUTPUT = resolve(fixture.directory, "outputs");
+  fixture.environment.HONUA_LIVE_ANTHROPIC_API_KEY = undefined;
+  const checked = fixture.run("check");
+  assert.equal(checked.status, 0, checked.stderr);
+  prepareFixture(fixture);
+  const root = resolve(fixture.directory, ".tmp/live-compose");
+  assert.throws(() => statSync(resolve(root, "secrets/anthropic_api_key")), { code: "ENOENT" });
+  const overlay = JSON.parse(readFileSync(resolve(root, "compose.studio.json"), "utf8"));
+  assert.equal(overlay.services.honua.environment.StudioAiProxy__Enabled, "false");
+  assert.equal(overlay.secrets.anthropic_api_key, undefined);
+  assert.equal(overlay.services.honua.secrets.includes("anthropic_api_key"), false);
+  const started = fixture.run("start");
+  assert.equal(started.status, 0, started.stderr);
+  const settings = readFileSync(fixture.environment.GITHUB_ENV, "utf8");
+  assert.match(settings, /HONUA_LIVE_APPROVER_USERNAME=studio-approver/);
+  assert.match(settings, /HONUA_LIVE_APPROVER_PASSWORD=/);
+  assert.match(settings, /HONUA_LIVE_APPROVER_IDP_ORIGIN=https:/);
+  assert.match(settings, /HONUA_LIVE_CONSOLE_URL=http:/);
+  assert.match(settings, /HONUA_LIVE_APPROVER_IDP_SPKI=[A-Za-z0-9+/]{43}=/);
+});
+
+test("an invalid qualification mode fails before commands or secrets", (context) => {
+  const fixture = stackFixture(context);
+  fixture.environment.HONUA_LIVE_QUALIFICATION_MODE = "unknown";
+  const prepared = fixture.run("prepare");
+  assert.notEqual(prepared.status, 0);
+  assert.match(prepared.stderr, /must be full or oidc-lifecycle/);
   assert.equal(fixture.commands().length, 0);
 });
 

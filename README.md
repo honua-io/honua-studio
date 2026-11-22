@@ -122,6 +122,17 @@ approval of the pending publication through Console. Direct Anthropic Opus 5.5 u
 admission remain enforced. Setup does not invoke a model. The demo remains a separate, non-gating
 scheduled canary.
 
+For model-free OIDC lifecycle proof, select `oidc-lifecycle` in the manual Compose workflow,
+or set `HONUA_LIVE_QUALIFICATION_MODE=oidc-lifecycle` for each of the `check`, `prepare`,
+`start` and `qualify-live-compose.mjs` commands. This mode creates the same dedicated OIDC
+person and Console fixture, omits the provider secret, disables the AI proxy and allows zero
+model calls. It runs only the live Map lifecycle journey: save, compare, request publication,
+approve through a fresh OIDC browser session, and render the exact approved public version
+anonymously. Evidence records the mode and zero-call budget. It proves only this lifecycle;
+it does not establish real-model or whole-workflow qualification. Both modes use the existing
+image lock; proof for a newer release candidate requires matching pinned images and a recorded
+live pass. This mode has fixture coverage but no recorded live pass yet.
+
 The [recorded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
 ran on branch head `1521734`, which is not current main. It used server/executor `9d2169cc`
 from [candidate build 42665713376](https://github.com/honua-io/honua-server/actions/runs/42665713376)

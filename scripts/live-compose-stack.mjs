@@ -13,8 +13,10 @@ import {
   validateImageLock,
 } from "./lib/live-compose.mjs";
 import { collectPlaywrightContexts, writeDiagnostic } from "./lib/live-diagnostics.mjs";
+import { liveQualificationMode } from "./lib/live-qualification-mode.mjs";
 
 const root = resolve(".tmp/live-compose");
+const modelFree = liveQualificationMode() === "oidc-lifecycle";
 const lock = JSON.parse(readFileSync(new URL("./live-compose-images.json", import.meta.url), "utf8"));
 // A digest-pinned shell for the identity file permissions: the Studio image base.
 const shellImage = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8").match(
@@ -55,7 +57,8 @@ function writePrivate(path, value) {
 }
 
 function requireProviderKey() {
-  if (!process.env.HONUA_LIVE_ANTHROPIC_API_KEY) throw new Error("HONUA_LIVE_ANTHROPIC_API_KEY is required.");
+  if (!modelFree && !process.env.HONUA_LIVE_ANTHROPIC_API_KEY)
+    throw new Error("HONUA_LIVE_ANTHROPIC_API_KEY is required.");
 }
 
 function check() {
@@ -93,14 +96,17 @@ function prepare() {
   const password = randomBytes(32).toString("hex");
   const clientSecret = randomBytes(32).toString("hex");
   const secrets = {
-    [studioSecretNames.provider]: process.env.HONUA_LIVE_ANTHROPIC_API_KEY,
     [studioSecretNames.oidcClient]: clientSecret,
     [studioSecretNames.operatorSigning]: randomBytes(32).toString("base64"),
   };
+  if (!modelFree) secrets[studioSecretNames.provider] = process.env.HONUA_LIVE_ANTHROPIC_API_KEY;
   for (const [name, value] of Object.entries(secrets)) writePrivate(`secrets/${name}`, value);
   writePrivate("secrets/approver_password", password);
   writePrivate(`identity/realm/${realmName}.json`, JSON.stringify(approverRealm({ password, clientSecret })));
-  writeFileSync(resolve(root, "compose.studio.json"), JSON.stringify(studioComposeOverlay(lock), null, 2));
+  writeFileSync(
+    resolve(root, "compose.studio.json"),
+    JSON.stringify(studioComposeOverlay(lock, { modelFree }), null, 2),
+  );
   createIdentityCertificate();
   compose(["config", "--quiet"]);
   console.log("Customer quickstart prepared with immutable images and a dedicated OIDC test person.");

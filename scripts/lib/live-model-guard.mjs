@@ -162,7 +162,7 @@ function modelGuardHandler(origin, state, redact, sockets) {
       response.writeHead(400).end("Live model request refused by the qualification guard.");
       return;
     }
-    if (state.calls.length >= liveModelLimits.maxCalls) {
+    if (state.calls.length >= state.maxCalls) {
       state.rejectedCalls++;
       response.writeHead(429).end("Live model call budget exhausted; no upstream request was made.");
       return;
@@ -173,11 +173,11 @@ function modelGuardHandler(origin, state, redact, sockets) {
   };
 }
 
-export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0 } = {}) {
+export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0, modelFree = false } = {}) {
   const target = new URL(origin);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/")
     throw new Error("The Compose guard requires a loopback server origin.");
-  const state = { calls: [], approvals: [], rejectedCalls: 0 };
+  const state = { calls: [], approvals: [], rejectedCalls: 0, maxCalls: modelFree ? 0 : liveModelLimits.maxCalls };
   const { calls } = state;
   const sockets = new Set();
   const server = createServer(modelGuardHandler(target.origin, state, diagnosticRedactor(), sockets));
@@ -202,7 +202,8 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
       return closing;
     },
     evidence: () => ({
-      limits: liveModelLimits,
+      limits: { ...liveModelLimits, maxCalls: state.maxCalls },
+      mode: modelFree ? "oidc-lifecycle" : "full",
       calls,
       approvals: state.approvals,
       rejectedCalls: state.rejectedCalls,
@@ -211,6 +212,10 @@ export async function startLiveModelGuard(origin, { host = "127.0.0.1", port = 0
     }),
     assertQualified: () => {
       if (state.rejectedCalls) throw new Error("Live model guard refused requests; qualification failed.");
+      if (modelFree) {
+        if (calls.length) throw new Error("OIDC lifecycle qualification must not invoke a model.");
+        return;
+      }
       if (
         !calls.length ||
         calls.some(

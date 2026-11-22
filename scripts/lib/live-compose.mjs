@@ -29,14 +29,17 @@ export function validateImageLock(lock) {
     throw new Error("Server and executor must use the same candidate.");
 }
 
-export function studioComposeOverlay(lock) {
+export function studioComposeOverlay(lock, { modelFree = false } = {}) {
   validateImageLock(lock);
+  const secretNames = Object.values(studioSecretNames).filter(
+    (name) => !modelFree || name !== studioSecretNames.provider,
+  );
   return {
     services: {
       honua: {
         image: lock.server.image,
-        environment: studioServerEnvironment(),
-        secrets: Object.values(studioSecretNames),
+        environment: studioServerEnvironment({ modelFree }),
+        secrets: secretNames,
         volumes: ["./identity/certs:/certs:ro"],
         depends_on: { keycloak: { condition: "service_started" } },
       },
@@ -59,12 +62,12 @@ export function studioComposeOverlay(lock) {
       },
       keycloak: keycloakService(),
     },
-    secrets: Object.fromEntries(Object.values(studioSecretNames).map((name) => [name, { file: `./secrets/${name}` }])),
+    secrets: Object.fromEntries(secretNames.map((name) => [name, { file: `./secrets/${name}` }])),
   };
 }
 
-function studioServerEnvironment() {
-  return {
+function studioServerEnvironment({ modelFree }) {
+  const environment = {
     PUBLIC_BASE_URL: consoleOrigin,
     Studio__EndUserAuthorization__Enabled: "true",
     Oidc__Enabled: "true",
@@ -93,6 +96,14 @@ function studioServerEnvironment() {
     AiExecutionAdmission__DeploymentId: "studio-live-compose",
     AiExecutionAdmission__Backend: "postgres",
   };
+  if (modelFree) {
+    for (const name of Object.keys(environment)) {
+      if (name.startsWith("StudioAiProxy__") || name === "HONUA_SECRET_FILE__HONUA_STUDIOAI_OPUS_API_KEY")
+        delete environment[name];
+    }
+    environment.StudioAiProxy__Enabled = "false";
+  }
+  return environment;
 }
 
 function keycloakService() {
