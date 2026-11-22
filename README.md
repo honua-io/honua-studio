@@ -240,7 +240,7 @@ and gzip archives are supported; each map holds at most 64 archives. These are r
 archive creation and live deployment qualification remain separate work.
 
 COG rendering awaits a supported public SDK decoder ([#254](https://github.com/honua-io/honua-studio/issues/254)).
-The native-file direction follows [ADR-0087](https://github.com/honua-io/honua-server/blob/main/docs/internal/contributor/adr/0087-native-client-protocols.md).
+The native-file direction follows [ADR-0087](https://github.com/honua-io/honua-server/blob/trunk/docs/internal/contributor/adr/0087-native-client-protocols.md).
 
 The demo canary's manual `journeys` input defaults to `all`, as scheduled runs do.
 Select `model-free` to run only boot, direct style/filter and scripted MCP journeys
