@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.8](https://github.com/honua-io/honua-studio/compare/v0.5.7...v0.5.8) (2026-11-23)
+
+
+### Bug Fixes
+
+* **studio:** send only serviceId and serviceLayerIndex to honua_describe_layer ([#330](https://github.com/honua-io/honua-studio/issues/330)) ([#331](https://github.com/honua-io/honua-studio/issues/331)) ([c7adbcd](https://github.com/honua-io/honua-studio/commit/c7adbcd1d3dcd04650f9fd490375791b50316326))
+
 ## [0.5.7](https://github.com/honua-io/honua-studio/compare/v0.5.6...v0.5.7) (2026-11-23)
 
 
