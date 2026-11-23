@@ -25,13 +25,12 @@ export async function approveLivePublication(page, options) {
   try {
     if (isStaticConsole(consoleUrl.href)) await openStaticConsoleSignIn(page, consoleUrl, returnTo, progress);
     else
-      await openServerHostedSignIn(
-        page,
+      await openServerHostedSignIn(page, {
         consoleUrl,
-        configuration.profileId,
-        `${inbox.pathname}${inbox.search}`,
+        profileId: configuration.profileId,
+        returnTo: `${inbox.pathname}${inbox.search}`,
         progress,
-      );
+      });
     await page.waitForURL((url) => url.origin === new URL(configuration.idpOrigin).origin, { timeout: 15_000 });
     progress.stage = "identity-provider sign-in";
     await page
@@ -44,13 +43,26 @@ export async function approveLivePublication(page, options) {
       .first()
       .click();
     progress.stage = "Console session callback";
-    await page.waitForURL(inbox.href, { timeout: 60_000 });
+    await completeConsoleSignIn(page, consoleUrl, inbox);
     progress.stage = "human approval";
     await approvePublicationInInbox(page, options.proposalId);
   } catch (error) {
     await recordApprovalFailure(page, { configuration, stage: progress.stage, error });
     throw new Error(`Console publication approval failed during ${progress.stage}.`);
   }
+}
+
+/** The static bundle's callback opens the Console home with a session, not the requested page. */
+async function completeConsoleSignIn(page, consoleUrl, inbox) {
+  if (!isStaticConsole(consoleUrl.href)) {
+    await page.waitForURL(inbox.href, { timeout: 60_000 });
+    return;
+  }
+  await page.waitForURL((url) => url.origin === consoleUrl.origin && url.pathname.startsWith(consoleUrl.pathname), {
+    timeout: 60_000,
+  });
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 30_000 });
+  if (page.url() !== inbox.href) await page.goto(inbox.href);
 }
 
 /** The static bundle offers the server's identity providers on its sign-in page. */

@@ -139,6 +139,11 @@ async function installStaticConsoleFixture(page, { idpOrigin = credentials.idpOr
       decisions.push({ proposal: url.searchParams.get("proposal"), headers: route.request().headers() });
       return route.fulfill({ contentType: "application/json", body: JSON.stringify({ status: "Succeeded" }) });
     }
+    if (url.href === "https://console.test/console/")
+      return route.fulfill({
+        contentType: "text/html",
+        body: '<h1>Welcome</h1><button type="button">Sign out</button>',
+      });
     if (url.href !== inbox) return route.fulfill({ status: 404, body: "unexpected Console route" });
     return route.fulfill({
       contentType: "text/html",
@@ -158,7 +163,7 @@ async function installStaticConsoleFixture(page, { idpOrigin = credentials.idpOr
     if (url.pathname === "/complete") {
       expect(url.searchParams.get("username")).toBe(credentials.username);
       expect(url.searchParams.get("password")).toBe(credentials.password);
-      return navigateSyntheticOrigin(route, inbox);
+      return navigateSyntheticOrigin(route, "https://console.test/console/");
     }
     return route.fulfill({
       contentType: "text/html",
