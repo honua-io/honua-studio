@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.5](https://github.com/honua-io/honua-studio/compare/v0.5.4...v0.5.5) (2026-11-22)
+
+
+### Bug Fixes
+
+* **e2e:** discover candidate data for the scripted MCP journey ([#315](https://github.com/honua-io/honua-studio/issues/315)) ([40ae8fc](https://github.com/honua-io/honua-studio/commit/40ae8fc7dccd15bdecdfb443635a2cdbaab912fc))
+* **lifecycle:** require immutable saved publication intent ([#314](https://github.com/honua-io/honua-studio/issues/314)) ([ed6209b](https://github.com/honua-io/honua-studio/commit/ed6209b66fc56a1c7a95659fd9f9c1f9fd9f309b))
+* **live:** apply configured certificate pin to cohort browser ([#313](https://github.com/honua-io/honua-studio/issues/313)) ([81bab08](https://github.com/honua-io/honua-studio/commit/81bab081dd0dd1b48c617a56e9b799c9cc92ce98))
+* **live:** exercise full style journey on synthetic candidate polygons ([#310](https://github.com/honua-io/honua-studio/issues/310)) ([bda7a0e](https://github.com/honua-io/honua-studio/commit/bda7a0e1e44db2e8f95589d24267507618c5bdbb))
+* **live:** exercise model-free candidate journeys ([1ac1538](https://github.com/honua-io/honua-studio/commit/1ac1538c454a7de5015e0be593c65d14c67c576a))
+* **live:** explicitly assert disabled assistant on provider-free boot ([#309](https://github.com/honua-io/honua-studio/issues/309)) ([7ac33c7](https://github.com/honua-io/honua-studio/commit/7ac33c786ed3942fed5b74269e079d970abad23a))
+* **live:** read top-level discovered tables ([#308](https://github.com/honua-io/honua-studio/issues/308)) ([e087401](https://github.com/honua-io/honua-studio/commit/e0874018d9be0e582b1dd697f97558e863c86a8b))
+* **qualification:** add model-free OIDC lifecycle fixture ([#317](https://github.com/honua-io/honua-studio/issues/317)) ([92d6e4b](https://github.com/honua-io/honua-studio/commit/92d6e4bd63e72074941ba90fac5292e6a6dd7c5d))
+* **studio:** approval-hold draft guards and preview release posture docs ([#295](https://github.com/honua-io/honua-studio/issues/295), [#301](https://github.com/honua-io/honua-studio/issues/301)) ([#302](https://github.com/honua-io/honua-studio/issues/302)) ([c6d55d0](https://github.com/honua-io/honua-studio/commit/c6d55d0d831e4d90672f5fdb44d2ceef9de67ad6))
+* **studio:** preserve publication banner contrast in dark themes ([88a1d6b](https://github.com/honua-io/honua-studio/commit/88a1d6bd03a979c6f9f7d5e071a34ba603839245))
+* **studio:** retain pending approval during live draft setup ([#319](https://github.com/honua-io/honua-studio/issues/319)) ([d0a2231](https://github.com/honua-io/honua-studio/commit/d0a22316e0ce35a42415106727f7a4c7184d523b))
+
 ## [0.5.4](https://github.com/honua-io/honua-studio/compare/v0.5.3...v0.5.4) (2026-11-20)
 
 
