@@ -325,30 +325,79 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       expect(el.shadowRoot!.activeElement).toBe(input);
     });
 
-    it.each([false, true])(
-      "blocks a saved version without publication intent even when the draft has intent: %s",
-      async (draftHasIntent) => {
-        const client = new FakeLifecycleClient();
-        client.versions = [fakeVersion({ envelope: fakeDraft().envelope })];
-        if (draftHasIntent) client.draft = fakeDraft({ envelope: fakeVersion().envelope });
-        const { el } = mount(client);
-        el.draftId = "draft-1";
-        await flush();
-        el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-publish"]')!.click();
-        await flush();
+    const draftWithoutIntent = fakeDraft();
+    const draftWithIntent = fakeDraft({ envelope: fakeVersion().envelope });
 
-        expect(
-          el.shadowRoot!.querySelector('[data-testid="lifecycle-publication-intent-required"]')?.textContent,
-        ).toContain("This saved version has no publication intent");
-        const input = el.shadowRoot!.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]')!;
-        input.value = "parcels-overview";
+    async function openPublishWithoutVersionIntent(draft: StudioPackageDraft) {
+      const client = new FakeLifecycleClient();
+      client.versions = [fakeVersion({ envelope: draftWithoutIntent.envelope })];
+      client.draft = draft;
+      const { el } = mount(client);
+      el.draftId = "draft-1";
+      await flush();
+      el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-version-publish"]')!.click();
+      await flush();
+      const field = <T extends Element>(testId: string) =>
+        el.shadowRoot!.querySelector<T>(`[data-testid="${testId}"]`)!;
+      const typeInto = (input: HTMLInputElement, value: string) => {
+        input.value = value;
         input.dispatchEvent(new Event("input"));
-        const submit = el.shadowRoot!.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]')!;
+      };
+      const choose = (visibility: string) => {
+        const select = field<HTMLSelectElement>("lifecycle-publication-visibility");
+        select.value = visibility;
+        select.dispatchEvent(new Event("change"));
+      };
+      typeInto(field<HTMLInputElement>("lifecycle-confirm-input"), "parcels-overview");
+      return { client, field, typeInto, choose, submit: field<HTMLButtonElement>("lifecycle-confirm-submit") };
+    }
+
+    it.each([
+      ["without", draftWithoutIntent],
+      ["with", draftWithIntent],
+    ])(
+      "blocks a saved version without publication intent until a visibility is chosen, for a draft %s intent",
+      async (_label, draft) => {
+        const { client, field, submit } = await openPublishWithoutVersionIntent(draft);
+
+        expect(field("lifecycle-publication-intent-required").textContent).toContain(
+          "no publication route or visibility",
+        );
+        expect(field<HTMLInputElement>("lifecycle-publication-route").value).toBe("/parcels-overview");
+        expect(field<HTMLSelectElement>("lifecycle-publication-visibility").value).toBe("");
         expect(submit.disabled).toBe(true);
         // The submission guard must also reject a directly dispatched event.
         submit.dispatchEvent(new MouseEvent("click"));
         await flush();
         expect(client.requestPublishCalls).toHaveLength(0);
+      },
+    );
+
+    it.each(["", "parcels", "/two words"])("keeps Confirm publish disabled for the invalid route %j", async (route) => {
+      const { field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(draftWithoutIntent);
+      choose("public");
+      typeInto(field<HTMLInputElement>("lifecycle-publication-route"), route);
+      expect(submit.disabled).toBe(true);
+    });
+
+    it.each(["/maps/chosen", "/"])(
+      "publishes a version without intent with exactly the chosen route %j and visibility",
+      async (route) => {
+        const { client, field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(draftWithIntent);
+        typeInto(field<HTMLInputElement>("lifecycle-publication-route"), route);
+        choose("organization");
+        expect(submit.disabled).toBe(false);
+
+        submit.click();
+        await flush();
+
+        expect(client.requestPublishCalls).toEqual([
+          {
+            itemId: "item-1",
+            versionId: "version-1",
+            input: { intent: { route, visibility: "organization" } },
+          },
+        ]);
       },
     );
 

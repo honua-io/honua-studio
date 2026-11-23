@@ -45,6 +45,12 @@ import type {
   StudioVersionComparison,
 } from "../lifecycle/lifecycle-types.js";
 import { HonuaStudioElementBase } from "./base-element.js";
+import {
+  PUBLICATION_VISIBILITIES,
+  type PublicationChoice,
+  intentFromChoice,
+  suggestedPublicationChoice,
+} from "./lifecycle-publication-choice.js";
 import { resolveInjectedAuth } from "./session.js";
 import { baseElementStyles, lifecycleStyles } from "./styles.js";
 import type { AuthSession, HonuaStudioLifecycleActivityDetail } from "./types.js";
@@ -89,6 +95,8 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
   #pendingConfirm: PendingConfirm | undefined;
   #confirmText = "";
   #confirmSubmitting = false;
+  /** Set only while a publish confirm is open for a saved version without its own publication intent. */
+  #publicationChoice: PublicationChoice | undefined;
 
   /**
    * Monotonic guard against overlapping `#load()` calls: setting `.itemId`
@@ -303,6 +311,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     const version = this.#versions.find((candidate) => candidate.versionId === versionId);
     const intent = version?.envelope.publicationIntent ?? undefined;
     this.#pendingConfirm = { kind: "publish", versionId, intent };
+    this.#publicationChoice = intent ? undefined : suggestedPublicationChoice(this.#confirmPackageKey());
     this.#confirmText = "";
     this.#actionMessage = undefined;
     this.render();
@@ -332,13 +341,19 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
 
   #canConfirm(): boolean {
     const pending = this.#pendingConfirm;
-    return this.#confirmTextMatchesKey() && Boolean(pending && (pending.kind === "rollback" || pending.intent));
+    return (
+      this.#confirmTextMatchesKey() && Boolean(pending && (pending.kind === "rollback" || this.#publishIntent(pending)))
+    );
+  }
+
+  #publishIntent(pending: PendingConfirm & { kind: "publish" }): StudioPublicationIntent | undefined {
+    return pending.intent ?? (this.#publicationChoice && intentFromChoice(this.#publicationChoice));
   }
 
   /**
    * THE ONLY call site for `requestPublish`/`requestRollback` in this
    * package (spec REQ-009). Reachable ONLY via `#confirmSubmit`'s `click`
-   * listener (`#bindListeners`), itself only enabled once
+   * listener (`#bindConfirmListeners`), itself only enabled once
    * `#confirmText === this.#confirmPackageKey()` — see the module doc.
    */
   async #submitConfirm(): Promise<void> {
@@ -349,7 +364,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     try {
       if (pending.kind === "publish") {
         const request = await this.client.requestPublish(this.#itemId, pending.versionId, {
-          intent: pending.intent,
+          intent: this.#publishIntent(pending),
         });
         if (request.status === "awaiting-approval") {
           this.#activity({
@@ -573,11 +588,7 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
     return `
       <div class="lifecycle-confirm" data-testid="lifecycle-confirm-dialog" role="alertdialog" aria-label="${escapeHtml(title)}">
         <p><strong>${escapeHtml(title)}</strong></p>
-        ${
-          pending.kind === "publish" && !pending.intent
-            ? `<p role="alert" data-testid="lifecycle-publication-intent-required">This saved version has no publication intent. Choose its publication route and visibility in the Map or App, then save a new version before requesting publication. No publication request has been sent.</p>`
-            : ""
-        }
+        ${pending.kind === "publish" && !pending.intent ? this.#renderPublicationChoice() : ""}
         <p class="hn-muted">
           This action is irreversible except by a further rollback. Type the content key
           <strong data-testid="lifecycle-confirm-expected-key">${escapeHtml(expectedKey)}</strong> to confirm.
@@ -600,6 +611,28 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
           <button type="button" class="hn-btn hn-btn--sm" data-testid="lifecycle-confirm-cancel">Cancel</button>
         </div>
       </div>
+    `;
+  }
+
+  #renderPublicationChoice(): string {
+    const choice = this.#publicationChoice ?? suggestedPublicationChoice(undefined);
+    const options = PUBLICATION_VISIBILITIES.map(
+      (visibility) =>
+        `<option value="${visibility}" ${visibility === choice.visibility ? "selected" : ""}>${visibility}</option>`,
+    ).join("");
+    return `
+      <p data-testid="lifecycle-publication-intent-required">
+        This saved version has no publication route or visibility. Choose both; the request carries exactly this choice.
+      </p>
+      <label class="lifecycle-confirm-field">Route
+        <input type="text" data-testid="lifecycle-publication-route" autocomplete="off" value="${escapeHtml(choice.route)}" />
+      </label>
+      <label class="lifecycle-confirm-field">Visibility
+        <select data-testid="lifecycle-publication-visibility">
+          <option value="" ${choice.visibility ? "" : "selected"}>Choose visibility</option>
+          ${options}
+        </select>
+      </label>
     `;
   }
 
@@ -666,19 +699,33 @@ export class HonuaStudioLifecyclePanelElement extends HonuaStudioElementBase {
       .querySelector('[data-testid="lifecycle-compare-button"]')
       ?.addEventListener("click", () => void this.compareSelected(), { signal });
 
-    // -- THE HUMAN GATE: the only listeners that can reach #submitConfirm --
+    this.#bindConfirmListeners(root, signal);
+  }
+
+  /** THE HUMAN GATE: the only listeners that can reach `#submitConfirm`. */
+  #bindConfirmListeners(root: ShadowRoot, signal: AbortSignal | undefined): void {
     const confirmInput = root.querySelector<HTMLInputElement>('[data-testid="lifecycle-confirm-input"]');
     const confirmSubmit = root.querySelector<HTMLButtonElement>('[data-testid="lifecycle-confirm-submit"]');
+    const refreshConfirmSubmit = () => {
+      if (confirmSubmit) confirmSubmit.disabled = !this.#canConfirm() || this.#confirmSubmitting;
+    };
     confirmInput?.addEventListener(
       "input",
       () => {
         this.#confirmText = confirmInput.value;
-        if (confirmSubmit) {
-          confirmSubmit.disabled = !this.#canConfirm() || this.#confirmSubmitting;
-        }
+        refreshConfirmSubmit();
       },
       { signal },
     );
+    const routeInput = root.querySelector<HTMLInputElement>('[data-testid="lifecycle-publication-route"]');
+    const visibilitySelect = root.querySelector<HTMLSelectElement>('[data-testid="lifecycle-publication-visibility"]');
+    const updateChoice = () => {
+      if (!routeInput || !visibilitySelect) return;
+      this.#publicationChoice = { route: routeInput.value, visibility: visibilitySelect.value };
+      refreshConfirmSubmit();
+    };
+    routeInput?.addEventListener("input", updateChoice, { signal });
+    visibilitySelect?.addEventListener("change", updateChoice, { signal });
     confirmSubmit?.addEventListener("click", () => void this.#submitConfirm(), { signal });
     root
       .querySelector('[data-testid="lifecycle-confirm-cancel"]')

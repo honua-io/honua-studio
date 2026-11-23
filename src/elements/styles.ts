@@ -316,7 +316,8 @@ export function lifecycleStyles(): string {
       display: flex; flex-direction: column; gap: var(--hn-space-3, 12px);
     }
     .lifecycle-confirm .hn-muted { color: inherit; }
-    .lifecycle-confirm input[type="text"] {
+    .lifecycle-confirm-field { display: flex; flex-direction: column; gap: var(--hn-space-1, 4px); font-weight: 600; }
+    .lifecycle-confirm input[type="text"], .lifecycle-confirm select {
       font: inherit; color: inherit;
       background: var(--hn-surface-raised, #fff);
       border: 1px solid var(--hn-border-control, #7c8a81);
