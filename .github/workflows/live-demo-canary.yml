@@ -63,11 +63,15 @@ jobs:
           HONUA_LIVE_APPROVER_USERNAME: ${{ secrets.HONUA_LIVE_APPROVER_USERNAME }}
           HONUA_LIVE_APPROVER_PASSWORD: ${{ secrets.HONUA_LIVE_APPROVER_PASSWORD }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
-          LIVE_JOURNEYS: ${{ inputs.journeys || 'all' }}
+          LIVE_JOURNEYS: ${{ inputs.journeys || 'scheduled' }}
         run: |
           args=(--reporter=list,json --retries=0)
           if [[ "$LIVE_JOURNEYS" == "model-free" ]]; then
             args+=(--grep 'live demo-server journeys @live.*(boot:|style and filters:|MCP compose:)')
+          elif [[ "$LIVE_JOURNEYS" == "scheduled" ]]; then
+            # Scheduled runs skip the model journeys while the demo has no approved live provider
+            # (readiness records approvedProviderAvailable); dispatch "all" to run them.
+            args+=(--grep-invert '(chat:|real model turn:)')
           fi
           npm run test:browser:live -- "${args[@]}"
 

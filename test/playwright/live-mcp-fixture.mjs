@@ -1,14 +1,34 @@
-export function selectMcpFixtureSource(catalog) {
-  const source = catalog.find(
-    (entry) =>
-      entry.protocol === "geoservices-feature-service" &&
-      /point|polygon|polyline|linestring/i.test(entry.geometryType) &&
-      typeof entry.locator?.url === "string" &&
-      Number.isSafeInteger(entry.locator?.layerId) &&
-      entry.locator.layerId >= 0,
+function isVectorFeatureSource(entry) {
+  return (
+    entry.protocol === "geoservices-feature-service" &&
+    /point|polygon|polyline|linestring/i.test(entry.geometryType) &&
+    typeof entry.locator?.url === "string" &&
+    Number.isSafeInteger(entry.locator?.layerId) &&
+    entry.locator.layerId >= 0
   );
-  if (!source) throw new Error("Scripted MCP journey needs a published vector FeatureServer source.");
+}
+
+const noVectorSource = "Scripted MCP journey needs a published vector FeatureServer source.";
+
+export function selectMcpFixtureSource(catalog) {
+  const source = catalog.find(isVectorFeatureSource);
+  if (!source) throw new Error(noVectorSource);
   return source;
+}
+
+/** The catalog can list sources whose layer is not served (unpublished or stale); use the first one that resolves. */
+export async function resolveMcpFixture(catalog, fetchMetadata) {
+  const candidates = catalog.filter(isVectorFeatureSource);
+  if (candidates.length === 0) throw new Error(noVectorSource);
+  let lastError;
+  for (const source of candidates) {
+    try {
+      return { source, fixture: liveMcpFixture(source, await fetchMetadata(source)) };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 export function liveMcpFixture(source, metadata) {
