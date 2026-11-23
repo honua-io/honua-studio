@@ -21,6 +21,7 @@ import { StudioLifecycleApprovalPendingError } from "../lifecycle/lifecycle-erro
 import { isRecord } from "../shared/is-record.js";
 import type { CompositionStyleDefinition, MapStyleDocument } from "../styles/map-style-edit.js";
 import type { McpClient } from "./client.js";
+import { McpToolError } from "./errors.js";
 import type { McpToolsCallResult } from "./protocol.js";
 
 // Wire shapes (mirror StudioMcpModels.cs / StudioCompositionBody)
@@ -328,6 +329,58 @@ export function parseStudioDraftResult(result: McpToolsCallResult): StudioMcpDra
 }
 
 /**
+ * Calls a draft-returning `honua_studio_*` tool. honua-server answers a held
+ * create with an operation receipt, but a held edit to an existing draft with
+ * an `approvalRequired` refusal that names only the proposal. Reading that
+ * proposal's operation makes both the same approval hold, so a retry never
+ * raises a second proposal. An unreadable proposal keeps the original refusal.
+ */
+export async function callStudioDraftTool(
+  client: McpClient,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<StudioMcpDraft> {
+  let result: McpToolsCallResult;
+  try {
+    result = await client.callTool(name, args);
+  } catch (error) {
+    throw (await heldEditFromRefusal(client, error)) ?? error;
+  }
+  return parseStudioDraftResult(result);
+}
+
+const PROPOSAL_ID = /^[A-Za-z0-9_-]{1,200}$/;
+
+function refusedProposalId(error: unknown): string | undefined {
+  if (!(error instanceof McpToolError) || !isRecord(error.data) || error.data.approvalRequired !== true)
+    return undefined;
+  const proposalId = error.data.proposalId;
+  return typeof proposalId === "string" && PROPOSAL_ID.test(proposalId) ? proposalId : undefined;
+}
+
+async function readProposal(client: McpClient, proposalId: string): Promise<unknown> {
+  try {
+    const read = await client.readResource(`honua://proposals/${proposalId}`);
+    return JSON.parse(read.contents?.[0]?.text ?? "null");
+  } catch {
+    return undefined;
+  }
+}
+
+async function heldEditFromRefusal(
+  client: McpClient,
+  error: unknown,
+): Promise<StudioLifecycleApprovalPendingError | undefined> {
+  const proposalId = refusedProposalId(error);
+  if (!proposalId) return undefined;
+  const proposal = await readProposal(client, proposalId);
+  if (!isRecord(proposal) || proposal.proposalId !== proposalId || proposal.status !== "AwaitingApproval")
+    return undefined;
+  const pending = readStudioApprovalPending({ ...proposal, status: "RequiresApproval" });
+  return pending ? new StudioLifecycleApprovalPendingError(pending) : undefined;
+}
+
+/**
  * Typed convenience layer over {@link McpClient.callTool} for the 18
  * `honua_studio_*` tools. Every method is a thin `callTool(name, args)` plus
  * response parsing (`structuredContent`, falling back to the first text
@@ -338,18 +391,15 @@ export class StudioMcpToolClient {
   public constructor(private readonly client: McpClient) {}
 
   public async createDraft(input: CreateStudioDraftInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_create_draft", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_create_draft", { ...input });
   }
 
   public async getDraft(draftId: string): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_get_draft", { draftId });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_get_draft", { draftId });
   }
 
   public async updateDraft(input: UpdateStudioDraftInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_update_draft", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_update_draft", { ...input });
   }
 
   public async validateDraft(draftId: string): Promise<StudioMcpValidationSummary> {
@@ -363,13 +413,11 @@ export class StudioMcpToolClient {
   }
 
   public async addLayer(input: AddStudioLayerInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_add_layer", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_add_layer", { ...input });
   }
 
   public async removeLayer(input: RemoveStudioLayerInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_remove_layer", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_remove_layer", { ...input });
   }
 
   public async setMapStyle(input: {
@@ -377,54 +425,44 @@ export class StudioMcpToolClient {
     readonly generation: number;
     readonly mapSpec: MapStyleDocument;
   }): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_set_map_style", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_set_map_style", { ...input });
   }
 
   public async setLayerStyle(input: SetStudioLayerStyleInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_set_layer_style", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_set_layer_style", { ...input });
   }
 
   /** `honua_studio_set_layer_visibility` — the durable half of a TOC toggle. `visible` is part of the server's `StudioCompositionLayer`, so this is what makes a toggle survive a draft sync. */
   public async setLayerVisibility(input: SetStudioLayerVisibilityInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_set_layer_visibility", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_set_layer_visibility", { ...input });
   }
 
   public async setView(input: SetStudioViewInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_set_view", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_set_view", { ...input });
   }
 
   public async addWidget(input: AddStudioWidgetInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_add_widget", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_add_widget", { ...input });
   }
 
   public async removeWidget(input: RemoveStudioWidgetInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_remove_widget", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_remove_widget", { ...input });
   }
 
   public async addControl(input: AddStudioControlInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_add_control", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_add_control", { ...input });
   }
 
   public async removeControl(input: RemoveStudioControlInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_remove_control", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_remove_control", { ...input });
   }
 
   public async bindInteraction(input: BindStudioInteractionInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_bind_interaction", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_bind_interaction", { ...input });
   }
 
   public async removeInteraction(input: RemoveStudioInteractionInput): Promise<StudioMcpDraft> {
-    const result = await this.client.callTool("honua_studio_remove_interaction", { ...input });
-    return parseStudioDraftResult(result);
+    return callStudioDraftTool(this.client, "honua_studio_remove_interaction", { ...input });
   }
 
   public async proposePublication(input: ProposeStudioPublicationInput): Promise<ProposeStudioPublicationOutput> {

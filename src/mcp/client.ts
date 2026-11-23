@@ -3,8 +3,9 @@ import { McpProtocolError, McpToolError, McpTransportError } from "./errors.js";
  * A minimal MCP client over honua-server's `/mcp` HTTP transport
  * (honua-studio#7 REQ-001; `docs/guides/connect/ai-agents-mcp.md` in
  * honua-server). JSON-RPC 2.0 over `POST /mcp`: `initialize` handshake,
- * `tools/list`, `tools/call` — nothing else (no resources/prompts/sampling;
- * Studio's tool plane never needs them).
+ * `tools/list`, `tools/call`, and `resources/read` for the proposal a held
+ * draft edit names — nothing else (no prompts/sampling; Studio's tool plane
+ * never needs them).
  *
  * ## SDK vs. hand-rolled (the decision this module records)
  *
@@ -65,6 +66,7 @@ import {
   type JsonRpcResponse,
   MCP_PROTOCOL_VERSION,
   type McpInitializeResult,
+  type McpResourcesReadResult,
   type McpToolsCallParams,
   type McpToolsCallResult,
   type McpToolsListParams,
@@ -171,6 +173,12 @@ export class McpClient {
   public async listTools(params: McpToolsListParams = {}): Promise<McpToolsListResult> {
     await this.initialize();
     return this.#send<McpToolsListResult>("tools/list", params);
+  }
+
+  /** `resources/read` for one URI, such as the `honua://proposals/{id}` a held draft edit names. */
+  public async readResource(uri: string): Promise<McpResourcesReadResult> {
+    await this.initialize();
+    return this.#send<McpResourcesReadResult>("resources/read", { uri });
   }
 
   /**
