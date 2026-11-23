@@ -121,6 +121,41 @@ describe("approval handoff over MCP", () => {
     expect(calls.filter((name) => name === "honua_studio_add_layer")).toHaveLength(1);
   });
 
+  it("holds the server's approval refusal for an edit and never repeats the edit", async () => {
+    const { orchestrator, controller, calls } = await setup(["honua_studio_add_layer"]);
+    await orchestrator.ensureLiveDraft();
+    const before = controller.state;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(await orchestrator.handleToolCall(intent)).toMatchObject({ ok: false, code: "approval-pending" });
+    }
+    expect(orchestrator.pendingApproval).toMatchObject({
+      status: "awaiting-approval",
+      proposalId: expect.any(String),
+      operationInstanceId: expect.any(String),
+    });
+    expect(controller.state).toBe(before);
+    expect(calls.filter((name) => name === "honua_studio_add_layer")).toHaveLength(1);
+  });
+
+  it("keeps the original refusal when the held proposal cannot be read", async () => {
+    server = await startMockServer({ approvalTools: ["honua_studio_add_layer"] });
+    const client = new McpClient({
+      baseUrl: server.url,
+      auth: { getAccessToken: async () => mintFixtureAccessToken() },
+      fetchImpl: async (input, init) =>
+        JSON.parse(String(init?.body)).method === "resources/read"
+          ? new Response("unavailable", { status: 503 })
+          : fetch(input, init),
+    });
+    const orchestrator = new ToolCallOrchestrator({
+      controller: new CompositionController(createEmptyCompositionState()),
+      live: { client, packageKey: "map-1" },
+    });
+    await orchestrator.ensureLiveDraft();
+    expect(await orchestrator.handleToolCall(intent)).toMatchObject({ ok: false, code: "server-error" });
+    expect(orchestrator.pendingApproval).toBeUndefined();
+  });
+
   it("discards a rejected live approval and reloads the unchanged draft before the next edit", async () => {
     const { orchestrator, calls } = await setup(["honua_studio_add_layer"]);
     const binding = await orchestrator.ensureLiveDraft();

@@ -122,6 +122,11 @@ export interface McpToolsCallResult {
   readonly isError?: boolean;
 }
 
+/** `resources/read` result; Studio reads only text resources such as `honua://proposals/{id}`. */
+export interface McpResourcesReadResult {
+  readonly contents?: readonly { readonly uri?: string; readonly mimeType?: string; readonly text?: string }[];
+}
+
 /** Every documented `code` value from the honua-server MCP error contract (docs/guides/connect/ai-agents-mcp.md § Troubleshoot). */
 export type McpToolErrorCode =
   | "invalid_argument"

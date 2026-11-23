@@ -2277,6 +2277,32 @@ function unauthorized(res) {
   json(res, 401, { error: { code: 401, message: "Unauthorized" } }, { "www-authenticate": "Bearer" });
 }
 
+// honua-server answers a held draft edit (StudioDraftToolBase) with an approval refusal, not a receipt.
+function approvalRefusal(proposalId) {
+  const message = `This operation requires approval (policy: control-plane). A proposal was created and is awaiting approval (proposalId: ${proposalId}).`;
+  const refusal = {
+    status: "error",
+    code: "failed_precondition",
+    message,
+    approvalRequired: true,
+    policyRef: "control-plane",
+    proposalId,
+    resourceUri: `honua://proposals/${proposalId}`,
+    error: { kind: "ApprovalRequired", message },
+  };
+  return { isError: true, structuredContent: refusal, content: [{ type: "text", text: JSON.stringify(refusal) }] };
+}
+
+// `resources/read` of `honua://proposals/{id}` for a held draft operation.
+function readDraftProposal(pendingDraftOperations, uri) {
+  const proposalId = typeof uri === "string" ? uri.match(/^honua:\/\/proposals\/(.+)$/)?.[1] : undefined;
+  const pending = proposalId ? pendingDraftOperations.get(proposalId) : undefined;
+  if (!pending) return undefined;
+  const { operationInstanceId } = pending;
+  const proposal = { proposalId, operationInstanceId, kind: "StudioDraftMutation", status: "AwaitingApproval" };
+  return { result: { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(proposal) }] } };
+}
+
 export async function startMockServer({ port = 0, model = "fixture", extraDatasets = [], approvalTools = [] } = {}) {
   if (model !== "fixture" && model !== "byom-preview") {
     throw new Error('Mock model must be "fixture" or "byom-preview".');
@@ -2298,11 +2324,16 @@ export async function startMockServer({ port = 0, model = "fixture", extraDatase
   const mcp = createMcpDispatcher(studioLifecycleStore, catalogDatasets);
   const pendingDraftOperations = new Map();
   function draftOperation(method, params, actorId) {
+    if (method === "resources/read")
+      return readDraftProposal(pendingDraftOperations, params?.uri) ?? mcp.handle(method, params, actorId);
     if (method !== "tools/call" || !approvalTools.includes(params?.name)) return mcp.handle(method, params, actorId);
     const proposalId = randomUUID();
     const operation = { status: "RequiresApproval", operationInstanceId: randomUUID(), proposalId };
-    pendingDraftOperations.set(proposalId, { params, actorId });
-    return { result: { structuredContent: { operation, draftId: null, generation: null, envelope: null } } };
+    pendingDraftOperations.set(proposalId, { params, actorId, operationInstanceId: operation.operationInstanceId });
+    if (params.name === "honua_studio_create_draft") {
+      return { result: { structuredContent: { operation, draftId: null, generation: null, envelope: null } } };
+    }
+    return { result: approvalRefusal(proposalId) };
   }
   function resolveDraftOperation(proposalId, decision) {
     const pending = pendingDraftOperations.get(proposalId);

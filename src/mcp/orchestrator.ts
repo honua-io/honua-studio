@@ -80,7 +80,7 @@ import type { McpClient } from "./client.js";
 import { MAP_COMPOSITION_ENVELOPE, toCompositionDraftBody } from "./composition-envelope.js";
 import { isMcpGenerationConflict } from "./errors.js";
 import type { StudioMcpDraft, StudioMcpToolName, StudioPackageFamilyWire } from "./studio-tools.js";
-import { StudioMcpToolClient, parseStudioDraftResult } from "./studio-tools.js";
+import { StudioMcpToolClient, callStudioDraftTool } from "./studio-tools.js";
 import {
   type ToolBridgeErrorCode,
   applyStudioDraft,
@@ -262,7 +262,7 @@ export class ToolCallOrchestrator {
           ? buildServerToolInvocation(resolution, { draftId, generation: current.generation })
           : undefined;
         if (!invocation) throw new Error("This history revision has no server mutation tool.");
-        const draft = parseStudioDraftResult(await live.client.callTool(invocation.name, invocation.arguments));
+        const draft = await callStudioDraftTool(live.client, invocation.name, invocation.arguments);
         if (sessionGeneration !== this.#draftSetupGeneration) return false;
         this.#generation = draft.generation;
         if (
@@ -451,8 +451,7 @@ export class ToolCallOrchestrator {
     const live = this.#live;
     if (!live) throw new Error("ToolCallOrchestrator: no live session attached.");
     try {
-      const result = await live.client.callTool(invocation.name, invocation.arguments);
-      return parseStudioDraftResult(result);
+      return await callStudioDraftTool(live.client, invocation.name, invocation.arguments);
     } catch (error) {
       if (!isMcpGenerationConflict(error) || !this.#draftId || !this.#studioTools) throw error;
       const refreshed = await this.#studioTools.getDraft(this.#draftId);
