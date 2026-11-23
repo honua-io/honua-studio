@@ -36,6 +36,24 @@ test("only a loopback Console may use HTTP; identity providers require HTTPS", (
   ).toThrow();
 });
 
+/** The identity provider's sign-in form; a completed sign-in returns to the given Console page. */
+function installIdentityProviderFixture(page, idpOrigin, callbackDestination) {
+  return page.route(`${idpOrigin}/**`, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/complete") {
+      expect(url.searchParams.get("username")).toBe(credentials.username);
+      expect(url.searchParams.get("password")).toBe(credentials.password);
+      return navigateSyntheticOrigin(route, callbackDestination);
+    }
+    return route.fulfill({
+      contentType: "text/html",
+      body: `<form action="/complete"><label>Username<input name="username"></label>
+        <label>Password<input type="password" name="password"></label>
+        <button type="submit">Sign in</button></form>`,
+    });
+  });
+}
+
 async function installConsoleFixture(page, { status = "Succeeded", idpOrigin = credentials.idpOrigin } = {}) {
   const decisions = [];
   let consoleSessionOpened = false;
@@ -72,20 +90,7 @@ async function installConsoleFixture(page, { status = "Succeeded", idpOrigin = c
         }</script>`,
     });
   });
-  await page.route(`${idpOrigin}/**`, (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/complete") {
-      expect(url.searchParams.get("username")).toBe(credentials.username);
-      expect(url.searchParams.get("password")).toBe(credentials.password);
-      return navigateSyntheticOrigin(route, "https://console.test/inbox?proposalId=target-proposal");
-    }
-    return route.fulfill({
-      contentType: "text/html",
-      body: `<form action="/complete"><label>Username<input name="username"></label>
-        <label>Password<input type="password" name="password"></label>
-        <button type="submit">Sign in</button></form>`,
-    });
-  });
+  await installIdentityProviderFixture(page, idpOrigin, "https://console.test/inbox?proposalId=target-proposal");
   return decisions;
 }
 
@@ -158,20 +163,7 @@ async function installStaticConsoleFixture(page, { idpOrigin = credentials.idpOr
         }</script>`,
     });
   });
-  await page.route(`${idpOrigin}/**`, (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/complete") {
-      expect(url.searchParams.get("username")).toBe(credentials.username);
-      expect(url.searchParams.get("password")).toBe(credentials.password);
-      return navigateSyntheticOrigin(route, "https://console.test/console/");
-    }
-    return route.fulfill({
-      contentType: "text/html",
-      body: `<form action="/complete"><label>Username<input name="username"></label>
-        <label>Password<input type="password" name="password"></label>
-        <button type="submit">Sign in</button></form>`,
-    });
-  });
+  await installIdentityProviderFixture(page, idpOrigin, "https://console.test/console/");
   return decisions;
 }
 
