@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.7](https://github.com/honua-io/honua-studio/compare/v0.5.6...v0.5.7) (2026-11-23)
+
+
+### Bug Fixes
+
+* **ci:** retain manual element lifecycle evaluation ([#325](https://github.com/honua-io/honua-studio/issues/325)) ([789ffd3](https://github.com/honua-io/honua-studio/commit/789ffd3764fb519be2adae4fc30cb1f9a13bbba4))
+* **studio:** hold held MCP edits to an existing draft ([#324](https://github.com/honua-io/honua-studio/issues/324)) ([#327](https://github.com/honua-io/honua-studio/issues/327)) ([7313c20](https://github.com/honua-io/honua-studio/commit/7313c20c74d4b992740038a3f3effeab174069b4))
+
 ## [0.5.6](https://github.com/honua-io/honua-studio/compare/v0.5.5...v0.5.6) (2026-11-23)
 
 
