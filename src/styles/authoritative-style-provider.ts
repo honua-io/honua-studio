@@ -308,7 +308,7 @@ export class AuthoritativeStyleProvider {
     const { serviceId, layerId } = source.locator ?? {};
     if (typeof serviceId !== "string" || !Number.isSafeInteger(layerId))
       throw new Error("Select an actual published source for thematic fields.");
-    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId, serviceLayerIndex: layerId });
+    const descriptor = await this.#call("honua_describe_layer", { serviceId, serviceLayerIndex: layerId });
     if (
       descriptor.serviceId !== serviceId ||
       publishedLayerIndex(descriptor) !== layerId ||
@@ -360,7 +360,7 @@ export class AuthoritativeStyleProvider {
     )
       throw new Error("Style binding source is outside the trusted server root.");
     const definition = await this.read(styleId);
-    const descriptor = await this.#call("honua_describe_layer", { serviceId, layerId, serviceLayerIndex: layerId });
+    const descriptor = await this.#call("honua_describe_layer", { serviceId, serviceLayerIndex: layerId });
     if (auth !== this.options.getAuth()) throw new Error("Studio session changed during style binding.");
     if (
       descriptor.serviceId !== serviceId ||
