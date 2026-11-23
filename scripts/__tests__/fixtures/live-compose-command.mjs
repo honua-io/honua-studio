@@ -7,16 +7,39 @@ const command = basename(process.argv[1]);
 const args = process.argv.slice(2);
 appendFileSync(process.env.STACK_COMMANDS, `${JSON.stringify({ command, args, cwd: process.cwd() })}\n`);
 if (command === "git") process.stdout.write(fixture.sourceRevision);
+if (command === "gh" && args[1].endsWith("/zip")) process.stdout.write(fixture.consoleArtifact);
+else if (command === "gh") {
+  const { console: bundle } = fixture.lock;
+  process.stdout.write(
+    JSON.stringify({
+      name: bundle.artifact,
+      digest: bundle.artifactDigest,
+      workflow_run: { id: bundle.runId, head_sha: fixture.wrongConsoleRevision ? "c".repeat(40) : bundle.revision },
+    }),
+  );
+}
+if (command === "unzip") {
+  mkdirSync("artifact/wwwroot/console", { recursive: true });
+  writeFileSync("artifact/wwwroot/console/index.html", fixture.consoleIndex);
+}
+if (command === "zip") writeFileSync(args[4], "synthetic console bundle");
 if (command === "python3" && args[0].endsWith("package_quickstart.py")) {
   const root = args[args.indexOf("--output") + 1];
   mkdirSync(root, { recursive: true });
-  for (const name of ["compose.yaml", "compose.executor.yaml", "compose.executor.image.yaml", "quickstart.py"])
+  for (const name of [
+    "compose.yaml",
+    "compose.executor.yaml",
+    "compose.executor.image.yaml",
+    "compose.console.yaml",
+    "quickstart.py",
+  ])
     writeFileSync(resolve(root, name), "synthetic package\n");
 }
 if (command === "python3" && args.includes("--init-only")) {
   mkdirSync("secrets", { recursive: true });
   writeFileSync("secrets/honua_admin_password", "synthetic-admin-password");
-  writeFileSync(".env", "COMPOSE_PROJECT_NAME=synthetic-only\n");
+  writeFileSync("secrets/console_tls_certificate", readFileSync("/etc/ssl/certs/ca-certificates.crt"));
+  appendFileSync(".env", "COMPOSE_PROJECT_NAME=synthetic-only\n");
 }
 if (command === "openssl") {
   writeFileSync(args[args.indexOf("-keyout") + 1], "synthetic-key");
@@ -25,11 +48,12 @@ if (command === "openssl") {
 if (command === "docker" && args[0] === "compose" && args.includes("ps")) process.stdout.write(args.at(-1));
 if (command === "docker" && args[0] === "inspect") {
   const service = args[1];
-  process.stdout.write(JSON.stringify([{ Image: fixture.wrongImage ? "wrong-image" : service }]));
+  const image = fixture.wrongImage ? "wrong-image" : service;
+  process.stdout.write(JSON.stringify([{ Image: image, Config: { Image: `synthetic-${service}-image` } }]));
 }
 if (command === "docker" && args[0] === "image") {
   const component = Object.keys(fixture.lock).find((name) => fixture.lock[name]?.image === args[2]);
-  const service = { server: "honua", console: "console", executor: "compose-executor" }[component];
+  const service = { server: "honua", executor: "compose-executor" }[component];
   const revision = fixture.missingRevision
     ? undefined
     : fixture.wrongRevision

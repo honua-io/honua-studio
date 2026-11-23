@@ -120,6 +120,76 @@ test("Console approval never fills credentials after a redirect to a different i
   await expect(page.locator('input[name="password"]')).toHaveValue("");
 });
 
+const staticCredentials = { ...credentials, consoleUrl: "https://console.test/console", profileId: undefined };
+
+/** The static bundle at /console/: its sign-in page offers the server's identity providers. */
+async function installStaticConsoleFixture(page, { idpOrigin = credentials.idpOrigin } = {}) {
+  const decisions = [];
+  const inbox = "https://console.test/console/inbox?proposalId=target-proposal";
+  await page.route("https://console.test/**", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/console/auth/signin") {
+      expect(url.searchParams.get("returnTo")).toBe("/inbox?proposalId=target-proposal");
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<h1>Sign in</h1><button type="button" onclick="location.assign('${idpOrigin}/login')">Continue with Studio realm</button>`,
+      });
+    }
+    if (url.pathname === "/approve") {
+      decisions.push({ proposal: url.searchParams.get("proposal"), headers: route.request().headers() });
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify({ status: "Succeeded" }) });
+    }
+    if (url.href !== inbox) return route.fulfill({ status: 404, body: "unexpected Console route" });
+    return route.fulfill({
+      contentType: "text/html",
+      body: `<h1>Approvals</h1>
+        <section class="proposal-approval-panel" data-proposal-id="target-proposal"><h3>target-proposal</h3>
+          <span data-proposal-status="AwaitingApproval">Awaiting approval</span>
+          <button data-proposal-approve onclick="approve()">Approve &amp; submit</button>
+        </section>
+        <script>async function approve() {
+          const result = await (await fetch('/approve?proposal=target-proposal', {method: 'POST'})).json();
+          document.querySelector('[data-proposal-status]').setAttribute('data-proposal-status', result.status);
+        }</script>`,
+    });
+  });
+  await page.route(`${idpOrigin}/**`, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/complete") {
+      expect(url.searchParams.get("username")).toBe(credentials.username);
+      expect(url.searchParams.get("password")).toBe(credentials.password);
+      return navigateSyntheticOrigin(route, inbox);
+    }
+    return route.fulfill({
+      contentType: "text/html",
+      body: `<form action="/complete"><label>Username<input name="username"></label>
+        <label>Password<input type="password" name="password"></label>
+        <button type="submit">Sign in</button></form>`,
+    });
+  });
+  return decisions;
+}
+
+test("static Console approval continues with the server identity provider and approves only the selected proposal", async ({
+  page,
+}) => {
+  const decisions = await installStaticConsoleFixture(page);
+  await approveLivePublication(page, { ...staticCredentials, proposalId: "target-proposal" });
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0].proposal).toBe("target-proposal");
+  expect(decisions[0].headers.authorization).toBeUndefined();
+  expect(decisions[0].headers["x-api-key"]).toBeUndefined();
+});
+
+test("static Console approval never fills credentials at an unexpected identity origin", async ({ page }) => {
+  await installStaticConsoleFixture(page, { idpOrigin: "https://unexpected.test" });
+  await expect(approveLivePublication(page, { ...staticCredentials, proposalId: "target-proposal" })).rejects.toThrow(
+    "Console publication approval failed during sign-in redirect.",
+  );
+  await expect(page.locator('input[name="username"]')).toHaveValue("");
+  await expect(page.locator('input[name="password"]')).toHaveValue("");
+});
+
 test("missing approval credentials fail before opening the Console", async ({ page }) => {
   await expect(
     approveLivePublication(page, { ...credentials, password: "", proposalId: "target-proposal" }),

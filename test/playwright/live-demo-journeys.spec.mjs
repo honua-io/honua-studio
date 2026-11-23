@@ -1,7 +1,7 @@
 /** Live deployment checks leave timestamped content items; drafts are deleted after each test. */
 import { chromium, expect, test } from "@playwright/test";
 import { ensureCohortAuthorLayer } from "../../scripts/cohort-author-layer.mjs";
-import { liveApprovalBrowserArguments } from "../../scripts/lib/live-approval-config.mjs";
+import { liveApprovalBrowserArguments, publishedRouteLinks } from "../../scripts/lib/live-approval-config.mjs";
 import { liveModelLimits } from "../../scripts/lib/live-model-guard.mjs";
 import { liveMapBody } from "../../scripts/lib/live-publication.mjs";
 
@@ -77,7 +77,9 @@ test.describe("live demo-server journeys @live", () => {
     const approvalConfiguration = liveApprovalConfiguration();
     const approvalBrowser = await chromium.launch({ args: liveApprovalBrowserArguments() });
     try {
-      const unpublished = await fetch(`${approvalConfiguration.consoleUrl}/api/studio/viewer/published/${packageKey}`);
+      const unpublished = await fetch(
+        publishedRouteLinks(approvalConfiguration.consoleUrl, `/${packageKey}`).definition,
+      );
       expect(unpublished.status).toBe(404);
       const approvalContext = await approvalBrowser.newContext();
       const approvalPage = await approvalContext.newPage();
