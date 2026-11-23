@@ -367,33 +367,33 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       },
     );
 
-    it.each(["", "parcels", "/", "/two words"])(
-      "keeps Confirm publish disabled for the invalid route %j",
+    it.each(["", "parcels", "/two words"])("keeps Confirm publish disabled for the invalid route %j", async (route) => {
+      const { field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(false);
+      choose("public");
+      typeInto(field<HTMLInputElement>("lifecycle-publication-route"), route);
+      expect(submit.disabled).toBe(true);
+    });
+
+    it.each(["/maps/chosen", "/"])(
+      "publishes a version without intent with exactly the chosen route %j and visibility",
       async (route) => {
-        const { field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(false);
-        choose("public");
+        const { client, field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(true);
         typeInto(field<HTMLInputElement>("lifecycle-publication-route"), route);
-        expect(submit.disabled).toBe(true);
+        choose("organization");
+        expect(submit.disabled).toBe(false);
+
+        submit.click();
+        await flush();
+
+        expect(client.requestPublishCalls).toEqual([
+          {
+            itemId: "item-1",
+            versionId: "version-1",
+            input: { intent: { route, visibility: "organization" } },
+          },
+        ]);
       },
     );
-
-    it("publishes a version without intent with exactly the route and visibility the person chose", async () => {
-      const { client, field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(true);
-      typeInto(field<HTMLInputElement>("lifecycle-publication-route"), "/maps/chosen");
-      choose("organization");
-      expect(submit.disabled).toBe(false);
-
-      submit.click();
-      await flush();
-
-      expect(client.requestPublishCalls).toEqual([
-        {
-          itemId: "item-1",
-          versionId: "version-1",
-          input: { intent: { route: "/maps/chosen", visibility: "organization" } },
-        },
-      ]);
-    });
 
     it("clicking Confirm publish (only once enabled) calls client.requestPublish exactly once with the selected version and intent", async () => {
       const { el, client } = mount(new FakeLifecycleClient());

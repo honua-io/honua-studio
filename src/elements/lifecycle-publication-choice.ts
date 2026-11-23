@@ -16,7 +16,7 @@ export function suggestedPublicationChoice(contentKey: string | undefined): Publ
 /** The intent a complete, valid choice publishes; `undefined` until the route and visibility are both valid. */
 export function intentFromChoice(choice: PublicationChoice): StudioPublicationIntent | undefined {
   const route = choice.route.trim();
-  const routeIsValid = route.length > 1 && route.startsWith("/") && !/\s/.test(route);
+  const routeIsValid = route.startsWith("/") && !/\s/.test(route);
   const visibilityIsValid = (PUBLICATION_VISIBILITIES as readonly string[]).includes(choice.visibility);
   return routeIsValid && visibilityIsValid ? { route, visibility: choice.visibility } : undefined;
 }
