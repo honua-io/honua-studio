@@ -327,7 +327,7 @@ describe("cookie host session", () => {
       auth.fetchRequest!("http://foreign.invalid/rest/services/analysis/FeatureServer/47/query"),
     ).rejects.toThrow("host origin");
   });
-  it("admits a describe call only when serviceLayerIndex matches layerId", async () => {
+  it("admits a describe call only in the server's closed serviceId + serviceLayerIndex shape", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetch);
     const auth = session();
@@ -336,17 +336,18 @@ describe("cookie host session", () => {
         method: "POST",
         body: JSON.stringify({ method: "tools/call", params: { name: "honua_describe_layer", arguments: args } }),
       });
-    await describe({ serviceId: "svc-1", layerId: 2, serviceLayerIndex: 2 });
+    await describe({ serviceId: "svc-1", serviceLayerIndex: 2 });
     expect(fetch.mock.calls[0][0]).toBe("/api/studio/catalog-mcp");
-    await describe({ serviceId: "svc-1", layerId: 2 });
-    await expect(describe({ serviceId: "svc-1", layerId: 2, serviceLayerIndex: 3 })).rejects.toThrow("layer discovery");
-    await expect(describe({ serviceId: "svc-1", layerId: -1, serviceLayerIndex: 2 })).rejects.toThrow(
-      "layer discovery",
-    );
-    await expect(describe({ serviceId: "svc-1", layerId: 2, serviceLayerIndex: 2, extra: true })).rejects.toThrow(
-      "layer discovery",
-    );
-    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const args of [
+      { serviceId: "svc-1", layerId: 2, serviceLayerIndex: 2 },
+      { serviceId: "svc-1", layerId: 2 },
+      { serviceId: "svc-1", serviceLayerIndex: -1 },
+      { serviceId: "svc-1", serviceLayerIndex: 1.5 },
+      { serviceId: "", serviceLayerIndex: 2 },
+      { serviceId: "svc-1", serviceLayerIndex: 2, extra: true },
+    ])
+      await expect(describe(args)).rejects.toThrow("layer discovery");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 

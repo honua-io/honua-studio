@@ -262,9 +262,17 @@ it("serves canonical fixture style and actual property descriptors, rejecting un
   const descriptor = await rpc(
     server.url,
     "tools/call",
-    { name: "honua_describe_layer", arguments: { serviceId: "hi-parcels", layerId: 0 } },
+    { name: "honua_describe_layer", arguments: { serviceId: "hi-parcels", serviceLayerIndex: 0 } },
     token,
   );
+  const legacy = await rpc(
+    server.url,
+    "tools/call",
+    { name: "honua_describe_layer", arguments: { serviceId: "hi-parcels", layerId: 0, serviceLayerIndex: 0 } },
+    token,
+  );
+  expect(legacy.body.result.isError).toBe(true);
+  expect(legacy.body.result.structuredContent.message).toContain("does not accept argument(s): layerId");
   expect(
     descriptor.body.result.structuredContent.fields.some((field: { name: string }) => field.name === "district"),
   ).toBe(true);

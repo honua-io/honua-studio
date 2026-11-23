@@ -139,6 +139,29 @@ function toolSuccess(value) {
   return { structuredContent: value };
 }
 
+const DESCRIBE_LAYER_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["serviceId", "serviceLayerIndex"],
+  properties: {
+    serviceId: { type: "string", minLength: 1 },
+    serviceLayerIndex: { type: "integer", minimum: 0 },
+    includeRowCount: { type: "boolean" },
+  },
+};
+const DESCRIBE_LAYER_ARGUMENTS = new Set(Object.keys(DESCRIBE_LAYER_INPUT_SCHEMA.properties));
+const OPEN_INPUT_SCHEMA = { type: "object", additionalProperties: true };
+
+// The server's describe schema is closed: it refuses any argument it does not declare.
+function refuseUnknownDescribeArguments(args) {
+  const unknown = Object.keys(args ?? {}).filter((key) => !DESCRIBE_LAYER_ARGUMENTS.has(key));
+  if (!unknown.length) return undefined;
+  return toolError(
+    "invalid_argument",
+    `Tool 'honua_describe_layer' does not accept argument(s): ${unknown.join(", ")}. Use only the properties in the tool's input schema.`,
+  );
+}
+
 function toolError(code, message) {
   return { isError: true, structuredContent: { code, message } };
 }
@@ -394,9 +417,12 @@ function createMcpDispatcher(store, catalogDatasets) {
       });
     },
     honua_describe_layer(args) {
+      const refused = refuseUnknownDescribeArguments(args);
+      if (refused) return refused;
       const dataset = catalogDatasets.find((entry) => entry.id === args.serviceId);
       const features = FIXTURE_FEATURES[args.serviceId];
-      if (!dataset || args.layerId !== 0 || !features) return toolError("not_found", "Fixture layer not found.");
+      if (!dataset || args.serviceLayerIndex !== 0 || !features)
+        return toolError("not_found", "Fixture layer not found.");
       const fields = Object.entries(features[0]?.properties ?? {}).map(([name, value]) => ({
         name,
         type: typeof value === "number" ? "Double" : "String",
@@ -906,7 +932,7 @@ function createMcpDispatcher(store, catalogDatasets) {
               ...["honua_describe_layer", "honua_get_style"].map((name) => ({
                 name,
                 description: "Read authoritative synthetic fixture metadata.",
-                inputSchema: { type: "object", additionalProperties: true },
+                inputSchema: name === "honua_describe_layer" ? DESCRIBE_LAYER_INPUT_SCHEMA : OPEN_INPUT_SCHEMA,
                 annotations: { readOnlyHint: true },
               })),
               {

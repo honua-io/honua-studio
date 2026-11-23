@@ -65,13 +65,12 @@ function allowedCatalogTool(tool: string | undefined, args: Record<string, unkno
     (args.encoding === undefined || args.encoding === "mapbox-style");
   const describe =
     tool === "honua_describe_layer" &&
-    Object.keys(args).every((key) => key === "serviceId" || key === "layerId" || key === "serviceLayerIndex") &&
+    Object.keys(args).every((key) => key === "serviceId" || key === "serviceLayerIndex") &&
     typeof args.serviceId === "string" &&
     args.serviceId.length > 0 &&
     args.serviceId.length <= 256 &&
-    Number.isSafeInteger(args.layerId) &&
-    Number(args.layerId) >= 0 &&
-    (args.serviceLayerIndex === undefined || args.serviceLayerIndex === args.layerId);
+    Number.isSafeInteger(args.serviceLayerIndex) &&
+    Number(args.serviceLayerIndex) >= 0;
   return layerList || styleRead || describe;
 }
 

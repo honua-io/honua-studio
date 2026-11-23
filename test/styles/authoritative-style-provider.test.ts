@@ -103,7 +103,7 @@ describe("authoritative style provider", () => {
     const described = canonical.fetchImpl.mock.calls
       .map((call) => JSON.parse(String(call[1]?.body)))
       .find((body) => body.params?.name === "honua_describe_layer");
-    expect(described.params.arguments).toMatchObject({ serviceId: "service", layerId: 0, serviceLayerIndex: 0 });
+    expect(described.params.arguments).toEqual({ serviceId: "service", serviceLayerIndex: 0 });
   });
 
   it("preserves hidden layers, combines active filters and scales canonical opacity in the actual SDK composition", async () => {
