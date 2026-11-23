@@ -69,8 +69,8 @@ jobs:
           if [[ "$LIVE_JOURNEYS" == "model-free" ]]; then
             args+=(--grep 'live demo-server journeys @live.*(boot:|style and filters:|MCP compose:)')
           elif [[ "$LIVE_JOURNEYS" == "scheduled" ]]; then
-            # Model journeys are quarantined on the schedule until honua-studio#212 authorizes a live
-            # provider (readiness records approvedProviderAvailable); dispatch "all" to run them.
+            # Scheduled runs skip the model journeys while the demo has no approved live provider
+            # (readiness records approvedProviderAvailable); dispatch "all" to run them.
             args+=(--grep-invert '(chat:|real model turn:)')
           fi
           npm run test:browser:live -- "${args[@]}"
