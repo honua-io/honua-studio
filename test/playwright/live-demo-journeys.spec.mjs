@@ -9,7 +9,7 @@ import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
-import { installLiveMcpFixture, liveMcpFixture, selectMcpFixtureSource } from "./live-mcp-fixture.mjs";
+import { installLiveMcpFixture, resolveMcpFixture } from "./live-mcp-fixture.mjs";
 import { cohortSourceOption, runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
@@ -396,11 +396,11 @@ test.describe("live demo-server journeys @live", () => {
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
       const catalog = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
-      const source = selectMcpFixtureSource(catalog);
-      const metadataUrl = new URL(`${source.locator.url}/${source.locator.layerId}?f=json`, page.url());
-      const metadataResponse = await page.request.get(metadataUrl.href);
-      expect(metadataResponse.ok()).toBe(true);
-      const fixture = liveMcpFixture(source, await metadataResponse.json());
+      const { source, fixture } = await resolveMcpFixture(catalog, async (candidate) => {
+        const metadataUrl = new URL(`${candidate.locator.url}/${candidate.locator.layerId}?f=json`, page.url());
+        const metadataResponse = await page.request.get(metadataUrl.href);
+        return metadataResponse.ok() ? metadataResponse.json() : { error: { code: metadataResponse.status() } };
+      });
       await installLiveMcpFixture(page, fixture.turns);
 
       // baseUrl "" -> the MCP client posts to the page-relative /mcp, which

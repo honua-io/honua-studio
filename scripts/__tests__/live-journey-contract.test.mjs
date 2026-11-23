@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { liveReadinessEvidence, selectLiveModel } from "../../test/playwright/live-journey-contract.mjs";
-import { liveMcpFixture, selectMcpFixtureSource } from "../../test/playwright/live-mcp-fixture.mjs";
+import { liveMcpFixture, resolveMcpFixture, selectMcpFixtureSource } from "../../test/playwright/live-mcp-fixture.mjs";
 
 const opus = {
   provider: "opus",
@@ -113,4 +113,30 @@ test("scripted MCP source selection accepts GeoJSON line geometries", () => {
     const source = { ...candidateSource, geometryType };
     assert.equal(selectMcpFixtureSource([source]), source);
   }
+});
+
+test("scripted MCP setup skips catalog sources whose layer metadata does not resolve", async () => {
+  const unpublished = {
+    ...candidateSource,
+    id: "reef-watch/3",
+    locator: { url: "/rest/services/reef/FeatureServer", layerId: 3 },
+  };
+  const requested = [];
+  const resolved = await resolveMcpFixture([unpublished, candidateSource], async (source) => {
+    requested.push(source.id);
+    return source === unpublished
+      ? { error: { code: 404 } }
+      : { id: 0, fields: [{ name: "category", type: "esriFieldTypeString" }] };
+  });
+  assert.deepEqual(requested, ["reef-watch/3", "synthetic-points/0"]);
+  assert.equal(resolved.source, candidateSource);
+  assert.equal(resolved.fixture.chartId, "chart-synthetic-points/0-category");
+  await assert.rejects(
+    resolveMcpFixture([unpublished], async () => ({ error: { code: 404 } })),
+    /matching live layer metadata/,
+  );
+  await assert.rejects(
+    resolveMcpFixture([], async () => ({})),
+    /published vector FeatureServer/,
+  );
 });
