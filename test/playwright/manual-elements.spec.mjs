@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
-import { startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
+import { evaluateRetained, startPreviewServer, waitForSignedInMap, waitForStudioApp } from "./helpers.mjs";
 
 test("manual chart and control persist, undo and reopen without a model", async ({ page }) => {
   const mock = await startMockServer();
@@ -64,7 +64,7 @@ async function undoControlRemoval(page) {
 
 async function reopenMap(page) {
   const before = await page.evaluate(() => structuredClone(window.__honuaStudioApp.composition.state));
-  const after = await page.evaluate(async () => {
+  const after = await evaluateRetained(page, async () => {
     const app = window.__honuaStudioApp;
     const version = await app.saveEditorVersion();
     await app.reopenEditorVersion(version.versionId);
