@@ -16,25 +16,30 @@ test("both lifecycle versions reach the pinned Console viewer's renderer without
     const body = liveMapBody("qualification-map", extra);
     const status = { textContent: "" };
     let renderedBody;
+    const keys = [];
     const viewer = createPublishedMapViewer({
       route: "/qualification-map",
-      origin: "http://127.0.0.1",
+      documentUrl: "https://localhost:18083/console/maps/published/qualification-map",
       container: { dataset: {} },
       widgetContainer: {},
       title: {},
       status,
-      fetchImpl: async () =>
-        new Response(
-          JSON.stringify({
+      // The static bundle reads the server's native published route through the Console edge.
+      connect: async (key) => {
+        keys.push(key);
+        return {
+          response: Response.json({
             success: true,
-            data: {
-              family: "map",
-              envelope: { family: "map", body },
-              sourceCatalog: [],
-            },
+            data: { family: "map", envelope: { family: "map", body }, sourceCatalog: [] },
           }),
-          { headers: { "X-Honua-Viewer-Partition": "a".repeat(64) } },
-        ),
+          dataBase: "https://localhost:18083",
+          styleBase: "https://localhost:18083/ogc/styles",
+          current: () => true,
+          fetch: async () => {
+            throw new Error("The fixture publication has no data reads.");
+          },
+        };
+      },
       loadRenderer: async () => ({
         AudienceStyleProvider: class {},
         createReadOnlyCompositionView(options) {
@@ -47,5 +52,6 @@ test("both lifecycle versions reach the pinned Console viewer's renderer without
     viewer.dispose();
     assert.equal(status.textContent, "Map ready.");
     assert.deepEqual(renderedBody, body);
+    assert.deepEqual(keys, ["qualification-map"]);
   }
 });
