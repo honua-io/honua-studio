@@ -93,6 +93,10 @@ test.describe("cohort author journey @cohort", () => {
       const submit = page.getByTestId("lifecycle-confirm-submit");
       await expect(submit).toBeDisabled();
       await confirm.fill(packageKey);
+      // Recipe drafts carry no publication intent, so the person publishing chooses it here.
+      await expect(page.getByTestId("lifecycle-publication-route")).toHaveValue(`/${packageKey}`);
+      await expect(submit).toBeDisabled();
+      await page.getByTestId("lifecycle-publication-visibility").selectOption("public");
       await expect(submit).toBeEnabled();
       const publishResponse = page.waitForResponse(
         (response) => response.request().method() === "POST" && response.url().endsWith("/publish-requests"),

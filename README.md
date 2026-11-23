@@ -316,9 +316,10 @@ native model and visual workflow qualification remains pending.
   identity. Changed session, map or immutable content is refused; retries keep
   the original settings and command. Console controls, durable host recovery
   and live audience qualification are still being integrated.
-- **Publication requires saved intent.** The lifecycle panel blocks a saved
-  version without publication intent and explains that route and visibility must
-  be chosen in the Map or App and saved in a new version. It never borrows publication
+- **The person publishing chooses route and visibility.** When a saved version
+  has no publication intent, the lifecycle panel's confirm dialog asks for a route
+  (suggested from the content key) and a visibility with no default, and the
+  publish request carries exactly that choice. It never borrows publication
   settings from the current draft or infers public visibility.
 - **Approval receipts are distinct from completion.** Lifecycle publication
   and rollback show HTTP 202 approval requests as awaiting separate human
