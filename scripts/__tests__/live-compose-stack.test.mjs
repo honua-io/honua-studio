@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -18,20 +19,39 @@ import { fileURLToPath } from "node:url";
 const script = fileURLToPath(new URL("../live-compose-stack.mjs", import.meta.url));
 const commandFixture = fileURLToPath(new URL("./fixtures/live-compose-command.mjs", import.meta.url));
 const fetchFixture = new URL("./fixtures/live-compose-fetch.mjs", import.meta.url).href;
-const lock = JSON.parse(readFileSync(new URL("../live-compose-images.json", import.meta.url), "utf8"));
+const committedLock = JSON.parse(readFileSync(new URL("../live-compose-images.json", import.meta.url), "utf8"));
+const consoleArtifact = "synthetic official Console artifact";
+const lock = {
+  ...committedLock,
+  console: {
+    ...committedLock.console,
+    artifactDigest: `sha256:${createHash("sha256").update(consoleArtifact).digest("hex")}`,
+  },
+};
 
 function stackFixture(context, overrides = {}) {
   const directory = mkdtempSync(resolve(tmpdir(), "studio-compose-test-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   mkdirSync(resolve(directory, "commands"));
   mkdirSync(resolve(directory, "source"));
-  for (const command of ["git", "python3", "openssl", "chmod", "docker"]) {
+  for (const command of ["git", "gh", "unzip", "zip", "python3", "openssl", "chmod", "docker"]) {
     const destination = resolve(directory, "commands", command);
     copyFileSync(commandFixture, destination);
     chmodSync(destination, 0o700);
   }
   const configuration = resolve(directory, "fixture.json");
-  writeFileSync(configuration, JSON.stringify({ sourceRevision: lock.server.revision, lock, ...overrides }));
+  const fixtureLock = resolve(directory, "live-compose-images.json");
+  writeFileSync(fixtureLock, JSON.stringify(lock));
+  writeFileSync(
+    configuration,
+    JSON.stringify({
+      sourceRevision: lock.server.revision,
+      lock,
+      consoleArtifact,
+      consoleIndex: '<base href="/console/">synthetic Console',
+      ...overrides,
+    }),
+  );
   const environment = {
     ...process.env,
     PATH: `${resolve(directory, "commands")}${delimiter}${process.env.PATH}`,
@@ -40,6 +60,7 @@ function stackFixture(context, overrides = {}) {
     STACK_REQUESTS: resolve(directory, "requests.jsonl"),
     GITHUB_ENV: resolve(directory, "browser.env"),
     HONUA_LIVE_SERVER_SOURCE: resolve(directory, "source"),
+    HONUA_LIVE_COMPOSE_IMAGES: fixtureLock,
     HONUA_LIVE_ANTHROPIC_API_KEY: "synthetic-provider-key",
     HONUA_LIVE_QUALIFICATION_MODE: "full",
     NODE_OPTIONS: `--import ${fetchFixture}`,
@@ -147,8 +168,67 @@ test("model-free lifecycle preparation needs no provider key and retains the rea
   assert.match(settings, /HONUA_LIVE_APPROVER_USERNAME=studio-approver/);
   assert.match(settings, /HONUA_LIVE_APPROVER_PASSWORD=/);
   assert.match(settings, /HONUA_LIVE_APPROVER_IDP_ORIGIN=https:/);
-  assert.match(settings, /HONUA_LIVE_CONSOLE_URL=http:/);
+  assert.match(settings, /HONUA_LIVE_CONSOLE_URL=https:\/\/localhost:18083\/console\n/);
+  assert.match(settings, /HONUA_LIVE_CONSOLE_SPKI=[A-Za-z0-9+/]{43}=/);
   assert.match(settings, /HONUA_LIVE_APPROVER_IDP_SPKI=[A-Za-z0-9+/]{43}=/);
+});
+
+test("the quickstart serves the pinned official Console build from its HTTPS edge with OIDC sign-in", (context) => {
+  const fixture = stackFixture(context);
+  prepareFixture(fixture);
+  const root = resolve(fixture.directory, ".tmp/live-compose");
+  const commands = fixture.commands();
+  const packageCall = commands.find((call) => call.args[0] === "scripts/docker/package_quickstart.py");
+  const bundle = packageCall.args[packageCall.args.indexOf("--console-bundle") + 1];
+  assert.equal(bundle, resolve(fixture.directory, ".tmp/live-console-bundle/console.zip"));
+  assert.equal(
+    packageCall.args[packageCall.args.indexOf("--console-bundle-sha256") + 1],
+    createHash("sha256").update("synthetic console bundle").digest("hex"),
+  );
+  const init = commands.find((call) => call.args.includes("--init-only"));
+  assert.deepEqual(init.args, ["quickstart.py", "--init-only", "--profile", "console"]);
+  const environment = readFileSync(resolve(root, ".env"), "utf8");
+  assert.match(environment, /^HONUA_CONSOLE_AUTH_MODE=oidc$/m);
+  assert.match(environment, /^HONUA_CONSOLE_OIDC_AUTHORITY=https:\/\/host.docker.internal:8443\/realms\/studio-live$/m);
+  assert.match(environment, /^HONUA_CONSOLE_OIDC_CLIENT_ID=studio-console$/m);
+  const config = commands.find((call) => call.command === "docker" && call.args.includes("config"));
+  assert.deepEqual(config.args.slice(0, 3), ["compose", "--profile", "console"]);
+  assert.ok(config.args.indexOf("compose.console.yaml") < config.args.indexOf("compose.studio.json"));
+  const started = fixture.run("start");
+  assert.equal(started.status, 0, started.stderr);
+  const identity = JSON.parse(readFileSync(resolve(fixture.directory, ".tmp/live-compose-identity.json"), "utf8"));
+  assert.equal(identity.images.console.revision, lock.console.revision);
+  assert.equal(identity.images.console.artifactDigest, lock.console.artifactDigest);
+  assert.equal(identity.images.console.webImage, "synthetic-console-image");
+  assert.equal(
+    identity.images.console.indexSha256,
+    createHash("sha256").update('<base href="/console/">synthetic Console').digest("hex"),
+  );
+});
+
+for (const [name, overrides] of [
+  ["a Console artifact from another revision", { wrongConsoleRevision: true }],
+  ["a Console artifact that does not match its digest", { consoleArtifact: "tampered artifact" }],
+]) {
+  test(`${name} fails before packaging or creating secrets`, (context) => {
+    const fixture = stackFixture(context, overrides);
+    assert.notEqual(fixture.run("prepare").status, 0);
+    assert.equal(
+      fixture.commands().some((call) => call.command === "python3"),
+      false,
+    );
+    assert.throws(() => statSync(resolve(fixture.directory, ".tmp/live-compose/secrets")), { code: "ENOENT" });
+  });
+}
+
+test("an edge serving a different Console build fails before admission or browser handoff", (context) => {
+  const fixture = stackFixture(context, { servedIndex: '<base href="/console/">another build' });
+  prepareFixture(fixture);
+  const started = fixture.run("start");
+  assert.notEqual(started.status, 0);
+  assert.match(started.stderr, /does not serve the pinned official build/);
+  assert.equal(fixture.requests().length, 0);
+  assert.throws(() => statSync(fixture.environment.GITHUB_ENV), { code: "ENOENT" });
 });
 
 test("an invalid qualification mode fails before commands or secrets", (context) => {

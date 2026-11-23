@@ -88,16 +88,17 @@ jobs:
           node --test scripts/__tests__/live-candidate-row.test.mjs scripts/__tests__/live-compose.test.mjs scripts/__tests__/live-compose-stack.test.mjs scripts/__tests__/live-journey-contract.test.mjs scripts/__tests__/live-model-guard.test.mjs scripts/__tests__/live-qualification-mode.test.mjs scripts/__tests__/live-diagnostics.test.mjs scripts/__tests__/live-realtime-proxy.test.mjs
           node --test scripts/__tests__/live-publication.test.mjs
 
-      - name: Prepare the customer quickstart and dedicated test person
+      - name: Prepare the customer quickstart, official Console build and dedicated test person
         env:
           HONUA_LIVE_ANTHROPIC_API_KEY: ${{ secrets.HONUA_LIVE_ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo '127.0.0.1 host.docker.internal' | sudo tee -a /etc/hosts >/dev/null
           node scripts/live-compose-stack.mjs prepare
 
       - name: Start the customer stack and record runtime identity
         env:
-          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/.tmp/live-compose/identity/certs/kc.crt
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/.tmp/live-compose/identity/certs/node-trust.crt
         run: node scripts/live-compose-stack.mjs start
 
       - name: Record configured capabilities
@@ -107,6 +108,7 @@ jobs:
         timeout-minutes: 10
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/live-studio-report.json
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/.tmp/live-compose/identity/certs/node-trust.crt
         run: exec node scripts/qualify-live-compose.mjs
 
       - name: Collect redacted diagnostics before teardown

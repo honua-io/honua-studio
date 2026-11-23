@@ -1,6 +1,10 @@
 import { expect } from "@playwright/test";
 
-import { liveApprovalConfiguration, validateApprovalUrl } from "../../scripts/lib/live-approval-config.mjs";
+import {
+  isStaticConsole,
+  liveApprovalConfiguration,
+  validateApprovalUrl,
+} from "../../scripts/lib/live-approval-config.mjs";
 import { diagnosticRedactor, writeDiagnostic } from "../../scripts/lib/live-diagnostics.mjs";
 
 export { liveApprovalConfiguration };
@@ -16,20 +20,19 @@ export async function approveLivePublication(page, options) {
   const consoleUrl = new URL(`${configuration.consoleUrl.replace(/\/$/, "")}/`);
   const inbox = new URL("inbox", consoleUrl);
   inbox.searchParams.set("proposalId", options.proposalId);
-  const signIn = new URL("auth/server/login", consoleUrl);
-  signIn.searchParams.set("profileId", configuration.profileId);
-  signIn.searchParams.set("returnTo", `${inbox.pathname}${inbox.search}`);
-  let stage = "Console session bootstrap";
+  const returnTo = `/inbox${inbox.search}`;
+  const progress = { stage: "Console session bootstrap" };
   try {
-    const bootstrap = new URL("auth/login", consoleUrl);
-    const version = new URL("version.json", consoleUrl);
-    bootstrap.searchParams.set("returnTo", version.pathname);
-    await page.goto(bootstrap.href);
-    await page.waitForURL(version.href);
-    stage = "sign-in redirect";
-    await page.goto(signIn.href);
+    if (isStaticConsole(consoleUrl.href)) await openStaticConsoleSignIn(page, consoleUrl, returnTo, progress);
+    else
+      await openServerHostedSignIn(page, {
+        consoleUrl,
+        profileId: configuration.profileId,
+        returnTo: `${inbox.pathname}${inbox.search}`,
+        progress,
+      });
     await page.waitForURL((url) => url.origin === new URL(configuration.idpOrigin).origin, { timeout: 15_000 });
-    stage = "identity-provider sign-in";
+    progress.stage = "identity-provider sign-in";
     await page
       .locator('input[name="username"]:visible, input[name="email"]:visible')
       .first()
@@ -39,14 +42,53 @@ export async function approveLivePublication(page, options) {
       .getByRole("button", { name: /^(sign in|log in|continue)$/i })
       .first()
       .click();
-    stage = "Console session callback";
-    await page.waitForURL(inbox.href, { timeout: 60_000 });
-    stage = "human approval";
+    progress.stage = "Console session callback";
+    await completeConsoleSignIn(page, consoleUrl, inbox);
+    progress.stage = "human approval";
     await approvePublicationInInbox(page, options.proposalId);
   } catch (error) {
-    await recordApprovalFailure(page, { configuration, stage, error });
-    throw new Error(`Console publication approval failed during ${stage}.`);
+    await recordApprovalFailure(page, { configuration, stage: progress.stage, error });
+    throw new Error(`Console publication approval failed during ${progress.stage}.`);
   }
+}
+
+/** The static bundle's callback opens the Console home with a session, not the requested page. */
+async function completeConsoleSignIn(page, consoleUrl, inbox) {
+  if (!isStaticConsole(consoleUrl.href)) {
+    await page.waitForURL(inbox.href, { timeout: 60_000 });
+    return;
+  }
+  await page.waitForURL((url) => url.origin === consoleUrl.origin && url.pathname.startsWith(consoleUrl.pathname), {
+    timeout: 60_000,
+  });
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 30_000 });
+  if (page.url() !== inbox.href) await page.goto(inbox.href);
+}
+
+/** The static bundle offers the server's identity providers on its sign-in page. */
+async function openStaticConsoleSignIn(page, consoleUrl, returnTo, progress) {
+  const signIn = new URL("auth/signin", consoleUrl);
+  signIn.searchParams.set("returnTo", returnTo);
+  await page.goto(signIn.href);
+  progress.stage = "sign-in redirect";
+  await page
+    .getByRole("button", { name: /^Continue with / })
+    .first()
+    .click({ timeout: 30_000 });
+}
+
+/** The retired server-hosted Console opens its session partition before the server sign-in route. */
+async function openServerHostedSignIn(page, { consoleUrl, profileId, returnTo, progress }) {
+  const bootstrap = new URL("auth/login", consoleUrl);
+  const version = new URL("version.json", consoleUrl);
+  bootstrap.searchParams.set("returnTo", version.pathname);
+  await page.goto(bootstrap.href);
+  await page.waitForURL(version.href);
+  progress.stage = "sign-in redirect";
+  const signIn = new URL("auth/server/login", consoleUrl);
+  signIn.searchParams.set("profileId", profileId);
+  signIn.searchParams.set("returnTo", returnTo);
+  await page.goto(signIn.href);
 }
 
 async function recordApprovalFailure(page, { configuration, stage, error }) {
