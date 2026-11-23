@@ -325,10 +325,13 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       expect(el.shadowRoot!.activeElement).toBe(input);
     });
 
-    async function openPublishWithoutVersionIntent(draftHasIntent: boolean) {
+    const draftWithoutIntent = fakeDraft();
+    const draftWithIntent = fakeDraft({ envelope: fakeVersion().envelope });
+
+    async function openPublishWithoutVersionIntent(draft: StudioPackageDraft) {
       const client = new FakeLifecycleClient();
-      client.versions = [fakeVersion({ envelope: fakeDraft().envelope })];
-      if (draftHasIntent) client.draft = fakeDraft({ envelope: fakeVersion().envelope });
+      client.versions = [fakeVersion({ envelope: draftWithoutIntent.envelope })];
+      client.draft = draft;
       const { el } = mount(client);
       el.draftId = "draft-1";
       await flush();
@@ -349,10 +352,13 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
       return { client, field, typeInto, choose, submit: field<HTMLButtonElement>("lifecycle-confirm-submit") };
     }
 
-    it.each([false, true])(
-      "blocks a saved version without publication intent until a visibility is chosen, even when the draft has intent: %s",
-      async (draftHasIntent) => {
-        const { client, field, submit } = await openPublishWithoutVersionIntent(draftHasIntent);
+    it.each([
+      ["without", draftWithoutIntent],
+      ["with", draftWithIntent],
+    ])(
+      "blocks a saved version without publication intent until a visibility is chosen, for a draft %s intent",
+      async (_label, draft) => {
+        const { client, field, submit } = await openPublishWithoutVersionIntent(draft);
 
         expect(field("lifecycle-publication-intent-required").textContent).toContain(
           "no publication route or visibility",
@@ -368,7 +374,7 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
     );
 
     it.each(["", "parcels", "/two words"])("keeps Confirm publish disabled for the invalid route %j", async (route) => {
-      const { field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(false);
+      const { field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(draftWithoutIntent);
       choose("public");
       typeInto(field<HTMLInputElement>("lifecycle-publication-route"), route);
       expect(submit.disabled).toBe(true);
@@ -377,7 +383,7 @@ describe("<honua-studio-lifecycle-panel> (honua-studio#9)", () => {
     it.each(["/maps/chosen", "/"])(
       "publishes a version without intent with exactly the chosen route %j and visibility",
       async (route) => {
-        const { client, field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(true);
+        const { client, field, typeInto, choose, submit } = await openPublishWithoutVersionIntent(draftWithIntent);
         typeInto(field<HTMLInputElement>("lifecycle-publication-route"), route);
         choose("organization");
         expect(submit.disabled).toBe(false);
