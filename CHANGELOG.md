@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/honua-io/honua-studio/compare/v0.5.5...v0.5.6) (2026-11-23)
+
+
+### Bug Fixes
+
+* **studio:** let the person publishing choose route and visibility ([#321](https://github.com/honua-io/honua-studio/issues/321)) ([455ca55](https://github.com/honua-io/honua-studio/commit/455ca5540effcdf0b52230f3a7425aec8885b43a))
+
 ## [0.5.5](https://github.com/honua-io/honua-studio/compare/v0.5.4...v0.5.5) (2026-11-22)
 
 
