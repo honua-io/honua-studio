@@ -10,12 +10,12 @@
     "runUrl": "https://github.com/honua-io/honua-server/actions/runs/44930633723"
   },
   "console": {
-    "revision": "844d7063483b7e2b03e100c4f5361476cb728545",
-    "runId": 45102624389,
+    "revision": "e750f63bac4e782f5d85407e20b12678d21d4c2c",
+    "runId": 45113445351,
     "artifact": "honua-console-web",
-    "artifactId": 14786701479,
-    "artifactDigest": "sha256:39ae1d0de31e01234fa7aa2fe965c41ffae74b28ba87f26bc8e5e40e338b7880",
-    "runUrl": "https://github.com/honua-io/honua-console/actions/runs/45102624389"
+    "artifactId": 14791111633,
+    "artifactDigest": "sha256:e82909a3a831322b19c7f2a1578efe40a83b7209d125129187b5664afffb1b15",
+    "runUrl": "https://github.com/honua-io/honua-console/actions/runs/45113445351"
   },
   "version": "nightly-61bf806"
 }
