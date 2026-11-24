@@ -922,6 +922,54 @@ describe("elements/studio-app-element HonuaStudioAppElement", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("package-drafts"))).toBe(false);
   });
 
+  it("keeps the reopened style editor mounted when the host renews its cookie lease", async () => {
+    const style = { version: 8, sources: {}, layers: [] };
+    const get = vi.spyOn(StudioLifecycleClient.prototype, "getDraft").mockResolvedValue({
+      draftId: "shared",
+      generation: 1,
+      packageKey: "map",
+      envelope: { family: "map", schemaVersion: "1.0", body: { layers: [], mapSpec: style } },
+    } as Awaited<ReturnType<StudioLifecycleClient["getDraft"]>>);
+    const app = mount({ "routing-mode": "host", "current-path": "/studio", "base-path": "/studio" });
+    const cookie = {
+      kind: "cookie" as const,
+      baseUrl: "/api/studio",
+      environmentId: "server",
+      principalId: "owner",
+      csrfToken: "old",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      onExpired: () => () => {},
+    };
+    const agentSessionAdapter = { submitTurn: vi.fn() };
+    try {
+      app.session = cookie;
+      app.agentSessionAdapter = agentSessionAdapter;
+      await app.attachEditorDraft("shared");
+      const canvas = app.querySelector("honua-studio-canvas") as HonuaStudioCanvasElement;
+      vi.spyOn(canvas, "editableMapStyle").mockResolvedValue(style);
+      const frame = () => app.shadowRoot!.querySelector("iframe");
+      await app.openStyleEditor();
+      const first = frame();
+      expect(first).toBeTruthy();
+      await app.closeStyleEditor();
+      expect(frame()).toBeNull();
+      await app.openStyleEditor();
+      const reopened = frame();
+      expect(reopened).toBeTruthy();
+      expect(reopened).not.toBe(first);
+
+      app.session = { ...cookie, csrfToken: "renewed", expiresAt: new Date(Date.now() + 120000).toISOString() };
+      expect(frame()).toBe(reopened);
+      app.agentSessionAdapter = agentSessionAdapter;
+      expect(frame()).toBe(reopened);
+
+      app.setAttribute("current-path", "/studio/about");
+      expect(frame()).toBeNull();
+    } finally {
+      get.mockRestore();
+    }
+  });
+
   it("preserves pending visual field text and blocks history across cookie lease renewal", async () => {
     const style = {
       version: 8,
