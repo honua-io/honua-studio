@@ -102,16 +102,28 @@ Recorded default-branch fixture evidence, at `4d52431` (not candidate qualificat
   passed the container, browser, production Console-assets and Blazor jobs. The browser
   job reported 65 passed. Console assets reported seven passed and Blazor reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
-- [Demo canary 43987714041](https://github.com/honua-io/honua-studio/actions/runs/43987714041),
-  at `4d52431` on 2026-11-17, reported **three passed, three failed**, with retries disabled.
-  Boot, style and filters, and scripted MCP composition passed. Publication stopped because
-  `HONUA_LIVE_CONSOLE_URL` was absent. Both real-model journeys refused invocation before a
-  provider call: readiness advertised only a Bedrock adapter, with no allowed Opus 5.5 or Sol
-  provider. The canary has failed nightly since 2026-10-22. The stale immediate-`Published`
-  expectation and the skipped MCP journeys were fixed in [#216](https://github.com/honua-io/honua-studio/pull/216). The remaining failures come from
-  the demo deployment: no Console approval settings and no allowed model provider. Studio code
-  does not cause them. The earlier demo HTTP 400 remains
-  [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092).
+- [Demo canary 45316546243](https://github.com/honua-io/honua-studio/actions/runs/45316546243),
+  the latest completed scheduled run at `2547c62` on 2026-11-24, reported **one passed, three
+  failed, zero skipped**, with retries disabled. Following
+  [#338](https://github.com/honua-io/honua-studio/pull/338), scheduled runs exclude the two
+  real-model journeys while the demo lacks an approved model provider (manual `workflow_dispatch`
+  with `all` still runs them). Boot passed. Package lifecycle failed on
+  `POST /v1/studio/package-drafts` with HTTP 503 (`capability-unavailable`,
+  `missingDependency: "redis"`) because the demo server ran without a Redis connection for the
+  proposal/approval store. Style and filters failed during dataset verification (`recipe-status`:
+  `Cannot use this dataset: 'layerId' is required and must be a non-negative integer.`). Scripted
+  MCP composition timed out after `add_layer` waiting for `svc-publish-demoa-edit-test/68822` to
+  appear in the composition layer list. Readiness (`live-readiness.json`) still reported
+  `consoleApprovalConfigured: false` and `approvedProviderAvailable: false` (Bedrock adapter only;
+  no allowed Opus 5.5 or Sol provider). Historically, the canary has failed nightly since
+  2026-10-22: [#216](https://github.com/honua-io/honua-studio/pull/216) fixed the stale
+  immediate-`Published` expectation and skipped MCP journeys, and earlier
+  [Demo canary 43987714041](https://github.com/honua-io/honua-studio/actions/runs/43987714041)
+  at `4d52431` on 2026-11-17 reported **three passed, three failed** (boot, style and filters, and
+  scripted MCP passed; publication stopped on absent `HONUA_LIVE_CONSOLE_URL` and both real-model
+  journeys refused invocation before a provider call). The earlier demo HTTP 400 remains
+  [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092). The scheduled demo
+  canary is separate from installed candidate qualification.
 
 The candidate qualification workflow prepares the **customer quickstart Compose stack on the
 CI runner**, using the server, Console and executor digests in `scripts/live-compose-images.json`.
@@ -159,7 +171,7 @@ weaken an assertion, or dispatch another paid run without main authorization.
 
 Studio remains **not live-qualified for rc.2**.
 
-On an installed verification cohort, `npm run test:browser:cohort` with `HONUA_COHORT_AUTHOR=1` builds current Studio against the installed server. The non-coder recipe created a map and table from a published layer whose catalog identity is `serviceLayerIndex` rather than `layerId`, saved one version, and received HTTP 202 with publication status 4. The anonymous published route stayed absent. Password Console sign-in opened the approval panel, and the server refused the review because human approval requires an interactive OIDC session. That result predates the password-human approval support in server PR #7955. The cohort harness now requires a fresh password session to approve the selected proposal through Console, an accepted receipt for the saved version, and an empty anonymous browser that loads and renders that exact public version. These updated assertions have not yet passed on an installed cohort. The scheduled demo canary remains the environment failure recorded above.
+On an installed verification cohort, `npm run test:browser:cohort` with `HONUA_COHORT_AUTHOR=1` builds current Studio against the installed server. The non-coder recipe created a map and table from a published layer whose catalog identity is `serviceLayerIndex` rather than `layerId`, saved one version, and received HTTP 202 with publication status 4. The anonymous published route stayed absent. Password Console sign-in opened the approval panel, and the server refused the review because human approval requires an interactive OIDC session. That result predates the password-human approval support in server PR #7955. The cohort harness now requires a fresh password session to approve the selected proposal through Console, an accepted receipt for the saved version, and an empty anonymous browser that loads and renders that exact public version. These updated assertions have not yet passed on an installed cohort. The scheduled demo canary remains separate and red as recorded above (boot passes; lifecycle, style/filters and scripted MCP fail on the demo, while real-model journeys are quarantined on the schedule), and does not establish or substitute for installed qualification.
 
 The Compose qualification limits each model request and the provider default to 1,024 output
 tokens. A shared loopback guard permits at most three chat requests across all browser workers;
@@ -230,7 +242,7 @@ the first flagship deployment is the statewide Hawaii demo
 | Model-quality eval corpus for the composition loop — typed fixture scoring plus supplemental live semantic diagnostics with per-turn server readback ([`docs/evals.md`](docs/evals.md)) | `src/evals/` | #46 |
 | Candidate journeys record one row per source SHA and stay switched off until `HONUA_CANDIDATE_JOURNEYS` is `on` and the pinned server revision is that SHA. No schedule. | `.github/workflows/live-candidate-journeys.yml` | #228 |
 | The demo-only model-free live style/filter journey uses the seeded zoning layer and checks painted styles, temporary filters, and saved draft state. Restoration awaits a new live receipt; fixture evidence alone does not qualify the demo. | `test/playwright/live-demo-journeys.spec.mjs` | #238 |
-| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/43987714041) at `4d52431`: 3 passed, 3 failed before a model turn (demo deployment settings, see [Status](#status)) | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
+| `@live` journeys build Studio from the checkout against a digest-pinned customer Compose stack. [Latest Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393) at `1521734` (not current main): 4 passed, 1 failed, 0 skipped; publication and anonymous rendering passed; model-selected composition stopped at the three-call guard. [Latest scheduled demo canary](https://github.com/honua-io/honua-studio/actions/runs/45316546243) at `2547c62` (2026-11-24, model journeys quarantined on schedule): 1 passed, 3 failed, 0 skipped — boot passed; lifecycle hit draft-store HTTP 503 (`missingDependency: redis`), style/filters failed `layerId` validation, and scripted MCP timed out awaiting the added layer; readiness still reports no Console approval configuration and no approved model provider (see [Status](#status)) | `.github/workflows/live-demo-smoke.yml`; separate demo canary in `live-demo-canary.yml` | #19, #20 |
 
 Layer rendering supports public **PMTiles vector and raster archives**, plus
 vector sources reached over OGC API Features or a GeoServices FeatureServer.
