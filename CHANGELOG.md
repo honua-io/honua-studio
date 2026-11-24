@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.9](https://github.com/honua-io/honua-studio/compare/v0.5.8...v0.5.9) (2026-11-24)
+
+
+### Bug Fixes
+
+* **canary:** keep the quarantine comment behavioural ([5b87e17](https://github.com/honua-io/honua-studio/commit/5b87e1750d87f9da04117e3903a57b2127bcd2bc))
+* **canary:** resolve the MCP fixture source and quarantine model journeys on the schedule ([2547c62](https://github.com/honua-io/honua-studio/commit/2547c621efa7f3f99f1b7b88a7ba799a1554137b))
+* **canary:** skip unresolved catalog sources in the MCP journey; quarantine model journeys on the schedule ([00c19c6](https://github.com/honua-io/honua-studio/commit/00c19c63d1d1beac7c19328e46582f58d096dfce))
+* **editor:** preserve Maputnik across cookie lease renewal ([#341](https://github.com/honua-io/honua-studio/issues/341)) ([0a49324](https://github.com/honua-io/honua-studio/commit/0a493244eaeecf363eb7286e81fb5063a1d8d076))
+* **live:** pin the Console build that keeps agent chrome off published maps ([1475ba9](https://github.com/honua-io/honua-studio/commit/1475ba933e0a8579de692b6e9fa3e2da5746ce47))
+* **live:** pin the Console build that keeps agent chrome off published maps ([faa023f](https://github.com/honua-io/honua-studio/commit/faa023ff49294f35d426770bfdf92702ab6f4a78))
+* **live:** qualify the quickstart's static Console build instead of a retired Console image ([ad4a94f](https://github.com/honua-io/honua-studio/commit/ad4a94f3ff5c9633eb63d2272ba50870d912f355))
+
 ## [0.5.8](https://github.com/honua-io/honua-studio/compare/v0.5.7...v0.5.8) (2026-11-23)
 
 
