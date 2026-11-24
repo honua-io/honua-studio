@@ -110,13 +110,13 @@ Recorded scheduled demo canary evidence (separate from installed candidate quali
   failed, zero skipped**, with retries disabled. Following
   [#338](https://github.com/honua-io/honua-studio/pull/338), scheduled runs take a separate
   workflow branch that excludes the two real-model journeys (manual `workflow_dispatch` with
-  `all` still runs them). Boot passed. Package lifecycle failed on
+  `all` still runs them). Boot passed. Map/App lifecycle failed on
   `POST /v1/studio/package-drafts` with HTTP 503 (`capability-unavailable`,
   `missingDependency: "redis"`) because the demo server ran without a Redis connection for the
   proposal/approval store. Style and filters failed during dataset verification (`recipe-status`:
   `Cannot use this dataset: 'layerId' is required and must be a non-negative integer.`). Scripted
-  MCP composition timed out after `add_layer` waiting for the added layer to appear in the
-  composition layer list. Readiness (`live-readiness.json`) still reported
+  MCP compose timed out after `add_layer` waiting for the added layer to appear in the
+  Map layer list. Readiness (`live-readiness.json`) still reported
   `consoleApprovalConfigured: false` and `approvedProviderAvailable: false` (Bedrock adapter only;
   no allowed Opus 5.5 or Sol provider).
 - Dated history: [#212](https://github.com/honua-io/honua-studio/issues/212) reported nightly
