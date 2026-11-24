@@ -102,28 +102,31 @@ Recorded default-branch fixture evidence, at `4d52431` (not candidate qualificat
   passed the container, browser, production Console-assets and Blazor jobs. The browser
   job reported 65 passed. Console assets reported seven passed and Blazor reported six passed.
   These fixture and packaging checks do not prove a real model turn or live publication.
+
+Recorded scheduled demo canary evidence (separate from installed candidate qualification):
+
 - [Demo canary 45316546243](https://github.com/honua-io/honua-studio/actions/runs/45316546243),
   the latest completed scheduled run at `2547c62` on 2026-11-24, reported **one passed, three
   failed, zero skipped**, with retries disabled. Following
-  [#338](https://github.com/honua-io/honua-studio/pull/338), scheduled runs exclude the two
-  real-model journeys while the demo lacks an approved model provider (manual `workflow_dispatch`
-  with `all` still runs them). Boot passed. Package lifecycle failed on
+  [#338](https://github.com/honua-io/honua-studio/pull/338), scheduled runs take a separate
+  workflow branch that excludes the two real-model journeys (manual `workflow_dispatch` with
+  `all` still runs them). Boot passed. Package lifecycle failed on
   `POST /v1/studio/package-drafts` with HTTP 503 (`capability-unavailable`,
   `missingDependency: "redis"`) because the demo server ran without a Redis connection for the
   proposal/approval store. Style and filters failed during dataset verification (`recipe-status`:
   `Cannot use this dataset: 'layerId' is required and must be a non-negative integer.`). Scripted
-  MCP composition timed out after `add_layer` waiting for `svc-publish-demoa-edit-test/68822` to
-  appear in the composition layer list. Readiness (`live-readiness.json`) still reported
+  MCP composition timed out after `add_layer` waiting for the added layer to appear in the
+  composition layer list. Readiness (`live-readiness.json`) still reported
   `consoleApprovalConfigured: false` and `approvedProviderAvailable: false` (Bedrock adapter only;
-  no allowed Opus 5.5 or Sol provider). Historically, the canary has failed nightly since
-  2026-10-22: [#216](https://github.com/honua-io/honua-studio/pull/216) fixed the stale
-  immediate-`Published` expectation and skipped MCP journeys, and earlier
+  no allowed Opus 5.5 or Sol provider).
+- Dated history: [#212](https://github.com/honua-io/honua-studio/issues/212) reported nightly
+  canary failures beginning 2026-10-22; [#216](https://github.com/honua-io/honua-studio/pull/216)
+  fixed the stale immediate-`Published` expectation and skipped MCP journeys, and
   [Demo canary 43987714041](https://github.com/honua-io/honua-studio/actions/runs/43987714041)
   at `4d52431` on 2026-11-17 reported **three passed, three failed** (boot, style and filters, and
   scripted MCP passed; publication stopped on absent `HONUA_LIVE_CONSOLE_URL` and both real-model
   journeys refused invocation before a provider call). The earlier demo HTTP 400 remains
-  [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092). The scheduled demo
-  canary is separate from installed candidate qualification.
+  [honua-server#7092](https://github.com/honua-io/honua-server/issues/7092).
 
 The candidate qualification workflow prepares the **customer quickstart Compose stack on the
 CI runner**, using the server, Console and executor digests in `scripts/live-compose-images.json`.
@@ -265,7 +268,9 @@ archive creation and live deployment qualification remain separate work.
 COG rendering awaits a supported public SDK decoder ([#254](https://github.com/honua-io/honua-studio/issues/254)).
 The native-file direction follows [ADR-0087](https://github.com/honua-io/honua-server/blob/trunk/docs/internal/contributor/adr/0087-native-client-protocols.md).
 
-The demo canary's manual `journeys` input defaults to `all`, as scheduled runs do.
+The demo canary's manual `journeys` input defaults to `all`; scheduled runs take a
+separate workflow branch that excludes the two real-model journeys (regardless of
+readiness) until the workflow is updated.
 Select `model-free` to run only boot, direct style/filter and scripted MCP journeys
 using the existing demo credential, without model calls or publication. This focused
 receipt does not qualify the full live suite. The scripted MCP journey discovers a
