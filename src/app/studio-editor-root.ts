@@ -92,6 +92,7 @@ export class StudioEditorRoot {
 
   syncHostMode(): void {
     const editorHost = this.isEditorHost();
+    if (this.host.hasAttribute("data-editor-host") === editorHost) return;
     this.host.toggleAttribute("data-editor-host", editorHost);
     if (editorHost) this.router.stop();
     if (this.host.isConnected) this.router.render();
@@ -119,15 +120,18 @@ export class StudioEditorRoot {
     for (const target of this.children.canvases()) target.widgetDeck?.refreshSession();
     this.live.renewCredentials();
     // auth.mode decides whether sign-in/out buttons exist at all, so a new principal rebuilds the chrome.
-    // A lease renewal keeps the DOM so the style editor iframe keeps uncommitted field text.
     if (!renewsLease) this.chrome.invalidate();
     this.chrome.render();
+    // Route rendering releases the editor view. Renew credentials in place so an open editor stays mounted.
+    if (renewsLease) {
+      this.catalog.revalidate();
+      return;
+    }
     // Routes receive `auth` as an argument, so the current route renders once more with the new session.
     if (this.host.routingMode === "hash") this.router.startHashRouting();
     else this.router.render();
     // The catalog is bearer-gated, so a new session needs a new catalog.
-    if (renewsLease) this.catalog.revalidate();
-    else this.catalog.refresh();
+    this.catalog.refresh();
   }
 
   /** Binds a canvas that its host has not wired to this composition, its write path and its catalog. */
