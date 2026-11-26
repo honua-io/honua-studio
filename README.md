@@ -146,7 +146,12 @@ approve through a fresh OIDC browser session, and render the exact approved publ
 anonymously. Evidence records the mode and zero-call budget. It proves only this lifecycle;
 it does not establish real-model or whole-workflow qualification. Both modes use the existing
 image lock; proof for a newer release candidate requires matching pinned images and a recorded
-live pass. This mode has fixture coverage but no recorded live pass yet.
+live pass. The [recorded model-free OIDC lifecycle run](https://github.com/honua-io/honua-studio/actions/runs/45770778032)
+at `743f52d` passed **one passed, zero failed, zero skipped, zero retries and zero flaky tests**
+in 11.9 seconds with zero model calls and zero rejected calls, using candidate server/executor
+`704e2f4a` ([candidate build 45558681402](https://github.com/honua-io/honua-server/actions/runs/45558681402))
+and Console `d049bece` ([build 45482663839](https://github.com/honua-io/honua-console/actions/runs/45482663839),
+verified against the edge-served `index.html`).
 
 The [recorded Compose qualification](https://github.com/honua-io/honua-studio/actions/runs/42708610393)
 ran on branch head `1521734`, which is not current main. It used server/executor `9d2169cc`

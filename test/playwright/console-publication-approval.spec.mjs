@@ -130,10 +130,7 @@ const staticCredentials = { ...credentials, consoleUrl: "https://console.test/co
 /** The static bundle at /console/: its sign-in page offers the server's identity providers. */
 async function installStaticConsoleFixture(
   page,
-  {
-    idpOrigin = credentials.idpOrigin,
-    homeBody = '<h1>Welcome</h1><a href="/console/inbox">Open inbox</a>',
-  } = {},
+  { idpOrigin = credentials.idpOrigin, homeBody = '<h1>Welcome</h1><a href="/console/inbox">Open inbox</a>' } = {},
 ) {
   const decisions = [];
   const inbox = "https://console.test/console/inbox?proposalId=target-proposal";
