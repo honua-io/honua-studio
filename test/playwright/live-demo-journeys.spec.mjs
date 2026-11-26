@@ -3,7 +3,7 @@ import { chromium, expect, test } from "@playwright/test";
 import { ensureCohortAuthorLayer } from "../../scripts/cohort-author-layer.mjs";
 import { liveApprovalBrowserArguments, publishedRouteLinks } from "../../scripts/lib/live-approval-config.mjs";
 import { liveModelLimits } from "../../scripts/lib/live-model-guard.mjs";
-import { liveMapBody } from "../../scripts/lib/live-publication.mjs";
+import { liveMapBody, liveMapFormat } from "../../scripts/lib/live-publication.mjs";
 
 import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
@@ -177,7 +177,7 @@ test.describe("live demo-server journeys @live", () => {
         envelope: {
           family: "map",
           schemaVersion: "1.0",
-          format: "honua_map_package.v1",
+          format: liveMapFormat,
           publicationIntent: { route: `/${packageKey}`, visibility: "public" },
           body: liveMapBody(packageKey),
         },
