@@ -5,6 +5,19 @@ globalThis.fetch = async (url, options) => {
   const path = new URL(url).pathname;
   if (/\/healthz\/ready$|\/\.well-known\/openid-configuration$/.test(path)) return new Response("{}");
   if (path === "/console/index.html") return new Response(fixture.servedIndex ?? fixture.consoleIndex);
+  if (path === "/api/v1/admin/api-keys") {
+    appendFileSync(process.env.STACK_REQUESTS, `${JSON.stringify({ path, body: JSON.parse(options.body) })}\n`);
+    if (fixture.apiKeyRefused) return new Response("{}", { status: 403 });
+    return Response.json(
+      {
+        data: {
+          apiKey: { id: "synthetic-key-id" },
+          ...(fixture.missingApiKey ? {} : { key: "synthetic-proposer-api-key" }),
+        },
+      },
+      { status: 201 },
+    );
+  }
   if (!path.startsWith("/api/v1/operations/admin.ai.admission.")) throw new Error("Unexpected external request.");
   appendFileSync(process.env.STACK_REQUESTS, `${JSON.stringify({ path, body: JSON.parse(options.body) })}\n`);
   if (fixture.admissionRefused) return new Response("{}", { status: 403 });

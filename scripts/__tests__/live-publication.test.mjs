@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
-import { liveMapBody } from "../lib/live-publication.mjs";
+import { liveMapBody, liveMapFormat } from "../lib/live-publication.mjs";
 
 const source = resolve(".tmp/live-console-source/src/Honua.Console.Web/wwwroot/js/published-map-viewer.mjs");
 const { createPublishedMapViewer } = await import(pathToFileURL(source));
 
-test("the live map fixture uses the server's case-sensitive draft status", () => {
-  assert.equal(liveMapBody("qualification-map").status, "Draft");
+test("the live map fixture uses the server's honua_map.v1 identity and case-sensitive draft status", () => {
+  const body = liveMapBody("qualification-map");
+  assert.equal(body.mapId, "qualification-map");
+  assert.equal(body.format, liveMapFormat);
+  assert.equal(body.status, "Draft");
 });
 
 test("both lifecycle versions reach the pinned Console viewer's renderer without changing their body", async () => {

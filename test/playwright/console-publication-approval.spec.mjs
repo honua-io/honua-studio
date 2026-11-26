@@ -128,7 +128,10 @@ test("Console approval never fills credentials after a redirect to a different i
 const staticCredentials = { ...credentials, consoleUrl: "https://console.test/console", profileId: undefined };
 
 /** The static bundle at /console/: its sign-in page offers the server's identity providers. */
-async function installStaticConsoleFixture(page, { idpOrigin = credentials.idpOrigin } = {}) {
+async function installStaticConsoleFixture(
+  page,
+  { idpOrigin = credentials.idpOrigin, homeBody = '<h1>Welcome</h1><a href="/console/inbox">Open inbox</a>' } = {},
+) {
   const decisions = [];
   const inbox = "https://console.test/console/inbox?proposalId=target-proposal";
   await page.route("https://console.test/**", (route) => {
@@ -147,7 +150,7 @@ async function installStaticConsoleFixture(page, { idpOrigin = credentials.idpOr
     if (url.href === "https://console.test/console/")
       return route.fulfill({
         contentType: "text/html",
-        body: '<h1>Welcome</h1><button type="button">Sign out</button>',
+        body: homeBody,
       });
     if (url.href !== inbox) return route.fulfill({ status: 404, body: "unexpected Console route" });
     return route.fulfill({

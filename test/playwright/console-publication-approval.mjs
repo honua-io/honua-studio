@@ -61,7 +61,13 @@ async function completeConsoleSignIn(page, consoleUrl, inbox) {
   await page.waitForURL((url) => url.origin === consoleUrl.origin && url.pathname.startsWith(consoleUrl.pathname), {
     timeout: 60_000,
   });
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page
+      .getByRole("button", { name: "Sign out" })
+      .or(page.getByRole("link", { name: "Open inbox" }))
+      .or(page.getByRole("heading", { name: /^(Approval inbox|Approvals)$/ }))
+      .first(),
+  ).toBeVisible({ timeout: 30_000 });
   if (page.url() !== inbox.href) await page.goto(inbox.href);
 }
 
