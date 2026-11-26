@@ -9,7 +9,13 @@ import { verifyAnonymousPublication } from "./anonymous-publication.mjs";
 import { approveLivePublication, liveApprovalConfiguration } from "./console-publication-approval.mjs";
 import { startPreviewServer } from "./helpers.mjs";
 import { selectLiveModel } from "./live-journey-contract.mjs";
-import { installLiveMcpFixture, resolveMcpFixture } from "./live-mcp-fixture.mjs";
+import {
+  SCRIPTED_MCP_MODEL_LABEL,
+  installLiveMcpFixture,
+  isLoopbackCandidateUrl,
+  metadataUrlForSource,
+  resolveMcpFixture,
+} from "./live-mcp-fixture.mjs";
 import { cohortSourceOption, runStyleFilterJourney, zoningSourceOption } from "./style-filter-journey.mjs";
 
 const LIVE_BASE_URL = process.env.HONUA_LIVE_BASE_URL?.replace(/\/$/, "");
@@ -286,6 +292,23 @@ test.describe("live demo-server journeys @live", () => {
     }
   });
 
+  async function discoverCandidateFixture(page) {
+    const fetchLayerMetadata = async (candidate) => {
+      const metadataResponse = await page.request.get(metadataUrlForSource(candidate, page.url()));
+      return metadataResponse.ok() ? metadataResponse.json() : { error: { code: metadataResponse.status() } };
+    };
+    if (COHORT_AUTHOR) await ensureCohortAuthorLayer({ baseUrl: LIVE_BASE_URL, apiKey: LIVE_API_KEY });
+    const catalog = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
+    try {
+      return await resolveMcpFixture(catalog, fetchLayerMetadata);
+    } catch (error) {
+      if (COHORT_AUTHOR || !isLoopbackCandidateUrl(LIVE_BASE_URL)) throw error;
+      await ensureCohortAuthorLayer({ baseUrl: LIVE_BASE_URL, apiKey: LIVE_API_KEY });
+      const seededCatalog = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
+      return resolveMcpFixture(seededCatalog, fetchLayerMetadata);
+    }
+  }
+
   test("real model turn: declared server tools mutate the authoritative draft and canvas", async ({ page }) => {
     test.setTimeout(180_000);
     const packageKey = `studio-e2e-live-agent-${Date.now()}`;
@@ -296,26 +319,29 @@ test.describe("live demo-server journeys @live", () => {
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
+      const { source } = await discoverCandidateFixture(page);
 
-      await page.evaluate((key) => {
-        // The deployed demo does not yet expose Studio's catalog-list route;
-        // seed the same known live dataset descriptor the eventual discovery
-        // response supplies so the system prompt remains grounded.
-        window.__honuaStudioApp.sourceCatalog = [
-          { id: "hi-parcels", title: "Hawaii parcels", protocol: "ogc-features", geometryType: "Polygon" },
-        ];
-        window.__honuaStudioApp.enableLiveEditing({
-          baseUrl: "",
-          packageKey: key,
-          family: "map",
-          schemaVersion: "1.0",
-        });
-      }, packageKey);
+      await page.evaluate(
+        ({ key, dataset }) => {
+          window.__honuaStudioApp.sourceCatalog = [dataset];
+          window.__honuaStudioApp.enableLiveEditing({
+            baseUrl: "",
+            packageKey: key,
+            family: "map",
+            schemaVersion: "1.0",
+          });
+        },
+        { key: packageKey, dataset: source },
+      );
       await expect.poll(() => page.evaluate(() => Boolean(window.__honuaStudioChat.agentSession))).toBe(true);
 
       const before = await page.evaluate(() => window.__honuaStudioApp.toolCallOrchestrator.generation);
-      await page.evaluate(() =>
-        window.__honuaStudioChat.sendMessage("Add the hi-parcels layer. Reply briefly after adding it."),
+      await page.evaluate(
+        ({ id, title }) =>
+          window.__honuaStudioChat.sendMessage(
+            `Add the published ${title} layer (datasetId "${id}", sourceId "${id}"). Reply briefly after adding it.`,
+          ),
+        { id: source.id, title: source.title },
       );
 
       await expect.poll(() => page.evaluate(() => window.__honuaStudioChat.streaming)).toBe(false);
@@ -328,8 +354,8 @@ test.describe("live demo-server journeys @live", () => {
         .poll(() => page.evaluate(() => window.__honuaStudioApp.composition.state.layers.map((layer) => layer.id)), {
           timeout: 120_000,
         })
-        .toContain("hi-parcels");
-      await expect(page.getByTestId("studio-canvas-layers")).toContainText("hi-parcels");
+        .toContain(source.id);
+      await expect(page.getByTestId("studio-canvas-layers")).toContainText(source.id);
       const after = await page.evaluate(() => ({
         draftId: window.__honuaStudioApp.toolCallOrchestrator.draftId,
         generation: window.__honuaStudioApp.toolCallOrchestrator.generation,
@@ -341,7 +367,7 @@ test.describe("live demo-server journeys @live", () => {
 
       const stored = await restCall("GET", `/v1/studio/package-drafts/${draftId}`);
       expect(stored.generation).toBe(after.generation);
-      expect(stored.envelope.body.layers.map((layer) => layer.id)).toContain("hi-parcels");
+      expect(stored.envelope.body.layers.map((layer) => layer.id)).toContain(source.id);
     } finally {
       if (draftId) await restCall("DELETE", `/v1/studio/package-drafts/${draftId}`).catch(() => {});
       await preview.close();
@@ -391,16 +417,16 @@ test.describe("live demo-server journeys @live", () => {
     const packageKey = `studio-e2e-live-mcp-${Date.now()}`;
     const preview = await startLivePreview();
     let draftId;
+    const modelRequests = [];
     try {
+      page.on("request", (request) => {
+        if (request.url().includes("/v1/studio/ai/chat")) modelRequests.push(request.url());
+      });
       await injectHostSession(page);
       await page.goto(preview.url);
       await expect(page.getByTestId("studio-chat")).toBeVisible();
-      const catalog = await page.evaluate(() => window.__honuaStudioApp.studioClient.listCatalog());
-      const { source, fixture } = await resolveMcpFixture(catalog, async (candidate) => {
-        const metadataUrl = new URL(`${candidate.locator.url}/${candidate.locator.layerId}?f=json`, page.url());
-        const metadataResponse = await page.request.get(metadataUrl.href);
-        return metadataResponse.ok() ? metadataResponse.json() : { error: { code: metadataResponse.status() } };
-      });
+      const { source, fixture } = await discoverCandidateFixture(page);
+      expect(fixture.modelLabel).toBe(SCRIPTED_MCP_MODEL_LABEL);
       await installLiveMcpFixture(page, fixture.turns);
 
       // baseUrl "" -> the MCP client posts to the page-relative /mcp, which
@@ -442,6 +468,15 @@ test.describe("live demo-server journeys @live", () => {
       // The canvas readout reflects the server-confirmed state.
       await expect(page.getByTestId("studio-canvas-layers")).toContainText(fixture.datasetId);
       await expect(page.getByTestId("studio-canvas-widgets")).toContainText(fixture.chartId);
+
+      // Fixture streaming must stay explicitly labelled and never count as a real model turn.
+      expect(modelRequests).toEqual([]);
+      const assistantModels = await page.evaluate(() =>
+        window.__honuaStudioChat.messages
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.model),
+      );
+      expect(assistantModels).toEqual([SCRIPTED_MCP_MODEL_LABEL, SCRIPTED_MCP_MODEL_LABEL]);
 
       // Nothing silently dropped.
       const rejectedEntries = await page.evaluate(() =>

@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { liveReadinessEvidence, selectLiveModel } from "../../test/playwright/live-journey-contract.mjs";
-import { liveMcpFixture, resolveMcpFixture, selectMcpFixtureSource } from "../../test/playwright/live-mcp-fixture.mjs";
+import {
+  SCRIPTED_MCP_FIXTURE_ID,
+  SCRIPTED_MCP_MODEL_LABEL,
+  isLoopbackCandidateUrl,
+  liveMcpFixture,
+  locatorLayerIndex,
+  metadataUrlForSource,
+  resolveMcpFixture,
+  selectMcpFixtureSource,
+} from "../../test/playwright/live-mcp-fixture.mjs";
 
 const opus = {
   provider: "opus",
@@ -139,4 +148,56 @@ test("scripted MCP setup skips catalog sources whose layer metadata does not res
     resolveMcpFixture([], async () => ({})),
     /published vector FeatureServer/,
   );
+});
+
+test("scripted MCP fixture prefers non-OID attribute fields, keeps explicit scripted labels, and normalizes layer locators", () => {
+  const withServiceLayerIndex = {
+    ...candidateSource,
+    locator: { url: "/rest/services/synthetic/FeatureServer/", serviceLayerIndex: 2 },
+  };
+  assert.equal(locatorLayerIndex(withServiceLayerIndex.locator), 2);
+  assert.equal(locatorLayerIndex({ layerId: 2, serviceLayerIndex: 2 }), 2);
+  assert.equal(locatorLayerIndex({ layerId: 1, serviceLayerIndex: 2 }), undefined);
+  assert.equal(locatorLayerIndex({ layerId: -1 }), undefined);
+  assert.equal(
+    metadataUrlForSource(withServiceLayerIndex, "http://127.0.0.1:4173/"),
+    "http://127.0.0.1:4173/rest/services/synthetic/FeatureServer/2?f=json",
+  );
+  assert.equal(
+    metadataUrlForSource(
+      { ...candidateSource, locator: { url: "/rest/services/synthetic/FeatureServer/0", layerId: 0 } },
+      "http://127.0.0.1:4173/",
+    ),
+    "http://127.0.0.1:4173/rest/services/synthetic/FeatureServer/0?f=json",
+  );
+  const fixture = liveMcpFixture(withServiceLayerIndex, {
+    id: 2,
+    fields: [
+      { name: "Shape", type: "esriFieldTypeGeometry" },
+      { name: "objectid", type: "esriFieldTypeOID" },
+      { name: "zoning_code", type: "esriFieldTypeString" },
+    ],
+  });
+  assert.equal(fixture.fixtureId, SCRIPTED_MCP_FIXTURE_ID);
+  assert.equal(fixture.modelLabel, SCRIPTED_MCP_MODEL_LABEL);
+  assert.equal(fixture.groupByField, "zoning_code");
+  assert.equal(fixture.chartId, "chart-synthetic-points/0-zoning_code");
+
+  const oidOnly = liveMcpFixture(candidateSource, {
+    id: 0,
+    fields: [
+      { name: "Shape", type: "esriFieldTypeGeometry" },
+      { name: "objectid", type: "esriFieldTypeOID" },
+    ],
+  });
+  assert.equal(oidOnly.groupByField, "objectid");
+});
+
+test("loopback candidate URL detection allows local Compose seeding without touching remote deployments", () => {
+  assert.equal(isLoopbackCandidateUrl("http://127.0.0.1:18080/api"), true);
+  assert.equal(isLoopbackCandidateUrl("https://localhost:18083/api"), true);
+  assert.equal(isLoopbackCandidateUrl("http://[::1]:8080/api"), true);
+  assert.equal(isLoopbackCandidateUrl("https://demo.honua.io/api"), false);
+  assert.equal(isLoopbackCandidateUrl(""), false);
+  assert.equal(isLoopbackCandidateUrl("not-a-url"), false);
 });
