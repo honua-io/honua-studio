@@ -102,16 +102,21 @@ test("the CLI packages matching source, mounts private secrets, proves runtime i
   assert.equal(started.stdout.includes("synthetic-provider-key"), false);
   const settings = readFileSync(fixture.environment.GITHUB_ENV, "utf8");
   assert.match(settings, /HONUA_LIVE_APPROVER_USERNAME=studio-approver/);
-  assert.match(settings, /HONUA_LIVE_API_KEY=synthetic-admin-password/);
+  assert.match(settings, /HONUA_LIVE_API_KEY=synthetic-proposer-api-key/);
+  assert.equal(settings.includes("synthetic-admin-password"), false);
   assert.match(settings, /HONUA_LIVE_APPROVER_IDP_SPKI=[A-Za-z0-9+/]{43}=/);
-  assert.match(started.stdout, /::add-mask::synthetic-admin-password/);
+  assert.match(started.stdout, /::add-mask::synthetic-proposer-api-key/);
+  assert.equal(statSync(resolve(root, "secrets/proposer_api_key")).mode & 0o777, 0o640);
   const password = readFileSync(resolve(root, "secrets/approver_password"), "utf8");
   assert.ok(started.stdout.indexOf(`::add-mask::${password}`) >= 0);
   assert.equal(settings.includes("synthetic-provider-key"), false);
-  assert.equal(fixture.requests().length, 2);
+  assert.equal(fixture.requests().length, 3);
   const initialization = fixture.requests()[0];
   assert.match(initialization.path, /admission.initialize\/submit$/);
   assert.equal(JSON.parse(initialization.body.parameters.policy).deploymentConcurrency, 1);
+  const mintedKey = fixture.requests()[2];
+  assert.equal(mintedKey.path, "/api/v1/admin/api-keys");
+  assert.deepEqual(mintedKey.body.permissions, ["admin:*"]);
   const identity = JSON.parse(readFileSync(resolve(fixture.directory, ".tmp/live-compose-identity.json"), "utf8"));
   assert.equal(identity.images.server.revision, lock.server.revision);
   const packageCall = fixture.commands().find((call) => call.args[0] === "scripts/docker/package_quickstart.py");
@@ -246,6 +251,16 @@ for (const refusal of ["admissionRefused", "admissionFailed", "missingAudit"]) {
     prepareFixture(fixture);
     assert.notEqual(fixture.run("start").status, 0);
     assert.equal(fixture.requests().length, 1);
+    assert.throws(() => readFileSync(fixture.environment.GITHUB_ENV), { code: "ENOENT" });
+  });
+}
+
+for (const refusal of ["apiKeyRefused", "missingApiKey"]) {
+  test(`${refusal} prevents browser credential handoff`, (context) => {
+    const fixture = stackFixture(context, { [refusal]: true });
+    prepareFixture(fixture);
+    assert.notEqual(fixture.run("start").status, 0);
+    assert.equal(fixture.requests().length, 3);
     assert.throws(() => readFileSync(fixture.environment.GITHUB_ENV), { code: "ENOENT" });
   });
 }

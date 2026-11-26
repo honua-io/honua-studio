@@ -262,6 +262,26 @@ async function initializeAdmission(apiKey) {
   }
 }
 
+/** Mints a short-lived persisted proposer key so governed publication proposals do not use the bootstrap credential. */
+async function mintQualificationApiKey(bootstrapApiKey) {
+  const response = await fetch(`${serverOrigin}/api/v1/admin/api-keys`, {
+    method: "POST",
+    headers: { "x-api-key": bootstrapApiKey, "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "studio-live-qualification",
+      permissions: ["admin:*"],
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`Qualification API key creation returned HTTP ${response.status}.`);
+  const { data } = await response.json();
+  const key = typeof data?.key === "string" ? data.key.trim() : "";
+  if (!key) throw new Error("Qualification API key creation did not return a key secret.");
+  writePrivate("secrets/proposer_api_key", key);
+  return key;
+}
+
 async function observeConsoleBundle() {
   const expected = JSON.parse(readFileSync(resolve(consoleBundleDirectory, "served.json"), "utf8"));
   const served = Buffer.from(await (await fetch(`${consoleUrl}/index.html`)).arrayBuffer());
@@ -336,10 +356,11 @@ async function start() {
   await waitForReady(`${serverOrigin}/healthz/ready`);
   await waitForReady(`${consoleUrl}/index.html`);
   await waitForReady(`${identityOrigin}/realms/${realmName}/.well-known/openid-configuration`);
-  const apiKey = readFileSync(resolve(root, "secrets/honua_admin_password"), "utf8").trim();
+  const bootstrapApiKey = readFileSync(resolve(root, "secrets/honua_admin_password"), "utf8").trim();
   await recordRuntimeIdentity();
-  await initializeAdmission(apiKey);
-  exportBrowserEnvironment(apiKey);
+  await initializeAdmission(bootstrapApiKey);
+  const proposerApiKey = await mintQualificationApiKey(bootstrapApiKey);
+  exportBrowserEnvironment(proposerApiKey);
   console.log("Customer stack is ready; admission is bounded and no model has been invoked.");
 }
 
