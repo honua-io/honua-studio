@@ -80,6 +80,7 @@ export class SseChatTransport implements ChatTransport {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const parser = new SseFrameParser();
+    let sawTerminalEvent = false;
     try {
       while (true) {
         const { value, done } = await reader.read();
@@ -87,8 +88,13 @@ export class SseChatTransport implements ChatTransport {
         const chunk = decoder.decode(value, { stream: true });
         for (const frame of parser.push(chunk)) {
           const event = parseChatEventFrame(frame.data, frame.event);
-          if (event) yield event;
+          if (!event) continue;
+          if (event.type === "messageStop" || event.type === "error") sawTerminalEvent = true;
+          yield event;
         }
+      }
+      if (!signal.aborted && !sawTerminalEvent) {
+        yield { type: "error", errorMessage: "Studio AI proxy stream ended unexpectedly before completion." };
       }
     } catch (error) {
       if (signal.aborted) return;

@@ -446,7 +446,9 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
   #renderJobSection(): string {
     if (!this.#job) return "";
     const job = this.#job;
-    const percent = job.progress?.percent ?? 0;
+    const rawPercent = job.progress?.percent;
+    const percent =
+      typeof rawPercent === "number" && Number.isFinite(rawPercent) ? Math.min(100, Math.max(0, rawPercent)) : 0;
     return `
       <div class="lifecycle-section" data-testid="gp-job-section">
         <h3>Batch job</h3>

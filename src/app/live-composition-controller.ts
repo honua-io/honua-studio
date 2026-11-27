@@ -2,11 +2,15 @@ import type { HonuaAgentToolDefinitionLike, HonuaAgentToolResult, HonuaAiMapKit 
 import type { StudioAgentSession } from "@honua/sdk-js/studio-agent";
 import type { AuthSession } from "../auth/index.js";
 import {
+  clearShareProposal,
   fetchShareProposalStatus,
+  isTerminalShareProposalStatus,
   loadShareProposal,
   projectPublicationReceipt,
   projectShareConversation,
+  retainShareProposal,
   sessionShareStorage,
+  shareHandleFromSubmission,
 } from "../chat/share-preview.js";
 import { buildStudioSystemPrompt } from "../chat/system-prompt.js";
 import type { CompositionController } from "../composition/controller.js";
@@ -228,10 +232,13 @@ export class LiveCompositionController {
         proposalId: handle.proposalId,
         status: "AwaitingApproval",
       }).text;
-      const token = await this.options.host.auth?.getAccessToken();
-      if (!token) return;
-      const status = await fetchShareProposalStatus(runtimeServerBaseUrl(), handle.proposalId, token);
+      const auth = this.options.host.auth;
+      const token = await auth?.getAccessToken();
+      const fetchImpl = auth?.fetchRequest;
+      if (!token && !fetchImpl) return;
+      const status = await fetchShareProposalStatus(runtimeServerBaseUrl(), handle.proposalId, token, fetchImpl);
       if (!status || !this.#publicationNote.isCurrent(noteGeneration) || !this.options.host.isConnected) return;
+      if (isTerminalShareProposalStatus(status.status)) clearShareProposal(sessionShareStorage());
       chat.shareNote = projectShareConversation(handle, status).text;
     } catch {
       // A retained handle must not block the shell when the preview server is unreachable.
@@ -320,6 +327,9 @@ export class LiveCompositionController {
       system: () => this.#systemPrompt(setup.styles),
       onEvent: (event) => {
         if (event.type === "toolResult") this.#acceptAgentToolResult(setup, event.result);
+        if (event.type === "chat" && (event.event.type === "messageStop" || event.event.type === "error")) {
+          this.options.host.toolCallOrchestrator.rejectDeferredControls();
+        }
       },
     };
   }
@@ -371,6 +381,16 @@ export class LiveCompositionController {
     try {
       const payload = JSON.parse(result.content) as { status?: string; result?: unknown };
       if (payload.status !== "ok") return;
+      const storage = sessionShareStorage();
+      const handle = shareHandleFromSubmission(payload.result);
+      if (handle && storage) retainShareProposal(storage, handle);
+      else if (
+        payload.result &&
+        typeof payload.result === "object" &&
+        (payload.result as { status?: unknown }).status === "Published"
+      ) {
+        clearShareProposal(storage);
+      }
       const note = projectPublicationReceipt(payload.result, new URL(runtimeServerBaseUrl(), document.baseURI).href);
       if (note) {
         this.#publicationNote.next();

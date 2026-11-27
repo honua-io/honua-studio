@@ -403,4 +403,27 @@ describe("<honua-studio-gp-panel> (honua-studio#10)", () => {
 
     expect(kinds).toEqual(["draft-loaded", "preview-ready", "job-submitted"]);
   });
+
+  it.each([
+    [-25, "width:0%"],
+    [150, "width:100%"],
+    [Number.NaN, "width:0%"],
+    [Number.POSITIVE_INFINITY, "width:0%"],
+    ["50;background:red" as unknown as number, "width:0%"],
+  ])("clamps non-finite or out-of-range progress %s to safe CSS width %s", async (percent, expectedStyle) => {
+    window.sessionStorage.setItem("honua-studio-gp-job:gp-draft-1", "fake-gp-job-clamp");
+    const jobs = new FakeGpJobClient();
+    jobs.status = async (jobId: string) => ({
+      jobId,
+      draftId: "gp-draft-1",
+      status: "running",
+      progress: { percent },
+    });
+    const { el } = mount(new FakeLifecycleClient(), jobs);
+    el.draftId = "gp-draft-1";
+    await flush();
+
+    const fill = el.shadowRoot?.querySelector<HTMLElement>(".gp-progress-fill");
+    expect(fill?.getAttribute("style")).toBe(expectedStyle);
+  });
 });

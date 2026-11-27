@@ -10,7 +10,9 @@ import { mintFixtureAccessToken, startMockServer } from "../../mock-server.mjs";
 import {
   type ShareProposalHandle,
   type ShareProposalStorage,
+  clearShareProposal,
   fetchShareProposalStatus,
+  isTerminalShareProposalStatus,
   loadShareProposal,
   projectShareConversation,
   retainShareProposal,
@@ -251,5 +253,48 @@ describe("governed preview share smoke", () => {
         publicationUrl: "https://studio.preview.invalid/share/proposal-1",
       }).publicationUrl,
     ).toBeUndefined();
+  });
+
+  it("supports cookie-authenticated fetchRequest without a bearer token and clears terminal proposals", async () => {
+    let seenAuthHeader: string | undefined;
+    const cookieFetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenAuthHeader = (init?.headers as Record<string, string> | undefined)?.authorization;
+      return new Response(
+        JSON.stringify({
+          data: { proposalId: "proposal-1", status: "Active", publicationUrl: "https://studio.example/maps/x" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const status = await fetchShareProposalStatus("https://studio.example", "proposal-1", undefined, cookieFetch);
+    expect(seenAuthHeader).toBeUndefined();
+    expect(status).toEqual({
+      proposalId: "proposal-1",
+      status: "Active",
+      publicationUrl: "https://studio.example/maps/x",
+    });
+    expect(isTerminalShareProposalStatus("Active")).toBe(true);
+    expect(isTerminalShareProposalStatus("Rejected")).toBe(true);
+    expect(isTerminalShareProposalStatus("Failed")).toBe(true);
+    expect(isTerminalShareProposalStatus("AwaitingApproval")).toBe(false);
+
+    const storage = memoryStorage();
+    retainShareProposal(storage, {
+      proposalId: "proposal-1",
+      proposalUri: "honua://proposals/proposal-1",
+      itemId: "item",
+      versionId: "version",
+      contentHash: "hash",
+      route: "/maps/x",
+      visibility: "private",
+      operationInstanceId: "op",
+      auditId: "audit",
+      correlationId: "corr",
+      idempotencyIdentity: "key",
+    });
+    expect(loadShareProposal(storage)?.proposalId).toBe("proposal-1");
+    clearShareProposal(storage);
+    expect(loadShareProposal(storage)).toBeUndefined();
   });
 });

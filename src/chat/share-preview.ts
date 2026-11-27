@@ -30,6 +30,7 @@ export interface ShareProposalStatus {
 export interface ShareProposalStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
 }
 
 export interface ShareConversationNote {
@@ -101,21 +102,25 @@ export function sessionShareStorage(): ShareProposalStorage | undefined {
   }
 }
 
-export function shareHandleFromSubmission(submission: ShareProposalSubmission): ShareProposalHandle | undefined {
-  if (submission.status !== "AwaitingApproval" || submission.humanConfirmationRequired !== true) return undefined;
-  if (!submission.proposalUri.startsWith("honua://proposals/")) return undefined;
-  const handle: ShareProposalHandle = {
-    proposalId: submission.proposalId,
-    proposalUri: submission.proposalUri,
-    itemId: submission.itemId,
-    versionId: submission.versionId,
-    contentHash: submission.contentHash,
-    route: submission.route,
-    visibility: submission.visibility,
-    operationInstanceId: submission.operationInstanceId,
-    auditId: submission.auditId,
-    correlationId: submission.correlationId,
-    idempotencyIdentity: submission.idempotencyIdentity,
+export function shareHandleFromSubmission(submission: unknown): ShareProposalHandle | undefined {
+  if (!submission || typeof submission !== "object") return undefined;
+  const candidate = submission as Partial<ShareProposalSubmission>;
+  if (candidate.status !== "AwaitingApproval" || candidate.humanConfirmationRequired !== true) return undefined;
+  if (typeof candidate.proposalUri !== "string" || !candidate.proposalUri.startsWith("honua://proposals/")) {
+    return undefined;
+  }
+  const handle = {
+    proposalId: candidate.proposalId,
+    proposalUri: candidate.proposalUri,
+    itemId: candidate.itemId,
+    versionId: candidate.versionId,
+    contentHash: candidate.contentHash,
+    route: candidate.route,
+    visibility: candidate.visibility,
+    operationInstanceId: candidate.operationInstanceId,
+    auditId: candidate.auditId,
+    correlationId: candidate.correlationId,
+    idempotencyIdentity: candidate.idempotencyIdentity,
   };
   return validHandle(handle) ? handle : undefined;
 }
@@ -123,6 +128,19 @@ export function shareHandleFromSubmission(submission: ShareProposalSubmission): 
 export function retainShareProposal(storage: ShareProposalStorage, handle: ShareProposalHandle): void {
   if (!validHandle(handle)) throw new TypeError("Refusing to retain a publication handle that is not a proposal.");
   storage.setItem(SHARE_PROPOSAL_STORAGE_KEY, JSON.stringify(handle));
+}
+
+export function clearShareProposal(storage: ShareProposalStorage | undefined): void {
+  if (!storage) return;
+  if (typeof storage.removeItem === "function") {
+    storage.removeItem(SHARE_PROPOSAL_STORAGE_KEY);
+    return;
+  }
+  storage.setItem(SHARE_PROPOSAL_STORAGE_KEY, "");
+}
+
+export function isTerminalShareProposalStatus(status: string): boolean {
+  return status === "Active" || status === "Rejected" || status === "Failed";
 }
 
 export function loadShareProposal(storage: ShareProposalStorage | undefined): ShareProposalHandle | undefined {
@@ -196,13 +214,16 @@ export function verifiedPublicationUrl(candidate: unknown, proposalUri: string):
 export async function fetchShareProposalStatus(
   baseUrl: string,
   proposalId: string,
-  token: string,
+  token?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ShareProposalStatus | undefined> {
-  if (!baseUrl || !proposalId || !token) return undefined;
+  if (!baseUrl || !proposalId) return undefined;
+  if (!token && fetchImpl === fetch) return undefined;
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
   const response = await fetchImpl(
     `${baseUrl.replace(/\/$/, "")}/v1/studio/publication-proposals/${encodeURIComponent(proposalId)}`,
-    { headers: { accept: "application/json", authorization: `Bearer ${token}` } },
+    { headers },
   );
   if (!response.ok) return undefined;
   const body = (await response.json()) as { data?: unknown };

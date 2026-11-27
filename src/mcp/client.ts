@@ -197,12 +197,13 @@ export class McpClient {
     return result;
   }
 
-  async #send<TResult>(method: string, params: unknown): Promise<TResult> {
+  async #send<TResult>(method: string, params: unknown, allowSessionReset = true): Promise<TResult> {
+    const sentSessionId = this.#sessionId;
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
     };
-    if (this.#sessionId) headers["mcp-session-id"] = this.#sessionId;
+    if (sentSessionId) headers["mcp-session-id"] = sentSessionId;
     if (this.#auth) {
       const token = await this.#auth.getAccessToken();
       if (token) headers.authorization = `Bearer ${token}`;
@@ -215,6 +216,16 @@ export class McpClient {
       response = await this.#fetchImpl(`${this.#baseUrl}/mcp`, { method: "POST", headers, body });
     } catch (error) {
       throw new McpTransportError(`Could not reach the MCP endpoint at ${this.#baseUrl}/mcp.`, error);
+    }
+
+    if (response.status === 404 && allowSessionReset && method !== "initialize" && sentSessionId) {
+      // Server restart or idle eviction expired the MCP session; re-initialize once and replay.
+      if (this.#sessionId === sentSessionId) {
+        this.#sessionId = undefined;
+        this.#initializeResult = undefined;
+      }
+      await this.initialize();
+      return this.#send<TResult>(method, params, false);
     }
 
     const sessionHeader = response.headers.get("mcp-session-id");
@@ -255,7 +266,11 @@ export class McpClient {
       if (!dataLine) {
         throw new McpTransportError(`MCP endpoint returned an empty SSE response for "${method}".`);
       }
-      return JSON.parse(dataLine.slice("data:".length).trim()) as JsonRpcResponse;
+      try {
+        return JSON.parse(dataLine.slice("data:".length).trim()) as JsonRpcResponse;
+      } catch (error) {
+        throw new McpTransportError(`MCP endpoint returned a malformed SSE response for "${method}".`, error);
+      }
     }
     try {
       return JSON.parse(text) as JsonRpcResponse;

@@ -133,6 +133,8 @@ export interface ToolCallOrchestratorOptions {
   readonly activityLog?: ActivityLog;
   /** When present: the AD-8 authoritative path is used for every resolved command that has a server-tool counterpart. Omit for fixture/offline mode (every command applies through the local reducer only). */
   readonly live?: ToolCallOrchestratorLiveOptions;
+  /** Maximum milliseconds a source-bound control waits for its layer before settling as rejected. Defaults to 30000. */
+  readonly deferredControlTimeoutMs?: number;
 }
 
 interface DeferredControlCall {
@@ -140,7 +142,10 @@ interface DeferredControlCall {
   readonly command: CompositionCommand & { readonly name: "addControl" };
   readonly serverToolName: StudioMcpToolName;
   readonly resolve: (result: ToolCallOrchestrationResult) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
 }
+
+const DEFAULT_DEFERRED_CONTROL_TIMEOUT_MS = 30_000;
 
 /**
  * Wires tool-call intents to composition state — see the module doc for the
@@ -150,6 +155,7 @@ interface DeferredControlCall {
 export class ToolCallOrchestrator {
   readonly #controller: CompositionController;
   readonly #activityLog: ActivityLog | undefined;
+  readonly #deferredControlTimeoutMs: number;
   #live: ToolCallOrchestratorLiveOptions | undefined;
   #studioTools: StudioMcpToolClient | undefined;
   #draftId: string | undefined;
@@ -165,6 +171,7 @@ export class ToolCallOrchestrator {
   public constructor(options: ToolCallOrchestratorOptions) {
     this.#controller = options.controller;
     this.#activityLog = options.activityLog;
+    this.#deferredControlTimeoutMs = options.deferredControlTimeoutMs ?? DEFAULT_DEFERRED_CONTROL_TIMEOUT_MS;
     if (options.live) this.attachLiveSession(options.live);
   }
 
@@ -300,6 +307,7 @@ export class ToolCallOrchestrator {
 
   /** Attaches (or replaces) the live session. Passing `draftId`/`generation` skips lazy draft creation. */
   public attachLiveSession(options: ToolCallOrchestratorLiveOptions): void {
+    this.rejectDeferredControls("Live Studio editing session changed before the target layer became available.");
     this.#draftSetupGeneration += 1;
     this.#draftSetup = undefined;
     this.#pendingApproval = undefined;
@@ -319,7 +327,16 @@ export class ToolCallOrchestrator {
     this.#draftId = undefined;
     this.#generation = undefined;
     for (const pending of this.#deferredControls.splice(0)) {
+      clearTimeout(pending.timer);
       pending.resolve(this.#applyLocal(pending.toolName, pending.command));
+    }
+  }
+
+  /** Settles any unresolved deferred controls so their promises never hang past a turn boundary. */
+  public rejectDeferredControls(reason = "Target layer was not added before the turn completed."): void {
+    for (const pending of this.#deferredControls.splice(0)) {
+      clearTimeout(pending.timer);
+      pending.resolve(this.#reject(pending.toolName, "reducer-rejected", reason));
     }
   }
 
@@ -345,12 +362,25 @@ export class ToolCallOrchestrator {
       !this.#sourceResolves(resolution.command.control.sourceId)
     ) {
       return new Promise<ToolCallOrchestrationResult>((resolve) => {
-        this.#deferredControls.push({
+        const entry: DeferredControlCall = {
           toolName: call.toolName,
           command: resolution.command as CompositionCommand & { readonly name: "addControl" },
           serverToolName: resolution.serverToolName as StudioMcpToolName,
           resolve,
-        });
+          timer: setTimeout(() => {
+            const idx = this.#deferredControls.indexOf(entry);
+            if (idx === -1) return;
+            this.#deferredControls.splice(idx, 1);
+            resolve(
+              this.#reject(
+                entry.toolName,
+                "reducer-rejected",
+                `Timed out waiting for layer "${entry.command.control.sourceId}" before adding control.`,
+              ),
+            );
+          }, this.#deferredControlTimeoutMs),
+        };
+        this.#deferredControls.push(entry);
       });
     }
 
@@ -439,6 +469,7 @@ export class ToolCallOrchestrator {
     if (ready.length === 0) return;
     this.#deferredControls = this.#deferredControls.filter((pending) => !ready.includes(pending));
     for (const pending of ready) {
+      clearTimeout(pending.timer);
       pending.resolve(await this.#applyServer(pending.toolName, pending.command, pending.serverToolName));
     }
   }
