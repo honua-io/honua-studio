@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.10](https://github.com/honua-io/honua-studio/compare/v0.5.9...v0.5.10) (2026-11-27)
+
+
+### Bug Fixes
+
+* **live:** discover and verify candidate datasets in live MCP compose journeys ([#342](https://github.com/honua-io/honua-studio/issues/342)) ([bcd3d15](https://github.com/honua-io/honua-studio/commit/bcd3d15afe14343e5452fe598dd0046eadfd7626))
+* **live:** qualify rc.2 candidate 704e2f4 OIDC lifecycle approval ([#344](https://github.com/honua-io/honua-studio/issues/344)) ([5f45325](https://github.com/honua-io/honua-studio/commit/5f45325e4f3477db2b02b66023bb77cabcdccfbf))
+* **studio:** harden prompt framing, share-proposal reload, MCP 404 recovery, and stream/progress guards ([#345](https://github.com/honua-io/honua-studio/issues/345)) ([#346](https://github.com/honua-io/honua-studio/issues/346)) ([d5c2410](https://github.com/honua-io/honua-studio/commit/d5c2410f401345aca7f79653f41456c09538810a))
+
 ## [0.5.9](https://github.com/honua-io/honua-studio/compare/v0.5.8...v0.5.9) (2026-11-24)
 
 
