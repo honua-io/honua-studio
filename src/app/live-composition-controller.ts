@@ -381,16 +381,7 @@ export class LiveCompositionController {
     try {
       const payload = JSON.parse(result.content) as { status?: string; result?: unknown };
       if (payload.status !== "ok") return;
-      const storage = sessionShareStorage();
-      const handle = shareHandleFromSubmission(payload.result);
-      if (handle && storage) retainShareProposal(storage, handle);
-      else if (
-        payload.result &&
-        typeof payload.result === "object" &&
-        (payload.result as { status?: unknown }).status === "Published"
-      ) {
-        clearShareProposal(storage);
-      }
+      this.#syncRetainedPublication(payload.result);
       const note = projectPublicationReceipt(payload.result, new URL(runtimeServerBaseUrl(), document.baseURI).href);
       if (note) {
         this.#publicationNote.next();
@@ -398,6 +389,22 @@ export class LiveCompositionController {
       }
     } catch {
       // A malformed receipt must not turn assistant text into a publication link.
+    }
+  }
+
+  #syncRetainedPublication(receipt: unknown): void {
+    try {
+      const storage = sessionShareStorage();
+      const handle = shareHandleFromSubmission(receipt);
+      if (handle && storage) {
+        retainShareProposal(storage, handle);
+        return;
+      }
+      if (receipt && typeof receipt === "object" && (receipt as { status?: unknown }).status === "Published") {
+        clearShareProposal(storage);
+      }
+    } catch {
+      // Best-effort storage retention must not suppress displaying the server receipt.
     }
   }
 }

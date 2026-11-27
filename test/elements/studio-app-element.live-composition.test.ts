@@ -503,6 +503,47 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     expect(window.sessionStorage.getItem("honua.studio.preview.share-proposal")).toBeNull();
   });
 
+  it("still displays publication status when sessionStorage writes fail", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveEditing({ packageKey: "pkg-live-storage-full" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    const onEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
+    const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+
+    onEvent({
+      type: "toolResult",
+      result: {
+        ok: true,
+        toolName: "honua_studio_propose_publication",
+        content: JSON.stringify({
+          status: "ok",
+          result: {
+            status: "AwaitingApproval",
+            humanConfirmationRequired: true,
+            proposalId: "prop-quota-1",
+            proposalUri: "honua://proposals/prop-quota-1",
+            itemId: "item-1",
+            versionId: "ver-1",
+            contentHash: "hash-1",
+            route: "/maps/quota",
+            visibility: "private",
+            operationInstanceId: "op-1",
+            auditId: "audit-1",
+            correlationId: "corr-1",
+            idempotencyIdentity: "idem-1",
+          },
+        }),
+      },
+    });
+
+    expect(chat.shareNote).toContain("awaiting separate human approval");
+  });
+
   it("hands an assigned catalog straight to the auto-composed canvas", () => {
     const element = mount();
     element.sourceCatalog = [{ id: "hi-parcels", title: "Parcels", protocol: "ogc-features", geometryType: "Polygon" }];
