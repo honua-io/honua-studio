@@ -41,11 +41,29 @@ function parseChatEventFrame(data: string, sseEventName: string): StudioAiChatEv
   }
 }
 
+const PREMATURE_EOF_ERROR: StudioAiChatEvent = {
+  type: "error",
+  errorMessage: "Studio AI proxy stream ended unexpectedly before completion.",
+};
+
+function isTerminalChatEvent(event: StudioAiChatEvent): boolean {
+  return event.type === "messageStop" || event.type === "error";
+}
+
 /** Streams one chat turn against a real (or mock, see `mock-server.mjs`) honua-server AI proxy over SSE. */
 export class SseChatTransport implements ChatTransport {
   constructor(private readonly options: SseChatTransportOptions = {}) {}
 
   async *streamChat(request: StudioAiChatRequest, signal: AbortSignal): AsyncGenerator<StudioAiChatEvent> {
+    const body = await this.#openStream(request, signal);
+    if (!body) return;
+    yield* this.#readEvents(body, signal);
+  }
+
+  async #openStream(
+    request: StudioAiChatRequest,
+    signal: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array> | undefined> {
     const baseUrl = this.options.baseUrl ?? "/api";
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -66,7 +84,7 @@ export class SseChatTransport implements ChatTransport {
         signal,
       });
     } catch (error) {
-      if (signal.aborted) return;
+      if (signal.aborted) return undefined;
       throw new ChatTransportError(`Could not reach the Studio AI proxy at ${baseUrl}/v1/studio/ai/chat.`, error);
     }
 
@@ -76,29 +94,46 @@ export class SseChatTransport implements ChatTransport {
     if (!response.body) {
       throw new ChatTransportError("Studio AI proxy response had no body to stream.");
     }
+    return response.body;
+  }
 
-    const reader = response.body.getReader();
+  async *#readEvents(body: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncGenerator<StudioAiChatEvent> {
+    const reader = body.getReader();
     const decoder = new TextDecoder();
     const parser = new SseFrameParser();
+    let sawTerminalEvent = false;
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const frame of parser.push(chunk)) {
-          const event = parseChatEventFrame(frame.data, frame.event);
-          if (event) yield event;
+        for (const event of decodeChunkEvents(parser, decoder.decode(value, { stream: true }))) {
+          if (isTerminalChatEvent(event)) sawTerminalEvent = true;
+          yield event;
         }
       }
+      if (!signal.aborted && !sawTerminalEvent) yield PREMATURE_EOF_ERROR;
     } catch (error) {
       if (signal.aborted) return;
       throw new ChatTransportError("Studio AI proxy stream failed.", error);
     } finally {
-      try {
-        reader.releaseLock();
-      } catch {
-        // Already released (stream errored/closed) — fine to ignore.
-      }
+      releaseReaderQuietly(reader);
     }
+  }
+}
+
+function decodeChunkEvents(parser: SseFrameParser, chunk: string): StudioAiChatEvent[] {
+  const events: StudioAiChatEvent[] = [];
+  for (const frame of parser.push(chunk)) {
+    const event = parseChatEventFrame(frame.data, frame.event);
+    if (event) events.push(event);
+  }
+  return events;
+}
+
+function releaseReaderQuietly(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  try {
+    reader.releaseLock();
+  } catch {
+    // Already released (stream errored/closed) — fine to ignore.
   }
 }

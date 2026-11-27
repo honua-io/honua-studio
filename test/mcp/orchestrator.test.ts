@@ -402,4 +402,39 @@ describe("mcp/orchestrator ToolCallOrchestrator (live/authoritative mode)", () =
     expect(calls).toEqual(["layer", "control"]);
     expect(controller.state.controls).toEqual([{ id: "opacity", kind: "opacity", sourceId: "parcels" }]);
   });
+
+  it("rejectDeferredControls settles unresolved deferred controls on turn completion without hanging", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    const client = new McpClient({ fetchImpl: vi.fn() as unknown as typeof fetch });
+    const orchestrator = new ToolCallOrchestrator({
+      controller,
+      live: { client, packageKey: "pkg-1" },
+    });
+
+    const pending = orchestrator.handleToolCall({
+      toolName: "addControl",
+      arguments: { control: { id: "opacity", kind: "opacity", sourceId: "never-added" } },
+    });
+    orchestrator.rejectDeferredControls();
+
+    const result = await pending;
+    expect(result).toMatchObject({ ok: false, code: "reducer-rejected" });
+  });
+
+  it("times out unresolved deferred controls when no matching layer ever arrives", async () => {
+    const controller = new CompositionController(createEmptyCompositionState());
+    const client = new McpClient({ fetchImpl: vi.fn() as unknown as typeof fetch });
+    const orchestrator = new ToolCallOrchestrator({
+      controller,
+      live: { client, packageKey: "pkg-1" },
+      deferredControlTimeoutMs: 15,
+    });
+
+    const result = await orchestrator.handleToolCall({
+      toolName: "addControl",
+      arguments: { control: { id: "opacity", kind: "opacity", sourceId: "never-added" } },
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "reducer-rejected" });
+  });
 });

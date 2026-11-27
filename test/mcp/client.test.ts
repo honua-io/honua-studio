@@ -240,4 +240,48 @@ describe("mcp/client McpClient", () => {
     const result = await client.initialize();
     expect(result.protocolVersion).toBe("2025-03-26");
   });
+
+  it("re-initializes once and retries when a stale MCP session returns HTTP 404", async () => {
+    let initCount = 0;
+    let listCalls = 0;
+    const seenSessionHeaders: Array<string | undefined> = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      const body = JSON.parse(String(init?.body));
+      if (body.method === "initialize") {
+        initCount += 1;
+        return jsonResponse(
+          { jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-03-26" } },
+          { "mcp-session-id": `session-${initCount}` },
+        );
+      }
+      listCalls += 1;
+      seenSessionHeaders.push(headers["mcp-session-id"]);
+      if (listCalls === 1) {
+        return new Response("Session expired", { status: 404, headers: { "content-type": "text/plain" } });
+      }
+      return jsonResponse({ jsonrpc: "2.0", id: body.id, result: { tools: [] } });
+    });
+    const client = new McpClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const result = await client.listTools();
+
+    expect(result.tools).toEqual([]);
+    expect(initCount).toBe(2);
+    expect(seenSessionHeaders).toEqual(["session-1", "session-2"]);
+    expect(client.sessionId).toBe("session-2");
+  });
+
+  it("throws McpTransportError when a one-shot text/event-stream response contains malformed JSON", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("event: message\ndata: {not-valid-json\n\n", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+    );
+    const client = new McpClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    await expect(client.initialize()).rejects.toBeInstanceOf(McpTransportError);
+  });
 });

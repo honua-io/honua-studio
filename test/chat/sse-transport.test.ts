@@ -86,7 +86,7 @@ describe("chat/sse-transport", () => {
   });
 
   it("reassembles an SSE frame split across two chunks at an arbitrary byte boundary", async () => {
-    const combined = START_EVENT + DELTA_EVENT;
+    const combined = START_EVENT + DELTA_EVENT + STOP_EVENT;
     const splitPoint = 40;
     const fetchImpl = fakeFetch({ body: sseBodyStream([combined.slice(0, splitPoint), combined.slice(splitPoint)]) });
     const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
@@ -101,6 +101,25 @@ describe("chat/sse-transport", () => {
     expect(events).toEqual([
       { type: "messageStart", model: "m" },
       { type: "textDelta", text: "hi" },
+      { type: "messageStop", stopReason: "endTurn" },
+    ]);
+  });
+
+  it("emits an error event on premature EOF before a terminal messageStop event", async () => {
+    const fetchImpl = fakeFetch({ body: sseBodyStream([START_EVENT, DELTA_EVENT]) });
+    const transport = new SseChatTransport({ baseUrl: "/api", fetchImpl });
+
+    const events: StudioAiChatEvent[] = [];
+    for await (const event of transport.streamChat(
+      { messages: [{ role: "user", content: "hi" }] },
+      new AbortController().signal,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "messageStart", model: "m" },
+      { type: "textDelta", text: "hi" },
+      { type: "error", errorMessage: "Studio AI proxy stream ended unexpectedly before completion." },
     ]);
   });
 

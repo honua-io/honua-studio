@@ -430,6 +430,120 @@ describe("<honua-studio-app> map wiring (honua-studio#23)", () => {
     expect(chat.shareNote).not.toContain("/apps/stale");
   });
 
+  it("retains awaiting-approval publication handles across reload and resumes via cookie-authenticated fetchRequest", async () => {
+    window.sessionStorage.clear();
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveEditing({ packageKey: "pkg-live-retain" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    const onEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
+    onEvent({
+      type: "toolResult",
+      result: {
+        ok: true,
+        toolName: "honua_studio_propose_publication",
+        content: JSON.stringify({
+          status: "ok",
+          result: {
+            status: "AwaitingApproval",
+            humanConfirmationRequired: true,
+            proposalId: "prop-reload-1",
+            proposalUri: "honua://proposals/prop-reload-1",
+            itemId: "item-1",
+            versionId: "ver-1",
+            contentHash: "hash-1",
+            route: "/maps/retain",
+            visibility: "private",
+            operationInstanceId: "op-1",
+            auditId: "audit-1",
+            correlationId: "corr-1",
+            idempotencyIdentity: "idem-1",
+          },
+        }),
+      },
+    });
+    expect(window.sessionStorage.getItem("honua.studio.preview.share-proposal")).toContain("prop-reload-1");
+
+    const cookieFetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes("publication-proposals/prop-reload-1")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              proposalId: "prop-reload-1",
+              status: "Active",
+              publicationUrl: "https://studio.example/maps/retain",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const reloaded = document.createElement("honua-studio-app") as HonuaStudioAppElement;
+    reloaded.session = {
+      kind: "cookie",
+      baseUrl: "/api/v1/studio",
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      environmentId: "env-1",
+      principalId: "adminsession:subject:idp:alice",
+      fetchRequest: cookieFetch,
+      onExpired: () => () => {},
+    };
+    document.body.appendChild(reloaded);
+    const reloadedChat = reloaded.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
+    await vi.waitFor(() => expect(reloadedChat.shareNote).toBe("Shared — https://studio.example/maps/retain"));
+    expect(
+      vi.mocked(cookieFetch).mock.calls.some(([url]) => String(url).includes("publication-proposals/prop-reload-1")),
+    ).toBe(true);
+    expect(window.sessionStorage.getItem("honua.studio.preview.share-proposal")).toBeNull();
+  });
+
+  it("still displays publication status when sessionStorage writes fail", async () => {
+    enableDraftFetch();
+    const element = mount();
+    element.sourceCatalog = [];
+    element.enableLiveEditing({ packageKey: "pkg-live-storage-full" });
+    await vi.waitFor(() => expect(attachedAgentOptions).toHaveLength(1));
+    const onEvent = attachedAgentOptions[0]?.onEvent as (event: unknown) => void;
+    const chat = element.querySelector<HonuaStudioChatElement>("honua-studio-chat")!;
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+
+    onEvent({
+      type: "toolResult",
+      result: {
+        ok: true,
+        toolName: "honua_studio_propose_publication",
+        content: JSON.stringify({
+          status: "ok",
+          result: {
+            status: "AwaitingApproval",
+            humanConfirmationRequired: true,
+            proposalId: "prop-quota-1",
+            proposalUri: "honua://proposals/prop-quota-1",
+            itemId: "item-1",
+            versionId: "ver-1",
+            contentHash: "hash-1",
+            route: "/maps/quota",
+            visibility: "private",
+            operationInstanceId: "op-1",
+            auditId: "audit-1",
+            correlationId: "corr-1",
+            idempotencyIdentity: "idem-1",
+          },
+        }),
+      },
+    });
+
+    expect(chat.shareNote).toContain("awaiting separate human approval");
+  });
+
   it("hands an assigned catalog straight to the auto-composed canvas", () => {
     const element = mount();
     element.sourceCatalog = [{ id: "hi-parcels", title: "Parcels", protocol: "ogc-features", geometryType: "Polygon" }];

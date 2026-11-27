@@ -446,7 +446,7 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
   #renderJobSection(): string {
     if (!this.#job) return "";
     const job = this.#job;
-    const percent = job.progress?.percent ?? 0;
+    const percent = clampProgressPercent(job.progress?.percent);
     return `
       <div class="lifecycle-section" data-testid="gp-job-section">
         <h3>Batch job</h3>
@@ -569,4 +569,12 @@ export class HonuaStudioGpPanelElement extends HonuaStudioElementBase {
       .querySelector('[data-testid="gp-confirm-cancel"]')
       ?.addEventListener("click", () => this.#cancelExecuteConfirm(), { signal });
   }
+}
+
+const MIN_PROGRESS_PERCENT = 0;
+const MAX_PROGRESS_PERCENT = 100;
+
+function clampProgressPercent(rawPercent: number | undefined): number {
+  if (typeof rawPercent !== "number" || !Number.isFinite(rawPercent)) return MIN_PROGRESS_PERCENT;
+  return Math.min(MAX_PROGRESS_PERCENT, Math.max(MIN_PROGRESS_PERCENT, rawPercent));
 }
