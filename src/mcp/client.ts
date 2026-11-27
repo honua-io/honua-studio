@@ -91,6 +91,8 @@ export interface McpClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+const HTTP_NOT_FOUND = 404;
+
 let requestSeq = 0;
 function nextRequestId(): string {
   requestSeq += 1;
@@ -160,7 +162,7 @@ export class McpClient {
   }
 
   async #doInitialize(): Promise<McpInitializeResult> {
-    const result = await this.#send<McpInitializeResult>("initialize", {
+    const result = await this.#sendOnce<McpInitializeResult>("initialize", {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: this.#clientName, version: this.#clientVersion },
@@ -172,13 +174,13 @@ export class McpClient {
   /** `tools/list` — paginated per MCP 2025-03-26; pass `cursor` back from a prior `nextCursor` to fetch the next page. */
   public async listTools(params: McpToolsListParams = {}): Promise<McpToolsListResult> {
     await this.initialize();
-    return this.#send<McpToolsListResult>("tools/list", params);
+    return this.#sendWithSessionRecovery<McpToolsListResult>("tools/list", params);
   }
 
   /** `resources/read` for one URI, such as the `honua://proposals/{id}` a held draft edit names. */
   public async readResource(uri: string): Promise<McpResourcesReadResult> {
     await this.initialize();
-    return this.#send<McpResourcesReadResult>("resources/read", { uri });
+    return this.#sendWithSessionRecovery<McpResourcesReadResult>("resources/read", { uri });
   }
 
   /**
@@ -190,44 +192,53 @@ export class McpClient {
   public async callTool(name: string, args: Record<string, unknown> = {}): Promise<McpToolsCallResult> {
     await this.initialize();
     const params: McpToolsCallParams = { name, arguments: args };
-    const result = await this.#send<McpToolsCallResult>("tools/call", params);
+    const result = await this.#sendWithSessionRecovery<McpToolsCallResult>("tools/call", params);
     if (result.isError) {
       throw parseToolError(result, name);
     }
     return result;
   }
 
-  async #send<TResult>(method: string, params: unknown, allowSessionReset = true): Promise<TResult> {
+  async #sendWithSessionRecovery<TResult>(method: string, params: unknown): Promise<TResult> {
     const sentSessionId = this.#sessionId;
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-    };
-    if (sentSessionId) headers["mcp-session-id"] = sentSessionId;
-    if (this.#auth) {
-      const token = await this.#auth.getAccessToken();
-      if (token) headers.authorization = `Bearer ${token}`;
-    }
-
-    const body = JSON.stringify({ jsonrpc: "2.0", id: nextRequestId(), method, params });
-
-    let response: Response;
-    try {
-      response = await this.#fetchImpl(`${this.#baseUrl}/mcp`, { method: "POST", headers, body });
-    } catch (error) {
-      throw new McpTransportError(`Could not reach the MCP endpoint at ${this.#baseUrl}/mcp.`, error);
-    }
-
-    if (response.status === 404 && allowSessionReset && method !== "initialize" && sentSessionId) {
+    const response = await this.#postRpc(method, params, sentSessionId);
+    if (response.status === HTTP_NOT_FOUND && sentSessionId) {
       // Server restart or idle eviction expired the MCP session; re-initialize once and replay.
       if (this.#sessionId === sentSessionId) {
         this.#sessionId = undefined;
         this.#initializeResult = undefined;
       }
       await this.initialize();
-      return this.#send<TResult>(method, params, false);
+      return this.#sendOnce<TResult>(method, params);
+    }
+    return this.#decodeRpcResponse<TResult>(response, method);
+  }
+
+  async #sendOnce<TResult>(method: string, params: unknown): Promise<TResult> {
+    const response = await this.#postRpc(method, params, this.#sessionId);
+    return this.#decodeRpcResponse<TResult>(response, method);
+  }
+
+  async #postRpc(method: string, params: unknown, sessionId: string | undefined): Promise<Response> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    };
+    if (sessionId) headers["mcp-session-id"] = sessionId;
+    if (this.#auth) {
+      const token = await this.#auth.getAccessToken();
+      if (token) headers.authorization = `Bearer ${token}`;
     }
 
+    const body = JSON.stringify({ jsonrpc: "2.0", id: nextRequestId(), method, params });
+    try {
+      return await this.#fetchImpl(`${this.#baseUrl}/mcp`, { method: "POST", headers, body });
+    } catch (error) {
+      throw new McpTransportError(`Could not reach the MCP endpoint at ${this.#baseUrl}/mcp.`, error);
+    }
+  }
+
+  async #decodeRpcResponse<TResult>(response: Response, method: string): Promise<TResult> {
     const sessionHeader = response.headers.get("mcp-session-id");
     if (sessionHeader) this.#sessionId = sessionHeader;
 
